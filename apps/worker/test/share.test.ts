@@ -117,19 +117,22 @@ describe('public shares', () => {
     expect((await call(`/api/shares/${share.id}`, { method: 'DELETE' })).status).toBe(404);
   });
 
-  it('live shares follow the tree; path and subtree scopes stay in scope', async () => {
+  it('new messages reach a link only when republished; path and subtree scopes stay in scope', async () => {
     const { detail, trunk, sideMsg, root } = await seed();
-    const live = await ok<ShareSummary>(
+    const whole = await ok<ShareSummary>(
       call('/api/shares', {
         method: 'POST',
+        // A mode is no longer part of the request; every link is a snapshot.
         json: { treeId: detail.tree.id, scope: 'tree', mode: 'live' },
       }),
       201,
     );
     await send(trunk, 'LIVE-NEW');
-    expect(
-      await (await exports.default.fetch(`${BASE}/s/${live.token}/data.json`)).text(),
-    ).toContain('LIVE-NEW');
+    const before = await exports.default.fetch(`${BASE}/s/${whole.token}/data.json`);
+    expect(await before.text()).not.toContain('LIVE-NEW');
+    await ok(call(`/api/shares/${whole.id}/republish`, { method: 'POST' }));
+    const after = await exports.default.fetch(`${BASE}/s/${whole.token}/data.json`);
+    expect(await after.text()).toContain('LIVE-NEW');
 
     const path = await ok<ShareSummary>(
       call('/api/shares', {

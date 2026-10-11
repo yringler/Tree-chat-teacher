@@ -9,7 +9,6 @@ import type {
   Payer,
   NodeLink,
   Share,
-  ShareMode,
   ShareScope,
   TokenUsage,
   Tree,
@@ -446,7 +445,6 @@ export interface ContextPlanResponse {
 }
 
 export const shareScopeSchema = z.enum(['tree', 'subtree', 'path']) satisfies z.ZodType<ShareScope>;
-export const shareModeSchema = z.enum(['snapshot', 'live']) satisfies z.ZodType<ShareMode>;
 
 export const createShareRequestSchema = z
   .object({
@@ -455,7 +453,6 @@ export const createShareRequestSchema = z
     /** Required for subtree/path. */
     nodeId: id.nullable().optional(),
     includeAncestors: z.boolean().default(false),
-    mode: shareModeSchema.default('snapshot'),
     title: z.string().trim().max(200).nullable().optional(),
     expiresAt: z.iso.datetime().nullable().optional(),
   })

@@ -1,7 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import type { ShareMode, ShareScope, ShareSummary } from '@tangent/shared';
+import type { ShareScope, ShareSummary } from '@tangent/shared';
 import { ApiClient, Icon, Modal, ToastStore } from '@tangent/web-shared';
 import { copyText } from '../core/selection';
 import { ShareCard } from '../shares/share-card';
@@ -12,7 +12,7 @@ import { ExpiryPicker } from '../ui/expiry-picker';
 import { ScopePicker } from '../ui/scope-picker';
 
 /**
- * Create a public read-only link (snapshot or live) for the tree, a subtree, or a path.
+ * Create a public read-only link, frozen when made, for the tree, a subtree, or a path.
  * Above the form (below the new link, once made), the links this conversation already
  * has, as on the Shares page (ShareCard), so a second one isn't made by mistake.
  */
@@ -59,35 +59,9 @@ import { ScopePicker } from '../ui/scope-picker';
             </p>
           }
 
-          <fieldset class="radio-group">
-            <legend class="field-label">Mode</legend>
-            <label class="radio">
-              <input
-                type="radio"
-                name="share-mode"
-                value="snapshot"
-                [checked]="mode() === 'snapshot'"
-                (change)="mode.set('snapshot')"
-              />
-              <span
-                ><strong>Snapshot</strong>
-                <span class="muted small">Frozen now; republish to update it.</span></span
-              >
-            </label>
-            <label class="radio">
-              <input
-                type="radio"
-                name="share-mode"
-                value="live"
-                [checked]="mode() === 'live'"
-                (change)="mode.set('live')"
-              />
-              <span
-                ><strong>Live</strong>
-                <span class="muted small">Always shows the current messages.</span></span
-              >
-            </label>
-          </fieldset>
+          <p class="muted small">
+            The link shows the conversation as it is now. Republish it from Shares to update it.
+          </p>
 
           <label class="field">
             <span class="field-label">Title <span class="muted">(optional)</span></span>
@@ -156,7 +130,6 @@ export class ShareDialog {
 
   protected readonly scope = signal<ShareScope>('tree');
   protected readonly includeAncestors = signal(false);
-  protected readonly mode = signal<ShareMode>('snapshot');
   protected readonly title = signal('');
   protected readonly expiresAt = signal<string | null>(null);
   protected readonly saving = signal(false);
@@ -239,7 +212,6 @@ export class ShareDialog {
         scope,
         nodeId: scope === 'tree' ? null : this.store.targetNodeFor(scope),
         includeAncestors: scope === 'subtree' && this.includeAncestors(),
-        mode: this.mode(),
         title: title || null,
         expiresAt: this.expiresAt(),
       });

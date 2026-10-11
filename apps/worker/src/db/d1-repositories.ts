@@ -192,7 +192,6 @@ function toShare(r: ShareRow): Share {
     scope: r.scope,
     targetNodeId: r.targetNodeId,
     includeAncestors: r.includeAncestors,
-    mode: r.mode,
     title: r.title,
     expiresAt: r.expiresAt,
     revokedAt: r.revokedAt,
@@ -729,7 +728,8 @@ export function createD1Repositories(d1: D1Database): Repositories {
           scope: share.scope,
           targetNodeId: share.targetNodeId,
           includeAncestors: share.includeAncestors,
-          mode: share.mode,
+          // Every share is a snapshot; the column goes in a later release.
+          mode: 'snapshot',
           title: share.title,
           expiresAt: share.expiresAt,
           revokedAt: share.revokedAt,

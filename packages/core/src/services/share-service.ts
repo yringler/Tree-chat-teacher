@@ -38,8 +38,8 @@ const PROJECTION_ERRORS: Record<Exclude<ProjectShareResult, { ok: true }>['reaso
 
 /**
  * Owner-side share management plus public resolution.
- * Snapshot shares store the projected payload JSON at create/republish time;
- * live shares project on every view. Private exclusion happens in
+ * Every share stores the projected payload JSON at create and republish
+ * time, and views read only that snapshot. Private exclusion happens in
  * `projectShare`, so excluded content never reaches the payload.
  */
 export class ShareService {
@@ -85,22 +85,17 @@ export class ShareService {
       scope: req.scope,
       targetNodeId: req.scope === 'tree' ? null : (req.nodeId ?? null),
       includeAncestors: req.scope === 'subtree' && req.includeAncestors,
-      mode: req.mode,
       title: req.title?.trim() ? req.title.trim() : null,
       expiresAt: req.expiresAt ?? null,
       revokedAt: null,
       createdAt: now,
       updatedAt: now,
-      publishedAt: req.mode === 'snapshot' ? now : null,
+      publishedAt: now,
       version: 1,
       viewCount: 0,
     };
-    // Validate for both modes; only snapshots store the payload.
     const payload = await this.project(share);
-    await this.shares.createShare(
-      share,
-      share.mode === 'snapshot' ? JSON.stringify(payload) : null,
-    );
+    await this.shares.createShare(share, JSON.stringify(payload));
     return this.summarize({ ...share, treeTitle: tree.title });
   }
 
@@ -115,23 +110,17 @@ export class ShareService {
     return this.summarize(updated);
   }
 
-  /** Snapshot: re-project and replace the stored payload, bump version. Live: bump version only. */
+  /** Re-projects the tree, replaces the stored payload and bumps the version. */
   async republish(shareId: string): Promise<ShareSummary> {
     const share = await this.requireOwnedShare(shareId);
     if (share.revokedAt) throw new GoneError('This share has been revoked');
     const now = this.now();
-    const patch = { updatedAt: now, version: share.version + 1 };
-    let updated: ShareWithTree | null;
-    if (share.mode === 'snapshot') {
-      const payload = await this.project(share);
-      updated = await this.shares.updateShare(
-        shareId,
-        { ...patch, publishedAt: now },
-        JSON.stringify(payload),
-      );
-    } else {
-      updated = await this.shares.updateShare(shareId, patch);
-    }
+    const payload = await this.project(share);
+    const updated = await this.shares.updateShare(
+      shareId,
+      { updatedAt: now, version: share.version + 1, publishedAt: now },
+      JSON.stringify(payload),
+    );
     if (!updated) throw new NotFoundError('Share');
     return this.summarize(updated);
   }
@@ -174,24 +163,18 @@ export class ShareService {
     return { ok: true, share };
   }
 
-  /** Validates token state (revoked/expired → gone) and returns the payload. */
+  /**
+   * Validates token state (revoked/expired → gone) and returns the stored
+   * snapshot. A share without one is gone: the tree is never projected for a
+   * viewer, so nothing is public that wasn't published.
+   */
   async resolvePublic(token: string): Promise<PublicShareResult> {
     const check = await this.checkPublic(token);
     if (!check.ok) return check;
     const { share } = check;
-    if (share.mode === 'snapshot') {
-      const json = await this.shares.getSnapshot(share.id);
-      if (!json) return { ok: false, reason: 'gone' };
-      return { ok: true, share, payload: JSON.parse(json) as SharePayload };
-    }
-    try {
-      return { ok: true, share, payload: await this.project(share) };
-    } catch (err) {
-      if (err instanceof ValidationError || err instanceof NotFoundError) {
-        return { ok: false, reason: 'gone' };
-      }
-      throw err;
-    }
+    const json = await this.shares.getSnapshot(share.id);
+    if (!json) return { ok: false, reason: 'gone' };
+    return { ok: true, share, payload: JSON.parse(json) as SharePayload };
   }
 
   /** A share owned by another account is reported as not found. */

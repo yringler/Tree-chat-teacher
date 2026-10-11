@@ -213,8 +213,12 @@ export interface SummaryRecord {
 }
 
 export type ShareScope = 'tree' | 'subtree' | 'path';
-export type ShareMode = 'snapshot' | 'live';
 
+/**
+ * A public link to a snapshot of a tree, frozen when it is published: later
+ * edits reach the link only when the owner republishes it, so what is public
+ * is always what was published.
+ */
 export interface Share {
   id: string;
   /** Unguessable URL token (>= 128 bits, base64url). */
@@ -227,13 +231,12 @@ export interface Share {
   targetNodeId: string | null;
   /** `subtree` only: show the root→target ancestor path as collapsible context. */
   includeAncestors: boolean;
-  mode: ShareMode;
   title: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  /** Snapshot shares: when the snapshot was (re)published. */
+  /** When the snapshot was last (re)published. */
   publishedAt: string | null;
   /** Incremented on every republish; part of the edge-cache key. */
   version: number;

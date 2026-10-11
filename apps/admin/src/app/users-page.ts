@@ -220,7 +220,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
                             <span class="admin-share-title">{{ s.title || s.treeTitle }}</span>
                             <span class="badge state-{{ s.state }}">{{ s.state }}</span>
                             <span class="muted small">
-                              {{ s.mode }} · {{ s.viewCount }} views · created
+                              {{ s.viewCount }} views · created
                               {{ s.createdAt | date: 'mediumDate' }}
                             </span>
                             @if (s.state === 'active') {

@@ -57,3 +57,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **No realtime.** Another tab sees a new link on its next load of the tree, as with branches.
 - **Links don't reach the model.** A linked message isn't sent; injecting linked messages (or their summaries) into the context plan, and model-suggested links (`origin: 'ai'`), are the next steps.
 - **A second note on an existing pair is ignored.** `POST /api/links` returns the existing link unchanged; the apps could offer to edit its note instead.
+
+## Sharing
+
+- **`shares.mode` is still in the schema.** Every share is a snapshot and the code writes `snapshot`; migrations are expand-only, so the column is dropped in a release after the one that stopped reading it.

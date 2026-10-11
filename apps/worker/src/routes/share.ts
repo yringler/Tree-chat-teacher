@@ -16,8 +16,8 @@ const SNAPSHOT_TTL_SECONDS = 86_400;
  * share (`canShare`: under `SHARING=allowlist` an admin or a user the operator
  * allowed, nobody under `off`); every other one is 404. Validity (revoked/expired) and
  * that permission are checked against D1 on every request, before the edge
- * cache, so revoking either takes the link down at once; only snapshot
- * rendering is edge-cached, under a key that includes the share version.
+ * cache, so revoking either takes the link down at once; the rendered
+ * snapshot is edge-cached under a key that includes the share version.
  */
 export function shareRoutes(): Hono<AppBindings> {
   const s = new Hono<AppBindings>();
@@ -63,12 +63,9 @@ async function serve(
     c.executionCtx.waitUntil(shares.recordView(share.id).catch(() => undefined));
   }
 
-  const cacheable = share.mode === 'snapshot';
   const key = shareCacheKey(token, share.version, variant);
-  if (cacheable) {
-    const hit = await getCached(key);
-    if (hit) return withPublicHeaders(hit, variant, true);
-  }
+  const hit = await getCached(key);
+  if (hit) return withPublicHeaders(hit, variant, true);
 
   const resolved = await shares.resolvePublic(token);
   if (!resolved.ok) {
@@ -84,7 +81,7 @@ async function serve(
       ? Response.json(resolved.payload)
       : await htmlResponse(resolved.payload, new URL(`/s/${token}`, c.req.url).toString());
   const out = withPublicHeaders(response, variant, false);
-  if (cacheable) putCached(c.executionCtx, key, out, SNAPSHOT_TTL_SECONDS);
+  putCached(c.executionCtx, key, out, SNAPSHOT_TTL_SECONDS);
   return out;
 }
 

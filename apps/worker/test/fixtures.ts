@@ -106,7 +106,6 @@ export function makeShare(tree: Tree, overrides: Partial<Share> = {}): Share {
     scope: 'tree',
     targetNodeId: null,
     includeAncestors: false,
-    mode: 'snapshot',
     title: null,
     expiresAt: null,
     revokedAt: null,

@@ -26,12 +26,12 @@ describe('ShareService', () => {
     const summary = await shares.create({ treeId: tree.id, scope: 'tree' });
     expect(summary).toMatchObject({
       scope: 'tree',
-      mode: 'snapshot',
       state: 'active',
       version: 1,
       url: 'https://tangent.test/s/token1',
       treeTitle: 'Shared tree',
     });
+    expect(summary.publishedAt).toBe(summary.createdAt);
     const before = await shares.resolvePublic(summary.token);
     if (!before.ok) throw new Error('expected ok');
     const json = JSON.stringify(before.payload);
@@ -49,13 +49,11 @@ describe('ShareService', () => {
     expect(JSON.stringify(after.ok && after.payload)).toContain('LATER-MESSAGE');
   });
 
-  it('live shares reflect new messages', async () => {
-    const { shares, chat, tree } = await seeded();
-    const s = await shares.create({ treeId: tree.id, scope: 'tree', mode: 'live' });
-    expect(s.publishedAt).toBeNull();
-    await send(chat, tree.trunkBranchId, 'LIVE-UPDATE');
-    const res = await shares.resolvePublic(s.token);
-    expect(JSON.stringify(res.ok && res.payload)).toContain('LIVE-UPDATE');
+  it('never projects the tree for a viewer: a share without a snapshot is gone', async () => {
+    const { shares, tree, repos } = await seeded();
+    const s = await shares.create({ treeId: tree.id, scope: 'tree' });
+    await repos.shares.updateShare(s.id, { updatedAt: s.updatedAt }, null);
+    expect(await shares.resolvePublic(s.token)).toEqual({ ok: false, reason: 'gone' });
   });
 
   it('revocation takes effect immediately and deletes the snapshot', async () => {
@@ -74,7 +72,7 @@ describe('ShareService', () => {
   it('deletes a share in any state: the link stops resolving and the share leaves the list', async () => {
     const { shares, tree, repos } = await seeded();
     const active = await shares.create({ treeId: tree.id, scope: 'tree' });
-    const revoked = await shares.create({ treeId: tree.id, scope: 'tree', mode: 'live' });
+    const revoked = await shares.create({ treeId: tree.id, scope: 'tree' });
     await shares.revoke(revoked.id);
 
     expect((await shares.delete(active.id)).token).toBe(active.token);
@@ -114,18 +112,14 @@ describe('ShareService', () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('live share whose target becomes private is gone', async () => {
+  it('refuses to republish once the target becomes private, keeping the published snapshot', async () => {
     const { shares, chat, tree, side } = await seeded();
     const nodes = (await chat.getTreeDetail(tree.id)).nodes.filter((n) => n.branchId === side.id);
-    const s = await shares.create({
-      treeId: tree.id,
-      scope: 'subtree',
-      nodeId: nodes[0]!.id,
-      mode: 'live',
-    });
-    expect((await shares.resolvePublic(s.token)).ok).toBe(true);
+    const s = await shares.create({ treeId: tree.id, scope: 'subtree', nodeId: nodes[0]!.id });
     await chat.updateBranch(side.id, { isPrivate: true });
-    expect(await shares.resolvePublic(s.token)).toEqual({ ok: false, reason: 'gone' });
+    await expect(shares.republish(s.id)).rejects.toBeInstanceOf(ValidationError);
+    const still = await shares.resolvePublic(s.token);
+    expect(JSON.stringify(still.ok && still.payload)).toContain('PUBLIC-SIDE');
   });
 
   it('unknown tokens are not found; views are counted', async () => {

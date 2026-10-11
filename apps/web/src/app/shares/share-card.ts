@@ -10,7 +10,7 @@ import { SCOPE_LABEL } from './share-list';
 
 /**
  * One share as a card (`<li app-share-card>` in a `.card-list`), shared by the
- * Shares page and the share dialog: scope, mode, state, dates, the link, and
+ * Shares page and the share dialog: scope, state, dates, the link, and
  * copy / open / edit / republish / revoke / delete. Emits the share the server
  * returns after each change, which the list owning it swaps in, and the id of a
  * deleted share, which it drops.
@@ -29,7 +29,6 @@ import { SCOPE_LABEL } from './share-list';
     <div class="share-top">
       <strong class="share-title">{{ s.title ?? s.treeTitle }}</strong>
       <span class="badge state-{{ s.state }}">{{ s.state }}</span>
-      <span class="badge">{{ s.mode }}</span>
       <span class="badge"
         >{{ scopeLabel[s.scope]
         }}{{ s.scope === 'subtree' && s.includeAncestors ? ' + context' : '' }}</span
@@ -88,7 +87,7 @@ import { SCOPE_LABEL } from './share-list';
           <app-icon name="edit" /> Edit
         </button>
       }
-      @if (s.mode === 'snapshot' && s.state === 'active') {
+      @if (s.state === 'active') {
         <button
           type="button"
           class="btn btn-sm btn-ghost"

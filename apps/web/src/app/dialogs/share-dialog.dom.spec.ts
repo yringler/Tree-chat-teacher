@@ -24,7 +24,7 @@ async function open(list: ShareSummary[], firstList?: () => Promise<ShareSummary
   const api = {
     listShares: vi.fn(async (): Promise<ShareSummary[]> => list),
     createShare: vi.fn(async (req: CreateShareRequest) =>
-      share('new', { scope: req.scope, mode: req.mode ?? 'snapshot', title: 'New link' }),
+      share('new', { scope: req.scope, title: 'New link' }),
     ),
     revokeShare: vi.fn(async (id: string) => ({
       ...list.find((s) => s.id === id)!,
@@ -102,7 +102,7 @@ describe('Share dialog: this conversation’s links', () => {
 
   it('lists only this conversation’s links, the branch a path link ends in, without the link back', async () => {
     await open([
-      share('a', { scope: 'path', targetNodeId: 'n3', mode: 'live', title: 'Twins' }),
+      share('a', { scope: 'path', targetNodeId: 'n3', title: 'Twins' }),
       share('b', { treeId: 't2', treeTitle: 'Tides', title: 'Elsewhere' }),
       share('c', { title: 'Whole thing' }),
     ]);
@@ -126,11 +126,13 @@ describe('Share dialog: this conversation’s links', () => {
   it('a new link shows its address, and joins the top of the list', async () => {
     const d = await open([share('a', { title: 'Old link' })]);
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
-    await d.user.click(screen.getByRole('radio', { name: /Live/ }));
+    // Every link is a snapshot: there is no mode to pick.
+    expect(screen.queryByRole('radio', { name: /Live/ })).toBeNull();
     await d.user.click(screen.getByRole('button', { name: 'Create link' }));
     expect(d.api.createShare).toHaveBeenCalledWith(
-      expect.objectContaining({ treeId: 't1', scope: 'tree', mode: 'live' }),
+      expect.objectContaining({ treeId: 't1', scope: 'tree' }),
     );
+    expect(d.api.createShare.mock.calls[0]?.[0]).not.toHaveProperty('mode');
     await vi.waitFor(() =>
       expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Share link' }).value).toBe(
         'https://tangent.example/s/tok-new',
