@@ -105,11 +105,18 @@ describe('createEmailSender', () => {
 describe('magicLinkEmail', () => {
   it('includes the link in both bodies and escapes it in HTML', () => {
     const url = 'https://t.example/api/auth/magic-link/verify?token=a&callbackURL=%2F"<x>';
-    const m = magicLinkEmail('a@example.com', url, 15);
+    const m = magicLinkEmail('a@example.com', url, '042917', 15);
     expect(m.to).toBe('a@example.com');
     expect(m.text).toContain(url);
     expect(m.text).toContain('15 minutes');
     expect(m.html).toContain('token=a&amp;callbackURL=%2F&quot;&lt;x&gt;');
     expect(m.html).not.toContain('"<x>');
+  });
+
+  it('includes the code in both bodies, for typing into the app', () => {
+    const m = magicLinkEmail('a@example.com', 'https://t.example/x', '042917', 15);
+    expect(m.text).toContain('Or enter this code in the app: 042917');
+    expect(m.html).toContain('042917');
+    expect(m.html).toMatch(/enter this code in the app/);
   });
 });

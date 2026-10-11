@@ -14,6 +14,7 @@ import { keyRenewal } from './byok/keys.js';
 import { appConfig } from './config.js';
 import type { AppBindings } from './env.js';
 import { apiError, notFound, onError } from './http/errors.js';
+import { appCaptchaRoutes } from './http/app-captcha-page.js';
 import { landingRoutes } from './http/landing.js';
 import {
   adminAppRoutes,
@@ -66,7 +67,8 @@ export interface AppOptions {
  *   `/pool` explains the open pool (http/pool-page.tsx) and `/pricing`
  *   what each plan gets you (http/pricing-page.tsx).
  * - `/verify` is the Turnstile interstitial after a first OAuth sign-in
- *   (http/verify-page.tsx).
+ *   (http/verify-page.tsx), and `/app-captcha` the Turnstile widget the
+ *   phone app shows in a web view to sign in (http/app-captcha-page.tsx).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
  *   (http/landing.tsx); `/` with a session cookie is the power app's index.
  * Everything else is served by Workers Static Assets before the Worker runs
@@ -123,6 +125,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.route('/', poolPageRoutes());
   app.route('/', pricingPageRoutes());
   app.route('/', verifyPageRoutes(options.auth));
+  app.route('/', appCaptchaRoutes());
   app.route('/', landingRoutes());
   return app;
 }

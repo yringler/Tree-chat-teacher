@@ -4,12 +4,12 @@ import { LEARN_COMMON_HEADERS } from './learn-app.js';
 
 /**
  * The document every public page (landing, pricing, `/pool`, the legal
- * pages, `/verify`, the report form) is rendered into: the head, the header
- * with the brand mark, and the footer with the copyright line. Hono's JSX
- * escapes every string; the one raw insertion is the page's constant
- * stylesheet, which the response's Content-Security-Policy allows by its
- * hash (`pageResponse` derives both from the same props, so they can't drift
- * apart).
+ * pages, `/verify`, the report form, `/app-captcha`) is rendered into: the
+ * head, the header with the brand mark, and the footer with the copyright
+ * line. Hono's JSX escapes every string; the one raw insertion is the page's
+ * constant stylesheet, which the response's Content-Security-Policy allows by
+ * its hash (`pageResponse` derives both from the same props, so they can't
+ * drift apart).
  */
 
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
@@ -45,9 +45,16 @@ export interface PageProps {
   turnstile?: boolean;
   /**
    * The page has a form that posts back to it (`/verify`, the report form);
-   * no other page may submit one. Every page is free of scripts of our own.
+   * no other page may submit one.
    */
   form?: boolean;
+  /**
+   * The page's one script of its own, a same-origin path (`/app-captcha`'s
+   * handoff to the app). Every other page runs no script of ours.
+   */
+  script?: string;
+  /** No header: the page is shown inside the app, where the brand link would lead away. */
+  bare?: boolean;
   /** The header's nav; none on `/verify`. */
   nav?: { label: string; links: readonly LinkId[] };
   /** The footer: the copyright line of who runs the service, then links; none on `/verify`. */
@@ -104,20 +111,23 @@ function Layout(props: PropsWithChildren<PageProps>) {
           </>
         )}
         <style dangerouslySetInnerHTML={{ __html: props.style }} />
+        {props.script && <script src={props.script} />}
         {props.turnstile && <script src={`${TURNSTILE_ORIGIN}/turnstile/v0/api.js`} async defer />}
       </head>
       <body>
-        <header class="wrap top">
-          <a class="brand" href="/welcome">
-            <Mark />
-            Tangent
-          </a>
-          {props.nav && (
-            <nav aria-label={props.nav.label}>
-              <Links ids={props.nav.links} />
-            </nav>
-          )}
-        </header>
+        {!props.bare && (
+          <header class="wrap top">
+            <a class="brand" href="/welcome">
+              <Mark />
+              Tangent
+            </a>
+            {props.nav && (
+              <nav aria-label={props.nav.label}>
+                <Links ids={props.nav.links} />
+              </nav>
+            )}
+          </header>
+        )}
         {props.children}
         {props.footer && (
           <footer>
@@ -160,16 +170,21 @@ function styleHash(style: string): Promise<string> {
 /**
  * The Content-Security-Policy of a public page: nothing but its one hashed
  * inline stylesheet and same-origin or data: images (the favicon), plus
- * Turnstile where the page has the widget and a same-origin form where it has
- * one.
+ * Turnstile where the page has the widget, its own script where it has one,
+ * and a same-origin form where it has one.
  */
 export async function pageCsp(
-  page: Pick<PageProps, 'style' | 'turnstile' | 'form'>,
+  page: Pick<PageProps, 'style' | 'turnstile' | 'form' | 'script'>,
 ): Promise<string> {
+  const scripts = [
+    ...(page.turnstile ? [TURNSTILE_ORIGIN] : []),
+    ...(page.script ? ["'self'"] : []),
+  ];
   return [
     "default-src 'none'",
     `style-src 'sha256-${await styleHash(page.style)}'`,
-    ...(page.turnstile ? [`script-src ${TURNSTILE_ORIGIN}`, `frame-src ${TURNSTILE_ORIGIN}`] : []),
+    ...(scripts.length ? [`script-src ${scripts.join(' ')}`] : []),
+    ...(page.turnstile ? [`frame-src ${TURNSTILE_ORIGIN}`] : []),
     "img-src 'self' data:",
     "base-uri 'none'",
     `form-action ${page.form ? "'self'" : "'none'"}`,

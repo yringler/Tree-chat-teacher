@@ -286,7 +286,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           conversation that you wouldn't want an AI provider to process.
         </li>
         <li>
-          <strong>Resend</strong> (USA): sends sign-in link emails to your address.
+          <strong>Resend</strong> (USA): sends sign-in emails (a link and a code) to your address.
         </li>
         {info.screening && (
           <li>
@@ -379,7 +379,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           them at once; deleting your account leaves any still held to go when their{' '}
           {candidateMinutes} minutes are up.
         </li>
-        <li>Sessions: until they expire or you sign out. Sign-in links: 15 minutes.</li>
+        <li>Sessions: until they expire or you sign out. Sign-in links and codes: 15 minutes.</li>
         <li>
           Waitlist: until you sign up with that address, when it is deleted, or until you ask us to
           remove it.

@@ -40,7 +40,7 @@ Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania,
 | Keeps the share audit log (`audit_events`)                                      | done, by design | evidence of moderation; ids only, no content (§8)   |
 | Keeps legal holds (`legal_holds`, `legal_hold_items`)                           | done, by design | preserved evidence until an admin releases it (§8)  |
 
-Residual copies, disclosed in the policy: D1 Time Travel keeps point-in-time recovery for 30 days (7 on the free plan; the policy says "up to 30 days"), shared pages may stay in other colos' edge cache for up to 24 hours (`SNAPSHOT_TTL_SECONDS`), and expired sign-in-link rows in `auth_verifications` (they hold the email for 15 minutes).
+Residual copies, disclosed in the policy: D1 Time Travel keeps point-in-time recovery for 30 days (7 on the free plan; the policy says "up to 30 days"), shared pages may stay in other colos' edge cache for up to 24 hours (`SNAPSHOT_TTL_SECONDS`), and expired sign-in link and code rows in `auth_verifications` (they hold the email for 15 minutes).
 
 **You:** if you ever turn payments off (`POLAR_ACCESS_TOKEN` unset) while customers exist, deletion can't reach Polar; it logs the user id and you must delete (anonymise) the customer in the Polar dashboard.
 

@@ -1,7 +1,18 @@
 import { escapeHtml } from '@tangent/render';
 import type { EmailMessage } from './types.js';
 
-export function magicLinkEmail(to: string, url: string, expiresInMinutes: number): EmailMessage {
+/**
+ * The sign-in email: a link for whoever reads it where they want to sign in,
+ * and a code to type where the link can't reach (the phone app, or a
+ * computer the email isn't open on). Either works once and expires with the
+ * other.
+ */
+export function magicLinkEmail(
+  to: string,
+  url: string,
+  code: string,
+  expiresInMinutes: number,
+): EmailMessage {
   const href = escapeHtml(url);
   return {
     to,
@@ -11,14 +22,18 @@ export function magicLinkEmail(to: string, url: string, expiresInMinutes: number
       '',
       url,
       '',
-      `It works once and expires in ${expiresInMinutes} minutes.`,
+      `Or enter this code in the app: ${code}`,
+      '',
+      `Each works once and expires in ${expiresInMinutes} minutes.`,
       "If you didn't ask to sign in, ignore this email.",
     ].join('\n'),
     html: `<!doctype html>
 <html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#1f2328">
 <p>Open this link to sign in to Tangent:</p>
 <p><a href="${href}" style="display:inline-block;padding:10px 16px;background:#2f6feb;color:#fff;border-radius:6px;text-decoration:none">Sign in</a></p>
-<p style="font-size:13px;color:#59636e">It works once and expires in ${expiresInMinutes} minutes. If you didn't ask to sign in, ignore this email.</p>
+<p>Or enter this code in the app:</p>
+<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,monospace">${escapeHtml(code)}</p>
+<p style="font-size:13px;color:#59636e">Each works once and expires in ${expiresInMinutes} minutes. If you didn't ask to sign in, ignore this email.</p>
 <p style="font-size:12px;color:#59636e;word-break:break-all">${href}</p>
 </body></html>`,
   };
