@@ -3,7 +3,7 @@
 // record is the evidence that the operator acted, so nothing updates or
 // deletes one (a test checks the sources). `data` carries ids, versions and
 // scores, never message content.
-import type { ShareScope } from '@tangent/shared';
+import type { HoldReportKind, LegalHoldReason, ShareScope } from '@tangent/shared';
 import type { auditEvents } from '../db/schema.js';
 import type { SqlRow } from '../db/rows.js';
 import { logEvent } from '../log.js';
@@ -28,7 +28,14 @@ export interface ShareAuditEvent extends AuditBase {
   data: { version: number; scope?: ShareScope };
 }
 
-export type AuditEvent = ShareAuditEvent;
+/** A legal hold placed, released, or reported outside Tangent (share/legal-hold.ts). */
+export type HoldAuditEvent = AuditBase & { holdId: string } & (
+    | { kind: 'hold_placed'; data: { reason: LegalHoldReason; held: string[] } }
+    | { kind: 'hold_released'; data: Record<string, never> }
+    | { kind: 'hold_reported'; data: { kind: HoldReportKind; reference: string } }
+  );
+
+export type AuditEvent = ShareAuditEvent | HoldAuditEvent;
 
 /** The INSERT of one audit row, to run alone or in the batch that makes the change it records. */
 export function auditStatement(
@@ -67,6 +74,7 @@ export async function recordAudit(db: D1Database, event: AuditEvent): Promise<vo
     logEvent('error', 'audit_failed', {
       kind: event.kind,
       shareId: event.shareId,
+      holdId: event.holdId,
       subjectUserId: event.subjectUserId,
       error: err,
     });

@@ -364,6 +364,15 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           reports about shared content.
         </li>
         <li>
+          Content we must preserve: if a shared conversation is reported to us as illegal (such as
+          child sexual abuse material or a threat of violence), or law enforcement asks us to, we
+          keep a copy of the share, the conversation it came from, your account details and your
+          sessions' IP addresses and browsers, apart from your data and readable only by us, even if
+          you revoke the link or delete the conversation or your account. We delete the copy when it
+          is no longer needed; once we have reported it to the authorities, not before a year after
+          the report, as US law requires.
+        </li>
+        <li>
           Database recovery history: deleted data remains in our hosting provider's point-in-time
           recovery for up to 30 days, after which it is gone for good.
         </li>

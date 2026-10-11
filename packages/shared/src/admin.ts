@@ -232,3 +232,73 @@ export interface AdminCreditResponse {
   /** The target ledger's balance afterwards (settled; pending holds not deducted). */
   balanceMicros: number;
 }
+
+/**
+ * Why evidence is held (`legal_holds.reason`): apparent child sexual abuse
+ * material, violent or other illegal content, a law-enforcement request, or
+ * anything else the operator must preserve.
+ */
+export const LEGAL_HOLD_REASONS = [
+  'csam',
+  'violent_or_illegal',
+  'law_enforcement',
+  'other',
+] as const;
+export type LegalHoldReason = (typeof LEGAL_HOLD_REASONS)[number];
+
+/** Where a hold was reported: NCMEC's CyberTipline, or a law-enforcement agency. */
+export const HOLD_REPORT_KINDS = ['ncmec', 'law_enforcement'] as const;
+export type HoldReportKind = (typeof HOLD_REPORT_KINDS)[number];
+
+/**
+ * A legal hold as the admin page lists it: what it is about and who placed
+ * and released it, never the held copies (only `wrangler d1 execute` reads
+ * those, docs/runbooks/csam.md).
+ */
+export interface AdminHold {
+  id: string;
+  reason: LegalHoldReason;
+  reportId: string | null;
+  shareId: string | null;
+  /** The share owner's user id, kept after their account is deleted. */
+  subjectUserId: string | null;
+  subjectEmail: string | null;
+  /** ISO timestamp. */
+  createdAt: string;
+  /** The admin who placed it; null when the system did. */
+  createdBy: string | null;
+  /** ISO timestamp; null while the hold is in force. */
+  releasedAt: string | null;
+  releasedBy: string | null;
+  notes: string | null;
+  /** Reports of the hold filed outside Tangent, oldest first. */
+  externalReports: { kind: HoldReportKind; reference: string; at: string }[];
+}
+
+/** `GET /api/admin/holds`: every hold, newest first; released ones too. */
+export interface AdminHoldsResponse {
+  holds: AdminHold[];
+}
+
+/** `POST /api/admin/shares/:shareId/hold`. */
+export const adminPlaceHoldRequestSchema = z.object({
+  reason: z.enum(LEGAL_HOLD_REASONS),
+  notes: z.string().trim().max(2000).optional(),
+});
+export type AdminPlaceHoldRequest = z.infer<typeof adminPlaceHoldRequestSchema>;
+
+/** `POST /api/admin/holds/:holdId/release`. */
+export const adminReleaseHoldRequestSchema = z.object({
+  notes: z.string().trim().max(2000).optional(),
+});
+export type AdminReleaseHoldRequest = z.infer<typeof adminReleaseHoldRequestSchema>;
+
+/**
+ * `POST /api/admin/holds/:holdId/external-report`: records that the hold was
+ * reported (the report itself is filed by hand), with the report's number.
+ */
+export const adminHoldReportRequestSchema = z.object({
+  kind: z.enum(HOLD_REPORT_KINDS),
+  reference: z.string().trim().min(1).max(200),
+});
+export type AdminHoldReportRequest = z.infer<typeof adminHoldReportRequestSchema>;

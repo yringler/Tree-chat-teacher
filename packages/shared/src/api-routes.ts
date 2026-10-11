@@ -1,10 +1,15 @@
 import type { z } from './zod.js';
 import {
   adminCreditRequestSchema,
+  adminHoldReportRequestSchema,
+  adminPlaceHoldRequestSchema,
   adminPoolUsageQuerySchema,
+  adminReleaseHoldRequestSchema,
   adminUsersQuerySchema,
   updateAdminUserRequestSchema,
   type AdminCreditResponse,
+  type AdminHold,
+  type AdminHoldsResponse,
   type AdminPoolResponse,
   type AdminPoolUsageResponse,
   type AdminStatusResponse,
@@ -356,6 +361,29 @@ export const API_ROUTES = {
     method: 'POST',
     path: '/admin/shares/:shareId/revoke',
     reply: json<ShareSummary>(),
+  },
+  /** Legal holds, metadata only: the held copies never leave the database through the API. */
+  adminHolds: { method: 'GET', path: '/admin/holds', reply: json<AdminHoldsResponse>() },
+  /** Preserves any owner's share, its conversation and account; idempotent per share and reason. */
+  adminPlaceHold: {
+    method: 'POST',
+    path: '/admin/shares/:shareId/hold',
+    body: adminPlaceHoldRequestSchema,
+    reply: json<AdminHold>(),
+  },
+  /** Deletes the held copies and keeps the record; refused within a year of a report. */
+  adminReleaseHold: {
+    method: 'POST',
+    path: '/admin/holds/:holdId/release',
+    body: adminReleaseHoldRequestSchema,
+    reply: json<AdminHold>(),
+  },
+  /** Records a report filed outside Tangent; the audit log is all it changes. */
+  adminReportHold: {
+    method: 'POST',
+    path: '/admin/holds/:holdId/external-report',
+    body: adminHoldReportRequestSchema,
+    reply: json<AdminHold>(),
   },
 } as const satisfies Record<string, RouteSpec>;
 

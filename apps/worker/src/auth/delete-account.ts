@@ -86,8 +86,9 @@ export interface DeletedUser {
  * the same mailbox neither lifts a pool suspension nor resets that day's
  * caps. PoolBank drops the user's per-minute counter. Also kept: the
  * share audit log (share/audit.ts), ids and no message content, the
- * evidence of how shared content was handled. The privacy policy
- * (http/legal.tsx, "How long we keep it") describes all of it.
+ * evidence of how shared content was handled; and any legal hold on the
+ * user's shares (share/legal-hold.ts), which only an admin releases. The
+ * privacy policy (http/legal.tsx, "How long we keep it") describes all of it.
  */
 export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUser> {
   const accountId = accountIdForUser(userId);

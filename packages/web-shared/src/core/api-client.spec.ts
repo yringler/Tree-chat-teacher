@@ -248,6 +248,28 @@ describe('ApiClient', () => {
       ],
       ['adminUserShares', (a) => a.adminUserShares('u'), 'GET', '/api/admin/users/u/shares'],
       ['adminRevokeShare', (a) => a.adminRevokeShare('s'), 'POST', '/api/admin/shares/s/revoke'],
+      ['adminHolds', (a) => a.adminHolds(), 'GET', '/api/admin/holds'],
+      [
+        'adminPlaceHold',
+        (a) => a.adminPlaceHold('s', { reason: 'csam' }),
+        'POST',
+        '/api/admin/shares/s/hold',
+        { reason: 'csam' },
+      ],
+      [
+        'adminReleaseHold',
+        (a) => a.adminReleaseHold('h'),
+        'POST',
+        '/api/admin/holds/h/release',
+        {},
+      ],
+      [
+        'adminReportHold',
+        (a) => a.adminReportHold('h', { kind: 'ncmec', reference: '123' }),
+        'POST',
+        '/api/admin/holds/h/external-report',
+        { kind: 'ncmec', reference: '123' },
+      ],
       ['backup', (a) => a.backup('t/1'), 'GET', '/api/trees/t%2F1/backup'],
       [
         'importBackup',

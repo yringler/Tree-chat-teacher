@@ -38,6 +38,7 @@ import type { SqlRow } from '../db/rows.js';
 import type { authUsers, usageEvents } from '../db/schema.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
+import { adminModerationRoutes } from './admin-moderation.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { POOL_OVERAGE } from '../pool/params.js';
@@ -178,7 +179,7 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * consumes the pool, and credits a user's ledger or the pool without a payment
  * (`POST /credit`: adjustments, and simulated purchases where
  * DEV_PURCHASES_ENABLED allows them), showing the pool's balance and overage
- * breaker (`GET /pool`).
+ * breaker (`GET /pool`). Legal holds are in admin-moderation.ts.
  */
 export function adminRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
@@ -438,6 +439,8 @@ export function adminRoutes(): Hono<AppBindings> {
     c.executionCtx.waitUntil(purgeShare(s.token, [s.version - 1, s.version]));
     return c.json(s satisfies ShareSummary);
   });
+
+  r.route('/', adminModerationRoutes());
 
   return r;
 }

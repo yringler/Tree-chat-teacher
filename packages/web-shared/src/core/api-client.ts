@@ -3,6 +3,9 @@ import {
   API_ROUTES,
   routeUrl,
   type AdminCreditRequest,
+  type AdminHoldReportRequest,
+  type AdminPlaceHoldRequest,
+  type AdminReleaseHoldRequest,
   type ApiError as ApiErrorBody,
   type ApiErrorCode,
   type ApiRoute,
@@ -250,6 +253,16 @@ export class ApiClient {
   adminUserShares = (userId: string) => this.call(R.adminUserShares, { params: { userId } });
   /** Revokes any user's share (a takedown). */
   adminRevokeShare = (shareId: string) => this.call(R.adminRevokeShare, { params: { shareId } });
+  /** Every legal hold's metadata, newest first. */
+  adminHolds = () => this.call(R.adminHolds);
+  /** Preserves a share, its conversation and its owner's account details. */
+  adminPlaceHold = (shareId: string, req: AdminPlaceHoldRequest) =>
+    this.call(R.adminPlaceHold, { params: { shareId }, body: req });
+  adminReleaseHold = (holdId: string, req: AdminReleaseHoldRequest = {}) =>
+    this.call(R.adminReleaseHold, { params: { holdId }, body: req });
+  /** Records a report of the hold filed with NCMEC or law enforcement. */
+  adminReportHold = (holdId: string, req: AdminHoldReportRequest) =>
+    this.call(R.adminReportHold, { params: { holdId }, body: req });
 
   // Export / backup / import
 

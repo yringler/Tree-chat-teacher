@@ -466,6 +466,10 @@ export class DemoBackend {
     adminPoolUsage: 'unsupported',
     adminCredit: 'unsupported',
     adminRevokeShare: 'unsupported',
+    adminHolds: 'unsupported',
+    adminPlaceHold: 'unsupported',
+    adminReleaseHold: 'unsupported',
+    adminReportHold: 'unsupported',
   };
 
   private async route(

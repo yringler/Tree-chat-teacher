@@ -1,4 +1,4 @@
-import type { NodeErrorKind, SubscriptionStatus } from '@tangent/shared';
+import { LEGAL_HOLD_REASONS, type NodeErrorKind, type SubscriptionStatus } from '@tangent/shared';
 import { sql } from 'drizzle-orm';
 import {
   check,
@@ -330,9 +330,7 @@ export const legalHolds = sqliteTable(
   'legal_holds',
   {
     id: text('id').primaryKey(),
-    reason: text('reason', {
-      enum: ['csam', 'violent_or_illegal', 'law_enforcement', 'other'],
-    }).notNull(),
+    reason: text('reason', { enum: LEGAL_HOLD_REASONS }).notNull(),
     reportId: text('report_id'),
     shareId: text('share_id'),
     subjectUserId: text('subject_user_id'),

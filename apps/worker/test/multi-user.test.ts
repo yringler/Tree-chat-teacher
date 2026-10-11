@@ -399,6 +399,9 @@ const NOT_OWNED_DATA: Record<string, string> = {
   'PATCH /api/admin/users/:userId': 'admins only (admin.test.ts)',
   'GET /api/admin/users/:userId/shares': 'admins only (admin.test.ts)',
   'POST /api/admin/shares/:shareId/revoke': 'admins only (admin.test.ts)',
+  'POST /api/admin/shares/:shareId/hold': 'admins only (moderation-holds.test.ts)',
+  'POST /api/admin/holds/:holdId/release': 'admins only (moderation-holds.test.ts)',
+  'POST /api/admin/holds/:holdId/external-report': 'admins only (moderation-holds.test.ts)',
   'GET /s/:token': 'public share page, by its unguessable token (share.test.ts)',
   'GET /s/:token/data.json': 'public share data, by its unguessable token (share.test.ts)',
 };

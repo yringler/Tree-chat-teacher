@@ -204,6 +204,8 @@ The page lists users (newest first, searchable by email) and lets you:
 - suspend or restore a user's open pool access (**Pool suspended**), and see who uses the pool most;
 - see the pool's balance, pending holds and the breaker, and top it up or correct it.
 
+**Legal holds** preserve a share as evidence: `POST /api/admin/shares/:shareId/hold` (`{ "reason": "csam" | "violent_or_illegal" | "law_enforcement" | "other" }`) copies the share, its conversation and its owner's account details where deleting can't reach them, `GET /api/admin/holds` lists them (metadata only), `POST /api/admin/holds/:holdId/external-report` records an NCMEC or law-enforcement report number, and `POST /api/admin/holds/:holdId/release` deletes the copies (refused within a year of a report). What to do when you learn of child sexual abuse material or a threat of violence: [runbooks/csam.md](runbooks/csam.md).
+
 The API behind it also reports pool consumption: `GET /api/admin/pool/usage?days=7&limit=50` lists users by spend and today's network keys by the number of users on each (many accounts on one key is what a farm looks like).
 
 Optionally, put a Cloudflare Access application in front of `<your domain>/admin` and `<your domain>/api/admin` as a second layer. Don't move the admin app to a subdomain: the session cookie belongs to the main origin.
