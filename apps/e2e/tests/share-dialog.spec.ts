@@ -79,7 +79,7 @@ test('the share dialog lists this conversation’s links; new and revoked ones s
   await expect(dialog).toContainText('Anyone with this link can read this conversation.');
   await expect(cards).toHaveCount(2);
   const made = cards.first();
-  await expect(made.locator('.share-top')).toContainText('snapshot');
+  await expect(made.locator('.share-top')).toContainText('active');
   await expect(made.locator('.share-top')).toContainText('Whole conversation');
   const url = await dialog.getByLabel('Share link').inputValue();
   await expect(made.locator('.share-url')).toHaveText(url);
