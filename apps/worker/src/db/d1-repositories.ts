@@ -192,7 +192,6 @@ function toShare(r: ShareRow): Share {
     scope: r.scope,
     targetNodeId: r.targetNodeId,
     includeAncestors: r.includeAncestors,
-    mode: r.mode,
     title: r.title,
     expiresAt: r.expiresAt,
     revokedAt: r.revokedAt,
@@ -201,6 +200,7 @@ function toShare(r: ShareRow): Share {
     publishedAt: r.publishedAt,
     version: r.version,
     viewCount: r.viewCount,
+    takedown: r.takedown,
   };
 }
 
@@ -729,7 +729,8 @@ export function createD1Repositories(d1: D1Database): Repositories {
           scope: share.scope,
           targetNodeId: share.targetNodeId,
           includeAncestors: share.includeAncestors,
-          mode: share.mode,
+          // Every share is a snapshot; the column goes in a later release.
+          mode: 'snapshot',
           title: share.title,
           expiresAt: share.expiresAt,
           revokedAt: share.revokedAt,
@@ -738,6 +739,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
           publishedAt: share.publishedAt,
           version: share.version,
           viewCount: share.viewCount,
+          takedown: share.takedown,
         }),
         ...(snapshotJson === null ? [] : snapshotInserts(share.id, snapshotJson)),
       ]);
@@ -751,6 +753,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         updatedAt: patch.updatedAt,
         publishedAt: patch.publishedAt,
         version: patch.version,
+        takedown: patch.takedown,
       });
       const items: Batch = [];
       if (Object.keys(set).length > 0) {

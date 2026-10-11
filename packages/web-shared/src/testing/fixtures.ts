@@ -157,7 +157,6 @@ export function share(id: string, over: Partial<ShareSummary> = {}): ShareSummar
     scope: 'tree',
     targetNodeId: null,
     includeAncestors: false,
-    mode: 'snapshot',
     title: null,
     expiresAt: null,
     revokedAt: null,

@@ -3,16 +3,20 @@ import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-worker
 import { defineConfig } from 'vitest/config';
 import { coverage } from '../../vitest.coverage.js';
 import { MOCK_UPSTREAM, TEST_BINDINGS } from './test/bindings.js';
+import { MODERATION_ORIGIN, mockModeration } from './test/mocks/moderation.js';
 import { mockOpenRouter, OPENROUTER_ORIGIN } from './test/mocks/openrouter.js';
 import { mockPolar, POLAR_ORIGIN } from './test/mocks/polar.js';
+import { mockResend, RESEND_ORIGIN } from './test/mocks/resend.js';
 
 /**
  * Stand-in for every outbound request: Turnstile's siteverify, Google's token endpoint, and api.anthropic.com. Keys starting with `sk-ant-good` are valid;
  * the reply echoes the rest of the key so tests can tell which key was used.
  * `…-slow` keys stream slowly (abort tests).
  *
- * Polar's sandbox (sandbox-api.polar.sh) and OpenRouter (openrouter.ai) are
- * delegated to test/mocks/polar.ts and test/mocks/openrouter.ts. Mechanism: miniflare's
+ * Polar's sandbox (sandbox-api.polar.sh), OpenRouter (openrouter.ai), Resend
+ * (api.resend.com) and the moderation classifier (api.openai.com) are
+ * delegated to test/mocks/polar.ts, test/mocks/openrouter.ts,
+ * test/mocks/resend.ts and test/mocks/moderation.ts. Mechanism: miniflare's
  * `outboundService` (this function) receives every global `fetch()` made by the
  * Worker, its Durable Objects and the test files themselves, and runs in the
  * Node host process. The mocks are therefore plain Node modules imported here;
@@ -25,6 +29,8 @@ async function mockUpstream(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.origin === POLAR_ORIGIN) return mockPolar(request);
   if (url.origin === OPENROUTER_ORIGIN) return mockOpenRouter(request);
+  if (url.origin === RESEND_ORIGIN) return mockResend(request);
+  if (url.origin === MODERATION_ORIGIN) return mockModeration(request);
   // Cloudflare Turnstile siteverify: the token `pass` is valid.
   if (
     url.origin === 'https://challenges.cloudflare.com' &&

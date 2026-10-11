@@ -1,14 +1,26 @@
 import type { z } from './zod.js';
 import {
   adminCreditRequestSchema,
+  adminHoldReportRequestSchema,
+  adminPlaceHoldRequestSchema,
   adminPoolUsageQuerySchema,
+  adminReleaseHoldRequestSchema,
+  adminReportsQuerySchema,
+  adminResolveReportRequestSchema,
+  adminUserEventsQuerySchema,
   adminUsersQuerySchema,
   updateAdminUserRequestSchema,
   type AdminCreditResponse,
+  type AdminHold,
+  type AdminHoldsResponse,
   type AdminPoolResponse,
   type AdminPoolUsageResponse,
+  type AdminReport,
+  type AdminReportsResponse,
+  type AdminShare,
   type AdminStatusResponse,
   type AdminUser,
+  type AdminUserEventsResponse,
   type AdminUsersResponse,
 } from './admin.js';
 import {
@@ -348,7 +360,14 @@ export const API_ROUTES = {
   adminUserShares: {
     method: 'GET',
     path: '/admin/users/:userId/shares',
-    reply: json<ShareSummary[]>(),
+    reply: json<AdminShare[]>(),
+  },
+  /** The moderation audit log about the user, newest first; ids and metadata only. */
+  adminUserEvents: {
+    method: 'GET',
+    path: '/admin/users/:userId/events',
+    query: adminUserEventsQuerySchema,
+    reply: json<AdminUserEventsResponse>(),
   },
   adminPool: { method: 'GET', path: '/admin/pool', reply: json<AdminPoolResponse>() },
   adminPoolUsage: {
@@ -373,11 +392,53 @@ export const API_ROUTES = {
   },
   /** Takes an address off the waitlist (a deletion request). */
   adminWaitlistRemove: { method: 'DELETE', path: '/admin/waitlist/:email', reply: empty },
-  /** Any owner's share (a takedown). */
-  adminRevokeShare: {
+  /** Takes any owner's share down for good; its pending reports count as acted on (a strike). */
+  adminRemoveShare: {
     method: 'POST',
-    path: '/admin/shares/:shareId/revoke',
-    reply: json<ShareSummary>(),
+    path: '/admin/shares/:shareId/remove',
+    reply: json<AdminShare>(),
+  },
+  /** Puts a taken-down share back up and rejects its reports. */
+  adminRestoreShare: {
+    method: 'POST',
+    path: '/admin/shares/:shareId/restore',
+    reply: json<AdminShare>(),
+  },
+  /** Reports from share pages: the queue, or all of them. */
+  adminReports: {
+    method: 'GET',
+    path: '/admin/reports',
+    query: adminReportsQuerySchema,
+    reply: json<AdminReportsResponse>(),
+  },
+  adminResolveReport: {
+    method: 'POST',
+    path: '/admin/reports/:reportId/resolve',
+    body: adminResolveReportRequestSchema,
+    reply: json<AdminReport>(),
+  },
+  /** Legal holds, metadata only: the held copies never leave the database through the API. */
+  adminHolds: { method: 'GET', path: '/admin/holds', reply: json<AdminHoldsResponse>() },
+  /** Preserves any owner's share, its conversation and account; idempotent per share and reason. */
+  adminPlaceHold: {
+    method: 'POST',
+    path: '/admin/shares/:shareId/hold',
+    body: adminPlaceHoldRequestSchema,
+    reply: json<AdminHold>(),
+  },
+  /** Deletes the held copies and keeps the record; refused within a year of a report. */
+  adminReleaseHold: {
+    method: 'POST',
+    path: '/admin/holds/:holdId/release',
+    body: adminReleaseHoldRequestSchema,
+    reply: json<AdminHold>(),
+  },
+  /** Records a report filed outside Tangent; the audit log is all it changes. */
+  adminReportHold: {
+    method: 'POST',
+    path: '/admin/holds/:holdId/external-report',
+    body: adminHoldReportRequestSchema,
+    reply: json<AdminHold>(),
   },
 } as const satisfies Record<string, RouteSpec>;
 

@@ -15,7 +15,20 @@ export interface ViewerPageOptions {
    * (`frame-ancestors`, `report-uri`, `sandbox`) are dropped from the tag.
    */
   csp?: string;
+  /** Share variant: where a viewer reports the conversation, linked from the footer. */
+  reportUrl?: string;
 }
+
+/**
+ * What a share page tells link previews and search engines. It is generic so
+ * the conversation's own words never appear outside the page itself.
+ */
+const SHARE_HEAD_TITLE = 'Shared Tangent conversation';
+const SHARE_HEAD_DESCRIPTION = 'A conversation shared by a Tangent user.';
+
+/** Shown above every shared conversation: readers didn't choose the AI or the person sharing. */
+const SHARE_DISCLAIMER =
+  "This conversation includes AI-generated responses, which may be inaccurate. It was shared by a user and doesn't represent Tangent's views.";
 
 /**
  * App icon (same artwork as apps/web/public/favicon.svg and the web-shared
@@ -135,6 +148,7 @@ code,pre,kbd{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"L
 .sb-title{margin:0 0 .35rem;font-size:1.1rem}
 .sb-fork{margin:0 0 .75rem}
 .sb>.anchor{margin-bottom:1rem}
+.disclaimer{margin:0 0 1.25rem;padding:.6rem .9rem;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--muted);font-size:.85rem}
 .foot{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--border);color:var(--faint);font-size:.8rem;text-align:center}
 .hljs{color:var(--fg);background:transparent}
 .hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-doctag{color:var(--hl-keyword)}
@@ -372,7 +386,7 @@ function breadcrumbText(vm: ViewModel, branch: ShareBranch): string {
 }
 
 function renderMessage(vm: ViewModel, m: ShareMessage): string {
-  const role = m.role === 'user' ? 'User' : 'Assistant';
+  const role = m.role === 'user' ? 'User' : 'AI';
   const key = escapeHtml(m.key);
   const forks = vm.forksAt.get(m.key) ?? [];
   let forksHtml = '';
@@ -496,8 +510,9 @@ function metaCsp(policy: string): string {
 export function renderViewerPage(payload: SharePayload, options: ViewerPageOptions): string {
   const vm = viewModel(payload);
   const title = escapeHtml(payload.title);
-  const description = escapeHtml(payload.description);
   const isShare = options.variant === 'share';
+  const headTitle = isShare ? SHARE_HEAD_TITLE : title;
+  const description = isShare ? SHARE_HEAD_DESCRIPTION : escapeHtml(payload.description);
 
   const head: string[] = [
     '<meta charset="utf-8">',
@@ -509,13 +524,13 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
     );
   }
   head.push('<meta name="referrer" content="no-referrer">');
-  if (isShare) head.push('<meta name="robots" content="noindex">');
+  if (isShare) head.push('<meta name="robots" content="noindex, nofollow">');
   head.push(
     '<meta name="color-scheme" content="light dark">',
-    `<title>${title}</title>`,
+    `<title>${headTitle}</title>`,
     `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}">`,
     `<meta name="description" content="${description}">`,
-    `<meta property="og:title" content="${title}">`,
+    `<meta property="og:title" content="${headTitle}">`,
     `<meta property="og:description" content="${description}">`,
     '<meta property="og:type" content="article">',
   );
@@ -523,7 +538,7 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
     head.push(`<meta property="og:url" content="${escapeHtml(options.url)}">`);
   head.push(
     '<meta name="twitter:card" content="summary">',
-    `<meta name="twitter:title" content="${title}">`,
+    `<meta name="twitter:title" content="${headTitle}">`,
     `<meta name="twitter:description" content="${description}">`,
     `<style>${VIEWER_STYLE}</style>`,
   );
@@ -543,9 +558,16 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
           plural(payload.context.length, 'message', 'messages'),
         )}</summary><div class="context-body">${payload.context.map((m) => renderMessage(vm, m)).join('')}</div></details>\n`;
 
+  const report =
+    isShare && options.reportUrl !== undefined
+      ? ` · <a href="${escapeHtml(options.reportUrl)}">Report this conversation</a>`
+      : '';
   const footer = isShare
-    ? 'Shared with Tangent · read-only'
+    ? `Shared with Tangent · read-only${report}`
     : `Exported from Tangent on ${escapeHtml(formatDate(payload.generatedAt))}`;
+  const disclaimer = isShare
+    ? `<p class="disclaimer" role="note">${escapeHtml(SHARE_DISCLAIMER)}</p>\n`
+    : '';
 
   return (
     '<!doctype html>\n<html lang="en">\n<head>\n' +
@@ -560,6 +582,7 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
     `<span class="count">${payload.branches.length}</span></div><ul class="tree">${outlineHtml}</ul></nav>\n` +
     '<div class="scrim" id="scrim"></div>\n' +
     '<main class="main" id="main"><div class="col">\n' +
+    disclaimer +
     '<nav class="crumbs" id="crumbs" aria-label="Branch path"></nav>\n' +
     context +
     '<div class="thread" id="thread"></div>\n' +

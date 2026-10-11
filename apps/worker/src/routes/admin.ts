@@ -10,11 +10,11 @@ import {
   type AdminStatusResponse,
   type AdminUser,
   type AdminUsersResponse,
+  type AdminShare,
   type AdminWaitlistEntry,
   type AdminWaitlistInviteResponse,
   type AdminWaitlistResponse,
   ADMIN_WAITLIST_LIMIT,
-  type ShareSummary,
   centsToMicros,
 } from '@tangent/shared';
 import { Hono } from 'hono';
@@ -33,18 +33,19 @@ import { ACTIVE_STATUSES, membershipRequired } from '../billing/membership.js';
 import { MEMBERSHIP_KIND } from '../billing/payments/port.js';
 import { fulfilPurchase } from '../billing/purchases.js';
 import { appConfig } from '../config.js';
-import { createD1Repositories } from '../db/d1-repositories.js';
 import type { SqlRow } from '../db/rows.js';
-import type { authUsers, usageEvents, waitlist } from '../db/schema.js';
+import type { authUsers, shares as sharesTable, usageEvents, waitlist } from '../db/schema.js';
 import { createEmailSender, waitlistInviteEmail } from '../email/index.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
+import { decodeCursor, encodeCursor } from '../http/cursor.js';
+import { adminModerationRoutes } from './admin-moderation.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { POOL_OVERAGE } from '../pool/params.js';
 import { poolOverageMicros } from '../pool/day-usage.js';
-import { purgeShare } from '../share/cache.js';
-import { poolAvailable, sharingEnabled } from '../availability.js';
+import { recordAudit } from '../share/audit.js';
+import { poolAvailable, sharingMode } from '../availability.js';
 import { shareService } from '../registries.js';
 import { logEvent } from '../log.js';
 
@@ -53,12 +54,20 @@ type WaitlistRow = SqlRow<typeof waitlist>;
 
 type UserRow = Pick<
   SqlRow<typeof authUsers>,
-  'id' | 'email' | 'name' | 'created_at' | 'share_allowed' | 'membership_waived'
+  | 'id'
+  | 'email'
+  | 'name'
+  | 'created_at'
+  | 'share_allowed'
+  | 'membership_waived'
+  | 'sharing_suspended'
 > & {
   /** The account's suspension, or its pool identity's. */
   pool_suspended: number;
   active_shares: number;
   membership_paid: number;
+  removed_shares: number;
+  open_reports: number;
 };
 
 /**
@@ -66,9 +75,11 @@ type UserRow = Pick<
  * shares: of the user's account (`u_<id>`), neither
  * revoked nor expired at `?1` (an ISO timestamp, compared as text like
  * ShareService does). Paid membership: a membership subscription in a status
- * that counts, as `membershipFor` reads it.
+ * that counts, as `membershipFor` reads it. Removed shares and open reports:
+ * the account's shares an admin removed, and reports of them not yet decided.
  */
 const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed, u.membership_waived,
+  u.sharing_suspended,
   EXISTS (SELECT 1 FROM billing_subscriptions bs
     WHERE bs.user_id = u.id AND bs.kind = '${MEMBERSHIP_KIND}'
       AND bs.status IN (${ACTIVE_STATUSES.map((s) => `'${s}'`).join(', ')})) AS membership_paid,
@@ -76,7 +87,11 @@ const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed, u.me
     WHERE pi.identity = u.pool_identity), 0)) AS pool_suspended,
   (SELECT COUNT(*) FROM shares s
     WHERE s.account_id = '${ACCOUNT_PREFIX}' || u.id
-      AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares`;
+      AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares,
+  (SELECT COUNT(*) FROM shares s
+    WHERE s.account_id = '${ACCOUNT_PREFIX}' || u.id AND s.takedown = 'removed') AS removed_shares,
+  (SELECT COUNT(*) FROM share_reports r
+    WHERE r.owner_account_id = '${ACCOUNT_PREFIX}' || u.id AND r.resolution = 'pending') AS open_reports`;
 
 /**
  * Each user's credit balance, in `rows`' order: their ledger
@@ -107,6 +122,9 @@ function toAdminUser(
     creditBalanceMicros,
     membershipWaived: row.membership_waived === 1,
     membershipPaid: row.membership_paid === 1,
+    sharingSuspended: row.sharing_suspended === 1,
+    removedShares: row.removed_shares,
+    openReports: row.open_reports,
   };
 }
 
@@ -138,23 +156,6 @@ interface PoolNetworkRow extends PoolUsage {
   users: number;
 }
 
-function encodeCursor(createdAt: number, id: string): string {
-  return btoa(`${createdAt}|${id}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function decodeCursor(cursor: string): { createdAt: number; id: string } {
-  try {
-    const b64 = cursor.replace(/-/g, '+').replace(/_/g, '/');
-    const [createdAt, id, ...rest] = atob(b64).split('|');
-    const ms = Number(createdAt);
-    if (createdAt && Number.isSafeInteger(ms) && id && rest.length === 0)
-      return { createdAt: ms, id };
-  } catch {
-    // fall through
-  }
-  throw new ValidationError('Invalid cursor');
-}
-
 async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
   const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM auth_users u WHERE u.id = ?2`)
     .bind(new Date().toISOString(), userId)
@@ -170,16 +171,18 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * else); the mutating ones are same-origin only. The contract is in
  * packages/shared/src/admin.ts and the route table in api-routes.ts.
  *
- * It manages who may publish share links while DMCA_AGENT_REGISTERED is off
- * (`auth_users.share_allowed`, see `canShare`), takes any share down
- * without its owner (a DMCA notice, docs/LEGAL.md §8), suspends a user's
- * open pool access (`auth_users.pool_suspended` and the user's pool
- * identity, checked by the pool gate on every pool request), waives a user's
+ * It manages who may publish share links while SHARING is `allowlist`
+ * (`auth_users.share_allowed`, see `canShare`) and whose sharing is
+ * suspended (`auth_users.sharing_suspended`), lists a user's shares,
+ * suspends a user's open pool access (`auth_users.pool_suspended` and the
+ * user's pool identity, checked by the pool gate on every pool request),
+ * waives a user's
  * membership (`auth_users.membership_waived`, as the waiver code does), reports who
  * consumes the pool, and credits a user's ledger or the pool without a payment
  * (`POST /credit`: adjustments, and simulated purchases where
  * DEV_PURCHASES_ENABLED allows them), showing the pool's balance and overage
  * breaker (`GET /pool`), and lists and invites the waitlist (`/waitlist`).
+ * Reports, takedowns and legal holds are in admin-moderation.ts.
  * `deps.emailSender` replaces the env-selected email service in tests.
  */
 export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
@@ -188,8 +191,9 @@ export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
 
   r.get('/status', (c) =>
     c.json({
-      dmcaAgentRegistered: sharingEnabled(c.env),
+      sharing: sharingMode(c.env),
       membershipRequired: membershipRequired(c.env),
+      moderationKeyMissing: sharingMode(c.env) !== appConfig(c.env).site.sharing,
     } satisfies AdminStatusResponse),
   );
 
@@ -203,7 +207,7 @@ export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
       where.push(`instr(lower(u.email), ?${params.length}) > 0`);
     }
     if (after) {
-      params.push(after.createdAt, after.id);
+      params.push(after.at, after.id);
       const [at, id] = [params.length - 1, params.length];
       where.push(`(u.created_at < ?${at} OR (u.created_at = ?${at} AND u.id < ?${id}))`);
     }
@@ -226,12 +230,12 @@ export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
     } satisfies AdminUsersResponse);
   });
 
-  // Revoking the share permission takes the user's links down at once: /s/* checks it per
-  // request. A pool suspension applies from the user's next pool request (the gate reads it), and
+  // Revoking the share permission or suspending sharing takes the user's links down at once: /s/*
+  // checks both per request. A pool suspension applies from the user's next pool request (the gate reads it), and
   // a membership waiver from the user's next request (membershipFor reads it each time).
   r.patch('/users/:userId', validateJson(API_ROUTES.updateAdminUser), async (c) => {
     const userId = c.req.param('userId');
-    const { shareAllowed, poolSuspended, membershipWaived } = c.req.valid('json');
+    const { shareAllowed, poolSuspended, membershipWaived, sharingSuspended } = c.req.valid('json');
     const sets: string[] = [];
     const params: (number | string)[] = [];
     if (shareAllowed !== undefined) {
@@ -253,6 +257,10 @@ export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
       sets.push('membership_waived = ?');
       params.push(membershipWaived ? 1 : 0);
     }
+    if (sharingSuspended !== undefined) {
+      sets.push('sharing_suspended = ?');
+      params.push(sharingSuspended ? 1 : 0);
+    }
     const db = c.env.DB;
     const [updated] = await db.batch([
       db.prepare(`UPDATE auth_users SET ${sets.join(', ')} WHERE id = ?`).bind(...params, userId),
@@ -262,6 +270,14 @@ export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
         : []),
     ]);
     if (!updated!.meta.changes) throw new NotFoundError('User');
+    if (sharingSuspended !== undefined)
+      await recordAudit(db, {
+        kind: 'sharing_suspended',
+        actor: 'admin',
+        actorUserId: c.var.identity.userId,
+        subjectUserId: userId,
+        data: { suspended: sharingSuspended },
+      });
     if (poolSuspended !== undefined)
       logEvent('info', 'pool_suspension_set', { userId, poolSuspended });
     if (membershipWaived !== undefined)
@@ -494,18 +510,20 @@ export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
 
   r.get('/users/:userId/shares', async (c) => {
     const { id } = await getUser(c.env, c.req.param('userId'));
-    const shares = await shareService(c.env, c.req.url, accountIdForUser(id)).list();
-    return c.json(shares satisfies ShareSummary[]);
+    const accountId = accountIdForUser(id);
+    const [shares, { results }] = await Promise.all([
+      shareService(c.env, c.req.url, accountId).list(),
+      c.env.DB.prepare('SELECT id, takedown FROM shares WHERE account_id = ?')
+        .bind(accountId)
+        .all<Pick<SqlRow<typeof sharesTable>, 'id' | 'takedown'>>(),
+    ]);
+    const takedowns = new Map(results.map((r) => [r.id, r.takedown]));
+    return c.json(
+      shares.map((s) => ({ ...s, takedown: takedowns.get(s.id) ?? null })) satisfies AdminShare[],
+    );
   });
 
-  // A takedown: revokes any owner's share and purges its cached copies, like the owner's revoke.
-  r.post('/shares/:shareId/revoke', async (c) => {
-    const share = await createD1Repositories(c.env.DB).shares.getShare(c.req.param('shareId'));
-    if (!share) throw new NotFoundError('Share');
-    const s = await shareService(c.env, c.req.url, share.accountId).revoke(share.id);
-    c.executionCtx.waitUntil(purgeShare(s.token, [s.version - 1, s.version]));
-    return c.json(s satisfies ShareSummary);
-  });
+  r.route('/', adminModerationRoutes());
 
   return r;
 }

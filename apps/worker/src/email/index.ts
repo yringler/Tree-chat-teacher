@@ -4,7 +4,7 @@ import { LogEmailSender } from './log.js';
 import { ResendEmailSender } from './resend.js';
 import { EmailError, type EmailSender } from './types.js';
 
-export { magicLinkEmail, waitlistInviteEmail } from './templates.js';
+export { alertEmail, magicLinkEmail, waitlistInviteEmail } from './templates.js';
 export { EmailError, type EmailMessage, type EmailSender } from './types.js';
 
 function isLocalhost(baseUrl: string): boolean {

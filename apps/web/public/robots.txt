@@ -1,0 +1,5 @@
+# Shared conversations are reachable only by their link, never through search.
+User-agent: *
+Disallow: /s/
+Disallow: /api/
+Disallow: /admin

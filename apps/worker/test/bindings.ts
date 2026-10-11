@@ -17,8 +17,12 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   PUBLIC_BASE_URL: '',
   DEV_ALLOW_NO_AUTH: 'true',
   AUTO_TITLE: 'false',
-  // Sharing on, so the share suites run; test/share.test.ts covers it off.
-  DMCA_AGENT_REGISTERED: 'true',
+  // Sharing for everyone, from accounts made during the test, so the share
+  // suites run; test/share.test.ts covers the other modes and the age gate.
+  SHARING: 'everyone',
+  SHARE_MIN_ACCOUNT_AGE_MS: '0',
+  // `everyone` needs the classifier; test/mocks/moderation.ts answers this key.
+  MODERATION_API_KEY: 'mod-test',
   PROVIDERS: JSON.stringify([
     {
       id: 'fake',

@@ -410,6 +410,7 @@ hr {
 }
 
 .state-revoked,
+.state-unavailable,
 .status-failed {
   background: var(--danger-soft);
   color: var(--danger);
@@ -540,6 +541,29 @@ textarea:focus-visible {
 .copy-row {
   display: flex;
   gap: 8px;
+}
+
+/* Beta notice above an app's page (ui/beta-banner.ts) */
+
+app-beta-banner {
+  display: block;
+}
+
+.beta-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 4px 8px 4px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.beta-banner a {
+  white-space: nowrap;
 }
 
 /* Toasts (ui/toasts.ts); an app may lift them with --toast-bottom */

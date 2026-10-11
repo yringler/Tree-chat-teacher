@@ -142,7 +142,7 @@ export interface ShareRepository {
   listShares(accountId: string): Promise<ShareWithTree[]>;
   getShare(shareId: string): Promise<ShareWithTree | null>;
   getShareByToken(token: string): Promise<ShareWithTree | null>;
-  /** Atomically inserts the share and (for snapshots) its serialized payload. */
+  /** Atomically inserts the share and, when given, its serialized payload. */
   createShare(share: Share, snapshotJson: string | null): Promise<void>;
   /**
    * Atomically updates the share row and, when `snapshotJson` is not
@@ -151,7 +151,10 @@ export interface ShareRepository {
   updateShare(
     shareId: string,
     patch: Partial<
-      Pick<Share, 'title' | 'expiresAt' | 'revokedAt' | 'updatedAt' | 'publishedAt' | 'version'>
+      Pick<
+        Share,
+        'title' | 'expiresAt' | 'revokedAt' | 'updatedAt' | 'publishedAt' | 'version' | 'takedown'
+      >
     >,
     snapshotJson?: string | null,
   ): Promise<ShareWithTree | null>;
