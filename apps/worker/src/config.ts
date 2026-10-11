@@ -763,7 +763,7 @@ function parse(env: AppEnv): AppConfig {
     turnstileSecretKey !== null && TURNSTILE_TEST_SECRETS.includes(turnstileSecretKey);
   // A test secret lets every client through, so a deployment taking real
   // payments refuses one rather than run without its bot check.
-  if (turnstileTestSecret && polar.server === 'production')
+  if (turnstileTestSecret && paymentProvider === 'polar' && polar.server === 'production')
     throw new Error(
       "TURNSTILE_SECRET_KEY is one of Turnstile's test secrets, which POLAR_SERVER=production refuses",
     );
