@@ -140,6 +140,7 @@
     "POLAR_MEMBERSHIP_PRODUCT_ID": "21924899-92dc-4d9e-b319-75796649f4e7",
     "ANNUAL_FEE_ENABLED": "true",
     "POOL_ENABLED": "true",
+    "MAX_USERS": "20",
     // V4.1 Flash at its pinned providers' price, which wins over the daily sync's list price.
     "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
   },
