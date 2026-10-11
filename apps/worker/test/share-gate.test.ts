@@ -132,6 +132,42 @@ describe('publishing gates', () => {
     );
   });
 
+  it('counts refused publishes against the daily limit, so the classifier is not open to retries', async () => {
+    const e = gateEnv();
+    const user = await newUser(e);
+    await age(user.id, 2 * DAY_MS);
+    const flagged = await seedTree(user);
+    const trunk = (await ok<TreeDetail>(await user.call(`/api/trees/${flagged}`, {}, e)))
+      .branches[0]!;
+    const repos = createD1Repositories(env.DB);
+    const last = (await repos.trees.listNodes(flagged)).at(-1)!;
+    await repos.trees.appendNodes(
+      [makeNode(trunk, 2, last.id, { role: 'user', content: 'Again [mod-violent]' })],
+      new Date().toISOString(),
+    );
+    const create = (treeId: string) =>
+      user.call('/api/shares', { method: 'POST', json: { treeId, scope: 'tree' } }, e);
+
+    expect((await create(flagged)).status).toBe(403);
+    const fine = await seedTree(user);
+    const share = await ok<ShareSummary>(await create(fine), 201);
+    const third = await create(fine);
+    expect(third.status).toBe(429);
+    expect(await errorCode(third)).toBe('rate_limited');
+
+    // Refused edits count too, and once they reach the limit they stop being screened.
+    const retitle = () =>
+      user.call(
+        `/api/shares/${share.id}`,
+        { method: 'PATCH', json: { title: 'Title [mod-violent]' } },
+        e,
+      );
+    expect((await retitle()).status).toBe(403);
+    const capped = await retitle();
+    expect(capped.status).toBe(429);
+    expect(await errorCode(capped)).toBe('rate_limited');
+  });
+
   it('a sharing suspension refuses new links and takes the old ones down, admins included', async () => {
     const signup = gateEnv();
     const admin = await newUser(signup);

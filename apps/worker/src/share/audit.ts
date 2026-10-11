@@ -100,20 +100,25 @@ export async function recordAudit(db: D1Database, event: AuditEvent): Promise<vo
 }
 
 /**
- * Links the user created since `since`, counted from the log rather than
- * from `shares`, so deleting links doesn't lift the daily limit.
+ * What counts against the user's daily limit since `since`, from the log
+ * rather than from `shares`, so deleting links doesn't lift it: publishes the
+ * classifier refused (every trigger), so retrying a flagged conversation
+ * can't hammer it, plus, when `creating`, the links the user created.
  */
-export async function sharesCreatedSince(
+export async function publishesCountedSince(
   db: D1Database,
   userId: string,
   since: Date,
+  { creating }: { creating: boolean },
 ): Promise<number> {
   const row = await db
     .prepare(
       `SELECT COUNT(*) AS n FROM audit_events
-       WHERE subject_user_id = ?1 AND kind = 'share_created' AND at >= ?2`,
+       WHERE subject_user_id = ?1 AND at >= ?2
+         AND ((?3 = 1 AND kind = 'share_created')
+           OR (kind = 'share_screened' AND json_extract(data, '$.verdict') <> 'allow'))`,
     )
-    .bind(userId, since.toISOString())
+    .bind(userId, since.toISOString(), creating ? 1 : 0)
     .first<{ n: number }>();
   return row?.n ?? 0;
 }

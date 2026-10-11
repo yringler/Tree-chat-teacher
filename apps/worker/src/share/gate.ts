@@ -5,7 +5,7 @@ import { appConfig } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { authUsers } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
-import { sharesCreatedSince } from './audit.js';
+import { publishesCountedSince } from './audit.js';
 
 const DAY_MS = 86_400_000;
 
@@ -15,9 +15,10 @@ const DAY_MS = 86_400_000;
  * - `canShare`: SHARING, the allowlist and `sharing_suspended` (403);
  * - older than `SHARE_MIN_ACCOUNT_AGE_MS`, unless an admin (403): a fresh
  *   throwaway account can't publish at once;
- * - when `creating`, fewer than `SHARE_CREATES_PER_DAY` links created in the
- *   last 24 hours (429), counted from the audit log so deleting links
- *   doesn't reset it.
+ * - fewer than `SHARE_CREATES_PER_DAY` publishes in the last 24 hours
+ *   (429): refused ones of any kind, so a flagged conversation can't be
+ *   retried against the classifier, and, when `creating`, new links. It is
+ *   counted from the audit log so deleting links doesn't reset it.
  * The dev bypass (`userId` null) has no account to age or count.
  */
 export async function assertMayPublish(
@@ -45,14 +46,11 @@ export async function assertMayPublish(
       );
     }
   }
-  if (
-    creating &&
-    (await sharesCreatedSince(env.DB, userId, new Date(now.getTime() - DAY_MS))) >=
-      shareCreatesPerDay
-  ) {
+  const since = new Date(now.getTime() - DAY_MS);
+  if ((await publishesCountedSince(env.DB, userId, since, { creating })) >= shareCreatesPerDay) {
     throw new DomainError(
       'rate_limited',
-      "You've created as many share links as you can in a day. Try again tomorrow.",
+      "You've reached today's limit for publishing share links. Try again tomorrow.",
     );
   }
 }
