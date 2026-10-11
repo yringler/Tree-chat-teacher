@@ -103,6 +103,7 @@ export {
 } from './sse/stream-runner';
 
 // UI
+export { BetaBanner } from './ui/beta-banner';
 export { Compare, type CompareCandidate } from './ui/compare';
 export { Composer, ComposerController } from './ui/composer';
 export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';

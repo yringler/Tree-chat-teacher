@@ -387,7 +387,7 @@ describe('/pricing', () => {
     for (const label of labels) expect(keys).toContain(label);
     for (const page of ['/welcome', '/pricing']) {
       expect(text((await get(deployment(), page)).html)).not.toMatch(/share link/i);
-      expect(text((await get(deployment({ DMCA_AGENT_REGISTERED: 'true' }), page)).html)).toMatch(
+      expect(text((await get(deployment({ SHARING: 'everyone' }), page)).html)).toMatch(
         /share links/i,
       );
     }

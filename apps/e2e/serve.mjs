@@ -34,6 +34,23 @@ const envFile = path.join(state, 'e2e.env');
 fs.rmSync(state, { recursive: true, force: true });
 fs.mkdirSync(state, { recursive: true });
 
+/** The categories the moderation classifier scores (@tangent/core MODERATION_CATEGORIES). */
+const MODERATION_CATEGORIES = [
+  'sexual',
+  'sexual/minors',
+  'harassment',
+  'harassment/threatening',
+  'hate',
+  'hate/threatening',
+  'illicit',
+  'illicit/violent',
+  'self-harm',
+  'self-harm/intent',
+  'self-harm/instructions',
+  'violence',
+  'violence/graphic',
+];
+
 /**
  * A scripted stand-in for OpenRouter's chat API, the built-in provider's
  * upstream: it streams `Scripted reply (<model>): "<the last line of the last
@@ -49,6 +66,18 @@ function scriptedUpstream() {
     if (!key.startsWith('sk-or-')) {
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'No auth credentials found', code: 401 } }));
+      return;
+    }
+    // The moderation classifier (TEST_MODERATION_URL): every input scores zero.
+    if (req.method === 'POST' && req.url === '/v1/moderations') {
+      let raw = '';
+      req.on('data', (chunk) => (raw += chunk));
+      req.on('end', () => {
+        const { input } = JSON.parse(raw);
+        const scores = Object.fromEntries(MODERATION_CATEGORIES.map((c) => [c, 0]));
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ results: input.map(() => ({ category_scores: scores })) }));
+      });
       return;
     }
     if (req.method === 'GET' && req.url === '/v1/models') {
@@ -108,8 +137,13 @@ const vars = {
   PERSONAL_CREDIT_ENABLED: 'false',
   DEV_PURCHASES_ENABLED: 'false',
   AUTO_TITLE: 'false',
-  // Share links for everyone, so the share dialog can be driven (share-dialog.spec.ts).
-  DMCA_AGENT_REGISTERED: 'true',
+  // Share links for everyone, from a fresh account, so the share dialog can be driven
+  // (share-dialog.spec.ts).
+  SHARING: 'everyone',
+  SHARE_MIN_ACCOUNT_AGE_MS: '0',
+  // `everyone` needs the classifier: the scripted upstream answers for it.
+  MODERATION_API_KEY: 'sk-or-e2e-moderation',
+  TEST_MODERATION_URL: `${upstreamUrl}/moderations`,
   // Power's providers on the user's "own key": the offline test provider (it needs
   // none), and one that needs a key the tests never save (missing-key-power.spec.ts:
   // a conversation on it, opened in a browser without its key). It points nowhere.

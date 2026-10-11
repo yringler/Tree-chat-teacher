@@ -1,7 +1,8 @@
 /*
  * Tangent Admin (/admin/): global styles. Shared tokens, buttons, forms,
  * notices and badges come from @tangent/web-shared; this file adds the
- * header, the users table and its expandable share lists. Components use
+ * header, the tables (users with their expandable share lists, reports,
+ * legal holds) and their action rows. Components use
  * these classes; component-scoped CSS is avoided.
  */
 @import '@tangent/web-shared/styles/base.css';
@@ -129,4 +130,23 @@
 
 .admin-facts dd {
   margin: 0;
+}
+
+.admin-report-details {
+  margin: 4px 0;
+  max-width: 40ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-decision {
+  min-width: 220px;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 6px;
 }

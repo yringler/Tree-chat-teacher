@@ -98,8 +98,16 @@ export function resolveAccount(
   };
 }
 
-/** The caller's network key for the pool's per-network caps; null without an address or a secret. */
-async function poolIpKey(env: AppEnv, ip: string | null, now = new Date()): Promise<string | null> {
+/**
+ * The caller's daily network key (pool/ids.ts `ipKey`): the open pool's
+ * per-network caps, and who filed a share report when signed out. Null
+ * without an address or a secret.
+ */
+export async function networkKey(
+  env: AppEnv,
+  ip: string | null,
+  now = new Date(),
+): Promise<string | null> {
   const secret = appConfig(env).auth.secret?.trim();
   if (!secret || !ip?.trim()) return null;
   return ipKey(secret, utcDay(now), ip);
@@ -122,7 +130,7 @@ export async function withPoolParams(
   const { id, userId, billingAccountId } = account;
   const pooled = { id, mode: 'simple', billingAccountId, payer: 'pool' } as const;
   if (userId === null || !poolAvailable(env)) return { ...pooled, userId, pool: null };
-  return { ...pooled, userId, pool: await resolvePoolParams(env, await poolIpKey(env, ip)) };
+  return { ...pooled, userId, pool: await resolvePoolParams(env, await networkKey(env, ip)) };
 }
 
 /** The address the request comes from (Cloudflare's `cf-connecting-ip`). */

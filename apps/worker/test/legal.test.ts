@@ -15,6 +15,7 @@ import type { AppBindings, AppEnv } from '../src/env.js';
 import { hostedAi } from '../src/http/hosted-ai.js';
 import { legalRoutes } from '../src/http/legal.js';
 import { POOL_IDENTITY_RETENTION_DAYS } from '../src/pool/identity.js';
+import { STRIKES_TO_SUSPEND } from '../src/share/review.js';
 import { BASE } from './http.js';
 import { shippedEnv } from './mocks/wrangler-vars.js';
 
@@ -77,12 +78,59 @@ describe('the legal pages', () => {
     expect(privacy).toContain(`kept for ${POOL_IDENTITY_RETENTION_DAYS} days after the deletion`);
   });
 
-  it('say share links are limited while DMCA_AGENT_REGISTERED is off', async () => {
+  it('say share links are limited unless SHARING is everyone', async () => {
     const limited = /Share links are (not generally available|available only to accounts)/;
     for (const path of ['/privacy', '/terms']) {
-      expect(await page(path, { DMCA_AGENT_REGISTERED: 'true' })).not.toMatch(limited);
-      expect(await page(path, { DMCA_AGENT_REGISTERED: 'false' })).toMatch(limited);
+      expect(await page(path, { SHARING: 'everyone' })).not.toMatch(limited);
+      expect(await page(path, { SHARING: 'allowlist' })).toMatch(limited);
+      expect(await page(path, { SHARING: 'off' })).toMatch(limited);
+      // `everyone` without the classifier is `allowlist`.
+      expect(await page(path, { SHARING: 'everyone', MODERATION_API_KEY: '' })).toMatch(limited);
     }
+  });
+
+  it('name the moderation provider as a recipient of shared text only while it screens', async () => {
+    const recipient = /<strong>OpenAI<\/strong> \(USA\): screens share links/;
+    const screened = await page('/privacy', { MODERATION_API_KEY: 'mod-key' });
+    expect(screened).toMatch(recipient);
+    expect(screened).toContain('its text is screened automatically');
+    const unscreened = await page('/privacy', { MODERATION_API_KEY: '' });
+    expect(unscreened).not.toMatch(recipient);
+    expect(unscreened).not.toContain('screened automatically');
+  });
+});
+
+describe('the terms on share links', () => {
+  it('grant a license to host what is shared, and say shares can be reported and taken down', async () => {
+    const terms = await page('/terms');
+    expect(terms).toMatch(/license to host, copy and display that conversation/);
+    expect(terms).toMatch(/Anyone who opens a shared conversation can report it/);
+    expect(terms).toMatch(/AI-generated/);
+  });
+
+  it('mention the classifier only while it screens', async () => {
+    const classifier = /automated classifier screens its text/;
+    expect(await page('/terms', { MODERATION_API_KEY: 'mod-key' })).toMatch(classifier);
+    expect(await page('/terms', { MODERATION_API_KEY: '' })).not.toMatch(classifier);
+  });
+
+  it('forbid doxxing, planning violence and getting around screening or the share limits', async () => {
+    const terms = await page('/terms');
+    expect(terms).toContain('(doxxing)');
+    expect(terms).toMatch(/plan or prepare violence/);
+    expect(terms).toMatch(/get around[^<]*the screening of share links or the limits on\s+them/);
+  });
+
+  it('state the repeat-infringer rule the strikes enforce', async () => {
+    expect(await page('/terms')).toMatch(
+      new RegExp(
+        `removed\\s+${STRIKES_TO_SUSPEND} of your share links after reports, sharing is turned off`,
+      ),
+    );
+  });
+
+  it('allow acting without saying why where an investigation requires it', async () => {
+    expect(await page('/terms')).toMatch(/telling you could harm an investigation/);
   });
 });
 

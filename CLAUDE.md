@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Tangent: a branching LLM chat for learning. pnpm workspace; a Cloudflare Worker (Hono, D1 with Drizzle, Durable Objects) serves four Angular 22 apps. Almost all code here is written by AI sessions, and the owner reviews it, so keep changes small and easy to review. Read [docs/DECISIONS.md](docs/DECISIONS.md) for the rules the code follows before changing an area.
+Tangent: a branching LLM chat for learning. pnpm workspace; a Cloudflare Worker (Hono, D1 with Drizzle, Durable Objects) serves four Angular 22 apps. Almost all code here is written by AI sessions, and the owner reviews it, so keep changes easy to review. Read [docs/DECISIONS.md](docs/DECISIONS.md) for the rules the code follows before changing an area.
 
 ## Commands
 
@@ -37,7 +37,7 @@ pnpm --filter @tangent/worker db:generate      # the migration for a schema.ts c
 
 These come from what went wrong here before. Follow them unless the owner says otherwise in this conversation.
 
-- **Small PRs.** At most ~1.5k lines of non-generated diff. Changes to money (billing, credit, the pool, payments), auth or the schema go in their own small PR.
+- **Easy to review.** Prefer small PRs, but a larger one is fine when the work belongs together. Then make each commit one coherent step that passes the checks on its own, and keep money (billing, credit, the pool, payments), auth and schema changes in their own commits.
 - **Migrations through drizzle-kit only, expand-only.** Edit `schema.ts`, run `db:generate`, commit the `.sql` with its `meta/`. Never hand-write or edit an applied migration. Migrations run before the new code deploys while the old code still serves: add tables and nullable or defaulted columns; drop or rename only in a later release. Durable Object class migrations in `wrangler.jsonc` are append-only.
 - **Every env var is read in `apps/worker/src/config.ts`,** and nowhere else (a test checks). Add a var only if a deployment has its own value for it; otherwise it is a constant. Document it in `docs/configuration.md` (a test checks that too).
 - **No compat shims before launch.** No fallbacks to old names, no read-time mapping of old data shapes, no feature flags for things nobody uses. Rename and delete outright.

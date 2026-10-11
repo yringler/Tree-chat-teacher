@@ -56,9 +56,12 @@ describe('public shares', () => {
     expect(page.status).toBe(200);
     expect(page.headers.get('Content-Security-Policy')).toContain("default-src 'none'");
     expect(page.headers.get('Cache-Control')).toBe('no-store');
+    expect(page.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     const html = await page.text();
-    expect(html).toContain('og:title');
-    expect(html).toContain('Shared &lt;tree&gt;');
+    expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
+    expect(html).toContain('<title>Shared Tangent conversation</title>');
+    expect(html).toContain('<h1>Shared &lt;tree&gt;</h1>');
+    expect(html).toContain('AI-generated responses');
     expect(html).toContain('PUBLIC-SIDE');
     expect(html).not.toContain('PRIVATE-MARKER');
     for (const id of [detail.tree.id, trunk, root.assistantNode.id, root.userNode.id]) {
@@ -114,19 +117,22 @@ describe('public shares', () => {
     expect((await call(`/api/shares/${share.id}`, { method: 'DELETE' })).status).toBe(404);
   });
 
-  it('live shares follow the tree; path and subtree scopes stay in scope', async () => {
+  it('new messages reach a link only when republished; path and subtree scopes stay in scope', async () => {
     const { detail, trunk, sideMsg, root } = await seed();
-    const live = await ok<ShareSummary>(
+    const whole = await ok<ShareSummary>(
       call('/api/shares', {
         method: 'POST',
+        // A mode is no longer part of the request; every link is a snapshot.
         json: { treeId: detail.tree.id, scope: 'tree', mode: 'live' },
       }),
       201,
     );
     await send(trunk, 'LIVE-NEW');
-    expect(
-      await (await exports.default.fetch(`${BASE}/s/${live.token}/data.json`)).text(),
-    ).toContain('LIVE-NEW');
+    const before = await exports.default.fetch(`${BASE}/s/${whole.token}/data.json`);
+    expect(await before.text()).not.toContain('LIVE-NEW');
+    await ok(call(`/api/shares/${whole.id}/republish`, { method: 'POST' }));
+    const after = await exports.default.fetch(`${BASE}/s/${whole.token}/data.json`);
+    expect(await after.text()).toContain('LIVE-NEW');
 
     const path = await ok<ShareSummary>(
       call('/api/shares', {
@@ -172,7 +178,10 @@ describe('public shares', () => {
       json: { treeId: detail.tree.id, scope: 'subtree', nodeId: secretNode.id },
     });
     expect(res.status).toBe(400);
-    expect((await exports.default.fetch(`${BASE}/s/not-a-real-token`)).status).toBe(404);
+    const missing = await exports.default.fetch(`${BASE}/s/not-a-real-token`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    expect(await missing.text()).toContain('<meta name="robots" content="noindex, nofollow">');
   });
 
   it('public routes need no Access even when Access is configured', async () => {
@@ -183,11 +192,11 @@ describe('public shares', () => {
   });
 });
 
-describe('sharing off (no DMCA agent registered)', () => {
-  // Same database as the suite above; only DMCA_AGENT_REGISTERED differs. The dev bypass
-  // follows the flag alone (it is never on the allowlist); test/admin.test.ts covers the
-  // admins and the users the operator allows.
-  const off = { ...env, DMCA_AGENT_REGISTERED: 'false' } as AppEnv;
+describe('sharing for the allowlist only', () => {
+  // Same database as the suite above; only SHARING differs. The dev bypass follows the
+  // mode alone (it is never on the allowlist); test/admin.test.ts covers the admins, the
+  // users the operator allows and SHARING=off.
+  const off = { ...env, SHARING: 'allowlist' } as AppEnv;
   const app = createApp();
   async function callOff(
     path: string,

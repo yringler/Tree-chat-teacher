@@ -12,12 +12,13 @@ const SNAPSHOT_TTL_SECONDS = 86_400;
 
 /**
  * Public, read-only share routes. They never look at the session and serve
- * no identity, only allow-listed DTOs. While sharing is off (`sharingEnabled`)
- * a link opens only if its owner may share (`canShare`: an admin or a user the
- * operator allowed); every other one is 404. Validity (revoked/expired) and
- * that permission are checked against D1 on every request, before the edge
- * cache, so revoking either takes the link down at once; only snapshot
- * rendering is edge-cached, under a key that includes the share version.
+ * no identity, only allow-listed DTOs. A link opens only if its owner may
+ * share (`canShare`: under `SHARING=allowlist` an admin or a user the operator
+ * allowed, nobody under `off`); every other one is 404. Validity (revoked,
+ * expired, taken down after a report) and that permission are checked against
+ * D1 on every request, before the edge cache, so either takes the link down
+ * at once; the rendered
+ * snapshot is edge-cached under a key that includes the share version.
  */
 export function shareRoutes(): Hono<AppBindings> {
   const s = new Hono<AppBindings>();
@@ -31,27 +32,17 @@ async function serve(
   token: string,
   variant: ShareCacheVariant,
 ): Promise<Response> {
-  if (!(await checkShareRateLimit(c.env, c.req.raw))) {
-    return statusPage(variant, 429, 'Too many requests', 'Please try again in a minute.', {
-      'Retry-After': '60',
-    });
-  }
+  if (!(await checkShareRateLimit(c.env, c.req.raw))) return rateLimitedSharePage(variant);
   const shares = shareService(c.env, c.req.url);
   const check = await shares.checkPublic(token);
   if (!check.ok) {
     return check.reason === 'gone'
-      ? statusPage(
-          variant,
-          410,
-          'Link no longer available',
-          'This shared conversation was revoked or has expired.',
-        )
+      ? goneSharePage(variant)
       : statusPage(variant, 404, 'Not found', 'There is no shared conversation at this address.');
   }
   const { share } = check;
-  // Sharing off (no DMCA agent registered): only the links of owners who may share open,
-  // old ones included (no query while sharing is on). Checked before the cache: a cached
-  // snapshot outlives the permission.
+  // Only the links of owners who may share open, old ones included (a query only under
+  // `allowlist`). Checked before the cache: a cached snapshot outlives the permission.
   if (!(await canShare(c.env, userIdOfAccount(share.accountId)))) {
     return statusPage(
       variant,
@@ -64,34 +55,29 @@ async function serve(
     c.executionCtx.waitUntil(shares.recordView(share.id).catch(() => undefined));
   }
 
-  const cacheable = share.mode === 'snapshot';
   const key = shareCacheKey(token, share.version, variant);
-  if (cacheable) {
-    const hit = await getCached(key);
-    if (hit) return withPublicHeaders(hit, variant, true);
-  }
+  const hit = await getCached(key);
+  if (hit) return withPublicHeaders(hit, variant, true);
 
   const resolved = await shares.resolvePublic(token);
-  if (!resolved.ok) {
-    return statusPage(
-      variant,
-      410,
-      'Link no longer available',
-      'This shared conversation is no longer available.',
-    );
-  }
+  if (!resolved.ok) return goneSharePage(variant);
+  const url = new URL(`/s/${token}`, c.req.url).toString();
   const response =
     variant === 'json'
       ? Response.json(resolved.payload)
-      : await htmlResponse(resolved.payload, new URL(`/s/${token}`, c.req.url).toString());
+      : await htmlResponse(resolved.payload, url, `${url}/report`);
   const out = withPublicHeaders(response, variant, false);
-  if (cacheable) putCached(c.executionCtx, key, out, SNAPSHOT_TTL_SECONDS);
+  putCached(c.executionCtx, key, out, SNAPSHOT_TTL_SECONDS);
   return out;
 }
 
-async function htmlResponse(payload: SharePayload, url: string): Promise<Response> {
+async function htmlResponse(
+  payload: SharePayload,
+  url: string,
+  reportUrl: string,
+): Promise<Response> {
   const csp = await viewerCsp();
-  const html = renderViewerPage(payload, { variant: 'share', url, csp });
+  const html = renderViewerPage(payload, { variant: 'share', url, csp, reportUrl });
   return new Response(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': csp },
   });
@@ -110,6 +96,25 @@ function withPublicHeaders(res: Response, variant: ShareCacheVariant, cacheHit: 
   return out;
 }
 
+/**
+ * A link that is down, whatever the reason (revoked, expired, taken down
+ * after a report): one answer, so the page never says which.
+ */
+export function goneSharePage(variant: ShareCacheVariant = 'html'): Response {
+  return statusPage(
+    variant,
+    410,
+    'Link no longer available',
+    'This shared conversation is no longer available.',
+  );
+}
+
+export function rateLimitedSharePage(variant: ShareCacheVariant = 'html'): Response {
+  return statusPage(variant, 429, 'Too many requests', 'Please try again in a minute.', {
+    'Retry-After': '60',
+  });
+}
+
 function statusPage(
   variant: ShareCacheVariant,
   status: number,
@@ -117,14 +122,14 @@ function statusPage(
   message: string,
   headers: Record<string, string> = {},
 ): Response {
-  const common = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', ...headers };
+  const common = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', ...headers };
   if (variant === 'json') {
     const code = status === 429 ? 'rate_limited' : status === 410 ? 'gone' : 'not_found';
     return Response.json({ error: { code, message } }, { status, headers: common });
   }
   const body =
     `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
-    `<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex, nofollow">` +
     `<title>${escapeHtml(title)}</title></head>` +
     `<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem">` +
     `<h1 style="font-size:1.4rem">${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></body></html>`;
