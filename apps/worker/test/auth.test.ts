@@ -13,6 +13,7 @@ import { BASE } from './http.js';
 
 const SESSION_COOKIE = '__Secure-tangent.session_token';
 const DONT_REMEMBER_COOKIE = '__Secure-tangent.dont_remember';
+const TURNSTILE_TEST_SECRET = '1x0000000000000000000000000000000AA';
 
 class CapturingSender implements EmailSender {
   readonly sent: EmailMessage[] = [];
@@ -234,6 +235,24 @@ describe('magic link', () => {
     expect((await requestMagicLink(s.call, 'owner@example.com', null)).status).toBe(400);
     expect((await requestMagicLink(s.call, 'owner@example.com', 'fail')).status).toBe(403);
     expect(s.mail.sent).toHaveLength(0);
+  });
+
+  it('refuses a captcha solved on another host', async () => {
+    const s = setup();
+    expect((await requestMagicLink(s.call, 'owner@example.com', 'pass-elsewhere')).status).toBe(
+      403,
+    );
+    expect(s.mail.sent).toHaveLength(0);
+  });
+
+  it("passes any captcha with Turnstile's always-pass test secret, whatever its hostname", async () => {
+    const s = setup(
+      authEnv({ TURNSTILE_SECRET_KEY: TURNSTILE_TEST_SECRET, POLAR_SERVER: 'sandbox' }),
+    );
+    expect(
+      (await requestMagicLink(s.call, 'owner@example.com', 'XXXX.DUMMY.TOKEN.XXXX')).status,
+    ).toBe(200);
+    expect(s.mail.sent).toHaveLength(1);
   });
 
   it('fails closed without TURNSTILE_SECRET_KEY', async () => {

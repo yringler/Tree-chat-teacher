@@ -94,6 +94,19 @@ describe('config parsers', () => {
     );
   });
 
+  it("Turnstile's test secrets are recognised, and refused where Polar takes real payments", () => {
+    const testSecret = (secret: string, server = 'sandbox') =>
+      appConfig(blank({ TURNSTILE_SECRET_KEY: secret, POLAR_SERVER: server })).auth
+        .turnstileTestSecret;
+    expect(testSecret('1x0000000000000000000000000000000AA')).toBe(true);
+    expect(testSecret('2x0000000000000000000000000000000AA')).toBe(true);
+    expect(testSecret('0x4AAAAAAAreal-secret')).toBe(false);
+    expect(testSecret('0x4AAAAAAAreal-secret', 'production')).toBe(false);
+    expect(() => testSecret('1x0000000000000000000000000000000AA', 'production')).toThrow(
+      "TURNSTILE_SECRET_KEY is one of Turnstile's test secrets, which POLAR_SERVER=production refuses",
+    );
+  });
+
   it('the fake payment provider and the test vars need TEST_SEAMS', () => {
     expect(() => appConfig(blank({ TEST_SEAMS: '', PAYMENT_PROVIDER: 'fake' }))).toThrow(
       'PAYMENT_PROVIDER=fake is only allowed in tests (TEST_SEAMS)',
