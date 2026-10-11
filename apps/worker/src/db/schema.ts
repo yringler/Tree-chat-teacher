@@ -215,6 +215,12 @@ export const shares = sqliteTable(
     publishedAt: text('published_at'),
     version: integer('version').notNull().default(1),
     viewCount: integer('view_count').notNull().default(0),
+    /**
+     * Taken down after a report: `pending_review` until an admin decides,
+     * `removed` once they did. Either way the link is 404 and the owner can
+     * only delete it; null = not taken down.
+     */
+    takedown: text('takedown', { enum: ['pending_review', 'removed'] }),
   },
   (t) => [
     uniqueIndex('shares_token_uq').on(t.token),
@@ -237,6 +243,132 @@ export const shareSnapshots = sqliteTable(
     data: text('data').notNull(),
   },
   (t) => [primaryKey({ columns: [t.shareId, t.chunk] })],
+);
+
+// ---- Moderation evidence
+//
+// Reports, the audit log and legal holds have no FK to shares, trees or
+// auth_users: deleting a share, a tree or an account must never cascade into
+// the record of what was reported, what was done about it, or what is held
+// for law enforcement.
+
+/** A report filed from a share page. Ids are copied, so it outlives the share and its owner. */
+export const shareReports = sqliteTable(
+  'share_reports',
+  {
+    id: text('id').primaryKey(),
+    shareId: text('share_id').notNull(),
+    shareToken: text('share_token').notNull(),
+    /** The share's account (`u_<userId>`) when the report was filed. */
+    ownerAccountId: text('owner_account_id').notNull(),
+    category: text('category', {
+      enum: [
+        'copyright',
+        'defamation',
+        'violent_or_illegal',
+        'csam',
+        'harassment_privacy',
+        'other',
+      ],
+    }).notNull(),
+    details: text('details').notNull(),
+    /** Optional, for a reply; never shown to the share's owner. */
+    reporterEmail: text('reporter_email'),
+    /** Who reported, to count independent reports: the reporter's user id, else a daily network key. */
+    reporterKey: text('reporter_key'),
+    reporterUserId: text('reporter_user_id'),
+    createdAt: text('created_at').notNull(),
+    resolution: text('resolution', { enum: ['pending', 'actioned', 'rejected'] })
+      .notNull()
+      .default('pending'),
+    resolvedAt: text('resolved_at'),
+    /** The admin's user id. */
+    resolvedBy: text('resolved_by'),
+    notes: text('notes'),
+  },
+  (t) => [
+    index('share_reports_queue_idx').on(t.resolution, t.createdAt),
+    index('share_reports_share_idx').on(t.shareId),
+    index('share_reports_owner_idx').on(t.ownerAccountId),
+  ],
+);
+
+/**
+ * Append-only record of what happened to shares, reports, holds and sharing
+ * rights: the evidence that screening ran and reports were acted on. Rows are
+ * only ever inserted. `data` is JSON metadata (scores, versions, references),
+ * never message content.
+ */
+export const auditEvents = sqliteTable(
+  'audit_events',
+  {
+    id: text('id').primaryKey(),
+    at: text('at').notNull(),
+    kind: text('kind').notNull(),
+    actor: text('actor', { enum: ['user', 'admin', 'system', 'reporter'] }).notNull(),
+    actorUserId: text('actor_user_id'),
+    /** The user the event is about (a share's owner, a suspended user). */
+    subjectUserId: text('subject_user_id'),
+    shareId: text('share_id'),
+    reportId: text('report_id'),
+    holdId: text('hold_id'),
+    data: text('data'),
+  },
+  (t) => [
+    index('audit_events_subject_idx').on(t.subjectUserId, t.kind, t.at),
+    index('audit_events_share_idx').on(t.shareId),
+    index('audit_events_kind_idx').on(t.kind, t.at),
+  ],
+);
+
+/**
+ * Evidence preserved for law enforcement: copies of a share, its tree, its
+ * owner and their sessions, in `legal_hold_items`. Account deletion, tree
+ * deletion and revoking leave it alone; only an admin releases it.
+ */
+export const legalHolds = sqliteTable(
+  'legal_holds',
+  {
+    id: text('id').primaryKey(),
+    reason: text('reason', {
+      enum: ['csam', 'violent_or_illegal', 'law_enforcement', 'other'],
+    }).notNull(),
+    reportId: text('report_id'),
+    shareId: text('share_id'),
+    subjectUserId: text('subject_user_id'),
+    /** Copied so the hold still names the person after their account is deleted. */
+    subjectEmail: text('subject_email'),
+    createdAt: text('created_at').notNull(),
+    /** The admin's user id; null when the system placed it. */
+    createdBy: text('created_by'),
+    releasedAt: text('released_at'),
+    releasedBy: text('released_by'),
+    notes: text('notes'),
+  },
+  (t) => [
+    index('legal_holds_share_idx').on(t.shareId),
+    index('legal_holds_subject_idx').on(t.subjectUserId),
+  ],
+);
+
+/**
+ * A hold's copies as JSON, chunked like `share_snapshots` (<= 256K chars a
+ * row). Read only by the operator with `wrangler d1 execute`; no route
+ * returns them.
+ */
+export const legalHoldItems = sqliteTable(
+  'legal_hold_items',
+  {
+    holdId: text('hold_id')
+      .notNull()
+      .references(() => legalHolds.id, { onDelete: 'cascade' }),
+    kind: text('kind', {
+      enum: ['share', 'snapshot', 'tree_backup', 'user', 'sessions'],
+    }).notNull(),
+    chunk: integer('chunk').notNull(),
+    data: text('data').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.holdId, t.kind, t.chunk] })],
 );
 
 // ---- Authentication (Better Auth, see src/auth/auth.ts)
@@ -270,6 +402,13 @@ export const authUsers = sqliteTable(
      * can set it.
      */
     shareAllowed: integer('share_allowed', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * The user may not publish share links, whatever SHARING says: an admin
+     * set it, or a second report against their shares was actioned. Their
+     * existing links are 404 while it is set. Not a Better Auth field, so no
+     * auth endpoint can set it.
+     */
+    sharingSuspended: integer('sharing_suspended', { mode: 'boolean' }).notNull().default(false),
     /**
      * The operator suspended this user's open pool access (the admin
      * page, `PATCH /api/admin/users/:userId`), or a lost dispute of their pool
