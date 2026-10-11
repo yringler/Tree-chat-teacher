@@ -36,6 +36,7 @@ Selling Tangent credit adds `BUILT_IN_API_KEY` and Polar (`POLAR_*`); the member
 - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`: secrets; optional. GitHub sign-in, offered only when both are set (callback URL `<origin>/api/auth/callback/github`).
 - `TURNSTILE_SITE_KEY`: var; default none; every deployment. Cloudflare Turnstile site key for the magic-link form and the first-sign-in check.
 - `TURNSTILE_SECRET_KEY`: secret; required for magic links. Without it, magic-link requests are refused.
+- `MAX_USERS`: var; default none (`0` too); optional. Sign-ups stop once the deployment has this many users; existing users still sign in, and someone refused is shown why on the login page. For a staged launch: raise it and deploy to let more in. It is a soft cap: two sign-ups at the same instant can both take the last place.
 - `EMAIL_PROVIDER`: var; default `resend`. `resend`, or `log`, which prints emails to the console and is allowed on localhost only.
 - `EMAIL_FROM`: var; required with `resend`. Sender of magic links; its domain must be verified in Resend.
 - `RESEND_API_KEY`: secret; required with `resend`.

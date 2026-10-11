@@ -50,6 +50,7 @@ export const CONFIG_VARS = [
   'GITHUB_CLIENT_SECRET',
   'TURNSTILE_SITE_KEY',
   'TURNSTILE_SECRET_KEY',
+  'MAX_USERS',
   'EMAIL_PROVIDER',
   'EMAIL_FROM',
   'RESEND_API_KEY',
@@ -444,6 +445,8 @@ export interface AppConfig {
     github: OAuthApp | null;
     turnstileSiteKey: string | null;
     turnstileSecretKey: string | null;
+    /** `MAX_USERS`: sign-ups stop at this many users; null = no cap. */
+    maxUsers: number | null;
   };
   email: {
     provider: 'resend' | 'log';
@@ -741,6 +744,7 @@ function parse(env: AppEnv): AppConfig {
       github: oauth('GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'),
       turnstileSiteKey: text('TURNSTILE_SITE_KEY'),
       turnstileSecretKey: text('TURNSTILE_SECRET_KEY'),
+      maxUsers: int('MAX_USERS', 0) || null,
     },
     email: {
       provider: enumVar('EMAIL_PROVIDER', v('EMAIL_PROVIDER'), ['resend', 'log'], 'resend'),
