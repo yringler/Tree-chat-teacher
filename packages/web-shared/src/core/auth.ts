@@ -4,12 +4,13 @@ import {
   AUTH_BASE_PATH,
   REMEMBER_COOKIE,
   routeUrl,
+  SIGNUPS_CLOSED,
   type LoginOptionsResponse,
   type MeResponse,
 } from '@tangent/shared';
-import { ApiClient, ApiError, hasCode } from './api-client';
+import { ApiClient, ApiError, errorMessage, hasCode } from './api-client';
 import { API_FETCH, defaultApiFetch } from './api-fetch';
-import { AUTH_CLIENT, authErrorMessage as messageFor } from './auth-client';
+import { AUTH_CLIENT, authErrorMessage as messageFor, signupsClosedMessage } from './auth-client';
 import { APP_PATHS } from './app-paths';
 
 export type SocialProvider = 'google' | 'github';
@@ -49,6 +50,16 @@ export class AuthService {
     const res = await transport(routeUrl(API_ROUTES.loginOptions), { credentials: 'same-origin' });
     if (!res.ok) throw new Error(`Couldn't load sign-in options (${res.status})`);
     return (await res.json()) as LoginOptionsResponse;
+  }
+
+  /** Puts `email` on the waitlist (sign-ups closed); resolves with an error message, or null. */
+  async joinWaitlist(email: string, captchaToken: string): Promise<string | null> {
+    try {
+      await this.api.joinWaitlist({ email, captchaToken });
+      return null;
+    } catch (err) {
+      return errorMessage(err);
+    }
   }
 
   /**
@@ -191,6 +202,8 @@ export function loginErrorMessage(code: string | null, brand = 'Tangent'): strin
       return 'That sign-in link has expired or was already used. Request a new one.';
     case 'access_denied':
       return 'Sign-in was cancelled.';
+    case SIGNUPS_CLOSED:
+      return signupsClosedMessage(brand);
     default:
       return 'Sign-in failed. Please try again.';
   }

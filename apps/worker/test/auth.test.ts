@@ -1,4 +1,9 @@
-import { REMEMBER_COOKIE, type LoginOptionsResponse, type MeResponse } from '@tangent/shared';
+import {
+  REMEMBER_COOKIE,
+  SIGNUPS_CLOSED,
+  type LoginOptionsResponse,
+  type MeResponse,
+} from '@tangent/shared';
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -199,6 +204,7 @@ describe('login options', () => {
       devMode: false,
       social: { google: true, github: false },
       turnstileSiteKey: 'site-key',
+      signupsOpen: true,
     } satisfies LoginOptionsResponse);
   });
 
@@ -209,6 +215,7 @@ describe('login options', () => {
       devMode: true,
       social: { google: false, github: false },
       turnstileSiteKey: null,
+      signupsOpen: true,
     } satisfies LoginOptionsResponse);
   });
 });
@@ -421,6 +428,22 @@ describe('social sign-in', () => {
     expect(row).toBeNull();
   });
 
+  it('refuses a Google sign-up once MAX_USERS is reached, back on the login page', async () => {
+    const { n } = (await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_users').first<{
+      n: number;
+    }>())!;
+    const res = await googleSignIn(
+      setup(googleEnv({ MAX_USERS: String(n) })),
+      'late-googler@example.org',
+      true,
+    );
+    expect(res.status).toBe(302);
+    const to = new URL(res.headers.get('location') ?? '', BASE);
+    expect(to.pathname).toBe('/login');
+    expect(to.searchParams.get('error')).toBe(SIGNUPS_CLOSED);
+    expect(findSetCookie(res, SESSION_COOKIE)).toBeUndefined();
+  });
+
   it('links Google to an existing user only when Google verified the email', async () => {
     const googleAccounts = (email: string) =>
       env.DB.prepare(
@@ -490,6 +513,72 @@ describe('social sign-in', () => {
       body: JSON.stringify({ provider: 'github', callbackURL: '/' }),
     });
     expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe('MAX_USERS', () => {
+  const userCount = async () =>
+    (await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_users').first<{ n: number }>())!.n;
+  const userExists = async (email: string) =>
+    (await env.DB.prepare('SELECT id FROM auth_users WHERE email = ?').bind(email).first()) !==
+    null;
+  /** Where a sign-in redirect lands, as a path and query on this origin. */
+  const landing = (res: Response) => {
+    const url = new URL(res.headers.get('location') ?? '', BASE);
+    return url.pathname + url.search;
+  };
+
+  it('refuses a new address once the cap is reached, before sending a link', async () => {
+    const s = setup(authEnv({ MAX_USERS: String(await userCount()) }));
+    const res = await requestMagicLink(s.call, 'newcomer-full@example.com');
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: SIGNUPS_CLOSED });
+    expect(s.mail.sent).toHaveLength(0);
+  });
+
+  it('checks the captcha first, so a full deployment reveals nothing without one', async () => {
+    const s = setup(authEnv({ MAX_USERS: String(await userCount()) }));
+    const res = await requestMagicLink(s.call, 'prober@example.com', null);
+    expect(res.status).toBe(400);
+    expect(await res.json()).not.toMatchObject({ code: SIGNUPS_CLOSED });
+  });
+
+  it('still signs in an existing user when full', async () => {
+    const first = setup();
+    await signIn(first, 'early-bird@example.com');
+    const s = setup(authEnv({ MAX_USERS: String(await userCount()) }));
+    const res = await signIn(s, 'Early-Bird@example.com');
+    expect(res.status).toBe(302);
+    expect(landing(res)).toBe('/');
+  });
+
+  it('signs up while there is room, and the next one is refused', async () => {
+    const e = authEnv({ MAX_USERS: String((await userCount()) + 1) });
+    const ok = await signIn(setup(e), 'last-seat@example.com');
+    expect(landing(ok)).toBe('/');
+    const res = await requestMagicLink(setup(e).call, 'one-too-many@example.com');
+    expect(res.status).toBe(403);
+    expect(await userExists('one-too-many@example.com')).toBe(false);
+  });
+
+  it('a link requested while there was room is refused once full, back on the login page', async () => {
+    const s = setup(authEnv({ MAX_USERS: String((await userCount()) + 1) }));
+    expect((await requestMagicLink(s.call, 'slow-clicker@example.com')).status).toBe(200);
+    await signIn(setup(authEnv({ MAX_USERS: '' })), 'fast-clicker@example.com');
+    const link = new URL(linkFrom(s.mail.sent.at(-1)!));
+    const res = await s.call(link.pathname + link.search, { redirect: 'manual' });
+    expect(res.status).toBe(302);
+    const to = new URL(res.headers.get('location') ?? '', BASE);
+    expect(to.pathname).toBe('/login');
+    expect(to.searchParams.get('error')).toBe(SIGNUPS_CLOSED);
+    expect(await userExists('slow-clicker@example.com')).toBe(false);
+  });
+
+  it('unset or 0 means no cap', async () => {
+    for (const cap of ['', '0']) {
+      const res = await signIn(setup(authEnv({ MAX_USERS: cap })), `uncapped-${cap}@example.com`);
+      expect(landing(res)).toBe('/');
+    }
   });
 });
 

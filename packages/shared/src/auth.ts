@@ -9,3 +9,11 @@ export const AUTH_BASE_PATH = '/api/auth';
  * carry a request body.
  */
 export const REMEMBER_COOKIE = 'tangent-remember';
+
+/**
+ * The error code of a sign-up refused because the deployment has as many
+ * users as `MAX_USERS` allows: the magic-link request answers with it, and
+ * the OAuth callback and magic-link verify redirect to the login page with it
+ * as `?error=`. Existing users still sign in.
+ */
+export const SIGNUPS_CLOSED = 'signups_closed';

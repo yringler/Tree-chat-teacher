@@ -1,12 +1,12 @@
 import { passkey } from '@better-auth/passkey';
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { createAuthMiddleware } from 'better-auth/api';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
 import { captcha } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins/magic-link';
 import { drizzle } from 'drizzle-orm/d1';
-import { AUTH_BASE_PATH, REMEMBER_COOKIE } from '@tangent/shared';
+import { AUTH_BASE_PATH, REMEMBER_COOKIE, SIGNUPS_CLOSED } from '@tangent/shared';
 import {
   authAccounts,
   authPasskeys,
@@ -30,9 +30,10 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  * no passwords: the email+password method is never enabled. Passkeys are
  * added from the account dialog once signed in, then work as a sign-in method.
  *
- * Anyone may sign up; abuse is bounded by Turnstile and the rate limits on
- * magic links. While the open pool is on, Turnstile runs on every first
- * sign-in: a magic link can only be requested with
+ * Anyone may sign up until the deployment has `MAX_USERS` users; abuse is
+ * bounded by Turnstile and the rate limits on magic links. While the open
+ * pool is on, Turnstile runs on every first sign-in: a magic link can only be
+ * requested with
  * a Turnstile pass, so signing in with one records it
  * (`auth_users.pool_verified_at`); a first OAuth sign-in (or any OAuth
  * sign-in of a user with no pass on record) is sent through the Turnstile
@@ -164,6 +165,37 @@ async function recordFirstSignInCheck(
   headers.set('location', verifyPageUrl(safeNextPath(location, origin)));
 }
 
+/**
+ * Whether sign-ups are closed: the deployment has as many users as
+ * `MAX_USERS` allows. Count-then-insert can let two simultaneous sign-ups
+ * past the last seat; the cap is a soft limit, so that is fine.
+ */
+export async function signupsFull(env: AppEnv): Promise<boolean> {
+  const max = appConfig(env).auth.maxUsers;
+  if (max === null) return false;
+  const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_users').first<{ n: number }>();
+  return (row?.n ?? 0) >= max;
+}
+
+async function userExists(env: AppEnv, email: string): Promise<boolean> {
+  const row = await env.DB.prepare('SELECT 1 FROM auth_users WHERE email = ?')
+    .bind(email.toLowerCase())
+    .first();
+  return row !== null;
+}
+
+/**
+ * Better Auth answers an APIError that has a code as JSON on the magic-link
+ * request, and as a redirect to the login page with `?error=<code>` from the
+ * OAuth callback and the magic-link verify.
+ */
+function signupsClosedError(): APIError {
+  return new APIError('FORBIDDEN', {
+    code: SIGNUPS_CLOSED,
+    message: 'Tangent is not taking new accounts right now.',
+  });
+}
+
 /** Drops pending `Set-Cookie` entries for `name` so a re-issued cookie is the only one on the wire. */
 function dropSetCookie(headers: Headers | undefined, name: string): void {
   if (!headers) return;
@@ -227,8 +259,19 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
           // users, so creating one would only leave a user that can never get
           // in. Returning false (rather than throwing) makes the OAuth
           // callback redirect to the login page with an error instead of
-          // answering with JSON.
-          before: async (user) => (user.emailVerified ? { data: user } : false),
+          // answering with JSON. The user cap is checked here too, so it
+          // holds on every path; it throws for its own error code.
+          before: async (user) => {
+            if (!user.emailVerified) return false;
+            if (await signupsFull(env)) throw signupsClosedError();
+            return { data: user };
+          },
+          // A waitlisted address that signs up has what it waited for.
+          after: async (user) => {
+            await env.DB.prepare('DELETE FROM waitlist WHERE email = ?')
+              .bind(user.email.toLowerCase())
+              .run();
+          },
         },
       },
       account: {
@@ -276,6 +319,12 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         expiresIn: MAGIC_LINK_MINUTES * 60,
         storeToken: 'hashed',
         sendMagicLink: async ({ email, url }) => {
+          // A new address is refused before its link is sent, so nobody waits
+          // for an email that can only fail; the user hook still refuses a
+          // link sent while there was room. Checked here, after the captcha,
+          // so whether an address has an account can't be probed without one.
+          if (!(await userExists(env, email)) && (await signupsFull(env)))
+            throw signupsClosedError();
           const sender = deps.emailSender ?? createEmailSender(env, base.origin);
           await sender.send(magicLinkEmail(email, url, MAGIC_LINK_MINUTES));
         },

@@ -1,12 +1,12 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
-import type { MeResponse } from '@tangent/shared';
+import { SIGNUPS_CLOSED, type MeResponse } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError } from './api-client';
 import { API_FETCH } from './api-fetch';
 import { APP_PATHS, type AppPaths } from './app-paths';
-import { AUTH_CLIENT, type TangentAuthClient } from './auth-client';
-import { AuthService } from './auth';
+import { AUTH_CLIENT, authErrorMessage, type TangentAuthClient } from './auth-client';
+import { AuthService, loginErrorMessage } from './auth';
 
 const SIMPLE_PATHS: AppPaths = { home: '/learn/', login: '/learn/login' };
 
@@ -193,5 +193,15 @@ describe('AuthService with APP_PATHS', () => {
     await auth.signOut();
     expect(client.signOut).toHaveBeenCalledTimes(2);
     expect(location.assign).toHaveBeenLastCalledWith('/learn/login');
+  });
+});
+
+describe('a sign-up refused at the user cap', () => {
+  it('says the app is full and points to the waitlist, on the login page and on a link request', () => {
+    const fromRedirect = loginErrorMessage(SIGNUPS_CLOSED, 'Tangent Learn');
+    expect(fromRedirect).toContain("Tangent Learn is full for now and isn't taking new accounts.");
+    expect(fromRedirect).toContain('Join the waitlist');
+    const fromRequest = authErrorMessage({ status: 403, code: SIGNUPS_CLOSED, message: 'raw' });
+    expect(fromRequest).toContain("Tangent is full for now and isn't taking new accounts.");
   });
 });

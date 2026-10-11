@@ -18,7 +18,9 @@ import { Turnstile } from '../ui/turnstile';
 /**
  * The login page (APP_PATHS.login), always loaded as its own document (see
  * AuthService). No passwords: Google, GitHub, a magic link by email, or a
- * passkey. A completed sign-in lands on APP_PATHS.home.
+ * passkey. A completed sign-in lands on APP_PATHS.home. While sign-ups are
+ * closed (`MAX_USERS`), existing users still sign in here and the email form
+ * also offers the waitlist.
  *
  * Copy is configurable through inputs (e.g. route `data` with
  * `withComponentInputBinding()`, or a wrapper component).
@@ -37,7 +39,7 @@ import { Turnstile } from '../ui/turnstile';
         }
 
         @if (options(); as o) {
-          @if (o.configured && !sentTo() && lead()) {
+          @if (o.configured && o.signupsOpen && !sentTo() && !waitlisted() && lead()) {
             <p class="lead">{{ lead() }}</p>
           }
           @if (!o.configured) {
@@ -47,6 +49,15 @@ import { Turnstile } from '../ui/turnstile';
                 Dev mode is on, so you can <a [href]="paths.home">go straight to the app</a>.
               }
             </p>
+          } @else if (waitlisted(); as email) {
+            <p class="lead">You're on the waitlist</p>
+            <p>
+              We'll email <strong>{{ email }}</strong> when there's room. Nothing else is sent to
+              it.
+            </p>
+            <button type="button" class="btn btn-ghost" (click)="waitlisted.set(null)">
+              Back to sign-in
+            </button>
           } @else if (sentTo(); as email) {
             <p class="lead">Check your email</p>
             <p>
@@ -57,6 +68,15 @@ import { Turnstile } from '../ui/turnstile';
               Use a different method
             </button>
           } @else {
+            @if (!o.signupsOpen) {
+              <p class="notice" role="status">
+                <span>
+                  <strong>{{ brand() }} is full for now.</strong> Already have an account? Sign in
+                  as usual. New here? Enter your email below and join the waitlist: we'll email you
+                  when there's room.
+                </span>
+              </p>
+            }
             <div class="login-methods">
               @if (o.social.google) {
                 <button
@@ -113,6 +133,16 @@ import { Turnstile } from '../ui/turnstile';
               <button type="submit" class="btn btn-primary" [disabled]="!canSendLink()">
                 Email me a sign-in link
               </button>
+              @if (!o.signupsOpen) {
+                <button
+                  type="button"
+                  class="btn"
+                  [disabled]="!canSendLink()"
+                  (click)="joinWaitlist()"
+                >
+                  Join the waitlist
+                </button>
+              }
             </form>
 
             <label class="login-remember">
@@ -155,6 +185,8 @@ export class LoginPage implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly sentTo = signal<string | null>(null);
+  /** The address just put on the waitlist. */
+  protected readonly waitlisted = signal<string | null>(null);
   protected readonly captchaToken = signal<string | null>(null);
   protected readonly email = signal('');
   protected readonly remember = signal(this.auth.rememberPreference);
@@ -211,6 +243,15 @@ export class LoginPage implements OnInit {
     const ok = await this.run(() => this.auth.sendMagicLink(email, token, this.remember()));
     this.captcha()?.reset();
     if (ok) this.sentTo.set(email);
+  }
+
+  protected async joinWaitlist(): Promise<void> {
+    const token = this.captchaToken();
+    const email = this.email().trim();
+    if (!token || !email) return;
+    const ok = await this.run(() => this.auth.joinWaitlist(email, token));
+    this.captcha()?.reset();
+    if (ok) this.waitlisted.set(email);
   }
 
   /** Runs one sign-in step; returns true when it reported no error. */

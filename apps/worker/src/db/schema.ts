@@ -775,3 +775,18 @@ export const modelWindows = sqliteTable('model_windows', {
   /** When the row last changed (ISO). */
   updatedAt: text('updated_at').notNull(),
 });
+
+/**
+ * People who asked to be told when there is room, while sign-ups were closed
+ * (`MAX_USERS`): `POST /api/waitlist` from the login page. The admin page
+ * lists them and sends invites. A row is deleted when its address signs up,
+ * or by an admin (a deletion request).
+ */
+export const waitlist = sqliteTable('waitlist', {
+  /** Lowercased, as Better Auth stores user emails. */
+  email: text('email').primaryKey(),
+  /** ISO time the address joined. */
+  createdAt: text('created_at').notNull(),
+  /** ISO time the last invite was sent; null = not invited yet. */
+  invitedAt: text('invited_at'),
+});

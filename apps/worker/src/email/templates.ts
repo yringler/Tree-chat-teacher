@@ -47,3 +47,26 @@ export function alertEmail(
 </body></html>`,
   };
 }
+
+/** To someone on the waitlist, once the operator has made room. */
+export function waitlistInviteEmail(to: string, url: string): EmailMessage {
+  const href = escapeHtml(url);
+  return {
+    to,
+    subject: "There's room on Tangent now",
+    text: [
+      'You asked to hear when Tangent opens up: there is room now.',
+      '',
+      `Sign up here, with this email address: ${url}`,
+      '',
+      'Places go to whoever signs up first, so it may fill again.',
+      "If you've changed your mind, ignore this email: we won't send another.",
+    ].join('\n'),
+    html: `<!doctype html>
+<html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#1f2328">
+<p>You asked to hear when Tangent opens up: there is room now.</p>
+<p><a href="${href}" style="display:inline-block;padding:10px 16px;background:#2f6feb;color:#fff;border-radius:6px;text-decoration:none">Sign up</a></p>
+<p style="font-size:13px;color:#59636e">Sign up with this email address. Places go to whoever signs up first, so it may fill again. If you've changed your mind, ignore this email: we won't send another.</p>
+</body></html>`,
+  };
+}

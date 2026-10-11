@@ -9,6 +9,8 @@ import type {
   AdminShare,
   AdminStatusResponse,
   AdminUser,
+  AdminWaitlistInviteRequest,
+  AdminWaitlistResponse,
   UpdateAdminUserRequest,
 } from '@tangent/shared';
 import { AuthService } from '@tangent/web-shared';
@@ -21,6 +23,7 @@ import { HoldsPage } from './holds-page';
 import { PoolPage } from './pool-page';
 import { ReportsPage } from './reports-page';
 import { UsersPage } from './users-page';
+import { WaitlistPage } from './waitlist-page';
 
 const POOL: AdminPoolResponse = {
   enabled: true,
@@ -30,6 +33,17 @@ const POOL: AdminPoolResponse = {
   pendingCalls: 2,
   availableMicros: 12_000_000,
   breaker: { overageMicros: 0, maxMicros: 5_000_000, windowMs: 86_400_000, tripped: false },
+};
+
+const WAITLIST: AdminWaitlistResponse = {
+  entries: [
+    { email: 'early@example.com', createdAt: T, invitedAt: T },
+    { email: 'next@example.com', createdAt: T, invitedAt: null },
+    { email: 'later@example.com', createdAt: T, invitedAt: null },
+  ],
+  total: 3,
+  users: 19,
+  maxUsers: 20,
 };
 
 const ADA: AdminUser = {
@@ -144,6 +158,10 @@ function adminApi(pool: AdminPoolResponse = POOL, status: AdminStatusResponse = 
     adminRemoveShare: vi.fn(async () => ({ ...SHARE, takedown: 'removed' as const })),
     adminRestoreShare: vi.fn(async () => ({ ...SHARE, state: 'active' as const, takedown: null })),
     adminPoolUsage: vi.fn(async (_days: number) => ({ since: T, rows: [], ipKeys: [] })),
+    adminWaitlist: vi.fn(async () => WAITLIST),
+    adminWaitlistInvite: vi.fn(async (req: AdminWaitlistInviteRequest) => ({
+      invited: req.emails.length,
+    })),
   };
 }
 
@@ -313,6 +331,20 @@ describe('Admin: users', () => {
     await vi.waitFor(() =>
       expect(u.api.updateAdminUser).toHaveBeenCalledWith('u1', { membershipWaived: true }),
     );
+  });
+});
+
+describe('Admin: the waitlist', () => {
+  it('invites the oldest not yet invited, as many as there are free places', async () => {
+    const api = adminApi();
+    await render(WaitlistPage, { providers: appProviders(api) });
+    await screen.findByRole('region', { name: 'Waitlist' });
+    expect(screen.getByText('19 of 20 (MAX_USERS)')).toBeTruthy();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Invite the next 1' }));
+    expect(api.adminWaitlistInvite).toHaveBeenCalledExactlyOnceWith({
+      emails: ['next@example.com'],
+    });
+    expect((await screen.findByRole('status')).textContent).toContain('Invited 1.');
   });
 });
 

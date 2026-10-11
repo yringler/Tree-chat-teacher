@@ -87,6 +87,7 @@ describe('open sign-up', () => {
       devMode: false,
       social: { google: false, github: false },
       turnstileSiteKey: 'site-key',
+      signupsOpen: true,
     });
   });
 
@@ -406,6 +407,7 @@ const NOT_OWNED_DATA: Record<string, string> = {
   'POST /api/admin/shares/:shareId/hold': 'admins only (moderation-holds.test.ts)',
   'POST /api/admin/holds/:holdId/release': 'admins only (moderation-holds.test.ts)',
   'POST /api/admin/holds/:holdId/external-report': 'admins only (moderation-holds.test.ts)',
+  'DELETE /api/admin/waitlist/:email': 'admins only (waitlist.test.ts)',
   'GET /s/:token': 'public share page, by its unguessable token (share.test.ts)',
   'GET /s/:token/data.json': 'public share data, by its unguessable token (share.test.ts)',
   'GET /s/:token/report': 'public report form, by the share token (share-reports.test.ts)',

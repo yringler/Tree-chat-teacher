@@ -72,7 +72,7 @@ Commit the `.sql` and its `meta/` snapshot together. Never edit a migration that
 
 ## Sign-in
 
-[Better Auth](https://better-auth.com) with no passwords: Google, GitHub, a magic link by email, or a passkey. Anyone with a verified email can sign up; each user gets one account (`u_<userId>`), the same in power, Learn and Canvas. Without `BETTER_AUTH_SECRET`, every `/api/*` request answers 500 (fail closed). Rotating it signs everyone out.
+[Better Auth](https://better-auth.com) with no passwords: Google, GitHub, a magic link by email, or a passkey. Anyone with a verified email can sign up, until the deployment has `MAX_USERS` users ([configuration](configuration.md)); each user gets one account (`u_<userId>`), the same in power, Learn and Canvas. Without `BETTER_AUTH_SECRET`, every `/api/*` request answers 500 (fail closed). Rotating it signs everyone out.
 
 - **Magic links** go through Resend: verify your sending domain there and set `EMAIL_FROM` to an address on it. To use another email service, implement `EmailSender` (`apps/worker/src/email/`) and add a case to `createEmailSender`.
 - **Turnstile** protects the magic-link form, the one endpoint that sends email. Create a widget for your hostname, put its site key in `TURNSTILE_SITE_KEY` and its secret in `TURNSTILE_SECRET_KEY`. Without the secret, magic-link requests are refused.
@@ -205,7 +205,8 @@ The page lists users (newest first, searchable by email) and lets you:
 - see a user's credit balance and add or take back credit (**Credit**);
 - waive the membership (**Member**);
 - suspend or restore a user's open pool access (**Pool suspended**), and see who uses the pool most;
-- see the pool's balance, pending holds and the breaker, and top it up or correct it.
+- see the pool's balance, pending holds and the breaker, and top it up or correct it;
+- see the **Waitlist**: the people who asked, while sign-ups were closed by `MAX_USERS`, to hear when there's room. After raising `MAX_USERS` and deploying, **Invite the next N** emails the oldest not yet invited, as many as there are free places, a link to sign up (or **Invite** one person). An invite holds no place: whoever signs up first gets in. **Remove** takes someone off (a deletion request); signing up does that by itself.
 
 **Reports** from share pages wait in the **Reports** queue at the top of the page (undecided ones oldest first; **Show: All reports** for the rest), with the reporter's words, the share's state, how many people reported it, its owner and whether it is held. Review within 24 to 48 hours; CSAM and violent or illegal reports, which also email you, as soon as you see them. **Review** opens the conversation at `/admin/review/<shareId>` in a new tab (it shows a held copy once the share is gone, and every opening is logged); then decide, with optional notes:
 
