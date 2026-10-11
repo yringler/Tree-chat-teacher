@@ -21,20 +21,24 @@ const SOURCES = import.meta.glob('../src/**/*.{ts,tsx}', {
 }) as Record<string, string>;
 
 interface WranglerBindings {
+  routes?: { pattern: string }[];
   assets?: { binding?: string };
-  d1_databases?: { binding: string }[];
-  durable_objects?: { bindings: { name: string }[] };
-  ratelimits?: { name: string }[];
+  d1_databases?: { binding: string; database_id: string }[];
+  durable_objects?: { bindings: { name: string; class_name: string }[] };
+  ratelimits?: { name: string; namespace_id: string; simple: unknown }[];
 }
+
+const wrangler = JSON.parse(stripJsonc(wranglerText as string)) as WranglerBindings & {
+  env?: Record<string, WranglerBindings>;
+};
 
 /** The binding names wrangler.jsonc declares: what env holds besides vars and secrets. */
 function bindingNames(): Set<string> {
-  const c = JSON.parse(stripJsonc(wranglerText as string)) as WranglerBindings;
   return new Set([
-    ...(c.assets?.binding ? [c.assets.binding] : []),
-    ...(c.d1_databases ?? []).map((d) => d.binding),
-    ...(c.durable_objects?.bindings ?? []).map((d) => d.name),
-    ...(c.ratelimits ?? []).map((r) => r.name),
+    ...(wrangler.assets?.binding ? [wrangler.assets.binding] : []),
+    ...(wrangler.d1_databases ?? []).map((d) => d.binding),
+    ...(wrangler.durable_objects?.bindings ?? []).map((d) => d.name),
+    ...(wrangler.ratelimits ?? []).map((r) => r.name),
   ]);
 }
 
@@ -59,23 +63,69 @@ describe('env reads', () => {
   });
 });
 
-describe('wrangler.jsonc', () => {
-  // Polar's settings only count while its secrets are set.
-  const base = () => shippedEnv(env, { POLAR_ACCESS_TOKEN: 'oat', POLAR_WEBHOOK_SECRET: 'whsec' });
+/** `env` as wrangler.jsonc deploys it; Polar's settings only count while its secrets are set. */
+const base = (environment?: string) =>
+  shippedEnv(env, { POLAR_ACCESS_TOKEN: 'oat', POLAR_WEBHOOK_SECRET: 'whsec' }, environment);
 
-  it('sets only vars config.ts reads, and no secret', () => {
-    for (const name of Object.keys(shippedVars())) {
-      expect(CONFIG_VARS, name).toContain(name);
-      expect(CONFIG_SECRETS.has(name as (typeof CONFIG_VARS)[number]), name).toBe(false);
-    }
+describe('wrangler.jsonc', () => {
+  for (const environment of [undefined, 'sandbox']) {
+    const label = environment ?? 'production';
+
+    it(`${label} sets only vars config.ts reads, and no secret`, () => {
+      for (const name of Object.keys(shippedVars(environment))) {
+        expect(CONFIG_VARS, name).toContain(name);
+        expect(CONFIG_SECRETS.has(name as (typeof CONFIG_VARS)[number]), name).toBe(false);
+      }
+    });
+
+    it(`${label} sets only values that differ from the default`, () => {
+      const shipped = JSON.stringify(appConfig(base(environment)));
+      for (const name of Object.keys(shippedVars(environment))) {
+        const defaulted = JSON.stringify(appConfig({ ...base(environment), [name]: '' } as AppEnv));
+        expect(defaulted, `${name} restates its default`).not.toBe(shipped);
+      }
+    });
+
+    it(`${label} serves PUBLIC_BASE_URL's hostname`, () => {
+      const routes = (environment === undefined ? wrangler : wrangler.env?.[environment])?.routes;
+      const host = new URL(shippedVars(environment).PUBLIC_BASE_URL!).hostname;
+      expect(routes?.map((r) => r.pattern)).toEqual([host]);
+    });
+  }
+});
+
+// wrangler never inherits bindings or vars into an `env`, so the sandbox restates them all.
+describe('wrangler.jsonc env.sandbox', () => {
+  const sandbox = wrangler.env?.sandbox ?? {};
+  const doBindings = (c: WranglerBindings) =>
+    (c.durable_objects?.bindings ?? []).map((b) => `${b.name}:${b.class_name}`).sort();
+  const limits = (c: WranglerBindings) =>
+    (c.ratelimits ?? []).map((r) => ({ name: r.name, simple: r.simple }));
+
+  it('has every binding production has, with the same limits', () => {
+    expect(sandbox.d1_databases?.map((d) => d.binding)).toEqual(
+      wrangler.d1_databases?.map((d) => d.binding),
+    );
+    expect(doBindings(sandbox)).toEqual(doBindings(wrangler));
+    expect(limits(sandbox)).toEqual(limits(wrangler));
   });
 
-  it('sets only values that differ from the default', () => {
-    const shipped = JSON.stringify(appConfig(base()));
-    for (const name of Object.keys(shippedVars())) {
-      const defaulted = JSON.stringify(appConfig({ ...base(), [name]: '' } as AppEnv));
-      expect(defaulted, `${name} restates its default`).not.toBe(shipped);
-    }
+  it("shares neither production's database, rate-limit counters nor hostname", () => {
+    const ids = (c: WranglerBindings) => (c.d1_databases ?? []).map((d) => d.database_id);
+    const namespaces = (c: WranglerBindings) => (c.ratelimits ?? []).map((r) => r.namespace_id);
+    const hosts = (c: WranglerBindings) => (c.routes ?? []).map((r) => r.pattern);
+    for (const pick of [ids, namespaces, hosts])
+      for (const value of pick(sandbox)) expect(pick(wrangler)).not.toContain(value);
+  });
+
+  it('sets every var production sets, but POLAR_SERVER', () => {
+    // POLAR_SERVER's default is the Polar sandbox.
+    const expected = Object.keys(shippedVars()).filter((name) => name !== 'POLAR_SERVER');
+    expect(Object.keys(shippedVars('sandbox')).sort()).toEqual(expected.sort());
+  });
+
+  it('pays through the Polar sandbox', () => {
+    expect(appConfig(base('sandbox')).payments.polar?.server).toBe('sandbox');
   });
 });
 

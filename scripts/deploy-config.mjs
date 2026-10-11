@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Writes apps/worker/wrangler.deploy.json: apps/worker/wrangler.jsonc without its `build` key, for
-// the deploy job in .github/workflows/ci.yml. `wrangler deploy` runs build.command before every
-// upload and has no flag to skip it; with this config it uploads the apps/worker/site the job
+// Writes apps/worker/wrangler.deploy.json: apps/worker/wrangler.jsonc without its `build` key (which
+// every `env` inherits), for the deploy job in .github/workflows/deploy.yml. `wrangler deploy` runs
+// build.command before every upload and has no flag to skip it; with this config it uploads the apps/worker/site the job
 // already built and checked, and the Cloudflare token never shares a process tree with the apps'
 // build toolchain. Written next to wrangler.jsonc, so its relative paths still resolve.
 import { readFileSync, writeFileSync } from 'node:fs';

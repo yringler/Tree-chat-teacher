@@ -64,7 +64,7 @@ pnpm e2e            # Playwright against wrangler dev on port 8790
 
 `pnpm e2e` builds every app and starts its own `wrangler dev` on port 8790, apart from `pnpm dev`'s 8787, with a fresh database and config in `apps/e2e/.state/` (your `.dev.vars` and local database are never read). On a new machine install Chromium once (`pnpm --filter @tangent/e2e exec playwright install chromium`, or set `PLAYWRIGHT_CHROMIUM_PATH`). If port 8790 is taken, set `E2E_PORT`. While writing tests, run `node apps/e2e/serve.mjs` in one terminal and `E2E_REUSE_SERVER=1 pnpm e2e` in another to skip the rebuild. Sign-in in the tests is the real magic-link flow, so a run needs network access for Turnstile's test keys.
 
-CI (`.github/workflows/ci.yml`) runs the checks and the end-to-end tests on every pull request to `master`, and deploys `master` once both pass.
+CI (`.github/workflows/ci.yml`) runs the checks and the end-to-end tests on every pull request to `master`, and deploys `master` once both pass: to the private sandbox, then to production ([operating.md](docs/operating.md#the-sandbox)).
 
 ## Repository map
 

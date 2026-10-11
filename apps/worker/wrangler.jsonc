@@ -144,4 +144,88 @@
     // V4.1 Flash at its pinned providers' price, which wins over the daily sync's list price.
     "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
   },
+  // The private sandbox: `--env sandbox` deploys the Worker "tangent-sandbox", with its own
+  // database, Durable Objects, secrets and Polar sandbox, behind Cloudflare Access
+  // (docs/operating.md, "The sandbox"). It inherits everything above but the keys below, which
+  // wrangler never inherits; a test checks it keeps every binding and production var.
+  "env": {
+    "sandbox": {
+      "routes": [
+        {
+          "pattern": "sandbox.tangentailearning.com",
+          "custom_domain": true,
+        },
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tangent-sandbox",
+          "database_id": "15fe7251-905c-4fa6-8563-60e4fb885c87",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "TREE_SESSION",
+            "class_name": "TreeSession",
+          },
+          {
+            "name": "POOL_BANK",
+            "class_name": "PoolBank",
+          },
+        ],
+      },
+      // Its own namespaces, so sandbox traffic never counts against production's limits.
+      "ratelimits": [
+        {
+          "name": "SHARE_RATE_LIMITER",
+          "namespace_id": "2001",
+          "simple": {
+            "limit": 120,
+            "period": 60,
+          },
+        },
+        {
+          "name": "CHAT_RATE_LIMITER",
+          "namespace_id": "2002",
+          "simple": {
+            "limit": 30,
+            "period": 60,
+          },
+        },
+        {
+          "name": "KEY_RATE_LIMITER",
+          "namespace_id": "2003",
+          "simple": {
+            "limit": 10,
+            "period": 60,
+          },
+        },
+        {
+          "name": "IMPORT_RATE_LIMITER",
+          "namespace_id": "2004",
+          "simple": {
+            "limit": 10,
+            "period": 60,
+          },
+        },
+      ],
+      // POLAR_SERVER stays at its default, sandbox; the product ids are the Polar sandbox's.
+      "vars": {
+        "PUBLIC_BASE_URL": "https://sandbox.tangentailearning.com",
+        "EMAIL_FROM": "Tangent sandbox <login@email.tangentailearning.com>",
+        "LEGAL_OPERATOR": "Yehuda Ringler",
+        "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
+        "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
+        "POLAR_CREDITS_PRODUCT_ID": "29791ebf-f51e-4e2f-9df4-832f3b841b17",
+        "POLAR_MEMBERSHIP_PRODUCT_ID": "c311f9b3-b604-42bd-86a7-12239eb9cbd2",
+        "ANNUAL_FEE_ENABLED": "true",
+        "POOL_ENABLED": "true",
+        "MAX_USERS": "5",
+        "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
+      },
+    },
+  },
 }
