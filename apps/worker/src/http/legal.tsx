@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { Child } from 'hono/jsx';
 import type { AppBindings } from '../env.js';
 import { POOL_IDENTITY_RETENTION_DAYS } from '../pool/identity.js';
+import { STRIKES_TO_SUSPEND } from '../share/review.js';
 import { joinList } from './copy.js';
 import { hostedAi, type HostedAi } from './hosted-ai.js';
 import { pageResponse } from './layout.js';
@@ -513,9 +514,11 @@ function TermsOfService(props: { info: LegalInfo }) {
       <p>
         You keep all rights to what you write, and, as far as we're concerned, to the replies
         generated for you. You give us the permission we need to run the service: to store your
-        content, send it to the AI provider that writes the reply, and show it to the people you
-        share it with. That permission ends when you delete the content, except for copies already
-        shared or cached as the privacy policy describes.
+        content and send it to the AI provider that writes the reply. When you publish a share link,
+        you also give us a worldwide, non-exclusive, royalty-free license to host, copy and display
+        that conversation to anyone who has the link. These permissions end when you delete the
+        content or revoke the link, except for copies already shared or cached, and copies we must
+        keep as evidence, as the privacy policy describes.
       </p>
       <p>
         You are responsible for your content and for any share link you publish. Only share what you
@@ -523,30 +526,46 @@ function TermsOfService(props: { info: LegalInfo }) {
         {!info.sharing &&
           ' Share links are available only to accounts we enable them for. Anyone can export a conversation and share the file; where you put it is up to you, and so is the responsibility for it.'}
       </p>
+      <p>
+        {info.screening &&
+          'Before a share link is published, an automated classifier screens its text, and we may refuse to publish it without saying why. '}
+        Anyone who opens a shared conversation can report it. We may take it down while we review a
+        report, and remove it if it breaks these terms or the law. A shared page says that its
+        replies are AI-generated and that a user, not Tangent, shared it.
+      </p>
 
       <h2>5. Acceptable use</h2>
       <p>Don't use Tangent to:</p>
       <ul>
-        <li>break the law or infringe anyone's rights, including copyright and privacy;</li>
         <li>
-          create or share sexual content involving minors, content that harasses, threatens or
-          incites violence against people, or malware;
+          break the law, or create or share content that infringes anyone's rights, including
+          copyright and privacy;
+        </li>
+        <li>
+          create or share sexual content involving minors, content that harasses or threatens
+          people, or incites violence against them, or malware;
+        </li>
+        <li>plan or prepare violence against anyone;</li>
+        <li>
+          post other people's personal information, such as their home address, phone number or
+          identity documents, without their permission (doxxing);
         </li>
         <li>
           break the usage policies of the AI provider handling your request (for example
           OpenRouter's and the model maker's);
         </li>
         <li>
-          get around rate limits, billing or security, probe other users' data, or overload the
-          service;
+          get around rate limits, billing or security, the screening of share links or the limits on
+          them (for example with more accounts or by rewording what was refused), probe other users'
+          data, or overload the service;
         </li>
         <li>
           resell access, or use automated means to scrape or bulk-generate content outside the app.
         </li>
       </ul>
       <p>
-        We may remove content or suspend accounts that break these rules, and report illegal content
-        to the authorities.
+        We may remove content, turn off sharing for an account or suspend accounts that break these
+        rules, and report illegal content to the authorities.
       </p>
 
       <h2>6. Your own API keys</h2>
@@ -604,8 +623,13 @@ function TermsOfService(props: { info: LegalInfo }) {
         {contact} with: your contact details, the work you claim is infringed, the share link, a
         statement that you believe in good faith the use isn't authorized, and a statement under
         penalty of perjury that your notice is accurate and that you are the owner or authorized to
-        act for them, with your physical or electronic signature. We remove infringing content and
-        close the accounts of repeat infringers.
+        act for them, with your physical or electronic signature. You can also report the link from
+        the shared page; a link reported for copyright is taken down while we review it.
+      </p>
+      <p>
+        We remove infringing content, and we act against repeat infringers: once we have removed{' '}
+        {STRIKES_TO_SUSPEND} of your share links after reports, sharing is turned off for your
+        account, and we may close the accounts of repeat infringers.
       </p>
 
       <h2>9. Our rights</h2>
@@ -627,9 +651,10 @@ function TermsOfService(props: { info: LegalInfo }) {
 
       <h2>11. Ending the agreement</h2>
       <p>
-        You can stop at any time and delete your account. We may suspend or close your account if
-        you break these terms or if the law requires it, and will tell you why unless the law
-        forbids it.
+        You can stop at any time and delete your account. We may suspend or close your account, or
+        turn off sharing for it, if you break these terms or if the law requires it. We will tell
+        you why, unless the law forbids it or telling you could harm an investigation, ours or the
+        authorities'.
       </p>
 
       <h2>12. Disclaimers</h2>

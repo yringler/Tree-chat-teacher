@@ -28,7 +28,7 @@ import { pendingReportsTakeDown, setTakedown } from './reports.js';
  * owner's sharing. Counted by share, so several reports of one conversation
  * are one strike.
  */
-const STRIKES_TO_SUSPEND = 2;
+export const STRIKES_TO_SUSPEND = 2;
 
 type ReportRow = SqlRow<typeof shareReports>;
 type ShareRef = Pick<Share, 'id' | 'token' | 'accountId' | 'version' | 'takedown'>;
