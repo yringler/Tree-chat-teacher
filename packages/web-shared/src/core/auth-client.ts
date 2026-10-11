@@ -2,7 +2,7 @@ import { InjectionToken } from '@angular/core';
 import { passkeyClient } from '@better-auth/passkey/client';
 import { createAuthClient } from 'better-auth/client';
 import { magicLinkClient } from 'better-auth/client/plugins';
-import { AUTH_BASE_PATH } from '@tangent/shared';
+import { AUTH_BASE_PATH, SIGNUPS_CLOSED } from '@tangent/shared';
 
 /**
  * Better Auth's browser client for `/api/auth/*`, with the plugins the
@@ -32,5 +32,14 @@ export function authErrorMessage(error: {
   code?: string | undefined;
 }): string {
   if (error.status === 429) return 'Too many attempts. Wait a minute and try again.';
+  if (error.code === SIGNUPS_CLOSED) return signupsClosedMessage();
   return error.message || 'Something went wrong. Please try again.';
+}
+
+/** Why a new account was refused while the deployment is at its user cap. */
+export function signupsClosedMessage(brand = 'Tangent'): string {
+  return (
+    `${brand} is full for now and isn't taking new accounts. To hear when it opens up, ` +
+    `email admin@${location.hostname}. Already signed up? Sign in the way you did before.`
+  );
 }
