@@ -8,6 +8,8 @@ Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in
 
 Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. They are views of the same conversations, so a conversation can be opened in any of them: with one open, the switch opens it, on the same branch, in the other app. Learn replies on its own models: a branch on a provider or model Learn doesn't offer is answered by Normal there (or the open pool's model), and keeps its own model in power. Picking a model in Learn moves the branch onto it.
 
+Tangent is in beta: a notice at the top of each app asks you to report problems to `admin@` the site's domain. Closing it hides it for a day in that browser.
+
 ## How Tangent answers
 
 New conversations in both apps start with the same built-in system prompt: it answers the question asked, directly and in depth, and never quizzes you. Whatever you don't follow, you branch into. Every substantive reply ends with two to four suggested **tangents** (shown as buttons under the reply, **Where next?**); clicking one opens a branch titled after it and asks it.

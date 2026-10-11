@@ -3,6 +3,7 @@ import { RouterOutlet } from '@angular/router';
 import {
   ApiClient,
   APP_PATHS,
+  BetaBanner,
   AuthService,
   DEMO_MODE,
   Modal,
@@ -33,6 +34,7 @@ import { LearnFunding } from './state/learn-funding';
   imports: [
     RouterOutlet,
     AppHeader,
+    BetaBanner,
     ModelAccessDialog,
     PasskeysDialog,
     DeleteAccountDialog,
@@ -57,6 +59,8 @@ import { LearnFunding } from './state/learn-funding';
             <span><strong>Demo:</strong> replies are generated nonsense and nothing is saved.</span>
             <a class="demo-banner-cta" [href]="signupUrl">Start learning for real</a>
           </p>
+        } @else {
+          <app-beta-banner />
         }
         <div class="shell-body">
           <aside class="sidebar" id="sidebar" aria-label="Lessons">

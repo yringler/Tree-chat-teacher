@@ -1,6 +1,13 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { ApiClient, APP_PATHS, AuthService, DEMO_MODE, Toasts } from '@tangent/web-shared';
+import {
+  ApiClient,
+  APP_PATHS,
+  AuthService,
+  BetaBanner,
+  DEMO_MODE,
+  Toasts,
+} from '@tangent/web-shared';
 import { DEMO_SIGNUP_URL } from './brand';
 import { Keyboard } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
@@ -12,7 +19,7 @@ import { UiStore } from './state/ui-store';
 /** The canvas shell, served under /canvas/. */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, AppHeader, DialogHost, Toasts],
+  imports: [RouterOutlet, AppHeader, BetaBanner, DialogHost, Toasts],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loginPage) {
@@ -25,7 +32,10 @@ import { UiStore } from './state/ui-store';
             <span><strong>Demo:</strong> replies are generated nonsense and nothing is saved.</span>
             <a class="banner-cta" [href]="signupUrl">Sign in to use it for real</a>
           </p>
-        } @else if (!ui.experimentalAck()) {
+        } @else {
+          <app-beta-banner />
+        }
+        @if (!demo && !ui.experimentalAck()) {
           <p class="banner banner-experimental" role="note">
             <span>
               <strong>Experimental.</strong> Canvas shows your Power-mode conversations as a map,

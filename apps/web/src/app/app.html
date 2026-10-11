@@ -14,6 +14,8 @@
           <span><strong>Demo:</strong> replies are generated nonsense and nothing is saved.</span>
           <a class="demo-banner-cta" [href]="signupUrl">Sign in for real</a>
         </p>
+      } @else {
+        <app-beta-banner />
       }
       <router-outlet />
     </main>
