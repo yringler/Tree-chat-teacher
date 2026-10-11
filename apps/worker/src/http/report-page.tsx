@@ -1,5 +1,6 @@
 import { REPORT_CATEGORIES, type ReportCategory, type Share } from '@tangent/shared';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import type { Child } from 'hono/jsx';
 import { z } from 'zod';
 import { authBaseUrl, turnstileHostname, type AuthDeps } from '../auth/auth.js';
@@ -27,6 +28,12 @@ import { REPORT_STYLE } from './page-styles.js';
  */
 
 const DETAILS_MAX = 4000;
+/**
+ * The largest form body read: the fields at their longest, percent-encoded,
+ * and Turnstile's token fit well inside it. Anything bigger isn't a report,
+ * and a refused form echoes back what was typed.
+ */
+const BODY_MAX_BYTES = 64 * 1024;
 /** The Turnstile widget's action on the report form. */
 const REPORT_ACTION = 'share-report';
 
@@ -182,7 +189,11 @@ export function reportPageRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
     return formPage(c, { category: '', details: '', email: '' }, null);
   });
 
-  r.post('/:token/report', sameOriginOnly, async (c) => {
+  const limited = bodyLimit({
+    maxSize: BODY_MAX_BYTES,
+    onError: (c) => c.text('This report is too large.', 413, { 'Cache-Control': 'no-store' }),
+  });
+  r.post('/:token/report', sameOriginOnly, limited, async (c) => {
     if (!(await checkShareRateLimit(c.env, c.req.raw))) return rateLimitedSharePage();
     const share = await reportable(c, c.req.param('token'));
     if (!share) return goneSharePage();

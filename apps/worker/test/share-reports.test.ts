@@ -181,6 +181,13 @@ describe('the report form', () => {
     expect(await refused({ category: 'spam', details: 'x' })).toContain('Choose');
     expect(await refused({ category: 'other', details: '   ' })).toContain('Say what is wrong');
     expect(await refused({ category: 'other', details: 'x'.repeat(4001) })).toContain('4,000');
+    // A body far past what the form can hold is refused before it is read, not echoed back.
+    const huge = await postReport(anon, share.token, {
+      category: 'other',
+      details: 'x'.repeat(200_000),
+    });
+    expect(huge.status).toBe(413);
+    expect(await huge.text()).not.toContain('xxxx');
     expect(await refused({ category: 'other', details: 'x', email: 'not-an-email' })).toContain(
       'email',
     );
