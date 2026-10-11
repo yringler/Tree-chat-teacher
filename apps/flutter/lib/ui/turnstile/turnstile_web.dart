@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
@@ -26,14 +27,32 @@ extension type _Options._(JSObject _) implements JSObject {
   external set errorCallback(JSFunction value);
 }
 
+/// The app's CSP enforces Trusted Types, so the script's URL goes through a
+/// policy the CSP names (`tangent-turnstile`) that passes Turnstile's URL
+/// only. Browsers without Trusted Types take the plain string. A policy name
+/// can be created once per page, hence the lazy final.
+final JSAny _trustedScriptUrl = web.window.has('trustedTypes')
+    ? web.window.trustedTypes
+          .createPolicy(
+            'tangent-turnstile',
+            web.TrustedTypePolicyOptions(
+              createScriptURL:
+                  ((String url, JSAny? _) => url == _scriptUrl
+                          ? url
+                          : throw ArgumentError.value(url))
+                      .toJS,
+            ),
+          )
+          .createScriptURL(_scriptUrl, null)
+    : _scriptUrl.toJS;
+
 Future<void>? _script;
 
 /// Loads Turnstile's script once per page.
 Future<void> _loadScript() => _script ??= () {
   final loaded = Completer<void>();
-  final script = web.HTMLScriptElement()
-    ..src = _scriptUrl
-    ..async = true;
+  final script = web.HTMLScriptElement()..async = true;
+  script.setProperty('src'.toJS, _trustedScriptUrl);
   script
     ..addEventListener('load', ((web.Event _) => loaded.complete()).toJS)
     ..addEventListener(

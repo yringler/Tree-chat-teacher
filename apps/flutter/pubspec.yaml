@@ -76,25 +76,21 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
-  # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
-  # example:
-  # fonts:
-  #   - family: Schyler
-  #     fonts:
-  #       - asset: fonts/Schyler-Regular.ttf
-  #       - asset: fonts/Schyler-Italic.ttf
-  #         style: italic
-  #   - family: Trajan Pro
-  #     fonts:
-  #       - asset: fonts/TrajanPro.ttf
-  #       - asset: fonts/TrajanPro_Bold.ttf
-  #         weight: 700
-  #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/to/font-from-package
+  # Material's text font, served with the app: Flutter's web build otherwise
+  # ships only Roboto Regular (medium text looks regular, bold is a thickened
+  # regular), and the CSP keeps the engine from fetching fonts from
+  # fonts.gstatic.com. The
+  # files are the Regular, Medium and Bold instances (wdth 100) of Google
+  # Fonts' variable Roboto, cut with `fonttools varLib.instancer --static`;
+  # assets/fonts/OFL.txt is their license.
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
 
 # `dart run flutter_launcher_icons` regenerates every platform's icons from
 # these, which are the brand mark (apps/web/public/favicon.svg) at 1024px.
