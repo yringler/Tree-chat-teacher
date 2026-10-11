@@ -84,7 +84,8 @@ app-root {
   content: ' →';
 }
 
-.demo-banner ~ .page {
+.demo-banner ~ .page,
+app-beta-banner ~ .page {
   flex: 1 1 0;
   height: auto;
 }

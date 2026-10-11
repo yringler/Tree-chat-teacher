@@ -4,6 +4,7 @@ import {
   ApiClient,
   APP_PATHS,
   AuthService,
+  BetaBanner,
   DEMO_MODE,
   SidebarState,
   Toasts,
@@ -16,7 +17,7 @@ import { TreeStore } from './state/tree-store';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, Sidebar, DialogHost, Toasts],
+  imports: [RouterOutlet, BetaBanner, Sidebar, DialogHost, Toasts],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
   host: { '(document:keydown)': 'loginPage || keyboard.handle($event)' },
