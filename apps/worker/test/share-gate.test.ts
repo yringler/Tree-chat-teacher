@@ -224,7 +224,7 @@ describe('the audit log', () => {
       await user.call(`/api/shares/${share.id}`, { method: 'PATCH', json: { title: 'T2' } }, e),
     );
     await ok(await user.call(`/api/shares/${share.id}/republish`, { method: 'POST' }, e));
-    await ok(await admin.call(`/api/admin/shares/${share.id}/revoke`, { method: 'POST' }, e));
+    await ok(await admin.call(`/api/admin/shares/${share.id}/remove`, { method: 'POST' }, e));
     expect((await user.call(`/api/shares/${share.id}`, { method: 'DELETE' }, e)).status).toBe(204);
 
     const rows = await auditOf(share.id);
@@ -235,7 +235,7 @@ describe('the audit log', () => {
       ['share_updated', 'user', user.id, user.id],
       ['share_screened', 'system', null, user.id],
       ['share_republished', 'user', user.id, user.id],
-      ['share_revoked', 'admin', admin.id, user.id],
+      ['share_takedown', 'admin', admin.id, user.id],
       ['share_deleted', 'user', user.id, user.id],
     ]);
     expect(JSON.parse(rows[5]!.data!)).toEqual({ version: 2, scope: 'tree' });

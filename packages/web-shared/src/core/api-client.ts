@@ -6,6 +6,8 @@ import {
   type AdminHoldReportRequest,
   type AdminPlaceHoldRequest,
   type AdminReleaseHoldRequest,
+  type AdminReportsQuery,
+  type AdminResolveReportRequest,
   type ApiError as ApiErrorBody,
   type ApiErrorCode,
   type ApiRoute,
@@ -251,8 +253,18 @@ export class ApiClient {
   adminPoolUsage = (days?: number) =>
     this.call(R.adminPoolUsage, { query: { days: days || undefined } });
   adminUserShares = (userId: string) => this.call(R.adminUserShares, { params: { userId } });
-  /** Revokes any user's share (a takedown). */
-  adminRevokeShare = (shareId: string) => this.call(R.adminRevokeShare, { params: { shareId } });
+  /** The moderation audit log about a user, newest first. */
+  adminUserEvents = (userId: string, cursor?: string | null) =>
+    this.call(R.adminUserEvents, { params: { userId }, query: { cursor: cursor || null } });
+  /** Takes any user's share down for good (a takedown). */
+  adminRemoveShare = (shareId: string) => this.call(R.adminRemoveShare, { params: { shareId } });
+  /** Puts a taken-down share back up. */
+  adminRestoreShare = (shareId: string) => this.call(R.adminRestoreShare, { params: { shareId } });
+  /** Reports from share pages: the undecided ones oldest first, or all newest first. */
+  adminReports = (status: AdminReportsQuery['status'] = 'pending', cursor?: string | null) =>
+    this.call(R.adminReports, { query: { status, cursor: cursor || null } });
+  adminResolveReport = (reportId: string, req: AdminResolveReportRequest) =>
+    this.call(R.adminResolveReport, { params: { reportId }, body: req });
   /** Every legal hold's metadata, newest first. */
   adminHolds = () => this.call(R.adminHolds);
   /** Preserves a share, its conversation and its owner's account details. */

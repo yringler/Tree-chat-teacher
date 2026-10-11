@@ -2,8 +2,9 @@
 // sessions, preserved for law enforcement in `legal_holds` and
 // `legal_hold_items`. Neither table has a foreign key to shares, trees or
 // users, so revoking, deleting the conversation or deleting the account
-// leaves the copies; only `releaseHold` removes them. No route returns the
-// copies: the operator reads them with `wrangler d1 execute`
+// leaves the copies; only `releaseHold` removes them. No API route returns
+// the copies; the admin review page shows a held snapshot (`heldSnapshot`),
+// and the operator reads the rest with `wrangler d1 execute`
 // (docs/runbooks/csam.md).
 import { ConflictError, NotFoundError } from '@tangent/core';
 import type {
@@ -252,6 +253,27 @@ export async function recordHoldReport(
     },
     now,
   ).run();
+}
+
+/**
+ * The conversation an unreleased hold of the share kept (the newest that kept
+ * one), as stored JSON, or null. The one read of a held copy, for the admin
+ * review page (http/review-page.ts) once the share itself is gone.
+ */
+export async function heldSnapshot(db: D1Database, shareId: string): Promise<string | null> {
+  const { results } = await db
+    .prepare(
+      `SELECT data FROM legal_hold_items
+       WHERE kind = 'snapshot' AND hold_id = (
+         SELECT h.id FROM legal_holds h
+         WHERE h.share_id = ?1 AND h.released_at IS NULL
+           AND EXISTS (SELECT 1 FROM legal_hold_items i WHERE i.hold_id = h.id AND i.kind = 'snapshot')
+         ORDER BY h.created_at DESC, h.id DESC LIMIT 1)
+       ORDER BY chunk`,
+    )
+    .bind(shareId)
+    .all<Pick<SqlRow<typeof legalHoldItems>, 'data'>>();
+  return results.length > 0 ? results.map((r) => r.data).join('') : null;
 }
 
 /** One hold's metadata. */

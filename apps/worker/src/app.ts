@@ -14,6 +14,7 @@ import { legalRoutes } from './http/legal.js';
 import { poolPageRoutes } from './http/pool-page.js';
 import { pricingPageRoutes } from './http/pricing-page.js';
 import { reportPageRoutes } from './http/report-page.js';
+import { reviewPageRoutes } from './http/review-page.js';
 import { verifyPageRoutes } from './http/verify-page.js';
 import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
@@ -44,7 +45,8 @@ export interface AppOptions {
  *   `/s/:token/report` (http/report-page.tsx).
  * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
  *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
- *   (http/learn-app.ts).
+ *   (http/learn-app.ts), but for `/admin/review/:shareId`, the reported
+ *   conversation an admin decides on (http/review-page.ts).
  * - `/privacy` and `/terms` are the public legal pages (http/legal.tsx), and
  *   `/pool` explains the open pool (http/pool-page.tsx) and `/pricing`
  *   what each plan gets you (http/pricing-page.tsx).
@@ -97,6 +99,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.route('/s', shareRoutes());
   app.route('/', learnAppRoutes());
   app.route('/', canvasAppRoutes());
+  app.route('/', reviewPageRoutes(options.auth));
   app.route('/', adminAppRoutes(options.auth));
   app.route('/', legalRoutes());
   app.route('/', poolPageRoutes());

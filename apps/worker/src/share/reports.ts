@@ -145,6 +145,25 @@ export async function fileReport(
   return { reportId, takenDown };
 }
 
+/**
+ * Whether the share's undecided reports alone would take it down, as
+ * `fileReport` does: one in `TAKEDOWN_AT_ONCE`, or `INDEPENDENT_REPORTS`
+ * reporters in `TAKEDOWN_ON_SECOND`. Rejecting one report puts the share
+ * back up only when this is false.
+ */
+export async function pendingReportsTakeDown(db: D1Database, shareId: string): Promise<boolean> {
+  const atOnce = [...TAKEDOWN_AT_ONCE];
+  const row = await db
+    .prepare(
+      `SELECT EXISTS (SELECT 1 FROM share_reports
+         WHERE share_id = ?1 AND resolution = 'pending'
+           AND category IN (${atOnce.map((_, i) => `?${i + 2}`).join(', ')})) AS n`,
+    )
+    .bind(shareId, ...atOnce)
+    .first<{ n: number }>();
+  return row?.n === 1 || (await independentReports(db, shareId)) >= INDEPENDENT_REPORTS;
+}
+
 /** Distinct reporters of the share's pending `TAKEDOWN_ON_SECOND` reports. */
 async function independentReports(db: D1Database, shareId: string): Promise<number> {
   const row = await db

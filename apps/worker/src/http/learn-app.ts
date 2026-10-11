@@ -54,7 +54,7 @@ function withHeaders(res: Response, csp: string, noStore = false): Response {
   return out;
 }
 
-function notFoundPage(): Response {
+export function notFoundPage(): Response {
   return withHeaders(new Response('Not found', { status: 404 }), LEARN_APP_CSP);
 }
 

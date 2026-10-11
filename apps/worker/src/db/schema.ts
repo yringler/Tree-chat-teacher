@@ -1,6 +1,7 @@
 import {
   LEGAL_HOLD_REASONS,
   REPORT_CATEGORIES,
+  REPORT_RESOLUTIONS,
   SHARE_TAKEDOWNS,
   type NodeErrorKind,
   type SubscriptionStatus,
@@ -275,9 +276,7 @@ export const shareReports = sqliteTable(
     reporterKey: text('reporter_key'),
     reporterUserId: text('reporter_user_id'),
     createdAt: text('created_at').notNull(),
-    resolution: text('resolution', { enum: ['pending', 'actioned', 'rejected'] })
-      .notNull()
-      .default('pending'),
+    resolution: text('resolution', { enum: REPORT_RESOLUTIONS }).notNull().default('pending'),
     resolvedAt: text('resolved_at'),
     /** The admin's user id. */
     resolvedBy: text('resolved_by'),

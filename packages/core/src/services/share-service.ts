@@ -170,6 +170,11 @@ export class ShareService {
     return this.summarize(updated);
   }
 
+  /** One of the account's shares. */
+  async get(shareId: string): Promise<ShareSummary> {
+    return this.summarize(await this.requireOwnedShare(shareId));
+  }
+
   /** Sets revokedAt and deletes the stored snapshot. Idempotent. */
   async revoke(shareId: string): Promise<ShareSummary> {
     const share = await this.requireOwnedShare(shareId);

@@ -1,3 +1,5 @@
+import type { ShareSummary } from './api.js';
+import type { ShareTakedown } from './domain.js';
 import { z } from './zod.js';
 
 /**
@@ -56,6 +58,16 @@ export interface AdminUser {
   membershipWaived: boolean;
   /** The user has a paid membership subscription that counts (active, trialing or past due). */
   membershipPaid: boolean;
+  /**
+   * The user may not publish, and their links don't open
+   * (`auth_users.sharing_suspended`): set here, or by the strike rule when a
+   * second of their shares is removed after a report.
+   */
+  sharingSuspended: boolean;
+  /** The user's shares an admin removed (`takedown = 'removed'`). */
+  removedShares: number;
+  /** Reports of the user's shares no admin has decided yet. */
+  openReports: number;
 }
 
 /** `GET /api/admin/users`, newest sign-up first. */
@@ -72,12 +84,15 @@ export const updateAdminUserRequestSchema = z
     poolSuspended: z.boolean().optional(),
     /** Makes the user a member without a payment (or takes that back; a paid membership stays). */
     membershipWaived: z.boolean().optional(),
+    /** Stops the user publishing and takes their links down (or lifts that). */
+    sharingSuspended: z.boolean().optional(),
   })
   .refine(
     (r) =>
       r.shareAllowed !== undefined ||
       r.poolSuspended !== undefined ||
-      r.membershipWaived !== undefined,
+      r.membershipWaived !== undefined ||
+      r.sharingSuspended !== undefined,
     { message: 'Nothing to update' },
   );
 export type UpdateAdminUserRequest = z.infer<typeof updateAdminUserRequestSchema>;
@@ -95,6 +110,11 @@ export interface AdminStatusResponse {
    * sells it). False: nobody needs one, so a waiver changes nothing until it is.
    */
   membershipRequired: boolean;
+  /**
+   * `SHARING` says `everyone` but `MODERATION_API_KEY` is missing, so nothing
+   * would be screened and `sharing` reads `allowlist` instead.
+   */
+  moderationKeyMissing: boolean;
 }
 
 /** `GET /api/admin/pool/usage`: the last `days` UTC days (today included), `limit` users. */
@@ -313,3 +333,111 @@ export const adminHoldReportRequestSchema = z.object({
   reference: z.string().trim().min(1).max(200),
 });
 export type AdminHoldReportRequest = z.infer<typeof adminHoldReportRequestSchema>;
+
+/**
+ * A share as the admin page lists it: the owner's view (`ShareSummary`, whose
+ * `state` says only `unavailable`) plus why it is down.
+ */
+export interface AdminShare extends ShareSummary {
+  /** `pending_review` after a report, `removed` by an admin; null while it is up. */
+  takedown: ShareTakedown | null;
+}
+
+/** Where a report stands (`share_reports.resolution`): undecided, acted on (a strike), or rejected. */
+export const REPORT_RESOLUTIONS = ['pending', 'actioned', 'rejected'] as const;
+export type ReportResolution = (typeof REPORT_RESOLUTIONS)[number];
+
+/** Largest page of `GET /api/admin/reports` and `GET /api/admin/users/:userId/events`. */
+export const ADMIN_MODERATION_PAGE = 50;
+
+/** `GET /api/admin/reports`: the undecided ones, oldest first, or every report, newest first. */
+export const adminReportsQuerySchema = z.object({
+  status: z.enum(['pending', 'all']).default('pending'),
+  cursor: z.string().min(1).max(512).optional(),
+});
+export type AdminReportsQuery = z.infer<typeof adminReportsQuerySchema>;
+
+/** Where the reported share is now. */
+export type AdminReportShareState =
+  'active' | 'pending_review' | 'removed' | 'revoked' | 'expired' | 'deleted';
+
+/** A report from a share page, as the admin queue lists it. */
+export interface AdminReport {
+  id: string;
+  shareId: string;
+  shareToken: string;
+  /** The share owner's user id; null for an account that isn't a user's (the dev bypass). */
+  ownerUserId: string | null;
+  /** Null once the account is deleted and no hold kept the address. */
+  ownerEmail: string | null;
+  category: ReportCategory;
+  /** The reporter's words. */
+  details: string;
+  /** Given for a reply; null when the reporter left none. */
+  reporterEmail: string | null;
+  /** ISO timestamp. */
+  createdAt: string;
+  resolution: ReportResolution;
+  resolvedAt: string | null;
+  /** The deciding admin's user id. */
+  resolvedBy: string | null;
+  notes: string | null;
+  shareState: AdminReportShareState;
+  /** Different people who reported the share, this one included, however decided. */
+  shareReporters: number;
+  /** A legal hold of the share is in force. */
+  held: boolean;
+}
+
+/** `GET /api/admin/reports`. */
+export interface AdminReportsResponse {
+  reports: AdminReport[];
+  /** Pass as `cursor` for the next page; null when there are no more reports. */
+  nextCursor: string | null;
+}
+
+/**
+ * What an admin decides about a report: `remove` takes the share down for
+ * good and counts a strike against its owner; `restore` puts it back up and
+ * rejects its reports (so a removal's strike goes); `reject` rejects this
+ * report only, putting the share back up when nothing left pending would
+ * have taken it down.
+ */
+export const REPORT_ACTIONS = ['remove', 'restore', 'reject'] as const;
+export type ReportAction = (typeof REPORT_ACTIONS)[number];
+
+/** `POST /api/admin/reports/:reportId/resolve`. */
+export const adminResolveReportRequestSchema = z.object({
+  action: z.enum(REPORT_ACTIONS),
+  notes: z.string().trim().max(2000).optional(),
+});
+export type AdminResolveReportRequest = z.infer<typeof adminResolveReportRequestSchema>;
+
+/** `GET /api/admin/users/:userId/events`: the newest first. */
+export const adminUserEventsQuerySchema = z.object({
+  cursor: z.string().min(1).max(512).optional(),
+});
+export type AdminUserEventsQuery = z.infer<typeof adminUserEventsQuerySchema>;
+
+/** One row of the moderation audit log about a user: ids and metadata, never content. */
+export interface AdminAuditEvent {
+  id: string;
+  /** ISO timestamp. */
+  at: string;
+  /** `share_created`, `report_received`, `share_takedown`, `sharing_suspended`, … */
+  kind: string;
+  actor: 'user' | 'admin' | 'system' | 'reporter';
+  actorUserId: string | null;
+  shareId: string | null;
+  reportId: string | null;
+  holdId: string | null;
+  /** The event's metadata (versions, categories, scores, decisions). */
+  data: Record<string, unknown> | null;
+}
+
+/** `GET /api/admin/users/:userId/events`. */
+export interface AdminUserEventsResponse {
+  events: AdminAuditEvent[];
+  /** Pass as `cursor` for the next page; null when there are no more events. */
+  nextCursor: string | null;
+}

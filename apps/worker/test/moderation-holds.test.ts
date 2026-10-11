@@ -285,7 +285,8 @@ describe('legal holds', () => {
     });
     expect(await reported.text()).not.toContain(HELD);
 
-    // Only share/legal-hold.ts touches the copies, and it never reads them back.
+    // Only share/legal-hold.ts touches the copies, and it reads one back in one place,
+    // `heldSnapshot`, used only by the admin-only review page (admin-moderation.test.ts).
     const touching = Object.entries(SOURCES).filter(([, text]) =>
       text.includes('legal_hold_items'),
     );
@@ -294,6 +295,14 @@ describe('legal holds', () => {
       'src/share/legal-hold.ts',
     ]);
     const holdModule = touching.find(([path]) => path.endsWith('/share/legal-hold.ts'))![1];
-    expect(holdModule).not.toMatch(/SELECT[^;`]*FROM\s+legal_hold_items/i);
+    const reads = holdModule.match(/SELECT[^;`]*FROM\s+legal_hold_items/gi) ?? [];
+    expect(reads).toHaveLength(1);
+    const reader = holdModule.slice(holdModule.indexOf('export async function heldSnapshot('));
+    expect(reader.slice(0, reader.indexOf('\n}\n'))).toContain(reads[0]);
+    const users = Object.entries(SOURCES).filter(([, text]) => /\bheldSnapshot\b/.test(text));
+    expect(users.map(([path]) => path.replace(/^.*\/src\//, 'src/')).sort()).toEqual([
+      'src/http/review-page.ts',
+      'src/share/legal-hold.ts',
+    ]);
   });
 });

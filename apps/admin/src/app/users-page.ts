@@ -1,11 +1,11 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import type { AdminCreditRequest, AdminUser, ShareSummary } from '@tangent/shared';
+import type { AdminCreditRequest, AdminShare, AdminUser } from '@tangent/shared';
 import { ApiClient, errorMessage, formatCents, formatCharge, Icon } from '@tangent/web-shared';
 import { signedCreditCents } from './credit-amount';
 
 /** A user's shares once expanded: loading (null) or the list. */
-type SharesState = ShareSummary[] | null;
+type SharesState = AdminShare[] | null;
 
 /** What a user's credit form holds. */
 export interface UserCreditForm {
@@ -49,7 +49,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
  * permission, the open pool suspension, the membership (a waiver makes the
  * user a member without paying; a paid one is marked), the user's credit balance with a
  * form to add (or take back) credit, and, expanded, the user's shares with
- * Revoke (a takedown).
+ * Remove (a takedown).
  */
 @Component({
   selector: 'app-users-page',
@@ -231,9 +231,9 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
                                 type="button"
                                 class="btn btn-danger-ghost btn-sm"
                                 [disabled]="busy().has(s.id)"
-                                (click)="revoke(u, s)"
+                                (click)="remove(u, s)"
                               >
-                                <app-icon name="trash" [size]="14" /> Revoke
+                                <app-icon name="trash" [size]="14" /> Remove
                               </button>
                             }
                           </li>
@@ -423,16 +423,17 @@ export class UsersPage {
     }
   }
 
-  protected async revoke(user: AdminUser, share: ShareSummary): Promise<void> {
+  protected async remove(user: AdminUser, share: AdminShare): Promise<void> {
     const name = share.title || share.treeTitle;
-    if (!confirm(`Revoke "${name}"? The link stops working for everyone, for good.`)) return;
+    if (!confirm(`Remove "${name}"? The link stops working for everyone until it is restored.`))
+      return;
     await this.run(share.id, async () => {
-      const revoked = await this.api.adminRevokeShare(share.id);
+      const removed = await this.api.adminRemoveShare(share.id);
       const list = this.shares().get(user.id);
       if (list)
         this.setShares(
           user.id,
-          list.map((s) => (s.id === revoked.id ? revoked : s)),
+          list.map((s) => (s.id === removed.id ? removed : s)),
         );
       const current = this.users().find((u) => u.id === user.id);
       if (current && share.state === 'active') {

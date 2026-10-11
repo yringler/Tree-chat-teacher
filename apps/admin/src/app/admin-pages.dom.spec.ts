@@ -36,6 +36,9 @@ const ADA: AdminUser = {
   creditBalanceMicros: 2_000_000,
   membershipWaived: false,
   membershipPaid: true,
+  sharingSuspended: false,
+  removedShares: 0,
+  openReports: 0,
 };
 
 function adminApi(pool: AdminPoolResponse = POOL) {
@@ -51,7 +54,11 @@ function adminApi(pool: AdminPoolResponse = POOL) {
       ...ADA,
       ...req,
     })),
-    adminStatus: vi.fn(async () => ({ sharing: 'allowlist' as const, membershipRequired: true })),
+    adminStatus: vi.fn(async () => ({
+      sharing: 'allowlist' as const,
+      membershipRequired: true,
+      moderationKeyMissing: false,
+    })),
     adminPoolUsage: vi.fn(async (_days: number) => ({ since: T, rows: [], ipKeys: [] })),
   };
 }

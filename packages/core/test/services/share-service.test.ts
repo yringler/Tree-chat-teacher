@@ -80,6 +80,8 @@ describe('ShareService', () => {
     const [listed] = await shares.list();
     expect(listed?.state).toBe('unavailable');
     expect(listed).not.toHaveProperty('takedown');
+    expect(await shares.get(s.id)).toEqual(listed);
+    await expect(shares.get('nope')).rejects.toBeInstanceOf(NotFoundError);
     await expect(shares.republish(s.id)).rejects.toBeInstanceOf(GoneError);
     await expect(shares.update(s.id, { title: 'Back up' })).rejects.toBeInstanceOf(GoneError);
     expect(await repos.shares.getSnapshot(s.id)).not.toBeNull();

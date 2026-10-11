@@ -200,11 +200,20 @@ The page says which `SHARING` mode is set. To take every share link down at once
 The page lists users (newest first, searchable by email) and lets you:
 
 - allow users to publish share links while `SHARING` is `allowlist` (**May share**); the check runs on every view of a link, so turning a user off takes their links down at once;
-- see a user's shares and **Revoke** any of them (how to act on a takedown notice);
+- see a user's shares and **Remove** any of them (how to act on a takedown notice that came by email), or **Restore** one;
+- suspend a user's sharing (**Sharing suspended**: nothing new is published and their links stop opening at once), and see how many of their shares were removed and how many reports of them wait;
 - see a user's credit balance and add or take back credit (**Credit**);
 - waive the membership (**Member**);
 - suspend or restore a user's open pool access (**Pool suspended**), and see who uses the pool most;
 - see the pool's balance, pending holds and the breaker, and top it up or correct it.
+
+**Reports** from share pages wait in a queue (`GET /api/admin/reports`, the undecided ones oldest first; `?status=all` for every report). Review within 24 to 48 hours; CSAM and violent or illegal reports, which also email you, as soon as you see them. Read the conversation at `/admin/review/<shareId>` (it shows a held copy once the share is gone, and every view is logged), then decide with `POST /api/admin/reports/:reportId/resolve` (`{ "action": "remove" | "restore" | "reject", "notes": "…" }`):
+
+- **remove**: the link stays down for good, and the share's open reports count as acted on. That is a strike against the owner; a second removed share suspends their sharing automatically. Lifting a suspension is up to you.
+- **restore**: the link goes back up and its reports are rejected, which takes back a removal's strike.
+- **reject**: this report was wrong. The link goes back up unless another open report would have taken it down on its own.
+
+The owner is never told why. `GET /api/admin/users/:userId/events` is the audit trail about a user (publishes, screenings, reports, takedowns, suspensions, holds), with ids and metadata only.
 
 **Legal holds** preserve a share as evidence: `POST /api/admin/shares/:shareId/hold` (`{ "reason": "csam" | "violent_or_illegal" | "law_enforcement" | "other" }`) copies the share, its conversation and its owner's account details where deleting can't reach them, `GET /api/admin/holds` lists them (metadata only), `POST /api/admin/holds/:holdId/external-report` records an NCMEC or law-enforcement report number, and `POST /api/admin/holds/:holdId/release` deletes the copies (refused within a year of a report). What to do when you learn of child sexual abuse material or a threat of violence: [runbooks/csam.md](runbooks/csam.md).
 

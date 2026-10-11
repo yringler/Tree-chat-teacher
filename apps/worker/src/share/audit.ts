@@ -7,6 +7,7 @@ import type { CategoryScores, ModerationCategory, SharePublish } from '@tangent/
 import type {
   HoldReportKind,
   LegalHoldReason,
+  ReportAction,
   ReportCategory,
   ShareScope,
   ShareTakedown,
@@ -28,7 +29,7 @@ interface AuditBase {
   holdId?: string | null;
 }
 
-/** A change to one share, by its owner or by an admin. */
+/** A change to one share by its owner (an admin's takedown is a `TakedownAuditEvent`). */
 export interface ShareAuditEvent extends AuditBase {
   kind: 'share_created' | 'share_updated' | 'share_republished' | 'share_revoked' | 'share_deleted';
   shareId: string;
@@ -77,8 +78,42 @@ export interface TakedownAuditEvent extends AuditBase {
   data: { takedown: ShareTakedown | null; version: number };
 }
 
+/** An admin's decision on a report (share/review.ts): what they chose, and the report's resolution after it. */
+export interface ReportResolvedAuditEvent extends AuditBase {
+  kind: 'report_resolved';
+  shareId: string;
+  reportId: string;
+  data: { action: ReportAction; resolution: 'actioned' | 'rejected' };
+}
+
+/**
+ * A user's sharing suspended or lifted (`auth_users.sharing_suspended`): by an
+ * admin, or by the strike rule, with the strikes that set it off.
+ */
+export interface SuspensionAuditEvent extends AuditBase {
+  kind: 'sharing_suspended';
+  data: { suspended: boolean; strikes?: number };
+}
+
+/**
+ * An admin opened a share's content on the review page (http/review-page.ts):
+ * from the stored snapshot, or from a hold's copy once the share is gone.
+ */
+export interface ReviewAuditEvent extends AuditBase {
+  kind: 'share_reviewed';
+  shareId: string;
+  data: { source: 'share' | 'hold' };
+}
+
 export type AuditEvent =
-  ShareAuditEvent | ScreenAuditEvent | HoldAuditEvent | ReportAuditEvent | TakedownAuditEvent;
+  | ShareAuditEvent
+  | ScreenAuditEvent
+  | HoldAuditEvent
+  | ReportAuditEvent
+  | TakedownAuditEvent
+  | ReportResolvedAuditEvent
+  | SuspensionAuditEvent
+  | ReviewAuditEvent;
 
 /** The INSERT of one audit row, to run alone or in the batch that makes the change it records. */
 export function auditStatement(
