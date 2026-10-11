@@ -197,15 +197,10 @@ describe('AuthService with APP_PATHS', () => {
 });
 
 describe('a sign-up refused at the user cap', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('says the app is full and where to ask, on the login page and on a link request', () => {
-    vi.stubGlobal('location', { hostname: 'tangent.example.com' });
+  it('says the app is full and points to the waitlist, on the login page and on a link request', () => {
     const fromRedirect = loginErrorMessage(SIGNUPS_CLOSED, 'Tangent Learn');
     expect(fromRedirect).toContain("Tangent Learn is full for now and isn't taking new accounts.");
-    expect(fromRedirect).toContain('admin@tangent.example.com');
+    expect(fromRedirect).toContain('Join the waitlist');
     const fromRequest = authErrorMessage({ status: 403, code: SIGNUPS_CLOSED, message: 'raw' });
     expect(fromRequest).toContain("Tangent is full for now and isn't taking new accounts.");
   });

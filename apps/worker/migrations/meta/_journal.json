@@ -29,6 +29,13 @@
       "when": 1791559352817,
       "tag": "0003_tree_learner_instructions",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791718343277,
+      "tag": "0004_waitlist",
+      "breakpoints": true
     }
   ]
 }

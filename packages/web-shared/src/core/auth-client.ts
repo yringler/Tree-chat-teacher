@@ -39,7 +39,7 @@ export function authErrorMessage(error: {
 /** Why a new account was refused while the deployment is at its user cap. */
 export function signupsClosedMessage(brand = 'Tangent'): string {
   return (
-    `${brand} is full for now and isn't taking new accounts. To hear when it opens up, ` +
-    `email admin@${location.hostname}. Already signed up? Sign in the way you did before.`
+    `${brand} is full for now and isn't taking new accounts. Join the waitlist to hear when ` +
+    `there's room. Already signed up? Sign in the way you did before.`
   );
 }

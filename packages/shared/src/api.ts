@@ -145,6 +145,11 @@ export interface LoginOptionsResponse {
   social: { google: boolean; github: boolean };
   /** Cloudflare Turnstile site key for the magic-link form; null = not configured. */
   turnstileSiteKey: string | null;
+  /**
+   * False while the deployment has as many users as `MAX_USERS` allows:
+   * existing users sign in, and the page offers the waitlist instead.
+   */
+  signupsOpen: boolean;
 }
 
 export interface TreeSummary {

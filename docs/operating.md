@@ -200,7 +200,8 @@ The page lists users (newest first, searchable by email) and lets you:
 - see a user's credit balance and add or take back credit (**Credit**);
 - waive the membership (**Member**);
 - suspend or restore a user's open pool access (**Pool suspended**), and see who uses the pool most;
-- see the pool's balance, pending holds and the breaker, and top it up or correct it.
+- see the pool's balance, pending holds and the breaker, and top it up or correct it;
+- see the **Waitlist**: the people who asked, while sign-ups were closed by `MAX_USERS`, to hear when there's room. After raising `MAX_USERS` and deploying, **Invite the next N** emails the oldest not yet invited, as many as there are free places, a link to sign up (or **Invite** one person). An invite holds no place: whoever signs up first gets in. **Remove** takes someone off (a deletion request); signing up does that by itself.
 
 The API behind it also reports pool consumption: `GET /api/admin/pool/usage?days=7&limit=50` lists users by spend and today's network keys by the number of users on each (many accounts on one key is what a farm looks like).
 

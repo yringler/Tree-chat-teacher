@@ -204,6 +204,7 @@ describe('login options', () => {
       devMode: false,
       social: { google: true, github: false },
       turnstileSiteKey: 'site-key',
+      signupsOpen: true,
     } satisfies LoginOptionsResponse);
   });
 
@@ -214,6 +215,7 @@ describe('login options', () => {
       devMode: true,
       social: { google: false, github: false },
       turnstileSiteKey: null,
+      signupsOpen: true,
     } satisfies LoginOptionsResponse);
   });
 });

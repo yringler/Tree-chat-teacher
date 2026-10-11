@@ -1,6 +1,12 @@
 import type { LoginOptionsResponse } from '@tangent/shared';
 import { Hono } from 'hono';
-import { authConfigured, getAuth, socialProviderFlags, type AuthDeps } from './auth/auth.js';
+import {
+  authConfigured,
+  getAuth,
+  signupsFull,
+  socialProviderFlags,
+  type AuthDeps,
+} from './auth/auth.js';
 import { accountMiddleware } from './auth/account.js';
 import { sessionMiddleware } from './auth/session.js';
 import { sameOriginWrites } from './byok/guard.js';
@@ -20,6 +26,7 @@ import { billingRoutes } from './routes/billing.js';
 import { paymentWebhookRoute } from './routes/payment-webhooks.js';
 import { poolRoutes, poolStatusRoute } from './routes/pool.js';
 import { shareRoutes } from './routes/share.js';
+import { waitlistRoutes } from './routes/waitlist.js';
 
 export interface AppOptions {
   auth?: AuthDeps;
@@ -29,7 +36,9 @@ export interface AppOptions {
  * The HTTP app.
  * - `/api/auth/*` is Better Auth (sign-in, callbacks, session, passkeys).
  * - `/api/login-options` is public: what the login page should offer,
- *   and `/api/pool/status` the open pool's meter (routes/pool.ts).
+ *   `POST /api/waitlist` the form it shows while sign-ups are closed
+ *   (routes/waitlist.ts), and `/api/pool/status` the open pool's meter
+ *   (routes/pool.ts).
  * - `POST /api/webhooks/:provider` is public too: payment provider webhooks,
  *   verified by their signature (routes/payment-webhooks.ts).
  * - Every other `/api/*` request but GET, HEAD and OPTIONS must be
@@ -70,7 +79,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
     if (!authConfigured(c.env)) return apiError(c, 'internal', 'Authentication is not configured');
     return getAuth(c.env, c.req.raw, options.auth).handler(c.req.raw);
   });
-  app.get('/api/login-options', (c) => {
+  app.get('/api/login-options', async (c) => {
     const configured = authConfigured(c.env);
     const { auth } = appConfig(c.env);
     const body: LoginOptionsResponse = {
@@ -78,9 +87,11 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
       devMode: !configured && auth.devAllowNoAuth,
       social: configured ? socialProviderFlags(c.env) : { google: false, github: false },
       turnstileSiteKey: auth.turnstileSiteKey,
+      signupsOpen: !(await signupsFull(c.env)),
     };
     return c.json(body);
   });
+  app.route('/api/waitlist', waitlistRoutes());
 
   app.get('/api/pool/status', poolStatusRoute);
 
@@ -88,7 +99,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.use('/api/*', accountMiddleware);
   app.use('/api/*', keyRenewal);
   app.route('/api/billing', billingRoutes());
-  app.route('/api/admin', adminRoutes());
+  app.route('/api/admin', adminRoutes(options.auth));
   app.route('/api/pool', poolRoutes());
   app.route('/api', apiRoutes());
   app.route('/s', shareRoutes());

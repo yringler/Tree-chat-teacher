@@ -10,12 +10,17 @@ import {
   type AdminStatusResponse,
   type AdminUser,
   type AdminUsersResponse,
+  type AdminWaitlistEntry,
+  type AdminWaitlistInviteResponse,
+  type AdminWaitlistResponse,
+  ADMIN_WAITLIST_LIMIT,
   type ShareSummary,
   centsToMicros,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { ACCOUNT_PREFIX, accountIdForUser, billingAccountIdFor } from '../auth/account.js';
 import { adminOnly, adminUserIds } from '../auth/admin.js';
+import { authBaseUrl, type AuthDeps } from '../auth/auth.js';
 import {
   balanceStatement,
   getBalance,
@@ -30,7 +35,8 @@ import { fulfilPurchase } from '../billing/purchases.js';
 import { appConfig } from '../config.js';
 import { createD1Repositories } from '../db/d1-repositories.js';
 import type { SqlRow } from '../db/rows.js';
-import type { authUsers, usageEvents } from '../db/schema.js';
+import type { authUsers, usageEvents, waitlist } from '../db/schema.js';
+import { createEmailSender, waitlistInviteEmail } from '../email/index.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
@@ -43,6 +49,7 @@ import { shareService } from '../registries.js';
 import { logEvent } from '../log.js';
 
 type UsageSql = SqlRow<typeof usageEvents>;
+type WaitlistRow = SqlRow<typeof waitlist>;
 
 type UserRow = Pick<
   SqlRow<typeof authUsers>,
@@ -172,9 +179,10 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * consumes the pool, and credits a user's ledger or the pool without a payment
  * (`POST /credit`: adjustments, and simulated purchases where
  * DEV_PURCHASES_ENABLED allows them), showing the pool's balance and overage
- * breaker (`GET /pool`).
+ * breaker (`GET /pool`), and lists and invites the waitlist (`/waitlist`).
+ * `deps.emailSender` replaces the env-selected email service in tests.
  */
-export function adminRoutes(): Hono<AppBindings> {
+export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
   r.use('*', adminOnly);
 
@@ -408,6 +416,80 @@ export function adminRoutes(): Hono<AppBindings> {
       amountMicros: row?.amount_micros ?? 0,
       balanceMicros,
     } satisfies AdminCreditResponse);
+  });
+
+  // The waitlist, oldest first: who to invite once MAX_USERS is raised.
+  r.get('/waitlist', async (c) => {
+    const db = c.env.DB;
+    const [entries, counts] = await Promise.all([
+      db
+        .prepare(
+          'SELECT email, created_at, invited_at FROM waitlist ORDER BY created_at, email LIMIT ?',
+        )
+        .bind(ADMIN_WAITLIST_LIMIT)
+        .all<WaitlistRow>(),
+      db
+        .prepare(
+          'SELECT (SELECT COUNT(*) FROM waitlist) AS total, (SELECT COUNT(*) FROM auth_users) AS users',
+        )
+        .first<{ total: number; users: number }>(),
+    ]);
+    const { total, users } = counts ?? { total: 0, users: 0 };
+    return c.json({
+      entries: entries.results.map((row): AdminWaitlistEntry => ({
+        email: row.email,
+        createdAt: row.created_at,
+        invitedAt: row.invited_at,
+      })),
+      total,
+      users,
+      maxUsers: appConfig(c.env).auth.maxUsers,
+    } satisfies AdminWaitlistResponse);
+  });
+
+  // Emails each address a link to sign up, one at a time (the email service
+  // limits its rate), and records when. An invite holds no place: whoever
+  // signs up first gets in. Addresses not on the waitlist are skipped.
+  r.post('/waitlist/invite', validateJson(API_ROUTES.adminWaitlistInvite), async (c) => {
+    const emails = [...new Set(c.req.valid('json').emails.map((e) => e.toLowerCase()))];
+    const db = c.env.DB;
+    const { results } = await db
+      .prepare(
+        `SELECT email FROM waitlist WHERE email IN (${emails.map(() => '?').join(', ')})
+         ORDER BY created_at, email`,
+      )
+      .bind(...emails)
+      .all<Pick<WaitlistRow, 'email'>>();
+    const origin = authBaseUrl(c.env, c.req.raw);
+    const sender = deps.emailSender ?? createEmailSender(c.env, origin);
+    let invited = 0;
+    for (const { email } of results) {
+      try {
+        await sender.send(waitlistInviteEmail(email, `${origin}/login`));
+      } catch (err) {
+        logEvent('error', 'waitlist_invite_failed', { invited, error: err });
+        return apiError(
+          c,
+          'provider_error',
+          `Sent ${invited} of ${results.length} invites; then the email service failed.`,
+        );
+      }
+      await db
+        .prepare('UPDATE waitlist SET invited_at = ? WHERE email = ?')
+        .bind(new Date().toISOString(), email)
+        .run();
+      invited++;
+    }
+    logEvent('info', 'waitlist_invited', { adminId: c.var.identity.userId, invited });
+    return c.json({ invited } satisfies AdminWaitlistInviteResponse);
+  });
+
+  r.delete('/waitlist/:email', async (c) => {
+    const { meta } = await c.env.DB.prepare('DELETE FROM waitlist WHERE email = ?')
+      .bind(c.req.param('email').toLowerCase())
+      .run();
+    if (!meta.changes) throw new NotFoundError('Waitlist entry');
+    return c.body(null, 204);
   });
 
   r.get('/users/:userId/shares', async (c) => {

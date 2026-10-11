@@ -4,17 +4,18 @@ import { ApiClient, AuthService, errorMessage, Logo } from '@tangent/web-shared'
 import { PoolPage } from './pool-page';
 import { PoolUsagePage } from './pool-usage-page';
 import { UsersPage } from './users-page';
+import { WaitlistPage } from './waitlist-page';
 
 /**
  * The admin app, served under /admin/ to admins only (the Worker answers 404
  * to anyone else; ADMIN_USER_IDS). One page: who may publish share links
  * while DMCA_AGENT_REGISTERED is off, taking any share down, suspending a
  * user's open pool access, waiving a user's membership, adding credit to a user, the pool's balance and overage breaker with
- * top-ups and corrections, and who uses the pool most.
+ * top-ups and corrections, who uses the pool most, and the waitlist with its invites.
  */
 @Component({
   selector: 'app-root',
-  imports: [Logo, PoolPage, PoolUsagePage, UsersPage],
+  imports: [Logo, PoolPage, PoolUsagePage, UsersPage, WaitlistPage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="admin-head">
@@ -63,6 +64,7 @@ import { UsersPage } from './users-page';
           }
         }
         <app-users-page />
+        <app-waitlist-page />
         <app-pool-page />
         <app-pool-usage-page />
       }

@@ -3,6 +3,8 @@ import {
   API_ROUTES,
   routeUrl,
   type AdminCreditRequest,
+  type AdminWaitlistInviteRequest,
+  type JoinWaitlistRequest,
   type ApiError as ApiErrorBody,
   type ApiErrorCode,
   type ApiRoute,
@@ -233,6 +235,9 @@ export class ApiClient {
   revokeShare = (shareId: string) => this.call(R.revokeShare, { params: { shareId } });
   deleteShare = (shareId: string) => this.call(R.deleteShare, { params: { shareId } });
 
+  /** Public: asks to be told when sign-ups open (the login page, while they're closed). */
+  joinWaitlist = (req: JoinWaitlistRequest) => this.call(R.joinWaitlist, { body: req });
+
   // Admin (the admin app; 404 for anyone but an admin)
   adminStatus = () => this.call(R.adminStatus);
   /** One page of users, newest first; `q` filters by email substring. */
@@ -250,6 +255,12 @@ export class ApiClient {
   adminUserShares = (userId: string) => this.call(R.adminUserShares, { params: { userId } });
   /** Revokes any user's share (a takedown). */
   adminRevokeShare = (shareId: string) => this.call(R.adminRevokeShare, { params: { shareId } });
+  /** The waitlist, oldest first, with how many users there are and the cap. */
+  adminWaitlist = () => this.call(R.adminWaitlist);
+  /** Emails each address a link to sign up. */
+  adminWaitlistInvite = (req: AdminWaitlistInviteRequest) =>
+    this.call(R.adminWaitlistInvite, { body: req });
+  adminWaitlistRemove = (email: string) => this.call(R.adminWaitlistRemove, { params: { email } });
 
   // Export / backup / import
 
