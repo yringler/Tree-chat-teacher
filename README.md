@@ -52,9 +52,9 @@ The dev servers proxy `/api` and `/s` to the Worker. With real sign-in, set `PUB
 ### Checks
 
 ```bash
-pnpm test           # Vitest everywhere; worker suites run in workerd with real D1 and Durable Objects; Angular *.dom.spec.ts render components with TestBed in happy-dom
+pnpm test           # Vitest everywhere, through turbo: a package nothing changed in replays its last result; worker suites run in workerd with real D1 and Durable Objects; Angular *.dom.spec.ts render components with TestBed in happy-dom
 pnpm typecheck      # tsc everywhere, Angular strict templates included
-pnpm lint           # ESLint, plus the provider-neutral, migration and import-cycle checks
+pnpm lint           # ESLint, plus the provider-neutral, migration, import-cycle and turbo inputs checks
 pnpm format:check   # Prettier (`pnpm format` rewrites)
 pnpm build          # builds the four apps into apps/worker/site/
 pnpm knip           # unused files, dependencies and exports
@@ -85,7 +85,7 @@ apps/e2e             Playwright end-to-end tests
 scripts/             build assembly, lint checks, deploy config, coverage summary
 ```
 
-`pnpm build` builds the four apps and copies them into `apps/worker/site/` (`scripts/assemble-assets.mjs`): power at `/`, then `learn/`, `canvas/` and `admin/`. `wrangler.jsonc` runs that build before every `wrangler dev` and `wrangler deploy`.
+`pnpm build` builds the four apps (through turbo, so an app nothing changed in is restored from the cache) and copies them into `apps/worker/site/` (`scripts/assemble-assets.mjs`): power at `/`, then `learn/`, `canvas/` and `admin/`. `wrangler.jsonc` runs that build before every `wrangler dev` and `wrangler deploy`.
 
 ## Documentation
 

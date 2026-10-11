@@ -8,13 +8,14 @@
     "node": ">=22.22.3"
   },
   "scripts": {
-    "build": "pnpm --filter @tangent/web build && pnpm --filter @tangent/simple build && pnpm --filter @tangent/canvas build && pnpm --filter @tangent/admin build && node scripts/assemble-assets.mjs",
+    "build": "turbo run assemble",
+    "assemble": "node scripts/assemble-assets.mjs",
     "dev": "pnpm --filter @tangent/worker dev",
-    "test": "pnpm -r --workspace-concurrency=1 --no-bail test",
-    "coverage": "pnpm -r --workspace-concurrency=1 --no-bail coverage && node scripts/coverage-summary.mjs",
+    "test": "turbo run test --concurrency=1 --continue",
+    "coverage": "turbo run coverage --concurrency=1 --continue && node scripts/coverage-summary.mjs",
     "e2e": "pnpm --filter @tangent/e2e e2e",
-    "typecheck": "pnpm -r typecheck && tsc -p scripts/model-eval",
-    "lint": "eslint . && node scripts/check-provider-neutral.mjs && node scripts/check-migrations.mjs && node scripts/check-cycles.mjs",
+    "typecheck": "turbo run typecheck && tsc -p scripts/model-eval",
+    "lint": "eslint . && node scripts/check-provider-neutral.mjs && node scripts/check-migrations.mjs && node scripts/check-cycles.mjs && node scripts/check-turbo-inputs.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "knip": "knip"
@@ -25,6 +26,7 @@
     "knip": "^6.40.0",
     "madge": "8.0.0",
     "prettier": "^3.6.0",
+    "turbo": "2.11.7",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.0",
     "vitest": "~4.1.11"

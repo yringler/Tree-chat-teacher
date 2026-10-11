@@ -39,7 +39,7 @@ How to deploy and run a Tangent deployment: Cloudflare and GitHub setup, sign-in
 `.github/workflows/ci.yml` runs **Checks** (`pnpm test`, `build`, `typecheck`, `lint`, `format:check`, each run even when an earlier one fails) and **End-to-end** (`pnpm e2e`) on every pull request to `master` and every push to it. On `master` (a push, or **Run workflow**), once both pass, the **Deploy** job runs in the GitHub environment `production`:
 
 1. It stops at once if the `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` secret is missing.
-2. `wrangler deploy --dry-run` runs the build and bundles the Worker, with no secrets; a check then fails the job unless all four apps' `index.html` are in `apps/worker/site/`.
+2. `wrangler deploy --dry-run` runs the build from source and bundles the Worker, with no secrets and no restored turbo cache; a check then fails the job unless all four apps' `index.html` are in `apps/worker/site/`.
 3. `scripts/deploy-config.mjs` writes `apps/worker/wrangler.deploy.json`, `wrangler.jsonc` without `build`, so the two steps that hold the token run no build and upload exactly what was checked.
 4. `wrangler d1 migrations apply DB --remote` applies the new migrations.
 5. `wrangler deploy` ships the Worker and its assets.
