@@ -8,7 +8,7 @@ import { legalContactEmail } from './http/legal-info.js';
 import { logEvent } from './log.js';
 
 /** Why an alert was sent. */
-export type AlertReason = 'screened_csam';
+export type AlertReason = 'screened_csam' | 'report_csam' | 'report_violent_or_illegal';
 
 export interface Alert {
   reason: AlertReason;
@@ -26,6 +26,20 @@ const TEXT: Record<AlertReason, { title: string; summary: string }> = {
       'Screening flagged a conversation as possible child sexual abuse material when its owner tried to publish it. ' +
       'Publishing was refused without saying why, and the conversation is on legal hold. ' +
       'Follow the CSAM runbook (docs/runbooks/csam.md).',
+  },
+  report_csam: {
+    title: 'shared conversation reported as CSAM',
+    summary:
+      'Someone reported a shared conversation as child sexual abuse material. ' +
+      'The link is down pending review, and the conversation is on legal hold. ' +
+      'Follow the CSAM runbook (docs/runbooks/csam.md).',
+  },
+  report_violent_or_illegal: {
+    title: 'shared conversation reported as violent or illegal',
+    summary:
+      'Someone reported a shared conversation for threats, planning violence or another crime. ' +
+      'The link is down pending review, and the conversation is on legal hold. ' +
+      'Review it now; for an imminent threat, report it at tips.fbi.gov.',
   },
 };
 

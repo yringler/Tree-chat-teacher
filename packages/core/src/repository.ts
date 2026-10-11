@@ -151,7 +151,10 @@ export interface ShareRepository {
   updateShare(
     shareId: string,
     patch: Partial<
-      Pick<Share, 'title' | 'expiresAt' | 'revokedAt' | 'updatedAt' | 'publishedAt' | 'version'>
+      Pick<
+        Share,
+        'title' | 'expiresAt' | 'revokedAt' | 'updatedAt' | 'publishedAt' | 'version' | 'takedown'
+      >
     >,
     snapshotJson?: string | null,
   ): Promise<ShareWithTree | null>;

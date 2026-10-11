@@ -14,9 +14,10 @@ const SNAPSHOT_TTL_SECONDS = 86_400;
  * Public, read-only share routes. They never look at the session and serve
  * no identity, only allow-listed DTOs. A link opens only if its owner may
  * share (`canShare`: under `SHARING=allowlist` an admin or a user the operator
- * allowed, nobody under `off`); every other one is 404. Validity (revoked/expired) and
- * that permission are checked against D1 on every request, before the edge
- * cache, so revoking either takes the link down at once; the rendered
+ * allowed, nobody under `off`); every other one is 404. Validity (revoked,
+ * expired, taken down after a report) and that permission are checked against
+ * D1 on every request, before the edge cache, so either takes the link down
+ * at once; the rendered
  * snapshot is edge-cached under a key that includes the share version.
  */
 export function shareRoutes(): Hono<AppBindings> {
@@ -31,21 +32,12 @@ async function serve(
   token: string,
   variant: ShareCacheVariant,
 ): Promise<Response> {
-  if (!(await checkShareRateLimit(c.env, c.req.raw))) {
-    return statusPage(variant, 429, 'Too many requests', 'Please try again in a minute.', {
-      'Retry-After': '60',
-    });
-  }
+  if (!(await checkShareRateLimit(c.env, c.req.raw))) return rateLimitedSharePage(variant);
   const shares = shareService(c.env, c.req.url);
   const check = await shares.checkPublic(token);
   if (!check.ok) {
     return check.reason === 'gone'
-      ? statusPage(
-          variant,
-          410,
-          'Link no longer available',
-          'This shared conversation was revoked or has expired.',
-        )
+      ? goneSharePage(variant)
       : statusPage(variant, 404, 'Not found', 'There is no shared conversation at this address.');
   }
   const { share } = check;
@@ -68,26 +60,24 @@ async function serve(
   if (hit) return withPublicHeaders(hit, variant, true);
 
   const resolved = await shares.resolvePublic(token);
-  if (!resolved.ok) {
-    return statusPage(
-      variant,
-      410,
-      'Link no longer available',
-      'This shared conversation is no longer available.',
-    );
-  }
+  if (!resolved.ok) return goneSharePage(variant);
+  const url = new URL(`/s/${token}`, c.req.url).toString();
   const response =
     variant === 'json'
       ? Response.json(resolved.payload)
-      : await htmlResponse(resolved.payload, new URL(`/s/${token}`, c.req.url).toString());
+      : await htmlResponse(resolved.payload, url, `${url}/report`);
   const out = withPublicHeaders(response, variant, false);
   putCached(c.executionCtx, key, out, SNAPSHOT_TTL_SECONDS);
   return out;
 }
 
-async function htmlResponse(payload: SharePayload, url: string): Promise<Response> {
+async function htmlResponse(
+  payload: SharePayload,
+  url: string,
+  reportUrl: string,
+): Promise<Response> {
   const csp = await viewerCsp();
-  const html = renderViewerPage(payload, { variant: 'share', url, csp });
+  const html = renderViewerPage(payload, { variant: 'share', url, csp, reportUrl });
   return new Response(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': csp },
   });
@@ -104,6 +94,25 @@ function withPublicHeaders(res: Response, variant: ShareCacheVariant, cacheHit: 
   out.headers.set('X-Share-Cache', cacheHit ? 'HIT' : 'MISS');
   if (variant === 'json') out.headers.set('Content-Type', 'application/json; charset=utf-8');
   return out;
+}
+
+/**
+ * A link that is down, whatever the reason (revoked, expired, taken down
+ * after a report): one answer, so the page never says which.
+ */
+export function goneSharePage(variant: ShareCacheVariant = 'html'): Response {
+  return statusPage(
+    variant,
+    410,
+    'Link no longer available',
+    'This shared conversation is no longer available.',
+  );
+}
+
+export function rateLimitedSharePage(variant: ShareCacheVariant = 'html'): Response {
+  return statusPage(variant, 429, 'Too many requests', 'Please try again in a minute.', {
+    'Retry-After': '60',
+  });
 }
 
 function statusPage(

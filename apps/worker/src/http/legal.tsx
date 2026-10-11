@@ -222,6 +222,18 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
             </td>
           </tr>
           <tr>
+            <td>Reports about share links</td>
+            <td>
+              When you report a shared conversation: the category you pick, what you write, the
+              email address you give if you want a reply, and either your user id (if you are signed
+              in) or the day's network key (a keyed hash of your IP address, as for the open pool).
+            </td>
+            <td>
+              To review the report and act on it, to tell independent reports of the same link
+              apart, and to reply to you. The link's owner never sees the report or who filed it.
+            </td>
+          </tr>
+          <tr>
             <td>Technical logs</td>
             <td>
               Errors and request metadata (time, path, status, IP address) kept by our hosting
@@ -317,6 +329,12 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         We keep a record of each change to a link: which link, which account, when, and whether you
         or we made it, without what the conversation says.
       </p>
+      <p>
+        Anyone who opens a link can report it from the page. A report of illegal content or of
+        copyright infringement, or two reports from different people of defamation or harassment,
+        takes the link down at once until we review it; the owner then sees it as unavailable,
+        without the reason, and can only delete it.
+      </p>
 
       <h2>Cookies and browser storage</h2>
       <p>We use only cookies needed for the service to work, so we don't ask for cookie consent:</p>
@@ -373,6 +391,11 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           Records of changes to share links (which link, which account, when, by whom, and the
           screening's scores; no message content): kept after the link or your account is deleted,
           as the record of how we handle reports about shared content.
+        </li>
+        <li>
+          Reports about share links (what the reporter wrote, the optional email address, and their
+          user id or network key): kept after the link or either account is deleted, as the record
+          of how we handled them.
         </li>
         <li>
           Content we must preserve: if a shared conversation is reported to us as illegal (such as

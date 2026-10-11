@@ -230,3 +230,21 @@ export const VERIFY_STYLE =
 .verify form{display:grid;gap:16px;justify-items:start;margin-top:24px}
 .verify .error{color:#c0392b;font-weight:600}
 `;
+
+/** The report form on a share link (`/s/:token/report`). */
+export const REPORT_STYLE =
+  DOC_STYLE +
+  `
+.report{max-width:36rem;padding-top:32px;padding-bottom:64px}
+.report h1{font-size:clamp(1.6rem,5vw,2.1rem)}
+.report form{display:grid;gap:20px;margin-top:24px}
+.report fieldset{display:grid;gap:8px;margin:0;padding:0;border:0}
+.report legend,.report .field>span{margin-bottom:6px;font-weight:600}
+.report .field{display:grid;gap:2px}
+.report .choice{display:flex;gap:10px;align-items:baseline}
+.report textarea,.report input[type=email]{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elev);color:var(--fg);font:inherit}
+.report textarea{min-height:9rem;resize:vertical}
+.report .hint{margin:0;color:var(--muted);font-size:.9rem}
+.report .error{color:#c0392b;font-weight:600}
+.report .btn{justify-self:start}
+`;

@@ -1,4 +1,10 @@
-import { LEGAL_HOLD_REASONS, type NodeErrorKind, type SubscriptionStatus } from '@tangent/shared';
+import {
+  LEGAL_HOLD_REASONS,
+  REPORT_CATEGORIES,
+  SHARE_TAKEDOWNS,
+  type NodeErrorKind,
+  type SubscriptionStatus,
+} from '@tangent/shared';
 import { sql } from 'drizzle-orm';
 import {
   check,
@@ -220,7 +226,7 @@ export const shares = sqliteTable(
      * `removed` once they did. Either way the link is 404 and the owner can
      * only delete it; null = not taken down.
      */
-    takedown: text('takedown', { enum: ['pending_review', 'removed'] }),
+    takedown: text('takedown', { enum: SHARE_TAKEDOWNS }),
   },
   (t) => [
     uniqueIndex('shares_token_uq').on(t.token),
@@ -261,16 +267,7 @@ export const shareReports = sqliteTable(
     shareToken: text('share_token').notNull(),
     /** The share's account (`u_<userId>`) when the report was filed. */
     ownerAccountId: text('owner_account_id').notNull(),
-    category: text('category', {
-      enum: [
-        'copyright',
-        'defamation',
-        'violent_or_illegal',
-        'csam',
-        'harassment_privacy',
-        'other',
-      ],
-    }).notNull(),
+    category: text('category', { enum: REPORT_CATEGORIES }).notNull(),
     details: text('details').notNull(),
     /** Optional, for a reply; never shown to the share's owner. */
     reporterEmail: text('reporter_email'),

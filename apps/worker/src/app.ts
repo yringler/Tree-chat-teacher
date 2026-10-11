@@ -13,6 +13,7 @@ import { adminAppRoutes, canvasAppRoutes, learnAppRoutes } from './http/learn-ap
 import { legalRoutes } from './http/legal.js';
 import { poolPageRoutes } from './http/pool-page.js';
 import { pricingPageRoutes } from './http/pricing-page.js';
+import { reportPageRoutes } from './http/report-page.js';
 import { verifyPageRoutes } from './http/verify-page.js';
 import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
@@ -39,7 +40,8 @@ export interface AppOptions {
  *   (auth/account.ts); `/api/billing/*` is the billing API, `/api/pool/*` the
  *   open pool's (routes/pool.ts), and `/api/admin/*` the admin API
  *   (admins only, routes/admin.ts).
- * - `/s/*` is public and read-only.
+ * - `/s/*` is public and read-only, but for each link's report form,
+ *   `/s/:token/report` (http/report-page.tsx).
  * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
  *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
  *   (http/learn-app.ts).
@@ -91,6 +93,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.route('/api/admin', adminRoutes());
   app.route('/api/pool', poolRoutes());
   app.route('/api', apiRoutes());
+  app.route('/s', reportPageRoutes(options.auth));
   app.route('/s', shareRoutes());
   app.route('/', learnAppRoutes());
   app.route('/', canvasAppRoutes());

@@ -11,7 +11,8 @@ import { SCOPE_LABEL } from './share-list';
 /**
  * One share as a card (`<li app-share-card>` in a `.card-list`), shared by the
  * Shares page and the share dialog: scope, state, dates, the link, and
- * copy / open / edit / republish / revoke / delete. Emits the share the server
+ * copy / open / edit / republish / revoke / delete. A link taken down after a
+ * report is only "unavailable", with no reason, and can only be deleted. Emits the share the server
  * returns after each change, which the list owning it swaps in, and the id of a
  * deleted share, which it drops.
  */
@@ -76,13 +77,15 @@ import { SCOPE_LABEL } from './share-list';
     }
 
     <div class="share-actions">
-      <button type="button" class="btn btn-sm" (click)="copy()" [disabled]="s.state !== 'active'">
-        <app-icon name="copy" /> Copy link
-      </button>
-      <a class="btn btn-sm btn-ghost" [href]="s.url" target="_blank" rel="noopener"
-        ><app-icon name="external" /> Open</a
-      >
-      @if (s.state !== 'revoked') {
+      @if (s.state !== 'unavailable') {
+        <button type="button" class="btn btn-sm" (click)="copy()" [disabled]="s.state !== 'active'">
+          <app-icon name="copy" /> Copy link
+        </button>
+        <a class="btn btn-sm btn-ghost" [href]="s.url" target="_blank" rel="noopener"
+          ><app-icon name="external" /> Open</a
+        >
+      }
+      @if (s.state === 'active' || s.state === 'expired') {
         <button type="button" class="btn btn-sm btn-ghost" (click)="startEdit()">
           <app-icon name="edit" /> Edit
         </button>
@@ -97,7 +100,7 @@ import { SCOPE_LABEL } from './share-list';
           <app-icon name="refresh" /> Republish
         </button>
       }
-      @if (s.state !== 'revoked') {
+      @if (s.state === 'active' || s.state === 'expired') {
         <button
           type="button"
           class="btn btn-sm btn-danger-ghost"

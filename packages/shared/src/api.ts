@@ -468,12 +468,17 @@ export const updateShareRequestSchema = z.object({
 });
 export type UpdateShareRequest = z.infer<typeof updateShareRequestSchema>;
 
-export interface ShareSummary extends Share {
+/**
+ * A share as its owner sees it. A takedown shows only as the `unavailable`
+ * state: never whether it waits for review, so nothing tells the owner how
+ * a report is being handled.
+ */
+export interface ShareSummary extends Omit<Share, 'takedown'> {
   treeTitle: string;
   /** Absolute URL of the public viewer page. */
   url: string;
-  /** Derived: revoked, expired, or active. */
-  state: 'active' | 'revoked' | 'expired';
+  /** Derived: taken down after a report (unavailable), revoked, expired, or active. */
+  state: 'active' | 'unavailable' | 'revoked' | 'expired';
 }
 
 export const exportQuerySchema = z

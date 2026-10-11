@@ -118,6 +118,7 @@ function makeShare(tree: Tree, overrides: Partial<Share> = {}): Share {
     publishedAt: '2026-01-02T00:00:00.000Z',
     version: 1,
     viewCount: 0,
+    takedown: null,
     ...overrides,
   };
 }
@@ -687,6 +688,20 @@ export function describeRepositories(name: string, factory: () => Repositories):
         expect(await repos.shares.getSnapshot(share.id)).toBeNull();
         expect(await repos.shares.updateShare('missing', { title: 'x' }, '{}')).toBeNull();
         expect(await repos.shares.getSnapshot('missing')).toBeNull();
+      });
+
+      it('updateShare sets and clears a takedown, keeping the snapshot', async () => {
+        const { tree } = await seedTree({ title: 'T' });
+        const share = makeShare(tree, { takedown: 'pending_review' });
+        await repos.shares.createShare(share, '{"v":1}');
+        expect(await repos.shares.getShareByToken(share.token)).toMatchObject({
+          takedown: 'pending_review',
+        });
+        const removed = await repos.shares.updateShare(share.id, { takedown: 'removed' });
+        expect(removed).toEqual({ ...share, takedown: 'removed', treeTitle: 'T' });
+        const restored = await repos.shares.updateShare(share.id, { takedown: null });
+        expect(restored?.takedown).toBeNull();
+        expect(await repos.shares.getSnapshot(share.id)).toBe('{"v":1}');
       });
 
       it('deleteShare removes the share with its snapshot, once', async () => {

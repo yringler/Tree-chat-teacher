@@ -233,6 +233,17 @@ export interface AdminCreditResponse {
   balanceMicros: number;
 }
 
+/** What a report from a share page says is wrong with the conversation (`share_reports.category`). */
+export const REPORT_CATEGORIES = [
+  'copyright',
+  'defamation',
+  'violent_or_illegal',
+  'csam',
+  'harassment_privacy',
+  'other',
+] as const;
+export type ReportCategory = (typeof REPORT_CATEGORIES)[number];
+
 /**
  * Why evidence is held (`legal_holds.reason`): apparent child sexual abuse
  * material, violent or other illegal content, a law-enforcement request, or

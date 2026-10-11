@@ -4,7 +4,13 @@
 // deletes one (a test checks the sources). `data` carries ids, versions and
 // scores, never message content.
 import type { CategoryScores, ModerationCategory, SharePublish } from '@tangent/core';
-import type { HoldReportKind, LegalHoldReason, ShareScope } from '@tangent/shared';
+import type {
+  HoldReportKind,
+  LegalHoldReason,
+  ReportCategory,
+  ShareScope,
+  ShareTakedown,
+} from '@tangent/shared';
 import type { auditEvents } from '../db/schema.js';
 import type { SqlRow } from '../db/rows.js';
 import { logEvent } from '../log.js';
@@ -53,7 +59,26 @@ export type HoldAuditEvent = AuditBase & { holdId: string } & (
     | { kind: 'hold_reported'; data: { kind: HoldReportKind; reference: string } }
   );
 
-export type AuditEvent = ShareAuditEvent | ScreenAuditEvent | HoldAuditEvent;
+/**
+ * A report filed from a share page (share/reports.ts): its category only,
+ * never the reporter's text or address, which stay on the report.
+ */
+export interface ReportAuditEvent extends AuditBase {
+  kind: 'report_received';
+  shareId: string;
+  reportId: string;
+  data: { category: ReportCategory };
+}
+
+/** A share taken down (`pending_review`, `removed`) or put back up (null). */
+export interface TakedownAuditEvent extends AuditBase {
+  kind: 'share_takedown';
+  shareId: string;
+  data: { takedown: ShareTakedown | null; version: number };
+}
+
+export type AuditEvent =
+  ShareAuditEvent | ScreenAuditEvent | HoldAuditEvent | ReportAuditEvent | TakedownAuditEvent;
 
 /** The INSERT of one audit row, to run alone or in the batch that makes the change it records. */
 export function auditStatement(

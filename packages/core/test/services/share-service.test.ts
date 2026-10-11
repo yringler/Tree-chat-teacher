@@ -70,6 +70,23 @@ describe('ShareService', () => {
     expect((await shares.revoke(s.id)).state).toBe('revoked');
   });
 
+  it('a taken-down link is gone and shows its owner only "unavailable"; it can only be deleted', async () => {
+    const { shares, tree, repos } = await seeded();
+    const s = await shares.create({ treeId: tree.id, scope: 'tree' });
+    await repos.shares.updateShare(s.id, { takedown: 'pending_review' });
+
+    expect(await shares.checkPublic(s.token)).toEqual({ ok: false, reason: 'gone' });
+    expect(await shares.resolvePublic(s.token)).toEqual({ ok: false, reason: 'gone' });
+    const [listed] = await shares.list();
+    expect(listed?.state).toBe('unavailable');
+    expect(listed).not.toHaveProperty('takedown');
+    await expect(shares.republish(s.id)).rejects.toBeInstanceOf(GoneError);
+    await expect(shares.update(s.id, { title: 'Back up' })).rejects.toBeInstanceOf(GoneError);
+    expect(await repos.shares.getSnapshot(s.id)).not.toBeNull();
+    expect((await shares.delete(s.id)).state).toBe('unavailable');
+    expect(await shares.list()).toEqual([]);
+  });
+
   it('deletes a share in any state: the link stops resolving and the share leaves the list', async () => {
     const { shares, tree, repos } = await seeded();
     const active = await shares.create({ treeId: tree.id, scope: 'tree' });

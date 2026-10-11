@@ -215,6 +215,13 @@ export interface SummaryRecord {
 export type ShareScope = 'tree' | 'subtree' | 'path';
 
 /**
+ * A share taken down after a report: `pending_review` until an admin
+ * decides, `removed` once they did.
+ */
+export const SHARE_TAKEDOWNS = ['pending_review', 'removed'] as const;
+export type ShareTakedown = (typeof SHARE_TAKEDOWNS)[number];
+
+/**
  * A public link to a snapshot of a tree, frozen when it is published: later
  * edits reach the link only when the owner republishes it, so what is public
  * is always what was published.
@@ -241,4 +248,6 @@ export interface Share {
   /** Incremented on every republish; part of the edge-cache key. */
   version: number;
   viewCount: number;
+  /** Set when a report took the link down: it is gone, and its owner can only delete it. */
+  takedown: ShareTakedown | null;
 }

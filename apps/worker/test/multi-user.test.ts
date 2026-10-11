@@ -404,6 +404,8 @@ const NOT_OWNED_DATA: Record<string, string> = {
   'POST /api/admin/holds/:holdId/external-report': 'admins only (moderation-holds.test.ts)',
   'GET /s/:token': 'public share page, by its unguessable token (share.test.ts)',
   'GET /s/:token/data.json': 'public share data, by its unguessable token (share.test.ts)',
+  'GET /s/:token/report': 'public report form, by the share token (share-reports.test.ts)',
+  'POST /s/:token/report': 'anyone may report a public share (share-reports.test.ts)',
 };
 
 /** The routes of the app that take an id in their path, as `METHOD path`. */

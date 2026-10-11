@@ -59,6 +59,15 @@ const PROJECTION_ERRORS: Record<Exclude<ProjectShareResult, { ok: true }>['reaso
 };
 
 /**
+ * A link taken down after a report stays down until an admin restores it:
+ * its owner can't edit or republish it back up, only delete it. The message
+ * gives no reason, so it doesn't tell the owner about the report.
+ */
+function assertNotTakenDown(share: Share): void {
+  if (share.takedown) throw new GoneError('This link is unavailable');
+}
+
+/**
  * Owner-side share management plus public resolution.
  * Every share stores the projected payload JSON at create and republish
  * time, and views read only that snapshot. Private exclusion happens in
@@ -115,6 +124,7 @@ export class ShareService {
       publishedAt: now,
       version: 1,
       viewCount: 0,
+      takedown: null,
     };
     const payload = await this.project(share);
     await this.deps.screen?.({ trigger: 'create', share, payload, texts: shareTexts(payload) });
@@ -125,6 +135,7 @@ export class ShareService {
   async update(shareId: string, request: UpdateShareRequest): Promise<ShareSummary> {
     const req = updateShareRequestSchema.parse(request);
     const share = await this.requireOwnedShare(shareId);
+    assertNotTakenDown(share);
     const patch: Parameters<Repositories['shares']['updateShare']>[1] = { updatedAt: this.now() };
     if (req.title !== undefined) patch.title = req.title?.trim() ? req.title.trim() : null;
     if (patch.title && patch.title !== share.title && this.deps.screen) {
@@ -146,6 +157,7 @@ export class ShareService {
   async republish(shareId: string): Promise<ShareSummary> {
     const share = await this.requireOwnedShare(shareId);
     if (share.revokedAt) throw new GoneError('This share has been revoked');
+    assertNotTakenDown(share);
     const now = this.now();
     const payload = await this.project(share);
     await this.deps.screen?.({ trigger: 'republish', share, payload, texts: shareTexts(payload) });
@@ -186,7 +198,7 @@ export class ShareService {
 
   /**
    * Cheap validity check (no payload) used before serving an edge-cached copy.
-   * Returns the share when active.
+   * Returns the share when active; a taken-down, revoked or expired one is gone.
    */
   async checkPublic(token: string): Promise<PublicShareCheck> {
     if (!token || token.length > 128) return { ok: false, reason: 'not_found' };
@@ -244,6 +256,7 @@ export class ShareService {
   }
 
   private stateOf(share: Share): ShareSummary['state'] {
+    if (share.takedown) return 'unavailable';
     if (share.revokedAt) return 'revoked';
     if (share.expiresAt && share.expiresAt <= this.now()) return 'expired';
     return 'active';
@@ -251,6 +264,7 @@ export class ShareService {
 
   private summarize(share: ShareWithTree): ShareSummary {
     const base = this.deps.publicBaseUrl.replace(/\/+$/, '');
-    return { ...share, url: `${base}/s/${share.token}`, state: this.stateOf(share) };
+    const { takedown: _takedown, ...shown } = share;
+    return { ...shown, url: `${base}/s/${share.token}`, state: this.stateOf(share) };
   }
 }

@@ -189,6 +189,19 @@ describe('Share dialog: this conversation’s links', () => {
     expect(rows()).toHaveLength(1);
   });
 
+  it('a link taken down after a report shows only "unavailable", and can only be deleted', async () => {
+    await open([share('a', { title: 'Reported', state: 'unavailable' })]);
+    await vi.waitFor(() => expect(rows()).toHaveLength(1));
+    const row = rows()[0]!;
+    expect(row.textContent).toContain('unavailable');
+    expect(
+      within(row)
+        .getAllByRole('button')
+        .map((b) => b.textContent.trim()),
+    ).toEqual(['Delete']);
+    expect(within(row).queryByRole('link', { name: /Open/ })).toBeNull();
+  });
+
   it('republishing from a row asks the server for the new version', async () => {
     const d = await open([share('a')]);
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
