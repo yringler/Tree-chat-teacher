@@ -27,11 +27,13 @@
       "../simple/src",
       "../canvas/src",
       "../admin/src",
+      "../flutter/lib",
+      "../flutter/web",
       "../../packages/web-shared/src",
     ],
   },
   "assets": {
-    // Assembled by scripts/assemble-assets.mjs: power at /, then learn/, canvas/ and admin/.
+    // Assembled by scripts/assemble-assets.mjs: power at /, then learn/, canvas/, admin/ and app/.
     "directory": "./site",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
@@ -45,6 +47,8 @@
       "/canvas/*",
       "/admin",
       "/admin/*",
+      "/app",
+      "/app/*",
       "/",
       "/welcome",
       "/privacy",

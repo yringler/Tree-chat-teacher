@@ -8,6 +8,7 @@ How to deploy and run a Tangent deployment: Cloudflare and GitHub setup, sign-in
 - A domain on Cloudflare. Sign-in callbacks, magic links and passkeys are tied to one public origin.
 - A [Resend](https://resend.com) account for magic-link email, and a Cloudflare [Turnstile](https://developers.cloudflare.com/turnstile/) widget.
 - To sell credit or the membership: an [OpenRouter](https://openrouter.ai) account and a [Polar](https://polar.sh) account. Learn on the learner's own OpenRouter key needs neither.
+- To build: Node, pnpm and Flutter, as in the README's [quickstart](../README.md#quickstart-local-development).
 
 ## First deployment
 
@@ -28,7 +29,7 @@ How to deploy and run a Tangent deployment: Cloudflare and GitHub setup, sign-in
 5. **Migrate and deploy**, by hand the first time:
    ```bash
    pnpm db:migrate:remote
-   pnpm run deploy   # builds the four apps into ./site, then deploys the Worker with them
+   pnpm run deploy   # builds the apps into ./site, then deploys the Worker with them
    ```
    `pnpm run deploy` is `wrangler deploy`; the build is the Worker's `build.command`. A bare `pnpm deploy` is pnpm's own command, not this script.
 6. **Sign in, then make yourself an admin** ([Admin](#admin)).
@@ -39,7 +40,7 @@ How to deploy and run a Tangent deployment: Cloudflare and GitHub setup, sign-in
 `.github/workflows/ci.yml` runs **Checks** (`pnpm test`, `build`, `typecheck`, `lint`, `format:check`, each run even when an earlier one fails) and **End-to-end** (`pnpm e2e`) on every pull request to `master` and every push to it. On `master` (a push, or **Run workflow**), once both pass, **Deploy sandbox** deploys the [sandbox](#the-sandbox) in the GitHub environment `sandbox`, and then **Deploy** deploys production in the environment `production`. Both run `.github/workflows/deploy.yml` (the sandbox with `--env sandbox` on every wrangler command), so production's migrations and deploy have just run once on the sandbox's own database:
 
 1. It stops at once if the `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` secret is missing.
-2. `wrangler deploy --dry-run` runs the build from source and bundles the Worker, with no secrets and no restored turbo cache; a check then fails the job unless all four apps' `index.html` are in `apps/worker/site/`.
+2. `wrangler deploy --dry-run` runs the build from source and bundles the Worker, with no secrets and no restored turbo cache; a check then fails the job unless all five apps' `index.html` are in `apps/worker/site/`.
 3. `scripts/deploy-config.mjs` writes `apps/worker/wrangler.deploy.json`, `wrangler.jsonc` without `build`, so the two steps that hold the token run no build and upload exactly what was checked.
 4. `wrangler d1 migrations apply DB --remote` applies the new migrations.
 5. `wrangler deploy` ships the Worker and its assets.
@@ -122,7 +123,7 @@ With `KEY_ENCRYPTION_SECRET` set, users paste their Anthropic, OpenAI or OpenRou
 - Limits: same-origin requests only, models limited to the provider config, server-side output caps, and a rate limit per key cookie.
 - The trade-off: the key passes through the Worker on every request, so users trust the operator not to log it. The code never logs request headers or bodies; don't enable anything that does, such as Logpush with headers. An XSS on the origin could spend through the cookie while the page is open, but can't read the key.
 
-The apps are served with a strict CSP (`apps/web/public/_headers`; the Worker sets the same policy on the pages it renders itself, `apps/worker/src/http/learn-app.ts`).
+The apps are served with a strict CSP (`apps/web/public/_headers`; the Worker sets the same policy on the pages it renders itself, and the Flutter app's own, in `apps/worker/src/http/learn-app.ts`).
 
 ## Credit, membership and billing
 

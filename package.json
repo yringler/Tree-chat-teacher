@@ -16,8 +16,8 @@
     "e2e": "pnpm --filter @tangent/e2e e2e",
     "typecheck": "turbo run typecheck && tsc -p scripts/model-eval",
     "lint": "eslint . && node scripts/check-provider-neutral.mjs && node scripts/check-migrations.mjs && node scripts/check-cycles.mjs && node scripts/check-turbo-inputs.mjs",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "prettier --write . && pnpm --filter @tangent/flutter format",
+    "format:check": "prettier --check . && pnpm --filter @tangent/flutter format:check",
     "knip": "knip"
   },
   "devDependencies": {

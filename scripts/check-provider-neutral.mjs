@@ -16,6 +16,7 @@ const PATHS = [
   ':(glob)apps/simple/src/**',
   ':(glob)apps/canvas/src/**',
   ':(glob)apps/admin/src/**',
+  ':(glob)apps/flutter/lib/**',
 ];
 
 let out = '';

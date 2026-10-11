@@ -1,21 +1,22 @@
 # CLAUDE.md
 
-Tangent: a branching LLM chat for learning. pnpm workspace; a Cloudflare Worker (Hono, D1 with Drizzle, Durable Objects) serves four Angular 22 apps. Almost all code here is written by AI sessions, and the owner reviews it, so keep changes easy to review. Read [docs/DECISIONS.md](docs/DECISIONS.md) for the rules the code follows before changing an area.
+Tangent: a branching LLM chat for learning. pnpm workspace; a Cloudflare Worker (Hono, D1 with Drizzle, Durable Objects) serves four Angular 22 apps and a Flutter one. Almost all code here is written by AI sessions, and the owner reviews it, so keep changes easy to review. Read [docs/DECISIONS.md](docs/DECISIONS.md) for the rules the code follows before changing an area.
 
 ## Commands
 
 ```bash
-pnpm install                                   # Node 24 (.nvmrc), pnpm 10
+pnpm install                                   # Node 24 (.nvmrc), pnpm 10, Flutter (apps/flutter/.flutter-version) on PATH
 cp apps/worker/.dev.vars.example apps/worker/.dev.vars && pnpm --filter @tangent/worker db:migrate:local
 pnpm dev                                       # wrangler dev on :8787, builds every app first
 pnpm --filter @tangent/web start               # power app with hot reload on :4200 (simple :4201, canvas :4202, admin :4203)
 pnpm test                                      # every package through turbo, cached per package (cold: minutes); prefer one file:
 pnpm --filter @tangent/worker exec vitest run test/billing-ledger.test.ts
 pnpm --filter @tangent/core exec vitest run test/context/assemble.test.ts
+pnpm --filter @tangent/flutter test            # flutter test; `typecheck` is flutter analyze, `format` dart format
 pnpm typecheck                                 # tsc and Angular strict templates everywhere
 pnpm lint                                      # eslint + check-provider-neutral + check-migrations + check-cycles
-pnpm format                                    # Prettier writes; CI runs pnpm format:check
-pnpm build                                     # the four apps into apps/worker/site/
+pnpm format                                    # Prettier and dart format write; CI runs pnpm format:check
+pnpm build                                     # the apps into apps/worker/site/
 pnpm knip                                      # unused files, exports and dependencies
 pnpm e2e                                       # Playwright, own wrangler dev on :8790 (E2E_PORT), fresh DB
 pnpm --filter @tangent/worker db:generate      # the migration for a schema.ts change
@@ -32,6 +33,7 @@ pnpm --filter @tangent/worker db:generate      # the migration for a schema.ts c
 - `packages/web-shared`: Angular code shared by the apps. The shared engine lives here: `conversation/` (`ConversationStore`, which every app's store extends), `power/` (power and Canvas: account, keys dialog), `ui/` (composer and `ComposerController`, toasts, `Overlays` dialog stack, Compare), `core/` (API client, auth, shortcuts), `billing/`, `pool/`, `demo/` (the in-browser backend on the real `ChatService`).
 - `apps/worker`: `config.ts` (all env), `routes/` (one module per resource), `do/` (`TreeSession` per tree), `billing/` (gate, meter, ledger, payments port, Polar adapter), `pool/` (`PoolBank` DO), `auth/`, `byok/`, `http/` (public pages in hono/jsx), `db/schema.ts`, `migrations/`.
 - `apps/web` power app, `apps/simple` Learn, `apps/canvas` Canvas (experimental), `apps/admin` admin, `apps/e2e` Playwright.
+- `apps/flutter`: Learn in Flutter (Dart; `lib/api`, `lib/state`, `lib/ui`), its web build served at `/app/`. A workspace package only so turbo runs its `flutter build web`, `flutter test` and `flutter analyze`.
 
 ## Hard rules
 

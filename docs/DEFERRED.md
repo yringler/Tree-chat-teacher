@@ -50,6 +50,10 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **A text drag that starts in an unselected lane can lose its selection.** Selecting the lane changes its head's height, so the cards shift under the pointer. Keep the head's height stable across selection.
 - **No reviewer, shares, export, backups or prompt editor;** use the power app. The phone layout is cramped: the lane map is a desktop idea.
 
+## The Flutter app (`apps/flutter`)
+
+- **Emoji and characters Roboto lacks (Chinese, Hebrew, Arabic, …) show as empty boxes.** For a glyph its bundled fonts lack, Flutter's web engine fetches a Noto font from `fonts.gstatic.com`; `FLUTTER_APP_CSP` refuses it (`connect-src 'self'`), which also keeps learners' addresses from Google, and the console logs each refusal. Fixing it means serving the fallback fonts from `/app/` and pointing the engine's `fontFallbackBaseUrl` there (a custom `web/flutter_bootstrap.js`); Google serves them as hundreds of subset files, so only the scripts and emoji learners need.
+
 ## Links between messages
 
 - **Links across trees.** Only two messages of one tree can be linked. Across trees needs rules for ownership, deleting either tree, and backups that hold one end.

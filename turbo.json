@@ -48,12 +48,58 @@
       "outputs": []
     },
 
+    // The Flutter app hashes only what its build, tests and analysis read: its Android and iOS
+    // projects don't change them, and Flutter's own caches (.dart_tool, build) change every run.
+    "@tangent/flutter#typecheck": {
+      "inputs": [
+        "lib/**",
+        "test/**",
+        "web/**",
+        "assets/**",
+        "pubspec.yaml",
+        "pubspec.lock",
+        "analysis_options.yaml",
+        ".flutter-version",
+        "package.json"
+      ],
+      "outputs": []
+    },
+    "@tangent/flutter#test": {
+      "inputs": [
+        "lib/**",
+        "test/**",
+        "web/**",
+        "assets/**",
+        "pubspec.yaml",
+        "pubspec.lock",
+        "analysis_options.yaml",
+        ".flutter-version",
+        "package.json"
+      ],
+      "outputs": []
+    },
+    "@tangent/flutter#build": {
+      "inputs": [
+        "lib/**",
+        "test/**",
+        "web/**",
+        "assets/**",
+        "pubspec.yaml",
+        "pubspec.lock",
+        "analysis_options.yaml",
+        ".flutter-version",
+        "package.json"
+      ],
+      "outputs": ["dist/**"]
+    },
+
     "//#assemble": {
       "dependsOn": [
         "@tangent/web#build",
         "@tangent/simple#build",
         "@tangent/canvas#build",
-        "@tangent/admin#build"
+        "@tangent/admin#build",
+        "@tangent/flutter#build"
       ],
       "inputs": ["scripts/assemble-assets.mjs"],
       "outputs": ["apps/worker/site/**"]

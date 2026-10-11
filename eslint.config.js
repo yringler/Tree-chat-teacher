@@ -13,6 +13,8 @@ export default tseslint.config(
       'apps/worker/migrations/**',
       '.claude/**',
       'apps/worker/site/**',
+      // The Flutter app is Dart (`flutter analyze` checks it); its build/ and .dart_tool/ hold generated JS.
+      'apps/flutter/**',
       // Generated: coverage reports (pnpm coverage) and end-to-end runs (apps/e2e).
       '**/coverage/**',
       'apps/e2e/.state/**',

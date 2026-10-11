@@ -24,6 +24,19 @@ export const LEARN_APP_CSP =
 export const LEARN_LOGIN_CSP =
   "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
+/**
+ * The Flutter app's policy, on every document under /app/. It differs from
+ * the Angular apps' in three ways. CanvasKit, Flutter's renderer, compiles
+ * its WebAssembly at load ('wasm-unsafe-eval'; the module is the app's own
+ * file, never a CDN's). The app is one document, so Turnstile, which its
+ * sign-in page shows, may load its script and iframe on every page of it.
+ * Trusted Types stays enforced: script URLs pass only through Flutter's
+ * loader's policy (`flutter-js`) and the app's own for Turnstile's script
+ * (`tangent-turnstile`); Flutter draws to a canvas and writes no HTML.
+ */
+export const FLUTTER_APP_CSP =
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types flutter-js tangent-turnstile";
+
 /** The other headers `_headers` sets on every response under `/*`. */
 export const LEARN_COMMON_HEADERS: Readonly<Record<string, string>> = {
   'X-Content-Type-Options': 'nosniff',
@@ -34,9 +47,14 @@ export const LEARN_COMMON_HEADERS: Readonly<Record<string, string>> = {
 export const LEARN_BASE = '/learn/';
 export const CANVAS_BASE = '/canvas/';
 export const ADMIN_BASE = '/admin/';
+export const FLUTTER_BASE = '/app/';
 
-/** True when the last path segment looks like a file name (`main-xyz.js`, `favicon.ico`). */
-function isAssetPath(pathname: string): boolean {
+/**
+ * True when the last path segment looks like a file name (`main-xyz.js`, `favicon.ico`),
+ * or the path is under one of `fileDirs`.
+ */
+function isAssetPath(pathname: string, fileDirs: readonly string[]): boolean {
+  if (fileDirs.some((dir) => pathname.startsWith(dir))) return true;
   const last = pathname.slice(pathname.lastIndexOf('/') + 1);
   return last.includes('.');
 }
@@ -61,6 +79,13 @@ export function notFoundPage(): Response {
 export interface SpaAppOptions {
   /** The app has its own `<base>login` page (served with the login CSP). Default true. */
   login?: boolean;
+  /** The policy on the app's documents and files. Default `LEARN_APP_CSP`. */
+  csp?: string;
+  /**
+   * Directories under the base (`assets/`) whose every path is a file, for
+   * files named without a `.` (Flutter's `assets/NOTICES`). Default none.
+   */
+  fileDirs?: readonly string[];
   /**
    * Who may load the app's documents (the base and its client-side routes;
    * files are served to anyone). Anyone else gets a plain 404, and the
@@ -70,12 +95,13 @@ export interface SpaAppOptions {
 }
 
 /**
- * Serves one Angular app under `base` (`/learn/`, `/canvas/` or `/admin/`), mounted at
+ * Serves one app under `base` (`/learn/`, `/canvas/`, `/admin/` or `/app/`), mounted at
  * the root by `createApp`. `run_worker_first` sends the base and everything
  * under it here, because the assets' SPA fallback only ever serves the root
  * (power app) index.html.
  * - the base without its slash → 301 to the base.
- * - A path whose last segment contains a `.` is a file: passed to ASSETS as is.
+ * - A path whose last segment contains a `.`, or under one of `options.fileDirs`,
+ *   is a file: passed to ASSETS as is.
  * - Every other path is a client-side route: the app's index.html, with the
  *   login CSP on `<base>login` (apps with a login page) and the app CSP elsewhere.
  * `options.allow` limits the redirect and the documents (`.html` files included) to some callers.
@@ -84,7 +110,8 @@ export interface SpaAppOptions {
 export function spaAppRoutes(base: string, options: SpaAppOptions = {}): Hono<AppBindings> {
   const app = new Hono<AppBindings>();
   const bare = base.slice(0, -1);
-  const { login = true, allow } = options;
+  const { login = true, csp = LEARN_APP_CSP, allow } = options;
+  const fileDirs = (options.fileDirs ?? []).map((dir) => `${base}${dir}`);
 
   app.on(['GET', 'HEAD'], bare, async (c) => {
     if (allow && !(await allow(c))) return notFoundPage();
@@ -95,7 +122,7 @@ export function spaAppRoutes(base: string, options: SpaAppOptions = {}): Hono<Ap
   app.on(['GET', 'HEAD'], `${base}*`, async (c: Context<AppBindings>) => {
     const req = c.req.raw;
     const url = new URL(req.url);
-    if (isAssetPath(url.pathname)) {
+    if (isAssetPath(url.pathname, fileDirs)) {
       // A document asked for by its file name (`index.html`) is still a document.
       if (allow && url.pathname.endsWith('.html') && !(await allow(c))) return notFoundPage();
       const res = await c.env.ASSETS.fetch(req);
@@ -105,7 +132,7 @@ export function spaAppRoutes(base: string, options: SpaAppOptions = {}): Hono<Ap
       if (res.ok && type.startsWith('text/html') && !url.pathname.endsWith('.html')) {
         return notFoundPage();
       }
-      return withHeaders(res, LEARN_APP_CSP);
+      return withHeaders(res, csp);
     }
     if (allow && !(await allow(c))) return notFoundPage();
     // Same method and headers (conditional requests keep working), but always
@@ -113,8 +140,8 @@ export function spaAppRoutes(base: string, options: SpaAppOptions = {}): Hono<Ap
     const index = await c.env.ASSETS.fetch(
       new Request(`${url.origin}${base}`, { method: req.method, headers: req.headers }),
     );
-    const csp = login && isLoginPath(base, url.pathname) ? LEARN_LOGIN_CSP : LEARN_APP_CSP;
-    return withHeaders(index, csp, !!allow);
+    const policy = login && isLoginPath(base, url.pathname) ? LEARN_LOGIN_CSP : csp;
+    return withHeaders(index, policy, !!allow);
   });
 
   return app;
@@ -145,4 +172,12 @@ export function adminAppRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
       return !!identity && isAdmin(c.env, identity);
     },
   });
+}
+
+/**
+ * The Flutter build of Learn under `/app/`. Its sign-in page is a route of
+ * the same document, so the one policy (`FLUTTER_APP_CSP`) covers it.
+ */
+export function flutterAppRoutes(): Hono<AppBindings> {
+  return spaAppRoutes(FLUTTER_BASE, { login: false, csp: FLUTTER_APP_CSP, fileDirs: ['assets/'] });
 }

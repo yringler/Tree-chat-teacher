@@ -34,6 +34,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # Flutter for apps/flutter, whose build, tests and analysis run through turbo like the other
+      # apps', at the version apps/flutter/.flutter-version pins.
+      - id: flutter-version
+        run: echo "version=$(cat apps/flutter/.flutter-version)" >> "$GITHUB_OUTPUT"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+          cache: true
       - id: install
         run: pnpm install --frozen-lockfile
       # Turbo's task cache (turbo.json). A run restores the newest one this branch or master saved,
@@ -71,6 +80,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # Flutter for apps/flutter, whose build, tests and analysis run through turbo like the other
+      # apps', at the version apps/flutter/.flutter-version pins.
+      - id: flutter-version
+        run: echo "version=$(cat apps/flutter/.flutter-version)" >> "$GITHUB_OUTPUT"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+          cache: true
       - run: pnpm install --frozen-lockfile
       # The apps' builds, from this job's last run or the Checks job's.
       - uses: actions/cache@v4
