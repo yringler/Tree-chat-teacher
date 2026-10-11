@@ -137,6 +137,8 @@ const vars = {
   PERSONAL_CREDIT_ENABLED: 'false',
   DEV_PURCHASES_ENABLED: 'false',
   AUTO_TITLE: 'false',
+  // No sign-up cap: every test signs up its own users.
+  MAX_USERS: '',
   // Share links for everyone, from a fresh account, so the share dialog can be driven
   // (share-dialog.spec.ts).
   SHARING: 'everyone',
