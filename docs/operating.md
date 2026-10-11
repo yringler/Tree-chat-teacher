@@ -36,7 +36,7 @@ How to deploy and run a Tangent deployment: Cloudflare and GitHub setup, sign-in
 
 ## Deploying from GitHub
 
-`.github/workflows/ci.yml` runs **Checks** (`pnpm test`, `build`, `typecheck`, `lint`, `format:check`, each run even when an earlier one fails) and **End-to-end** (`pnpm e2e`) on every pull request to `master` and every push to it. On `master` (a push, or **Run workflow**), once both pass, the **Deploy** job runs in the GitHub environment `production`:
+`.github/workflows/ci.yml` runs **Checks** (`pnpm test`, `build`, `typecheck`, `lint`, `format:check`, each run even when an earlier one fails) and **End-to-end** (`pnpm e2e`) on every pull request to `master` and every push to it. On `master` (a push, or **Run workflow**), once both pass, **Deploy sandbox** deploys the [sandbox](#the-sandbox) in the GitHub environment `sandbox`, and then **Deploy** deploys production in the environment `production`. Both run `.github/workflows/deploy.yml` (the sandbox with `--env sandbox` on every wrangler command), so production's migrations and deploy have just run once on the sandbox's own database:
 
 1. It stops at once if the `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` secret is missing.
 2. `wrangler deploy --dry-run` runs the build from source and bundles the Worker, with no secrets and no restored turbo cache; a check then fails the job unless all four apps' `index.html` are in `apps/worker/site/`.
@@ -51,12 +51,12 @@ Deploys never overlap and none is cancelled midway. Re-running an old run redepl
 ### Setting it up (once)
 
 1. **Cloudflare API token.** Dashboard → **My Profile → API Tokens → Create Token** → the **Edit Cloudflare Workers** template → **Use template**. Under **Permissions**, **+ Add more**: _Account_ → **D1** → **Edit** (the template doesn't include it; the deploy applies migrations with it). **Account Resources:** _Include_ → your account. **Zone Resources:** _Include_ → _Specific zone_ → your domain (every deploy publishes the custom domain again, which needs _Zone_ → **Workers Routes** → **Edit** on that zone; the template has it). **Continue to summary → Create Token**, and copy it.
-2. **GitHub environment.** Repository → **Settings → Environments → New environment** → `production`:
-   - **Deployment branches and tags** → _Selected branches and tags_ → add `master` only. This is a security requirement: without it, a pull request from a branch of this repository that edits `ci.yml` can run a job in `production` and read its secrets.
-   - **Required reviewers** → add yourself. Every deploy then waits for your **Approve and deploy**, so nothing ships unseen.
-   - **Environment secrets**: `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (on the dashboard's account home, or `npx wrangler whoami`).
+2. **GitHub environments.** Repository → **Settings → Environments → New environment** → `production`, and again → `sandbox`:
+   - **Deployment branches and tags** → _Selected branches and tags_ → add `master` only, on both. This is a security requirement: without it, a pull request from a branch of this repository that edits a workflow can run a job in the environment and read its secrets.
+   - **Required reviewers**, on `production` only → add yourself. Every production deploy then waits for your **Approve and deploy**, after the sandbox has the same commit, so nothing ships unseen. The sandbox deploys without asking.
+   - **Environment secrets**, on both: `CLOUDFLARE_API_TOKEN` (the token; one token serves both) and `CLOUDFLARE_ACCOUNT_ID` (on the dashboard's account home, or `npx wrangler whoami`). Until `sandbox` has them, **Deploy sandbox** fails and production doesn't deploy.
 3. **Branch rule on `master`**: **Settings → Rules** → a rule requiring the **Checks** and **End-to-end** status checks before merging. The workflow itself doesn't block merges.
-4. **Disconnect Workers Builds** if it was ever connected: dashboard → **Workers & Pages → tangent → Settings → Build** → disconnect the repository. Otherwise it also deploys every push, untested and without migrations.
+4. **Disconnect Workers Builds** if it was ever connected: dashboard → **Workers & Pages → tangent** (and **tangent-sandbox**) **→ Settings → Build** → disconnect the repository. Otherwise it also deploys every push, untested and without migrations.
 
 Runtime secrets and vars live on the Worker, not in GitHub.
 
@@ -69,6 +69,22 @@ pnpm --filter @tangent/worker db:generate   # from the repo root
 ```
 
 Commit the `.sql` and its `meta/` snapshot together. Never edit a migration that has been applied anywhere, and never write one by hand. `pnpm lint` fails while `schema.ts` has a change no migration has (`scripts/check-migrations.mjs`). The history starts at `0000_baseline.sql`; a database created before it is converted once with [runbooks/d1-baseline.md](runbooks/d1-baseline.md).
+
+## The sandbox
+
+A private copy of Tangent at `https://sandbox.tangentailearning.com`: the Worker `tangent-sandbox`, from `env.sandbox` in `wrangler.jsonc`. It runs `master`'s code (deployed just before production) on its own D1 database (`tangent-sandbox`), Durable Objects, rate-limit counters, secrets and crons, and pays through the Polar sandbox, so everything, payments included, can be tried before you approve the production deploy. Cloudflare Access keeps it to you.
+
+`env.sandbox` restates every binding and var, because wrangler inherits neither into an environment; `test/config-surface.test.ts` fails when it lacks one production has. A var production sets goes in both places; `POLAR_SERVER` alone stays out of the sandbox, whose default is the Polar sandbox. Every `wrangler` command takes `--env sandbox` to act on it (`npx wrangler secret put NAME --env sandbox`, `npx wrangler tail --env sandbox`, `npx wrangler d1 migrations apply DB --remote --env sandbox`).
+
+Setting it up (once):
+
+1. **GitHub environment `sandbox`** ([Setting it up](#setting-it-up-once), step 2). The first `master` run then creates the Worker, its custom domain and its database tables.
+2. **Cloudflare Access.** Zero Trust → **Access → Applications → Add an application → Self-hosted**, domain `sandbox.tangentailearning.com`, with an **Allow** policy for your email. Then add a second application for `sandbox.tangentailearning.com/api/webhooks/polar` with a **Bypass** policy (_Include → Everyone_): Polar can't sign in to Access, and the Worker checks every delivery's signature. Access is the sandbox's only lock, so set it up before the secrets.
+3. **Secrets**, as in [First deployment](#first-deployment) but with `--env sandbox` and new values: `BETTER_AUTH_SECRET` and `KEY_ENCRYPTION_SECRET` (fresh, never production's), `RESEND_API_KEY`, `TURNSTILE_SECRET_KEY`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, a `BUILT_IN_API_KEY` with its own small credit limit, and the Polar sandbox's `POLAR_ACCESS_TOKEN` and `POLAR_WEBHOOK_SECRET`.
+4. **Sign-in.** Add `sandbox.tangentailearning.com` to the Turnstile widget's hostnames, and `https://sandbox.tangentailearning.com/api/auth/callback/google` to the Google OAuth client's redirect URIs. Passkeys are per hostname, so the sandbox has its own.
+5. **Polar sandbox** (<https://sandbox.polar.sh>): the organization is set up as in [Credit, membership and billing](#setup), with its own two products (their ids are in `env.sandbox`) and a webhook endpoint at `https://sandbox.tangentailearning.com/api/webhooks/polar`. Pay with `4242 4242 4242 4242`.
+
+Only `master` reaches the sandbox: a branch's migrations would stay in its database after the branch was abandoned. Try a branch locally ([Testing billing locally](#testing-billing-locally)).
 
 ## Sign-in
 
