@@ -30,11 +30,16 @@ export function legalInfo(env: AppEnv, request: Request): LegalInfo {
   const legal = appConfig(env).site.legal;
   return {
     operator: legal.operator ?? `the operator of ${new URL(origin).host}`,
-    contactEmail: legal.contactEmail ?? `privacy@${new URL(origin).hostname}`,
+    contactEmail: legalContactEmail(env, origin),
     jurisdiction: legal.jurisdiction,
     origin,
     sharing: sharingMode(env) === 'everyone',
   };
+}
+
+/** `LEGAL_CONTACT_EMAIL`, or privacy@ the public origin's host. */
+export function legalContactEmail(env: AppEnv, origin: string): string {
+  return appConfig(env).site.legal.contactEmail ?? `privacy@${new URL(origin).hostname}`;
 }
 
 /** Copyright and trademark line, shared by every footer that links the legal pages. */

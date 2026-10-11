@@ -61,3 +61,4 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 ## Sharing
 
 - **`shares.mode` is still in the schema.** Every share is a snapshot and the code writes `snapshot`; migrations are expand-only, so the column is dropped in a release after the one that stopped reading it.
+- **Alerts are email only.** A chat webhook (Zulip) for the high-severity alerts would reach the operator faster; it needs a secret for the webhook URL and a second sender behind `sendAlert`.

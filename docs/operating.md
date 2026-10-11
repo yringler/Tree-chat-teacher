@@ -206,10 +206,12 @@ The page lists users (newest first, searchable by email) and lets you:
 
 **Legal holds** preserve a share as evidence: `POST /api/admin/shares/:shareId/hold` (`{ "reason": "csam" | "violent_or_illegal" | "law_enforcement" | "other" }`) copies the share, its conversation and its owner's account details where deleting can't reach them, `GET /api/admin/holds` lists them (metadata only), `POST /api/admin/holds/:holdId/external-report` records an NCMEC or law-enforcement report number, and `POST /api/admin/holds/:holdId/release` deletes the copies (refused within a year of a report). What to do when you learn of child sexual abuse material or a threat of violence: [runbooks/csam.md](runbooks/csam.md).
 
+**Alerts** go by email to `LEGAL_CONTACT_EMAIL` (or `privacy@<host>`) when something needs you at once, such as screening refusing a share as possible child sexual abuse material. They are sent with the sign-in email setup (`RESEND_API_KEY`, `EMAIL_FROM`), so the contact address must accept mail from it. An alert names the reason, the share, owner, hold and report ids and links the admin page; it never contains the conversation. Sending is best-effort: a failure logs `alert_failed` with the same ids, so watch Workers Logs for it.
+
 The API behind it also reports pool consumption: `GET /api/admin/pool/usage?days=7&limit=50` lists users by spend and today's network keys by the number of users on each (many accounts on one key is what a farm looks like).
 
 Optionally, put a Cloudflare Access application in front of `<your domain>/admin` and `<your domain>/api/admin` as a second layer. Don't move the admin app to a subdomain: the session cookie belongs to the main origin.
 
 ## Observability
 
-Workers Logs is on (`observability` in `wrangler.jsonc`). The Worker logs one JSON event per line (`apps/worker/src/log.ts`): `llm_call` for every metered call (funding, model, tokens, cost, finish reason), `pool_refused`, `payment_webhook_failed`, `fee_estimated`, `pool_misconfigured`, `pool_breaker_tripped` and others. Nothing logs request headers or bodies.
+Workers Logs is on (`observability` in `wrangler.jsonc`). The Worker logs one JSON event per line (`apps/worker/src/log.ts`): `llm_call` for every metered call (funding, model, tokens, cost, finish reason), `pool_refused`, `payment_webhook_failed`, `fee_estimated`, `pool_misconfigured`, `pool_breaker_tripped`, `alert_sent`, `alert_failed` and others. Nothing logs request headers or bodies.
