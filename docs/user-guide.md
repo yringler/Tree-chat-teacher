@@ -10,6 +10,8 @@ Power, Learn and Canvas share one account: a conversation started in one is list
 
 Tangent is in beta: a notice at the top of each app asks you to report problems to `admin@` the site's domain. Closing it hides it for a day in that browser.
 
+When Tangent is full (a deployment can cap its number of users), the login page still signs existing users in, and offers new people **Join the waitlist**: you get one email when there's room.
+
 ## How Tangent answers
 
 New conversations in both apps start with the same built-in system prompt: it answers the question asked, directly and in depth, and never quizzes you. Whatever you don't follow, you branch into. Every substantive reply ends with two to four suggested **tangents** (shown as buttons under the reply, **Where next?**); clicking one opens a branch titled after it and asks it.

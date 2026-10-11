@@ -16,6 +16,7 @@ export * from './money.js';
 export * from './charge.js';
 export * from './pool.js';
 export * from './admin.js';
+export * from './waitlist.js';
 export * from './tangents.js';
 export * from './default-prompt.js';
 export * from './grounding.js';

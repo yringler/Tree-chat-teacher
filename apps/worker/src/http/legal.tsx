@@ -175,6 +175,14 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
             <td>Security: to keep you signed in and to spot misuse.</td>
           </tr>
           <tr>
+            <td>Waitlist (if you join it)</td>
+            <td>
+              While sign-ups are closed: the email address you give, when you joined, and when we
+              invited you.
+            </td>
+            <td>To email you when there's room. Nothing else is sent to it.</td>
+          </tr>
+          <tr>
             <td>Your content</td>
             <td>
               Conversations (messages, replies, branch titles, summaries), system prompts, your
@@ -247,9 +255,9 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
       </table>
       <p>
         Legal bases (for users in the EEA and UK): performing our contract with you (account,
-        content, billing), our legitimate interests in keeping the service secure and free of abuse
-        (sessions, logs, rate limits, open pool records), and legal obligations (keeping payment
-        records).
+        content, billing, the waitlist you asked to join), our legitimate interests in keeping the
+        service secure and free of abuse (sessions, logs, rate limits, open pool records), and legal
+        obligations (keeping payment records).
       </p>
 
       <h2>Who your data goes to</h2>
@@ -372,6 +380,10 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           {candidateMinutes} minutes are up.
         </li>
         <li>Sessions: until they expire or you sign out. Sign-in links: 15 minutes.</li>
+        <li>
+          Waitlist: until you sign up with that address, when it is deleted, or until you ask us to
+          remove it.
+        </li>
         <li>
           Payment records (credit purchases, refunds, usage charges): kept after your account is
           deleted, for as long as tax and accounting law requires (typically up to 7 years). They

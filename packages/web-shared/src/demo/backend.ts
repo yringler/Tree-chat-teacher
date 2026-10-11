@@ -337,7 +337,9 @@ export class DemoBackend {
         devMode: false,
         social: { google: false, github: false },
         turnstileSiteKey: null,
+        signupsOpen: true,
       } satisfies LoginOptionsResponse),
+    joinWaitlist: 'unsupported',
     me: () =>
       json({
         email: DEMO_EMAIL,
@@ -474,6 +476,9 @@ export class DemoBackend {
     adminPlaceHold: 'unsupported',
     adminReleaseHold: 'unsupported',
     adminReportHold: 'unsupported',
+    adminWaitlist: 'unsupported',
+    adminWaitlistInvite: 'unsupported',
+    adminWaitlistRemove: 'unsupported',
   };
 
   private async route(

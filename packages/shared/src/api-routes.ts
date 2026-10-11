@@ -76,6 +76,12 @@ import {
   type PoolVerifyResponse,
 } from './pool.js';
 import type { ProviderInfo } from './provider.js';
+import {
+  adminWaitlistInviteRequestSchema,
+  joinWaitlistRequestSchema,
+  type AdminWaitlistInviteResponse,
+  type AdminWaitlistResponse,
+} from './waitlist.js';
 import { reviewRequestSchema, type ReviewEvent } from './review.js';
 
 /*
@@ -139,6 +145,13 @@ const file: FileReply = { kind: 'file' };
 export const API_ROUTES = {
   // Public: what the login page offers.
   loginOptions: { method: 'GET', path: '/login-options', reply: json<LoginOptionsResponse>() },
+  /** Public too (with a Turnstile pass): asks to be told when sign-ups open. */
+  joinWaitlist: {
+    method: 'POST',
+    path: '/waitlist',
+    body: joinWaitlistRequestSchema,
+    reply: empty,
+  },
   me: { method: 'GET', path: '/me', reply: json<MeResponse>() },
   /** Both of the user's accounts, for good; same-origin only, and clears the cookies. */
   deleteAccount: {
@@ -370,6 +383,15 @@ export const API_ROUTES = {
     body: adminCreditRequestSchema,
     reply: json<AdminCreditResponse>(),
   },
+  adminWaitlist: { method: 'GET', path: '/admin/waitlist', reply: json<AdminWaitlistResponse>() },
+  adminWaitlistInvite: {
+    method: 'POST',
+    path: '/admin/waitlist/invite',
+    body: adminWaitlistInviteRequestSchema,
+    reply: json<AdminWaitlistInviteResponse>(),
+  },
+  /** Takes an address off the waitlist (a deletion request). */
+  adminWaitlistRemove: { method: 'DELETE', path: '/admin/waitlist/:email', reply: empty },
   /** Takes any owner's share down for good; its pending reports count as acted on (a strike). */
   adminRemoveShare: {
     method: 'POST',

@@ -6,6 +6,7 @@ import { PoolPage } from './pool-page';
 import { PoolUsagePage } from './pool-usage-page';
 import { ReportsPage } from './reports-page';
 import { UsersPage } from './users-page';
+import { WaitlistPage } from './waitlist-page';
 
 /**
  * The admin app, served under /admin/ to admins only (the Worker answers 404
@@ -14,11 +15,12 @@ import { UsersPage } from './users-page';
  * links while SHARING is `allowlist`, whose sharing is suspended, taking any
  * share down or back up, suspending a user's open pool access, waiving a
  * user's membership, adding credit to a user), the pool's balance and
- * overage breaker with top-ups and corrections, and who uses the pool most.
+ * overage breaker with top-ups and corrections, who uses the pool most,
+ * and the waitlist with its invites.
  */
 @Component({
   selector: 'app-root',
-  imports: [Logo, HoldsPage, PoolPage, PoolUsagePage, ReportsPage, UsersPage],
+  imports: [Logo, HoldsPage, PoolPage, PoolUsagePage, ReportsPage, UsersPage, WaitlistPage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="admin-head">
@@ -88,6 +90,7 @@ import { UsersPage } from './users-page';
         <app-reports-page />
         <app-holds-page />
         <app-users-page />
+        <app-waitlist-page />
         <app-pool-page />
         <app-pool-usage-page />
       }

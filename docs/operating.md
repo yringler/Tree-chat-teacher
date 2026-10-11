@@ -205,7 +205,8 @@ The page lists users (newest first, searchable by email) and lets you:
 - see a user's credit balance and add or take back credit (**Credit**);
 - waive the membership (**Member**);
 - suspend or restore a user's open pool access (**Pool suspended**), and see who uses the pool most;
-- see the pool's balance, pending holds and the breaker, and top it up or correct it.
+- see the pool's balance, pending holds and the breaker, and top it up or correct it;
+- see the **Waitlist**: the people who asked, while sign-ups were closed by `MAX_USERS`, to hear when there's room. After raising `MAX_USERS` and deploying, **Invite the next N** emails the oldest not yet invited, as many as there are free places, a link to sign up (or **Invite** one person). An invite holds no place: whoever signs up first gets in. **Remove** takes someone off (a deletion request); signing up does that by itself.
 
 **Reports** from share pages wait in the **Reports** queue at the top of the page (undecided ones oldest first; **Show: All reports** for the rest), with the reporter's words, the share's state, how many people reported it, its owner and whether it is held. Review within 24 to 48 hours; CSAM and violent or illegal reports, which also email you, as soon as you see them. **Review** opens the conversation at `/admin/review/<shareId>` in a new tab (it shows a held copy once the share is gone, and every opening is logged); then decide, with optional notes:
 

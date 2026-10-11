@@ -170,7 +170,7 @@ async function recordFirstSignInCheck(
  * `MAX_USERS` allows. Count-then-insert can let two simultaneous sign-ups
  * past the last seat; the cap is a soft limit, so that is fine.
  */
-async function signupsFull(env: AppEnv): Promise<boolean> {
+export async function signupsFull(env: AppEnv): Promise<boolean> {
   const max = appConfig(env).auth.maxUsers;
   if (max === null) return false;
   const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_users').first<{ n: number }>();
@@ -265,6 +265,12 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
             if (!user.emailVerified) return false;
             if (await signupsFull(env)) throw signupsClosedError();
             return { data: user };
+          },
+          // A waitlisted address that signs up has what it waited for.
+          after: async (user) => {
+            await env.DB.prepare('DELETE FROM waitlist WHERE email = ?')
+              .bind(user.email.toLowerCase())
+              .run();
           },
         },
       },
