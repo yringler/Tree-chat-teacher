@@ -117,14 +117,14 @@ function statusPage(
   message: string,
   headers: Record<string, string> = {},
 ): Response {
-  const common = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', ...headers };
+  const common = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', ...headers };
   if (variant === 'json') {
     const code = status === 429 ? 'rate_limited' : status === 410 ? 'gone' : 'not_found';
     return Response.json({ error: { code, message } }, { status, headers: common });
   }
   const body =
     `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
-    `<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex, nofollow">` +
     `<title>${escapeHtml(title)}</title></head>` +
     `<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem">` +
     `<h1 style="font-size:1.4rem">${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></body></html>`;

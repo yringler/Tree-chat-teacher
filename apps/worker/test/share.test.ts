@@ -56,9 +56,12 @@ describe('public shares', () => {
     expect(page.status).toBe(200);
     expect(page.headers.get('Content-Security-Policy')).toContain("default-src 'none'");
     expect(page.headers.get('Cache-Control')).toBe('no-store');
+    expect(page.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     const html = await page.text();
-    expect(html).toContain('og:title');
-    expect(html).toContain('Shared &lt;tree&gt;');
+    expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
+    expect(html).toContain('<title>Shared Tangent conversation</title>');
+    expect(html).toContain('<h1>Shared &lt;tree&gt;</h1>');
+    expect(html).toContain('AI-generated responses');
     expect(html).toContain('PUBLIC-SIDE');
     expect(html).not.toContain('PRIVATE-MARKER');
     for (const id of [detail.tree.id, trunk, root.assistantNode.id, root.userNode.id]) {
@@ -172,7 +175,10 @@ describe('public shares', () => {
       json: { treeId: detail.tree.id, scope: 'subtree', nodeId: secretNode.id },
     });
     expect(res.status).toBe(400);
-    expect((await exports.default.fetch(`${BASE}/s/not-a-real-token`)).status).toBe(404);
+    const missing = await exports.default.fetch(`${BASE}/s/not-a-real-token`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    expect(await missing.text()).toContain('<meta name="robots" content="noindex, nofollow">');
   });
 
   it('public routes need no Access even when Access is configured', async () => {
