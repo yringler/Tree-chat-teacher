@@ -82,7 +82,7 @@ flutter:
   # fonts.gstatic.com. The
   # files are the Regular, Medium and Bold instances (wdth 100) of Google
   # Fonts' variable Roboto, cut with `fonttools varLib.instancer --static`;
-  # assets/fonts/OFL.txt is their license.
+  # assets/fonts/Roboto-OFL.txt is their license.
   fonts:
     - family: Roboto
       fonts:
@@ -91,6 +91,20 @@ flutter:
           weight: 500
         - asset: assets/fonts/Roboto-Bold.ttf
           weight: 700
+    # Fallbacks for what Roboto lacks and tutors write (arrows, maths, ticks,
+    # stars), and the font for code. Subsets of Noto Sans Math, Symbols 2 and
+    # Mono (Regular) cut with pyftsubset to those blocks, so the app loads
+    # about 440 KB instead of 4 MB; assets/fonts/NotoSans*-OFL.txt are their
+    # licenses. Emoji and non-Latin scripts are still missing (docs/DEFERRED.md).
+    - family: Noto Sans Math
+      fonts:
+        - asset: assets/fonts/NotoSansMath-Regular.ttf
+    - family: Noto Sans Symbols 2
+      fonts:
+        - asset: assets/fonts/NotoSansSymbols2-Regular.ttf
+    - family: Noto Sans Mono
+      fonts:
+        - asset: assets/fonts/NotoSansMono-Regular.ttf
 
 # `dart run flutter_launcher_icons` regenerates every platform's icons from
 # these, which are the brand mark (apps/web/public/favicon.svg) at 1024px.

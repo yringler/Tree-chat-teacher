@@ -109,7 +109,12 @@ class _Markdown extends StatelessWidget {
       },
       styleSheet: base.copyWith(
         p: theme.textTheme.bodyLarge,
-        code: base.code?.copyWith(backgroundColor: tokens.sunken, fontSize: 15),
+        code: base.code?.copyWith(
+          backgroundColor: tokens.sunken,
+          fontSize: 15,
+          fontFamily: codeFont,
+          fontFamilyFallback: fallbackFonts,
+        ),
         codeblockDecoration: BoxDecoration(
           color: tokens.sunken,
           borderRadius: BorderRadius.circular(radiusSmall),

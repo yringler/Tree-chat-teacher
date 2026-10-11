@@ -52,7 +52,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 
 ## The Flutter app (`apps/flutter`)
 
-- **Emoji and characters Roboto lacks (Chinese, Hebrew, Arabic, …) show as empty boxes.** For a glyph its bundled fonts lack, Flutter's web engine fetches a Noto font from `fonts.gstatic.com`; `FLUTTER_APP_CSP` refuses it (`connect-src 'self'`), which also keeps learners' addresses from Google, and the console logs each refusal. Fixing it means serving the fallback fonts from `/app/` and pointing the engine's `fontFallbackBaseUrl` there (a custom `web/flutter_bootstrap.js`); Google serves them as hundreds of subset files, so only the scripts and emoji learners need.
+- **Emoji and non-Latin scripts (Chinese, Hebrew, Arabic, …) show as empty boxes.** The app bundles Roboto and subsets of Noto Sans Math, Symbols 2 and Mono, so arrows, maths and code render; for a glyph none of them has, Flutter's web engine fetches a Noto font from `fonts.gstatic.com`; `FLUTTER_APP_CSP` refuses it (`connect-src 'self'`), which also keeps learners' addresses from Google, and the console logs each refusal. Fixing it means serving the fallback fonts from `/app/` and pointing the engine's `fontFallbackBaseUrl` there (a custom `web/flutter_bootstrap.js`); Google serves them as hundreds of subset files, so only the scripts and emoji learners need.
 
 ## Links between messages
 

@@ -100,6 +100,13 @@ const radiusSmall = 6.0;
 /// The width of the reading column.
 const contentMaxWidth = 760.0;
 
+/// Bundled fonts (pubspec.yaml) for the arrows, maths and symbols Roboto
+/// lacks.
+const fallbackFonts = ['Noto Sans Math', 'Noto Sans Symbols 2'];
+
+/// Code, inline and in blocks.
+const codeFont = 'Noto Sans Mono';
+
 final lightTheme = _theme(
   brightness: Brightness.light,
   bg: const Color(0xFFFBFBFA),
@@ -154,7 +161,12 @@ ThemeData _theme({
     outline: tokens.border,
     outlineVariant: tokens.border,
   );
-  final base = ThemeData(colorScheme: scheme, useMaterial3: true);
+  final material = ThemeData(colorScheme: scheme, useMaterial3: true);
+  // The bundled fonts that cover what Roboto lacks; the engine would
+  // otherwise fetch fallbacks from Google, which the app's CSP refuses.
+  final base = material.copyWith(
+    textTheme: material.textTheme.apply(fontFamilyFallback: fallbackFonts),
+  );
   const body = TextStyle(fontSize: 17, height: 1.6);
   final shape = RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(radius),
