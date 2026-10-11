@@ -9,9 +9,8 @@ import { shareService } from '../registries.js';
 import { purgeShare } from '../share/cache.js';
 
 /**
- * The owner's share links (the public pages are routes/share.ts). With
- * sharing off (no DMCA agent registered) only admins and the users the
- * operator allowed publish (`canShare`): for anyone else create, edit and
+ * The owner's share links (the public pages are routes/share.ts). Only the
+ * users `canShare` admits publish (`SHARING`): for anyone else create, edit and
  * republish are 403. Listing, revoking and deleting stay open so owners can
  * take old links down.
  */

@@ -109,7 +109,7 @@ const vars = {
   DEV_PURCHASES_ENABLED: 'false',
   AUTO_TITLE: 'false',
   // Share links for everyone, so the share dialog can be driven (share-dialog.spec.ts).
-  DMCA_AGENT_REGISTERED: 'true',
+  SHARING: 'everyone',
   // Power's providers on the user's "own key": the offline test provider (it needs
   // none), and one that needs a key the tests never save (missing-key-power.spec.ts:
   // a conversation on it, opened in a browser without its key). It points nowhere.

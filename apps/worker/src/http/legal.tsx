@@ -128,7 +128,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           <strong>The short version.</strong> We keep what you need to use Tangent: your email
           address, your conversations and your settings. Your conversations are private to your
           account: other users can't see them unless you publish a share link
-          {/* Worded by DMCA_AGENT_REGISTERED (LegalInfo.sharing): links for everyone, or only where enabled. */}
+          {/* Worded by SHARING (LegalInfo.sharing): links for everyone, or only where enabled. */}
           {info.sharing ? '.' : ', which only accounts we have enabled it for can do.'} They are not
           end-to-end encrypted, so they are readable by the service itself (which is how it sends
           them to the AI model) and by the operator with database access, who looks at them only to

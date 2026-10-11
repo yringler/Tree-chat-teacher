@@ -38,7 +38,7 @@ import { poolBank } from '../pool/ids.js';
 import { POOL_OVERAGE } from '../pool/params.js';
 import { poolOverageMicros } from '../pool/day-usage.js';
 import { purgeShare } from '../share/cache.js';
-import { poolAvailable, sharingEnabled } from '../availability.js';
+import { poolAvailable, sharingMode } from '../availability.js';
 import { shareService } from '../registries.js';
 import { logEvent } from '../log.js';
 
@@ -163,7 +163,7 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * else); the mutating ones are same-origin only. The contract is in
  * packages/shared/src/admin.ts and the route table in api-routes.ts.
  *
- * It manages who may publish share links while DMCA_AGENT_REGISTERED is off
+ * It manages who may publish share links while SHARING is `allowlist`
  * (`auth_users.share_allowed`, see `canShare`), takes any share down
  * without its owner (a DMCA notice, docs/LEGAL.md §8), suspends a user's
  * open pool access (`auth_users.pool_suspended` and the user's pool
@@ -180,7 +180,7 @@ export function adminRoutes(): Hono<AppBindings> {
 
   r.get('/status', (c) =>
     c.json({
-      dmcaAgentRegistered: sharingEnabled(c.env),
+      sharing: sharingMode(c.env),
       membershipRequired: membershipRequired(c.env),
     } satisfies AdminStatusResponse),
   );

@@ -77,11 +77,12 @@ describe('the legal pages', () => {
     expect(privacy).toContain(`kept for ${POOL_IDENTITY_RETENTION_DAYS} days after the deletion`);
   });
 
-  it('say share links are limited while DMCA_AGENT_REGISTERED is off', async () => {
+  it('say share links are limited unless SHARING is everyone', async () => {
     const limited = /Share links are (not generally available|available only to accounts)/;
     for (const path of ['/privacy', '/terms']) {
-      expect(await page(path, { DMCA_AGENT_REGISTERED: 'true' })).not.toMatch(limited);
-      expect(await page(path, { DMCA_AGENT_REGISTERED: 'false' })).toMatch(limited);
+      expect(await page(path, { SHARING: 'everyone' })).not.toMatch(limited);
+      expect(await page(path, { SHARING: 'allowlist' })).toMatch(limited);
+      expect(await page(path, { SHARING: 'off' })).toMatch(limited);
     }
   });
 });

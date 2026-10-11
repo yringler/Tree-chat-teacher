@@ -306,7 +306,7 @@ export class UsersPage {
       user.activeShares > 0 &&
       !confirm(
         `${user.email} has ${user.activeShares} active share link(s). They stop opening at once ` +
-          '(unless DMCA_AGENT_REGISTERED is on). Continue?',
+          '(unless SHARING is everyone). Continue?',
       )
     ) {
       box.checked = true;

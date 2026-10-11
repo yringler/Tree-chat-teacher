@@ -189,11 +189,11 @@ describe('public shares', () => {
   });
 });
 
-describe('sharing off (no DMCA agent registered)', () => {
-  // Same database as the suite above; only DMCA_AGENT_REGISTERED differs. The dev bypass
-  // follows the flag alone (it is never on the allowlist); test/admin.test.ts covers the
-  // admins and the users the operator allows.
-  const off = { ...env, DMCA_AGENT_REGISTERED: 'false' } as AppEnv;
+describe('sharing for the allowlist only', () => {
+  // Same database as the suite above; only SHARING differs. The dev bypass follows the
+  // mode alone (it is never on the allowlist); test/admin.test.ts covers the admins, the
+  // users the operator allows and SHARING=off.
+  const off = { ...env, SHARING: 'allowlist' } as AppEnv;
   const app = createApp();
   async function callOff(
     path: string,

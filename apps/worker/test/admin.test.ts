@@ -32,9 +32,9 @@ const assets = {
   },
 } as unknown as Fetcher;
 
-/** Sharing off (no DMCA agent registered), with `adminIds` as ADMIN_USER_IDS. */
-function offEnv(adminIds = ''): AppEnv {
-  return authEnv({ DMCA_AGENT_REGISTERED: 'false', ADMIN_USER_IDS: adminIds, ASSETS: assets });
+/** Sharing for the allowlist only, with `adminIds` as ADMIN_USER_IDS. */
+function allowlistEnv(adminIds = ''): AppEnv {
+  return authEnv({ SHARING: 'allowlist', ADMIN_USER_IDS: adminIds, ASSETS: assets });
 }
 
 async function errorCode(res: Response): Promise<string> {
@@ -56,10 +56,10 @@ type User = Awaited<ReturnType<typeof newUser>>;
  * exists, so the env listing it is built afterwards and passed on every call.
  */
 async function setup() {
-  const signup = offEnv();
+  const signup = allowlistEnv();
   const admin = await newUser(signup, 'admin');
   const user = await newUser(signup);
-  const e = offEnv(` other-id, ${admin.id} ,,`);
+  const e = allowlistEnv(` other-id, ${admin.id} ,,`);
   const as =
     (u: User) =>
     (path: string, init: Parameters<User['call']>[1] = {}) =>
@@ -154,33 +154,33 @@ describe('admin identity', () => {
   });
 
   it('treats the local dev bypass as admin', async () => {
-    const dev = client(offEnv());
-    const e = { ...offEnv(), BETTER_AUTH_SECRET: '', DEV_ALLOW_NO_AUTH: 'true' } as AppEnv;
+    const dev = client(allowlistEnv());
+    const e = { ...allowlistEnv(), BETTER_AUTH_SECRET: '', DEV_ALLOW_NO_AUTH: 'true' } as AppEnv;
     const me = await ok<MeResponse>(await dev.call('/api/me', {}, e));
-    // Admin, but sharing follows the global flag in the dev bypass.
+    // Admin, but sharing follows the mode alone in the dev bypass.
     expect(me).toMatchObject({ userId: null, isAdmin: true, sharing: false });
     expect((await dev.call('/admin/', {}, e)).status).toBe(200);
     expect(await ok<AdminStatusResponse>(await dev.call('/api/admin/status', {}, e))).toEqual({
-      dmcaAgentRegistered: false,
+      sharing: 'allowlist',
       membershipRequired: false,
     });
   });
 });
 
 describe('admin API', () => {
-  it('reports whether a DMCA agent is registered and the membership required', async () => {
+  it('reports the sharing mode and whether the membership is required', async () => {
     const { admin, e } = await setup();
     expect(await ok<AdminStatusResponse>(await admin.call('/api/admin/status', {}, e))).toEqual({
-      dmcaAgentRegistered: false,
+      sharing: 'allowlist',
       membershipRequired: false,
     });
     const on = {
       ...e,
-      DMCA_AGENT_REGISTERED: 'true',
+      SHARING: 'everyone',
       ANNUAL_FEE_ENABLED: 'true',
     } as AppEnv;
     expect(await ok<AdminStatusResponse>(await admin.call('/api/admin/status', {}, on))).toEqual({
-      dmcaAgentRegistered: true,
+      sharing: 'everyone',
       membershipRequired: true,
     });
   });
@@ -345,7 +345,7 @@ describe('the share allowlist while sharing is off', () => {
     expect((await ok<MeResponse>(await asUser('/api/me'))).sharing).toBe(true);
 
     const share = await ok<ShareSummary>(await create(), 201);
-    const anon = client(offEnv());
+    const anon = client(allowlistEnv());
     const page = await anon.call(`/s/${share.token}`);
     expect(page.status).toBe(200);
     expect(await page.text()).toContain('PUBLISHED-QUESTION');
@@ -372,9 +372,9 @@ describe('the share allowlist while sharing is off', () => {
     expect((await create()).status).toBe(403);
     expect((await ok<MeResponse>(await asUser('/api/me'))).sharing).toBe(false);
 
-    // With a DMCA agent registered the allowlist no longer matters.
-    const on = offEnv();
-    on.DMCA_AGENT_REGISTERED = 'true';
+    // Sharing for everyone, the allowlist no longer matters.
+    const on = allowlistEnv();
+    on.SHARING = 'everyone';
     expect((await anon.call(`/s/${share.token}`, {}, on)).status).toBe(200);
   });
 
@@ -387,7 +387,36 @@ describe('the share allowlist while sharing is off', () => {
     );
     expect((await client(e).call(`/s/${share.token}`)).status).toBe(200);
     // Taken off ADMIN_USER_IDS, the admin's links are as closed as anyone's.
-    expect((await client(offEnv()).call(`/s/${share.token}`)).status).toBe(404);
+    expect((await client(allowlistEnv()).call(`/s/${share.token}`)).status).toBe(404);
+  });
+
+  it('turns every link off with SHARING=off, admins included', async () => {
+    const { e, asAdmin, admin } = await setup();
+    const treeId = await seedTree(asAdmin);
+    const share = await ok<ShareSummary>(
+      await asAdmin('/api/shares', { method: 'POST', json: { treeId, scope: 'tree' } }),
+      201,
+    );
+    const off = { ...e, SHARING: 'off' } as AppEnv;
+    const page = await client(off).call(`/s/${share.token}`);
+    expect(page.status).toBe(404);
+    expect(await page.text()).not.toContain('PUBLISHED-QUESTION');
+    expect((await client(off).call(`/s/${share.token}/data.json`)).status).toBe(404);
+    const create = await admin.call(
+      '/api/shares',
+      { method: 'POST', json: { treeId, scope: 'tree' } },
+      off,
+    );
+    expect(create.status).toBe(403);
+    expect((await ok<MeResponse>(await admin.call('/api/me', {}, off))).sharing).toBe(false);
+    expect(await ok<AdminStatusResponse>(await admin.call('/api/admin/status', {}, off))).toEqual({
+      sharing: 'off',
+      membershipRequired: false,
+    });
+    // Owners still take their links down while sharing is off.
+    expect(
+      (await admin.call(`/api/shares/${share.id}/revoke`, { method: 'POST' }, off)).status,
+    ).toBe(200);
   });
 
   it("lists a user's shares and lets the admin take one down", async () => {

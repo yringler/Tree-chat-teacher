@@ -8,7 +8,7 @@ import { UsersPage } from './users-page';
 /**
  * The admin app, served under /admin/ to admins only (the Worker answers 404
  * to anyone else; ADMIN_USER_IDS). One page: who may publish share links
- * while DMCA_AGENT_REGISTERED is off, taking any share down, suspending a
+ * while SHARING is `allowlist`, taking any share down, suspending a
  * user's open pool access, waiving a user's membership, adding credit to a user, the pool's balance and overage breaker with
  * top-ups and corrections, and who uses the pool most.
  */
@@ -36,21 +36,32 @@ import { UsersPage } from './users-page';
         <p class="muted" aria-busy="true">Loading…</p>
       } @else {
         @if (status(); as s) {
-          @if (s.dmcaAgentRegistered) {
-            <p class="notice notice-ok" role="status">
-              <span>
-                <strong>DMCA_AGENT_REGISTERED is on:</strong> everyone may share; the allowlist
-                below has no effect.
-              </span>
-            </p>
-          } @else {
-            <p class="notice" role="status">
-              <span>
-                <strong>DMCA_AGENT_REGISTERED is off:</strong> only admins and the users marked “May
-                share” can publish share links, and only their links open. Turning a user off takes
-                their links down at once.
-              </span>
-            </p>
+          @switch (s.sharing) {
+            @case ('everyone') {
+              <p class="notice notice-ok" role="status">
+                <span>
+                  <strong>SHARING is everyone:</strong> everyone may share; the allowlist below has
+                  no effect.
+                </span>
+              </p>
+            }
+            @case ('allowlist') {
+              <p class="notice" role="status">
+                <span>
+                  <strong>SHARING is allowlist:</strong> only admins and the users marked “May
+                  share” can publish share links, and only their links open. Turning a user off
+                  takes their links down at once.
+                </span>
+              </p>
+            }
+            @case ('off') {
+              <p class="notice notice-error" role="status">
+                <span>
+                  <strong>SHARING is off:</strong> nobody can publish share links, admins included,
+                  and no link opens. The allowlist below takes effect once it is allowlist again.
+                </span>
+              </p>
+            }
           }
           @if (!s.membershipRequired) {
             <p class="notice" role="status">

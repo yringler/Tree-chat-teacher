@@ -193,9 +193,11 @@ Free credit Tangent provides, for Learn users who can't pay; nobody can buy it. 
 
 `/admin/` (`apps/admin`) is for the operator. Admins are the user ids in the `ADMIN_USER_IDS` secret: sign in, copy your **Account ID** from the account dialog, then `npx wrangler secret put ADMIN_USER_IDS` (comma-separated for several). To everyone else, `/admin*` and `/api/admin/*` answer 404.
 
+The page says which `SHARING` mode is set. To take every share link down at once, admins' included, set `SHARING` to `off` (`wrangler.jsonc` `vars`, then deploy); links open again when it goes back to `allowlist` or `everyone`.
+
 The page lists users (newest first, searchable by email) and lets you:
 
-- allow users to publish share links while `DMCA_AGENT_REGISTERED` is off (**May share**); the check runs on every view of a link, so turning a user off takes their links down at once;
+- allow users to publish share links while `SHARING` is `allowlist` (**May share**); the check runs on every view of a link, so turning a user off takes their links down at once;
 - see a user's shares and **Revoke** any of them (how to act on a takedown notice);
 - see a user's credit balance and add or take back credit (**Credit**);
 - waive the membership (**Member**);

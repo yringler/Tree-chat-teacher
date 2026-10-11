@@ -12,9 +12,9 @@ const SNAPSHOT_TTL_SECONDS = 86_400;
 
 /**
  * Public, read-only share routes. They never look at the session and serve
- * no identity, only allow-listed DTOs. While sharing is off (`sharingEnabled`)
- * a link opens only if its owner may share (`canShare`: an admin or a user the
- * operator allowed); every other one is 404. Validity (revoked/expired) and
+ * no identity, only allow-listed DTOs. A link opens only if its owner may
+ * share (`canShare`: under `SHARING=allowlist` an admin or a user the operator
+ * allowed, nobody under `off`); every other one is 404. Validity (revoked/expired) and
  * that permission are checked against D1 on every request, before the edge
  * cache, so revoking either takes the link down at once; only snapshot
  * rendering is edge-cached, under a key that includes the share version.
@@ -49,9 +49,8 @@ async function serve(
       : statusPage(variant, 404, 'Not found', 'There is no shared conversation at this address.');
   }
   const { share } = check;
-  // Sharing off (no DMCA agent registered): only the links of owners who may share open,
-  // old ones included (no query while sharing is on). Checked before the cache: a cached
-  // snapshot outlives the permission.
+  // Only the links of owners who may share open, old ones included (a query only under
+  // `allowlist`). Checked before the cache: a cached snapshot outlives the permission.
   if (!(await canShare(c.env, userIdOfAccount(share.accountId)))) {
     return statusPage(
       variant,

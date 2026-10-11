@@ -105,9 +105,9 @@ export interface MeResponse {
    */
   builtInCredit: boolean;
   /**
-   * True when this user may publish share links: everyone once the operator
-   * set DMCA_AGENT_REGISTERED; until then only admins and the users the
-   * operator allowed on the admin page. False: creating, editing and
+   * True when this user may publish share links: everyone while `SHARING` is
+   * `everyone`; under `allowlist` only admins and the users the operator
+   * allowed on the admin page; nobody under `off`. False: creating, editing and
    * republishing a share are 403 and the user's `/s/*` links don't open;
    * exporting still works.
    */

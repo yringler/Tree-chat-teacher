@@ -264,10 +264,10 @@ export const authUsers = sqliteTable(
     /** ISO timestamp of when the waiver was first granted; null when never waived. */
     membershipWaivedAt: text('membership_waived_at'),
     /**
-     * The operator lets this user publish share links while DMCA_AGENT_REGISTERED
-     * is off (the admin page, `PATCH /api/admin/users/:userId`). Ignored while it
-     * is on: everyone may share then. Not a Better Auth field, so no auth
-     * endpoint can set it.
+     * The operator lets this user publish share links while SHARING is
+     * `allowlist` (the admin page, `PATCH /api/admin/users/:userId`). Ignored
+     * under `everyone` and `off`. Not a Better Auth field, so no auth endpoint
+     * can set it.
      */
     shareAllowed: integer('share_allowed', { mode: 'boolean' }).notNull().default(false),
     /**

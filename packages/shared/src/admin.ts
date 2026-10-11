@@ -6,6 +6,13 @@ import { z } from './zod.js';
  * check; to anyone else every admin route is 404.
  */
 
+/**
+ * Who may publish share links and whose links open (`SHARING`): nobody
+ * (admins included), admins and the users the operator allowed, or everyone.
+ */
+export const SHARING_MODES = ['off', 'allowlist', 'everyone'] as const;
+export type SharingMode = (typeof SHARING_MODES)[number];
+
 /** Largest page of `GET /api/admin/users`. */
 export const ADMIN_USERS_PAGE = 50;
 
@@ -25,8 +32,8 @@ export interface AdminUser {
   /** ISO timestamp of sign-up. */
   createdAt: string;
   /**
-   * The operator allows this user to publish share links while
-   * DMCA_AGENT_REGISTERED is off. No effect while it is on.
+   * The operator allows this user to publish share links while `SHARING` is
+   * `allowlist`. No effect under `off` or `everyone`.
    */
   shareAllowed: boolean;
   /** Listed in ADMIN_USER_IDS: may always share, and open the admin app. */
@@ -78,10 +85,11 @@ export type UpdateAdminUserRequest = z.infer<typeof updateAdminUserRequestSchema
 /** `GET /api/admin/status`: what the admin page explains the allowlist against. */
 export interface AdminStatusResponse {
   /**
-   * DMCA_AGENT_REGISTERED is "true": everyone may share, and the per-user
-   * permission has no effect. False: only admins and allowed users may.
+   * `SHARING`: `everyone` may share and the per-user permission has no
+   * effect; `allowlist`: only admins and allowed users may; `off`: nobody may
+   * and no link opens.
    */
-  dmcaAgentRegistered: boolean;
+  sharing: SharingMode;
   /**
    * The membership is required (ANNUAL_FEE_ENABLED and the payment provider
    * sells it). False: nobody needs one, so a waiver changes nothing until it is.

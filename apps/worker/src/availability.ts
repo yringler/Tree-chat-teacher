@@ -3,6 +3,7 @@
 // leaf, so the auth, billing and page modules that ask can't close an import
 // cycle through the registries.
 import { createProviderRegistry } from '@tangent/providers';
+import type { SharingMode } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
 import { paymentProvider, paymentsConfigured } from './billing/payments/index.js';
 import { appConfig } from './config.js';
@@ -32,26 +33,27 @@ export function ownKeyProviders(env: AppEnv): { id: string; label: string; searc
 }
 
 /**
- * Public share links are offered only once the operator has registered a DMCA
- * designated agent (`DMCA_AGENT_REGISTERED` is true): without it, hosting
- * what users publish carries no safe harbor. Off = no links are created or
- * served; exporting a conversation as a file still works.
+ * Who may publish share links (`SHARING`): `everyone`; `allowlist`, admins
+ * and the users the operator allowed; or `off`, nobody, so the operator can
+ * take every link down at once. Exporting a conversation as a file works in
+ * every mode.
  */
-export function sharingEnabled(env: AppEnv): boolean {
-  return appConfig(env).site.sharingEnabled;
+export function sharingMode(env: AppEnv): SharingMode {
+  return appConfig(env).site.sharing;
 }
 
 /**
  * Whether the user may publish share links, and whether their links open:
- * everyone while sharing is on (`sharingEnabled`); otherwise only admins
- * (ADMIN_USER_IDS) and the users the operator allowed on the admin page
- * (`auth_users.share_allowed`). `userId` null is the dev bypass, which follows
- * the global flag only (so the off path can be tried locally), like its
- * account's links. One query, none while sharing
- * is on.
+ * nobody under `off`, admins included; everyone under `everyone`; under
+ * `allowlist` only admins (ADMIN_USER_IDS) and the users the operator allowed
+ * on the admin page (`auth_users.share_allowed`). `userId` null is the dev
+ * bypass, which follows the mode only (so the allowlist path can be tried
+ * locally), like its account's links. One query, only under `allowlist`.
  */
 export async function canShare(env: AppEnv, userId: string | null): Promise<boolean> {
-  if (sharingEnabled(env)) return true;
+  const mode = sharingMode(env);
+  if (mode === 'off') return false;
+  if (mode === 'everyone') return true;
   if (!userId) return false;
   if (isAdminUserId(env, userId)) return true;
   const row = await env.DB.prepare('SELECT share_allowed AS allowed FROM auth_users WHERE id = ?')

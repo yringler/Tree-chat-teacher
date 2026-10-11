@@ -84,8 +84,8 @@ describe('config parsers', () => {
   });
 
   it('a malformed var fails the whole config, naming it', () => {
-    expect(() => appConfig(blank({ DMCA_AGENT_REGISTERED: 'yes' }))).toThrow(
-      'Invalid DMCA_AGENT_REGISTERED="yes": expected true or false',
+    expect(() => appConfig(blank({ SHARING: 'yes' }))).toThrow(
+      'Invalid SHARING="yes": expected off, allowlist, everyone',
     );
     expect(() => appConfig(blank({ POLAR_SERVER: 'live' }))).toThrow('Invalid POLAR_SERVER="live"');
     expect(() => appConfig(blank({ GROUNDING: 'sometimes' }))).toThrow('Invalid GROUNDING=');

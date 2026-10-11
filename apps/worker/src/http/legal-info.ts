@@ -1,7 +1,7 @@
 import { authBaseUrl } from '../auth/auth.js';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
-import { sharingEnabled } from '../availability.js';
+import { sharingMode } from '../availability.js';
 
 /**
  * Who runs this deployment and how to reach them, from the LEGAL_* vars: used by the legal pages (http/legal.tsx) and the copyright
@@ -19,8 +19,8 @@ export interface LegalInfo {
   /** Public origin, e.g. https://tangentailearning.com. */
   origin: string;
   /**
-   * Share links are offered to everyone (`sharingEnabled`). False: the pages
-   * say links exist only where the operator enables them, and point to export.
+   * Share links are offered to everyone (`SHARING` is `everyone`). False: the
+   * pages say links exist only where the operator enables them, and point to export.
    */
   sharing: boolean;
 }
@@ -33,7 +33,7 @@ export function legalInfo(env: AppEnv, request: Request): LegalInfo {
     contactEmail: legal.contactEmail ?? `privacy@${new URL(origin).hostname}`,
     jurisdiction: legal.jurisdiction,
     origin,
-    sharing: sharingEnabled(env),
+    sharing: sharingMode(env) === 'everyone',
   };
 }
 

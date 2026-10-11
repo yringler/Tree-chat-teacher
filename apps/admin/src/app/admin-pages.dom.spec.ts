@@ -51,7 +51,7 @@ function adminApi(pool: AdminPoolResponse = POOL) {
       ...ADA,
       ...req,
     })),
-    adminStatus: vi.fn(async () => ({ dmcaAgentRegistered: false, membershipRequired: true })),
+    adminStatus: vi.fn(async () => ({ sharing: 'allowlist' as const, membershipRequired: true })),
     adminPoolUsage: vi.fn(async (_days: number) => ({ since: T, rows: [], ipKeys: [] })),
   };
 }
@@ -70,7 +70,7 @@ describe('Admin', () => {
     await app(true);
     await screen.findByRole('region', { name: 'Users' });
     await screen.findByRole('heading', { name: 'Open pool' });
-    expect(screen.getByText(/DMCA_AGENT_REGISTERED is off:/)).toBeTruthy();
+    expect(screen.getByText(/SHARING is allowlist:/)).toBeTruthy();
   });
 
   it('anyone else is told so, and sees nothing', async () => {

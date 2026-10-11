@@ -21,6 +21,8 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   isReasoningEffort,
   type ReasoningEffort,
+  SHARING_MODES,
+  type SharingMode,
 } from '@tangent/shared';
 import { z } from 'zod';
 import type { PolarConfig } from './billing/providers/polar/config.js';
@@ -40,7 +42,7 @@ export const CONFIG_VARS = [
   'LEGAL_OPERATOR',
   'LEGAL_CONTACT_EMAIL',
   'LEGAL_JURISDICTION',
-  'DMCA_AGENT_REGISTERED',
+  'SHARING',
   'ADMIN_USER_IDS',
   // Sign-in and email
   'BETTER_AUTH_SECRET',
@@ -428,8 +430,8 @@ export interface AppConfig {
       /** `LEGAL_JURISDICTION`; empty = where the operator is established. */
       jurisdiction: string;
     };
-    /** Share links for everyone (`DMCA_AGENT_REGISTERED`). */
-    sharingEnabled: boolean;
+    /** Who may publish share links and whose links open (`SHARING`). */
+    sharing: SharingMode;
     adminUserIds: readonly string[];
   };
   auth: {
@@ -731,7 +733,7 @@ function parse(env: AppEnv): AppConfig {
         contactEmail: text('LEGAL_CONTACT_EMAIL'),
         jurisdiction: text('LEGAL_JURISDICTION') ?? '',
       },
-      sharingEnabled: bool('DMCA_AGENT_REGISTERED', false),
+      sharing: enumVar('SHARING', v('SHARING'), SHARING_MODES, 'allowlist'),
       adminUserIds: listVar(v('ADMIN_USER_IDS')),
     },
     auth: {

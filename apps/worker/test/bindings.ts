@@ -17,8 +17,9 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   PUBLIC_BASE_URL: '',
   DEV_ALLOW_NO_AUTH: 'true',
   AUTO_TITLE: 'false',
-  // Sharing on, so the share suites run; test/share.test.ts covers it off.
-  DMCA_AGENT_REGISTERED: 'true',
+  // Sharing for everyone, so the share suites run; test/share.test.ts covers
+  // the other modes.
+  SHARING: 'everyone',
   PROVIDERS: JSON.stringify([
     {
       id: 'fake',
