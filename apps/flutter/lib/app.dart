@@ -11,14 +11,23 @@ import 'ui/chat_page.dart';
 import 'ui/home_page.dart';
 import 'ui/login_page.dart';
 import 'ui/theme.dart';
+import 'ui/turnstile/turnstile.dart';
 import 'ui/widgets.dart';
 
 /// The app: sign-in, lessons, and a lesson's chat. On the web it is served
 /// under the base href `/app/`, which the routes below are relative to.
 class TangentApp extends StatefulWidget {
-  const TangentApp({super.key, required this.api, this.initialLocation});
+  const TangentApp({
+    super.key,
+    required this.api,
+    this.initialLocation,
+    this.captcha = TurnstileWidget.new,
+  });
 
   final TangentApi api;
+
+  /// The sign-in page's human check; tests pass a stand-in.
+  final CaptchaBuilder captcha;
 
   /// Where to start; on the web the browser's URL decides.
   final String? initialLocation;
@@ -37,8 +46,10 @@ class _TangentAppState extends State<TangentApp> {
     routes: [
       GoRoute(
         path: '/login',
-        builder: (context, state) =>
-            LoginPage(errorCode: state.uri.queryParameters['error']),
+        builder: (context, state) => LoginPage(
+          errorCode: state.uri.queryParameters['error'],
+          captcha: widget.captcha,
+        ),
       ),
       GoRoute(path: '/', builder: (context, state) => const HomePage()),
       GoRoute(path: '/t/:treeId', pageBuilder: _lessonPage),

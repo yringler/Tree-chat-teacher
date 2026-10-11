@@ -19,7 +19,7 @@ These apps share one Worker and one sign-in:
 | Learn                 | `/learn/`  | `apps/simple`  | A tutor with nothing to configure: Normal and Max models, Compare, tangents, "Ask about this". Own OpenRouter key, Tangent credit, or the free open pool.  |
 | Canvas (exp.)         | `/canvas/` | `apps/canvas`  | The power app's conversations as lanes on one pannable surface, each streaming on its own.                                                                 |
 | Admin                 | `/admin/`  | `apps/admin`   | For the operator: users, share permissions, credit, waivers, the pool.                                                                                     |
-| Learn (Flutter, exp.) | `/app/`    | `apps/flutter` | Learn in Flutter, on the web now and on Android and iOS later: sign-in, lessons, the chat and its tangents.                                                |
+| Learn (Flutter, exp.) | `/app/`    | `apps/flutter` | Learn in Flutter, on the web and (untried on devices) Android and iOS: sign-in, lessons, the chat and its tangents.                                        |
 
 The Worker also renders the public pages (landing, `/pricing`, `/pool`, `/privacy`, `/terms`), the share viewer (`/s/…`), and in-browser demos at `/demo`, `/learn/demo` and `/canvas/demo` that need no account and call no model.
 

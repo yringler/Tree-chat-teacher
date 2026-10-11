@@ -9,8 +9,9 @@ and this file goes.
 A small Flutter version of Learn (`apps/simple`) that runs on the web now and
 on Android and iOS later, from one codebase:
 
-- **Sign in** by magic link. Signing in for the first time creates the
-  account; there is no separate sign-up.
+- **Sign in** by email: the magic link, or the 6-digit code in the same
+  email. Signing in for the first time creates the account; there is no
+  separate sign-up.
 - **Lessons:** a list of the user's lessons (trees), start one from a topic,
   delete one.
 - **Chat:** the lesson's thread, the reply streaming in as Markdown, Stop,
@@ -35,8 +36,9 @@ auth is needed for the web.
   `POST /api/auth/sign-in/magic-link` with `{email, callbackURL: "/app/",
   errorCallbackURL: "/app/login"}` and the Turnstile token in
   `x-captcha-response`. The emailed link signs in, sets the cookie and
-  redirects to `/app/`. `GET /api/me` answers 401 `unauthorized` when signed
-  out. Sign-out is `POST /api/auth/sign-out`.
+  redirects to `/app/`; the code in the same email signs in through `POST
+  /api/auth/sign-in/email-otp {email, otp}`. `GET /api/me` answers 401
+  `unauthorized` when signed out. Sign-out is `POST /api/auth/sign-out`.
 - **Who pays:** the pool when `GET /api/pool/status` says `enabled`; else
   credit when `/api/me` says `builtInCredit`; else own-key, which fails with
   `key_required` and the app points the user to the web app to add a key.
@@ -99,19 +101,25 @@ without saying so.
 
 ## Android and iOS
 
-The project already builds for both (`flutter build apk`, `flutter build
-ios` on a Mac). Running against the Worker needs `--dart-define=TANGENT_BASE_URL=https://…`.
-What doesn't work yet is **sign-in**, for three reasons in the Worker:
+The project builds for both (`flutter build apk`, `flutter build ios` on a
+Mac), pointed at a Worker with `--dart-define=TANGENT_BASE_URL=https://…`,
+the deployment's `PUBLIC_BASE_URL`: Turnstile accepts only tokens issued on
+that host. Sign-in works natively, with no browser:
 
-- The session is a cookie, and the API reads nothing else. A native app
-  needs a token it can send itself, e.g. Better Auth's `bearer` plugin.
-- The magic link opens in the phone's browser, which gets the session, not
-  the app. Something has to hand the session to the app: a Worker route the
-  link's callback lands on, which redirects to the app (an app link, or a
-  custom scheme with a one-time code the app exchanges, so another app
-  can't catch the token).
-- Turnstile checks the token's hostname, so the widget has to run in a page
-  on the Worker's origin (a WebView), not in the app.
+- **Captcha:** the Worker's `/app-captcha` page in a web view
+  (`webview_flutter`, `lib/ui/turnstile/turnstile_native.dart`). The page
+  posts the Turnstile token to the `TangentCaptcha` JavaScript channel, and
+  the app requests the email as on the web.
+- **Code:** the email carries a 6-digit code next to the link, and the app
+  signs in by typing it. The link would open in the phone's browser and sign
+  in the web app there.
+- **Session:** a bearer token. The code sign-in answers with it in
+  `set-auth-token`; the app keeps it in the keychain or keystore
+  (`flutter_secure_storage`, `lib/api/token_store.dart`), sends it as
+  `Authorization: Bearer` on every call, and forgets it on sign-out. A
+  native sign-in gets the 30-day session.
 
-That is a change to sign-in, which the owner decides on. Until then the
-native builds show that sign-in is web-only.
+What remains is trying it on a device: none was available where this was
+built. On Android and iOS, check that Turnstile passes in the web view, that
+the keyboard offers the code from the email, and that the token survives a
+restart; on Android, also a release build's signing.

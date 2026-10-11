@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/api/tangent_api.dart';
@@ -124,7 +125,11 @@ class FakeTangentApi implements TangentApi {
   /// Thrown by `sendMessage`'s stream before any event, when set.
   ApiException? refuseSend;
 
+  /// Thrown by `signInWithCode`, when set; otherwise the code signs in.
+  ApiException? refuseCode;
+
   final magicLinks = <({String email, String captchaToken})>[];
+  final codes = <({String email, String code})>[];
   final createdTrees = <({String? providerId, String? model})>[];
   final createdBranches = <({String fromNodeId, String? title})>[];
   final deletedTrees = <String>[];
@@ -147,6 +152,17 @@ class FakeTangentApi implements TangentApi {
     required String errorCallbackPath,
   }) async {
     magicLinks.add((email: email, captchaToken: captchaToken));
+  }
+
+  @override
+  Future<void> signInWithCode({
+    required String email,
+    required String code,
+  }) async {
+    codes.add((email: email, code: code));
+    final refusal = refuseCode;
+    if (refusal != null) throw refusal;
+    meAnswers = [signedInMe];
   }
 
   @override
@@ -252,11 +268,24 @@ Future<void> settle(WidgetTester tester) async {
   }
 }
 
+/// Turnstile's stand-in: solved by a tap.
+Widget fakeCaptcha({
+  Key? key,
+  required String siteKey,
+  required ValueChanged<String?> onToken,
+}) => TextButton(
+  key: key,
+  onPressed: () => onToken('captcha-token'),
+  child: const Text('Solve'),
+);
+
 Future<void> pumpApp(
   WidgetTester tester,
   FakeTangentApi api, {
   String location = '/',
 }) async {
-  await tester.pumpWidget(TangentApp(api: api, initialLocation: location));
+  await tester.pumpWidget(
+    TangentApp(api: api, initialLocation: location, captcha: fakeCaptcha),
+  );
   await settle(tester);
 }

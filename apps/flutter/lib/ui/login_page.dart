@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api/models.dart';
 import '../state/app_scope.dart';
@@ -25,7 +27,35 @@ String? loginErrorMessage(String? code) => switch (code) {
   _ => 'Sign-in failed. Please try again.',
 };
 
+/// Why a code didn't sign in, and whether it is spent, so only a new email
+/// brings one that works.
+({String text, bool spent}) codeErrorMessage(Object error) => switch (error) {
+  ApiException(code: 'INVALID_OTP') => (
+    text: 'That code isn’t right. Check the email and try again.',
+    spent: false,
+  ),
+  ApiException(code: 'OTP_EXPIRED') => (
+    text: 'That code has expired.',
+    spent: true,
+  ),
+  ApiException(code: 'TOO_MANY_ATTEMPTS') => (
+    text: 'Too many wrong tries for that code.',
+    spent: true,
+  ),
+  ApiException(status: 429) => (
+    text: 'Too many tries. Wait a minute and try again.',
+    spent: false,
+  ),
+  ApiException(code: 'signups_closed') => (
+    text: loginErrorMessage('signups_closed')!,
+    spent: false,
+  ),
+  _ => (text: noticeFor(error).text, spent: false),
+};
+
 final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
+const _codeLength = 6;
 
 /// Builds the human check that gives a captcha token.
 typedef CaptchaBuilder = Widget Function({
@@ -34,12 +64,15 @@ typedef CaptchaBuilder = Widget Function({
   required ValueChanged<String?> onToken,
 });
 
-/// Sign-in by magic link. Signing in the first time creates the account.
+/// Sign-in by email: the email has a link and a code. Signing in the first
+/// time creates the account. On the web either works; a native build has no
+/// browser session for the link to sign in, so it asks for the code.
 class LoginPage extends StatefulWidget {
   const LoginPage({
     super.key,
     this.errorCode,
     this.captcha = TurnstileWidget.new,
+    this.native = !kIsWeb,
   });
 
   /// `?error=` from a magic link that failed.
@@ -48,17 +81,25 @@ class LoginPage extends StatefulWidget {
   /// Turnstile; tests pass a stand-in.
   final CaptchaBuilder captcha;
 
+  /// A native build: the page speaks of the code only.
+  final bool native;
+
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
   final _email = TextEditingController();
+  final _code = TextEditingController();
   LoginOptions? _options;
   late String? _error = loginErrorMessage(widget.errorCode);
   String? _token;
   String? _sentTo;
   bool _busy = false;
+
+  /// Why the last code didn't sign in; [_codeSpent] when it no longer can.
+  String? _codeError;
+  bool _codeSpent = false;
 
   /// A Turnstile token works once, so each attempt gets a fresh widget.
   int _attempt = 0;
@@ -67,12 +108,14 @@ class _LoginPageState extends State<LoginPage> {
   void initState() {
     super.initState();
     _email.addListener(() => setState(() {}));
+    _code.addListener(() => setState(() {}));
     unawaited(_loadOptions());
   }
 
   @override
   void dispose() {
     _email.dispose();
+    _code.dispose();
     super.dispose();
   }
 
@@ -108,7 +151,14 @@ class _LoginPageState extends State<LoginPage> {
         callbackPath: '/app/',
         errorCallbackPath: '/app/login',
       );
-      if (mounted) setState(() => _sentTo = email);
+      if (mounted) {
+        setState(() {
+          _sentTo = email;
+          _code.clear();
+          _codeError = null;
+          _codeSpent = false;
+        });
+      }
     } on Object catch (error) {
       if (mounted) setState(() => _error = noticeFor(error).text);
     } finally {
@@ -121,6 +171,41 @@ class _LoginPageState extends State<LoginPage> {
       }
     }
   }
+
+  bool get _canSubmitCode =>
+      !_busy && !_codeSpent && _code.text.length == _codeLength;
+
+  Future<void> _submitCode() async {
+    final email = _sentTo;
+    if (!_canSubmitCode || email == null) return;
+    final scope = AppScope.of(context);
+    setState(() {
+      _busy = true;
+      _codeError = null;
+    });
+    try {
+      await scope.api.signInWithCode(email: email, code: _code.text);
+      // Signed in: the router leaves this page once the session knows.
+      await scope.session.start();
+    } on Object catch (error) {
+      if (!mounted) return;
+      final message = codeErrorMessage(error);
+      setState(() {
+        _codeError = message.text;
+        _codeSpent = message.spent;
+        _code.clear();
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Back to the email form, the address kept, for a new email.
+  void _startOver() => setState(() {
+    _sentTo = null;
+    _codeError = null;
+    _codeSpent = false;
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -160,42 +245,22 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   List<Widget> _body(LoginOptions options) {
-    final theme = Theme.of(context);
     final sentTo = _sentTo;
     if (!options.configured) {
       return const [Text('Sign-in isn’t set up on this server.')];
     }
-    if (sentTo != null) {
-      return [
-        Text('Check your email', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 8),
-        Text.rich(
-          TextSpan(
-            children: [
-              const TextSpan(text: 'We sent a sign-in link to '),
-              TextSpan(
-                text: sentTo,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const TextSpan(
-                text: '. It works once and expires in 15 minutes.',
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        OutlinedButton(
-          onPressed: () => setState(() => _sentTo = null),
-          child: const Text('Use a different email'),
-        ),
-      ];
-    }
+    if (sentTo != null) return _checkEmail(sentTo);
+    final theme = Theme.of(context);
     final siteKey = options.turnstileSiteKey;
     return [
       Text('Sign in to $brandName', style: theme.textTheme.titleLarge),
       const SizedBox(height: 4),
       Text(
-        'We email you a link. Signing in the first time creates your account.',
+        widget.native
+            ? 'We email you a code. Signing in the first time creates your '
+                  'account.'
+            : 'We email you a link and a code. Signing in the first time '
+                  'creates your account.',
         style: theme.textTheme.bodySmall,
       ),
       if (!options.signupsOpen) ...[
@@ -228,7 +293,7 @@ class _LoginPageState extends State<LoginPage> {
         width: double.infinity,
         child: FilledButton(
           onPressed: _canSend ? () => unawaited(_send()) : null,
-          child: const Text('Email me a link'),
+          child: Text(widget.native ? 'Email me a code' : 'Email me a link'),
         ),
       ),
       const SizedBox(height: 16),
@@ -239,10 +304,87 @@ class _LoginPageState extends State<LoginPage> {
             'By signing in you confirm you are at least 13 and agree to the',
             style: theme.textTheme.bodySmall,
           ),
-          _SmallLink(label: 'Terms of service', path: '/terms'),
+          const _SmallLink(label: 'Terms of service', path: '/terms'),
           Text('and', style: theme.textTheme.bodySmall),
-          _SmallLink(label: 'Privacy policy', path: '/privacy'),
+          const _SmallLink(label: 'Privacy policy', path: '/privacy'),
         ],
+      ),
+    ];
+  }
+
+  /// After the email went out: the code field, and on the web the link.
+  List<Widget> _checkEmail(String sentTo) {
+    final theme = Theme.of(context);
+    final codeError = _codeError;
+    return [
+      Text('Check your email', style: theme.textTheme.titleLarge),
+      const SizedBox(height: 8),
+      Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: widget.native
+                  ? 'We sent a sign-in code to '
+                  : 'We sent a sign-in link and code to ',
+            ),
+            TextSpan(
+              text: sentTo,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            TextSpan(
+              text: widget.native
+                  ? '. Enter it here. It works once and expires in 15 minutes.'
+                  : '. Open the link, or enter the code here. Each works once '
+                        'and expires in 15 minutes.',
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 20),
+      TextField(
+        controller: _code,
+        enabled: !_busy && !_codeSpent,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        autofillHints: const [AutofillHints.oneTimeCode],
+        // Pasting the email's line keeps its digits; six fill the field.
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(_codeLength),
+        ],
+        style: const TextStyle(fontSize: 22, letterSpacing: 6),
+        decoration: const InputDecoration(
+          labelText: 'Code from the email',
+          counterText: '',
+        ),
+        onChanged: (value) {
+          if (value.length == _codeLength) unawaited(_submitCode());
+        },
+        onSubmitted: (_) => unawaited(_submitCode()),
+      ),
+      if (codeError != null) ...[
+        const SizedBox(height: 12),
+        _ErrorText(codeError),
+      ],
+      const SizedBox(height: 16),
+      SizedBox(
+        width: double.infinity,
+        child: _codeSpent
+            ? FilledButton(
+                onPressed: _startOver,
+                child: const Text('Send a new code'),
+              )
+            : FilledButton(
+                onPressed: _canSubmitCode
+                    ? () => unawaited(_submitCode())
+                    : null,
+                child: const Text('Sign in'),
+              ),
+      ),
+      const SizedBox(height: 8),
+      TextButton(
+        onPressed: _busy ? null : _startOver,
+        child: const Text('Use a different email'),
       ),
     ];
   }

@@ -1,1 +1,2 @@
-export 'turnstile_stub.dart' if (dart.library.js_interop) 'turnstile_web.dart';
+export 'turnstile_native.dart'
+    if (dart.library.js_interop) 'turnstile_web.dart';

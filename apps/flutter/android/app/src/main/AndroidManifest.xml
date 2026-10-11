@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The app talks to the Worker; debug builds get this from their own manifest. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="Tangent"
         android:name="${applicationName}"

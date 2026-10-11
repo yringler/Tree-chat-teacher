@@ -11,15 +11,21 @@ abstract interface class TangentApi {
 
   Future<LoginOptions> loginOptions();
 
-  /// Emails a magic link. [captchaToken] is Turnstile's token
-  /// (`x-captcha-response`). Opening the link signs in and lands on
-  /// [callbackPath], a path on this origin.
+  /// Emails a magic link and a 6-digit code. [captchaToken] is Turnstile's
+  /// token (`x-captcha-response`). Opening the link signs in and lands on
+  /// [callbackPath], a path on this origin; the code signs in through
+  /// [signInWithCode].
   Future<void> sendMagicLink({
     required String email,
     required String captchaToken,
     required String callbackPath,
     required String errorCallbackPath,
   });
+
+  /// Signs in with the code from the sign-in email; the first sign-in
+  /// creates the account. Throws `INVALID_OTP` for a wrong code,
+  /// `OTP_EXPIRED` and `TOO_MANY_ATTEMPTS` when it no longer works.
+  Future<void> signInWithCode({required String email, required String code});
 
   /// The signed-in user; throws `unauthorized` when signed out.
   Future<Me> me();

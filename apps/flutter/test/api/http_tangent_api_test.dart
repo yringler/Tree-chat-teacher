@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tangent/api/http_tangent_api.dart';
 import 'package:tangent/api/models.dart';
+import 'package:tangent/api/token_store.dart';
 
 /// A request as the fake server saw it.
 class Seen {
@@ -20,11 +21,31 @@ class Seen {
 
 typedef Reply = http.StreamedResponse Function(Seen request);
 
+/// A [TokenStore] in memory that counts its reads.
+class MemoryTokens implements TokenStore {
+  MemoryTokens([this.token]);
+  String? token;
+  var reads = 0;
+
+  @override
+  Future<String?> read() async {
+    reads++;
+    return token;
+  }
+
+  @override
+  Future<void> write(String token) async => this.token = token;
+
+  @override
+  Future<void> clear() async => token = null;
+}
+
 /// An API over a fake server that answers with [reply] and records every
 /// request in [seen]; reconnect delays are recorded in [delays], not waited.
 ({HttpTangentApi api, List<Seen> seen, List<Duration> delays}) fake(
   Reply reply, {
   String base = 'https://tangent.test',
+  TokenStore? tokens,
 }) {
   final seen = <Seen>[];
   final delays = <Duration>[];
@@ -41,6 +62,7 @@ typedef Reply = http.StreamedResponse Function(Seen request);
   final api = HttpTangentApi(
     baseUri: Uri.parse(base),
     client: client,
+    tokens: tokens,
     delay: (duration) async => delays.add(duration),
   );
   return (api: api, seen: seen, delays: delays);
@@ -268,6 +290,95 @@ void main() {
       await f.api.cancel('a1');
       expect(f.seen.last.method, 'POST');
       expect(f.seen.last.url.path, '/api/nodes/a1/cancel');
+    });
+  });
+
+  group('sign-in by code', () {
+    const meJson = {
+      'userId': 'u1',
+      'email': 'a@b.test',
+      'devMode': false,
+      'builtInCredit': false,
+    };
+
+    /// Answers the code sign-in with [token] in `set-auth-token`, and
+    /// everything else as `/api/me`.
+    Reply server({String? token = 'raw.signature'}) =>
+        (request) => switch (request.url.path) {
+          '/api/auth/sign-in/email-otp' => http.StreamedResponse(
+            Stream.value(utf8.encode(jsonEncode({'token': 'raw'}))),
+            200,
+            headers: {
+              'content-type': 'application/json',
+              'set-auth-token': ?token,
+            },
+          ),
+          _ => json(meJson),
+        };
+
+    test('posts the code, then sends the token it got on every call', () async {
+      final tokens = MemoryTokens();
+      final f = fake(server(), tokens: tokens);
+      await f.api.signInWithCode(email: 'a@b.test', code: '042917');
+      final signIn = f.seen.single;
+      expect(signIn.method, 'POST');
+      expect(signIn.url.path, '/api/auth/sign-in/email-otp');
+      expect(signIn.json, {'email': 'a@b.test', 'otp': '042917'});
+      expect(signIn.headers.containsKey('authorization'), isFalse);
+      expect(tokens.token, 'raw.signature');
+
+      await f.api.me();
+      expect(f.seen.last.headers['authorization'], 'Bearer raw.signature');
+    });
+
+    test('loads a kept token before the first call, once', () async {
+      final tokens = MemoryTokens('kept.signature');
+      final f = fake(server(), tokens: tokens);
+      await f.api.me();
+      await f.api.me();
+      expect(f.seen.first.headers['authorization'], 'Bearer kept.signature');
+      expect(tokens.reads, 1);
+    });
+
+    test(
+      'signing out forgets the token, even when the request fails',
+      () async {
+        final tokens = MemoryTokens('kept.signature');
+        final f = fake(
+          (request) => request.url.path == '/api/auth/sign-out'
+              ? json({'code': 'oops', 'message': 'down'}, 503)
+              : json(meJson),
+          tokens: tokens,
+        );
+        await expectLater(f.api.signOut(), throwsA(apiError(503, 'oops')));
+        expect(f.seen.single.headers['authorization'], 'Bearer kept.signature');
+        expect(tokens.token, isNull);
+        await f.api.me();
+        expect(f.seen.last.headers.containsKey('authorization'), isFalse);
+      },
+    );
+
+    test(
+      'on the web the session is the cookie: no token is kept or sent',
+      () async {
+        final f = fake(server());
+        await f.api.signInWithCode(email: 'a@b.test', code: '042917');
+        await f.api.me();
+        expect(f.seen.last.headers.containsKey('authorization'), isFalse);
+      },
+    );
+
+    test('a wrong code throws its code', () async {
+      final tokens = MemoryTokens();
+      final f = fake(
+        (_) => json({'code': 'INVALID_OTP', 'message': 'Invalid OTP'}, 400),
+        tokens: tokens,
+      );
+      await expectLater(
+        f.api.signInWithCode(email: 'a@b.test', code: '000000'),
+        throwsA(apiError(400, 'INVALID_OTP')),
+      );
+      expect(tokens.token, isNull);
     });
   });
 

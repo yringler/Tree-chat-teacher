@@ -5,14 +5,18 @@ import 'package:http/http.dart' as http;
 import 'models.dart';
 import 'sse.dart';
 import 'tangent_api.dart';
+import 'token_store.dart';
 
 /// [TangentApi] over `package:http`. On the web, `http.Client()` is a
 /// fetch-based client that streams response bodies and sends the session
-/// cookie on same-origin requests.
+/// cookie on same-origin requests. A native build has no cookies: it signs
+/// in by code and keeps the session token in [tokens], sending it as
+/// `Authorization: Bearer`.
 class HttpTangentApi implements TangentApi {
   HttpTangentApi({
     required this.baseUri,
     http.Client? client,
+    this.tokens,
     Future<void> Function(Duration)? delay,
   }) : _client = client ?? http.Client(),
        _delay = delay ?? Future<void>.delayed;
@@ -20,6 +24,12 @@ class HttpTangentApi implements TangentApi {
   /// The Worker's origin; every call goes to `/api` under it.
   final Uri baseUri;
   final http.Client _client;
+
+  /// Where the session token is kept; null on the web.
+  final TokenStore? tokens;
+
+  /// The token, read from [tokens] before the first call.
+  Future<String?>? _token;
 
   /// Waits between reconnects; tests pass one that doesn't.
   final Future<void> Function(Duration) _delay;
@@ -60,6 +70,26 @@ class HttpTangentApi implements TangentApi {
   }
 
   @override
+  Future<void> signInWithCode({
+    required String email,
+    required String code,
+  }) async {
+    final response = await _send(
+      'POST',
+      ['auth', 'sign-in', 'email-otp'],
+      body: {'email': email, 'otp': code},
+    );
+    await response.stream.drain<void>();
+    // The signed session token (Better Auth's bearer plugin), for a client
+    // that keeps it itself.
+    final token = response.headers['set-auth-token'];
+    final store = tokens;
+    if (store == null || token == null || token.isEmpty) return;
+    await store.write(token);
+    _token = Future.value(token);
+  }
+
+  @override
   Future<Me> me() async => Me.fromJson(await _object('GET', ['me']));
 
   @override
@@ -68,7 +98,16 @@ class HttpTangentApi implements TangentApi {
 
   @override
   Future<void> signOut() async {
-    await _send('POST', ['auth', 'sign-out'], body: const <String, Object?>{});
+    try {
+      await _send('POST', [
+        'auth',
+        'sign-out',
+      ], body: const <String, Object?>{});
+    } finally {
+      // Signed out on this device either way.
+      _token = Future.value(null);
+      await tokens?.clear();
+    }
   }
 
   // Paying for replies.
@@ -260,12 +299,14 @@ class HttpTangentApi implements TangentApi {
     Json? body,
     Map<String, String> headers = const {},
   }) async {
+    final token = await (_token ??= _readToken());
     final request = http.Request(method, _url(path))
       ..headers.addAll({
         'x-tangent-mode': 'simple',
         'x-tangent-payment': payer.header,
         'accept': 'application/json, text/event-stream',
         if (body != null) 'content-type': 'application/json',
+        if (token != null) 'authorization': 'Bearer $token',
         ...headers,
       });
     // Bytes, not `body`, so package:http leaves the content type as set.
@@ -278,6 +319,16 @@ class HttpTangentApi implements TangentApi {
       throw _error(response.statusCode, await response.stream.bytesToString());
     } on http.ClientException catch (error) {
       throw _network(error);
+    }
+  }
+
+  Future<String?> _readToken() async {
+    try {
+      return await tokens?.read();
+    } on Object {
+      // A keystore that can't be read (e.g. restored onto another device)
+      // means signing in again.
+      return null;
     }
   }
 
