@@ -4,11 +4,12 @@ import { LEARN_COMMON_HEADERS } from './learn-app.js';
 
 /**
  * The document every public page (landing, pricing, `/pool`, the legal
- * pages, `/verify`) is rendered into: the head, the header with the brand
- * mark, and the footer with the copyright line. Hono's JSX escapes every
- * string; the one raw insertion is the page's constant stylesheet, which the
- * response's Content-Security-Policy allows by its hash (`pageResponse`
- * derives both from the same props, so they can't drift apart).
+ * pages, `/verify`, the report form) is rendered into: the head, the header
+ * with the brand mark, and the footer with the copyright line. Hono's JSX
+ * escapes every string; the one raw insertion is the page's constant
+ * stylesheet, which the response's Content-Security-Policy allows by its
+ * hash (`pageResponse` derives both from the same props, so they can't drift
+ * apart).
  */
 
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
@@ -40,12 +41,13 @@ export interface PageProps {
   noindex?: boolean;
   /** The page's one stylesheet: a constant from page-styles.ts. */
   style: string;
-  /**
-   * The page holds a Turnstile widget in a form that posts back to it:
-   * Cloudflare's script and iframe are loaded and a same-origin form is
-   * allowed. Every other page is script-free.
-   */
+  /** The page holds a Turnstile widget: Cloudflare's script and iframe are loaded. */
   turnstile?: boolean;
+  /**
+   * The page has a form that posts back to it (`/verify`, the report form);
+   * no other page may submit one. Every page is free of scripts of our own.
+   */
+  form?: boolean;
   /** The header's nav; none on `/verify`. */
   nav?: { label: string; links: readonly LinkId[] };
   /** The footer: the copyright line of who runs the service, then links; none on `/verify`. */
@@ -158,16 +160,19 @@ function styleHash(style: string): Promise<string> {
 /**
  * The Content-Security-Policy of a public page: nothing but its one hashed
  * inline stylesheet and same-origin or data: images (the favicon), plus
- * Turnstile and a same-origin form where the page has the widget.
+ * Turnstile where the page has the widget and a same-origin form where it has
+ * one.
  */
-export async function pageCsp(style: string, turnstile = false): Promise<string> {
+export async function pageCsp(
+  page: Pick<PageProps, 'style' | 'turnstile' | 'form'>,
+): Promise<string> {
   return [
     "default-src 'none'",
-    `style-src 'sha256-${await styleHash(style)}'`,
-    ...(turnstile ? [`script-src ${TURNSTILE_ORIGIN}`, `frame-src ${TURNSTILE_ORIGIN}`] : []),
+    `style-src 'sha256-${await styleHash(page.style)}'`,
+    ...(page.turnstile ? [`script-src ${TURNSTILE_ORIGIN}`, `frame-src ${TURNSTILE_ORIGIN}`] : []),
     "img-src 'self' data:",
     "base-uri 'none'",
-    `form-action ${turnstile ? "'self'" : "'none'"}`,
+    `form-action ${page.form ? "'self'" : "'none'"}`,
     "frame-ancestors 'none'",
   ].join('; ');
 }
@@ -187,7 +192,7 @@ export async function pageResponse(
     status: init.status ?? 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy': await pageCsp(page.style, page.turnstile),
+      'Content-Security-Policy': await pageCsp(page),
       ...LEARN_COMMON_HEADERS,
       ...init.headers,
     },

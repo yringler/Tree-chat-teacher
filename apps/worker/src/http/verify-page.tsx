@@ -67,6 +67,7 @@ function verifyResponse(c: Context<AppBindings>, page: VerifyProps): Promise<Res
       noindex: true,
       style: VERIFY_STYLE,
       turnstile: true,
+      form: true,
     },
     <VerifyPage {...page} />,
     { status: page.failed ? 400 : 200, headers: { 'Cache-Control': 'no-store' } },
