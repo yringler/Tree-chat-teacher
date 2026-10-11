@@ -31,16 +31,21 @@ async function mockUpstream(request: Request): Promise<Response> {
   if (url.origin === OPENROUTER_ORIGIN) return mockOpenRouter(request);
   if (url.origin === RESEND_ORIGIN) return mockResend(request);
   if (url.origin === MODERATION_ORIGIN) return mockModeration(request);
-  // Cloudflare Turnstile siteverify: the token `pass` is valid.
+  // Cloudflare Turnstile siteverify: the token `pass` is valid, `pass-elsewhere`
+  // is valid but issued for another host. Like the real service, the always-pass
+  // test secret passes any token and reports the hostname `example.com`.
   if (
     url.origin === 'https://challenges.cloudflare.com' &&
     url.pathname === '/turnstile/v0/siteverify'
   ) {
-    const body = (await request.json()) as { response?: string };
-    const ok = body.response === 'pass';
+    const body = (await request.json()) as { secret?: string; response?: string };
+    if (body.secret === '1x0000000000000000000000000000000AA')
+      return Response.json({ success: true, hostname: 'example.com', 'error-codes': [] });
+    const ok = body.response === 'pass' || body.response === 'pass-elsewhere';
     return Response.json({
       success: ok,
-      hostname: 'tangent.example.com',
+      hostname:
+        body.response === 'pass-elsewhere' ? 'elsewhere.example.com' : 'tangent.example.com',
       'error-codes': ok ? [] : ['invalid-input-response'],
     });
   }

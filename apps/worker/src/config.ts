@@ -185,6 +185,12 @@ const MAX_GROUNDING_RESULTS = 25;
 /** Polar's Starter plan, 5% + 50¢ (international cards add 1.5% that this can't know). */
 const DEFAULT_POLAR_FEE_BPS = 500;
 const DEFAULT_POLAR_FEE_FIXED_CENTS = 50;
+/** Turnstile's published test secrets: always pass, always fail, token already spent. */
+const TURNSTILE_TEST_SECRETS: readonly string[] = [
+  '1x0000000000000000000000000000000AA',
+  '2x0000000000000000000000000000000AA',
+  '3x0000000000000000000000000000000AA',
+];
 /**
  * The open pool's ledger account id in `credit_grants` / `usage_events`, and
  * its PoolBank's name. Not configurable: another id would orphan the pool's
@@ -469,6 +475,11 @@ export interface AppConfig {
     github: OAuthApp | null;
     turnstileSiteKey: string | null;
     turnstileSecretKey: string | null;
+    /**
+     * `TURNSTILE_SECRET_KEY` is one of Cloudflare's test secrets, whose passes
+     * report a dummy hostname, so tokens aren't pinned to this deployment's.
+     */
+    turnstileTestSecret: boolean;
     /** `MAX_USERS`: sign-ups stop at this many users; null = no cap. */
     maxUsers: number | null;
   };
@@ -747,6 +758,15 @@ function parse(env: AppEnv): AppConfig {
       fixedCents: int('POLAR_FEE_FIXED_CENTS', DEFAULT_POLAR_FEE_FIXED_CENTS),
     },
   };
+  const turnstileSecretKey = text('TURNSTILE_SECRET_KEY');
+  const turnstileTestSecret =
+    turnstileSecretKey !== null && TURNSTILE_TEST_SECRETS.includes(turnstileSecretKey);
+  // A test secret lets every client through, so a deployment taking real
+  // payments refuses one rather than run without its bot check.
+  if (turnstileTestSecret && paymentProvider === 'polar' && polar.server === 'production')
+    throw new Error(
+      "TURNSTILE_SECRET_KEY is one of Turnstile's test secrets, which POLAR_SERVER=production refuses",
+    );
   const prices = parsePrices(v('MODEL_PRICES'));
   const authSecret = v('BETTER_AUTH_SECRET');
 
@@ -771,7 +791,8 @@ function parse(env: AppEnv): AppConfig {
       google: oauth('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'),
       github: oauth('GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'),
       turnstileSiteKey: text('TURNSTILE_SITE_KEY'),
-      turnstileSecretKey: text('TURNSTILE_SECRET_KEY'),
+      turnstileSecretKey,
+      turnstileTestSecret,
       maxUsers: int('MAX_USERS', 0) || null,
     },
     email: {

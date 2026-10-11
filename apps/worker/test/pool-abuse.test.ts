@@ -393,6 +393,24 @@ describe('account gates', () => {
     );
   });
 
+  it("refuses a pass solved on another host, unless the secret is Turnstile's test secret", async () => {
+    const u = await poolReadyUser({ verified: false });
+    const verify = (e?: AppEnv) =>
+      u.client.call(
+        '/api/pool/verify',
+        { method: 'POST', json: { token: 'pass-elsewhere' } },
+        e ?? authEnv({ TEST_POOL_ACCOUNT_ID: u.poolId }),
+      );
+    expect((await verify()).status).toBe(400);
+    expect((await poolAccess(u.userId))?.pool_verified_at).toBeNull();
+    const testKeys = authEnv({
+      TEST_POOL_ACCOUNT_ID: u.poolId,
+      TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
+      POLAR_SERVER: 'sandbox',
+    });
+    expect(await ok<unknown>(await verify(testKeys))).toEqual({ verified: true });
+  });
+
   it('fails closed without TURNSTILE_SECRET_KEY', async () => {
     const u = await poolReadyUser({ verified: false });
     const res = await u.client.call(

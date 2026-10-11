@@ -212,18 +212,19 @@
         },
       ],
       // POLAR_SERVER stays at its default, sandbox; the product ids are the Polar sandbox's.
+      // Turnstile's always-pass test key, so scripts and agents can sign in: Access guards the sandbox.
       "vars": {
         "PUBLIC_BASE_URL": "https://sandbox.tangentailearning.com",
         "EMAIL_FROM": "Tangent sandbox <login@email.tangentailearning.com>",
         "LEGAL_OPERATOR": "Yehuda Ringler",
         "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
         "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
-        "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
+        "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
         "POLAR_CREDITS_PRODUCT_ID": "29791ebf-f51e-4e2f-9df4-832f3b841b17",
         "POLAR_MEMBERSHIP_PRODUCT_ID": "c311f9b3-b604-42bd-86a7-12239eb9cbd2",
         "ANNUAL_FEE_ENABLED": "true",
         "POOL_ENABLED": "true",
-        "MAX_USERS": "5",
+        "MAX_USERS": "50",
         "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
       },
     },

@@ -84,12 +84,16 @@ function isLocalHost(hostname: string): boolean {
 }
 
 /**
- * The hostname a Turnstile token must have been issued for: this deployment's.
- * Null (not pinned) on localhost, as Turnstile's test keys report their own.
+ * The hostname a Turnstile token must have been issued for: `hostname`, this
+ * deployment's. Null (not pinned) on localhost or with Turnstile's test secret,
+ * whose passes report a dummy hostname of their own.
  */
+function pinnedTurnstileHostname(env: AppEnv, hostname: string): string | null {
+  return isLocalHost(hostname) || appConfig(env).auth.turnstileTestSecret ? null : hostname;
+}
+
 export function turnstileHostname(env: AppEnv, request: Request): string | null {
-  const hostname = new URL(authBaseUrl(env, request)).hostname;
-  return isLocalHost(hostname) ? null : hostname;
+  return pinnedTurnstileHostname(env, new URL(authBaseUrl(env, request)).hostname);
 }
 
 export interface SocialProviderFlags {
@@ -208,7 +212,7 @@ function dropSetCookie(headers: Headers | undefined, name: string): void {
 
 export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
   const base = new URL(baseUrl);
-  const local = isLocalHost(base.hostname);
+  const turnstilePin = pinnedTurnstileHostname(env, base.hostname);
 
   return betterAuth({
     appName: 'Tangent',
@@ -341,8 +345,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         provider: 'cloudflare-turnstile',
         secretKey: appConfig(env).auth.turnstileSecretKey ?? '',
         endpoints: ['/sign-in/magic-link'],
-        // Turnstile's test keys report their own hostname, so only pin it in deployments.
-        ...(local ? {} : { allowedHostnames: [base.hostname] }),
+        ...(turnstilePin === null ? {} : { allowedHostnames: [turnstilePin] }),
       }),
     ],
   });
