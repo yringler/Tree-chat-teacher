@@ -10,6 +10,7 @@ import { appConfig } from './config.js';
 import type { SqlRow } from './db/rows.js';
 import type { authUsers } from './db/schema.js';
 import type { AppEnv } from './env.js';
+import { logEvent } from './log.js';
 import { poolConfigProblem } from './pool/params.js';
 import { providerConfigs, providerEnv } from './provider-configs.js';
 import { simpleProviderConfig } from './simple-mode.js';
@@ -35,11 +36,14 @@ export function ownKeyProviders(env: AppEnv): { id: string; label: string; searc
 /**
  * Who may publish share links (`SHARING`): `everyone`; `allowlist`, admins
  * and the users the operator allowed; or `off`, nobody, so the operator can
- * take every link down at once. Exporting a conversation as a file works in
- * every mode.
+ * take every link down at once. `everyone` needs the classifier that screens
+ * each publish (`MODERATION_API_KEY`): without it, it acts as `allowlist`,
+ * so an unscreened deployment never opens publishing to strangers.
+ * Exporting a conversation as a file works in every mode.
  */
 export function sharingMode(env: AppEnv): SharingMode {
-  return appConfig(env).site.sharing;
+  const { sharing, moderationApiKey } = appConfig(env).site;
+  return sharing === 'everyone' && !moderationApiKey ? 'allowlist' : sharing;
 }
 
 /**
@@ -47,13 +51,15 @@ export function sharingMode(env: AppEnv): SharingMode {
  * nobody under `off`, admins included; nobody whose sharing an admin or the
  * strike rule suspended (`auth_users.sharing_suspended`); everyone else under
  * `everyone`; under `allowlist` only admins (ADMIN_USER_IDS) and the users
- * the operator allowed on the admin page (`auth_users.share_allowed`).
- * `userId` null is the dev bypass, which follows the mode only (so the
+ * the operator allowed on the admin page (`auth_users.share_allowed`), by
+ * the mode `sharingMode` resolves. `userId` null is the dev bypass, which follows the mode only (so the
  * allowlist path can be tried locally), like its account's links. One query
  * unless sharing is off.
  */
 export async function canShare(env: AppEnv, userId: string | null): Promise<boolean> {
   const mode = sharingMode(env);
+  // Here rather than in sharingMode, which every public page asks: one line per share request.
+  if (mode !== appConfig(env).site.sharing) logEvent('warn', 'sharing_moderation_missing');
   if (mode === 'off') return false;
   if (!userId) return mode === 'everyone';
   const row = await env.DB.prepare(

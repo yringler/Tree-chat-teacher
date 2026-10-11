@@ -193,6 +193,8 @@ Free credit Tangent provides, for Learn users who can't pay; nobody can buy it. 
 
 `/admin/` (`apps/admin`) is for the operator. Admins are the user ids in the `ADMIN_USER_IDS` secret: sign in, copy your **Account ID** from the account dialog, then `npx wrangler secret put ADMIN_USER_IDS` (comma-separated for several). To everyone else, `/admin*` and `/api/admin/*` answer 404.
 
+Before setting `SHARING` to `everyone`, set the moderation key (`npx wrangler secret put MODERATION_API_KEY`, an OpenAI API key; the moderation endpoint is free): every publish is then screened, and without the key `everyone` acts as `allowlist` (Workers Logs shows `sharing_moderation_missing`). With the key set, admins' and allowed users' publishes are screened too. A refused publish leaves a `share_screened` row in `audit_events` with the scores; `share_screen_failed` in the logs means the classifier failed and publishing was refused, so check the key and OpenAI's status. A possible-CSAM refusal also places a legal hold and sends an alert (below).
+
 The page says which `SHARING` mode is set. To take every share link down at once, admins' included, set `SHARING` to `off` (`wrangler.jsonc` `vars`, then deploy); links open again when it goes back to `allowlist` or `everyone`.
 
 The page lists users (newest first, searchable by email) and lets you:

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GoneError, NotFoundError, ValidationError } from '../../src/errors.js';
+import { DomainError, GoneError, NotFoundError, ValidationError } from '../../src/errors.js';
+import { ShareService, type SharePublish } from '../../src/services/share-service.js';
 import { send, setup } from './helpers.js';
 
 async function seeded() {
@@ -141,5 +142,50 @@ describe('ShareService', () => {
     await expect(shares.create({ treeId: 'missing', scope: 'tree' })).rejects.toBeInstanceOf(
       NotFoundError,
     );
+  });
+
+  it('screens every publish before storing it and stores nothing it refuses', async () => {
+    const { repos, tree, chat } = await seeded();
+    const seen: SharePublish[] = [];
+    const shares = new ShareService({
+      repos,
+      publicBaseUrl: 'https://tangent.test',
+      screen: (p) => {
+        seen.push(p);
+        return p.texts.some((t) => t.includes('REFUSE'))
+          ? Promise.reject(new DomainError('forbidden', "This conversation can't be shared."))
+          : Promise.resolve();
+      },
+    });
+    const s = await shares.create({ treeId: tree.id, scope: 'tree', title: 'Fine' });
+    expect(seen[0]).toMatchObject({ trigger: 'create', share: { id: s.id, title: 'Fine' } });
+    // The user's and the AI's messages, the branch titles and the share's title.
+    const texts = seen[0]!.texts.join('\n');
+    for (const text of ['Fine', 'PUBLIC-ROOT', 'PUBLIC-SIDE', 'Side', 'reply to: PUBLIC-ROOT']) {
+      expect(texts).toContain(text);
+    }
+    expect(texts).not.toContain('PRIVATE-MARKER');
+
+    await expect(shares.update(s.id, { title: 'REFUSE me' })).rejects.toThrow("can't be shared");
+    expect(seen.at(-1)).toMatchObject({
+      trigger: 'title',
+      texts: ['REFUSE me'],
+      payload: { title: 'REFUSE me' },
+    });
+    expect((await shares.list())[0]!.title).toBe('Fine');
+    // Unchanged titles and expiry-only edits aren't screened again.
+    const count = seen.length;
+    await shares.update(s.id, { title: 'Fine', expiresAt: null });
+    expect(seen).toHaveLength(count);
+
+    await send(chat, tree.trunkBranchId, 'REFUSE-LATER');
+    await expect(shares.republish(s.id)).rejects.toThrow("can't be shared");
+    expect(seen.at(-1)?.trigger).toBe('republish');
+    expect((await shares.list())[0]!.version).toBe(1);
+
+    await expect(shares.create({ treeId: tree.id, scope: 'tree' })).rejects.toThrow(
+      "can't be shared",
+    );
+    expect(await shares.list()).toHaveLength(1);
   });
 });

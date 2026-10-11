@@ -186,6 +186,7 @@ describe('legal holds', () => {
       .bind(share.id)
       .all<{ kind: string }>();
     expect(results.map((r) => r.kind)).toEqual([
+      'share_screened',
       'share_created',
       'hold_placed',
       'share_revoked',

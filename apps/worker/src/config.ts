@@ -45,6 +45,7 @@ export const CONFIG_VARS = [
   'SHARING',
   'SHARE_MIN_ACCOUNT_AGE_MS',
   'SHARE_CREATES_PER_DAY',
+  'MODERATION_API_KEY',
   'ADMIN_USER_IDS',
   // Sign-in and email
   'BETTER_AUTH_SECRET',
@@ -132,8 +133,15 @@ export const CONFIG_VARS = [
  * deployment.
  * - `FAKE_PAYMENTS`: the fake payment provider's options (billing/providers/fake.ts).
  * - `TEST_POOL_ACCOUNT_ID`: the pool's ledger id, so each test gets a pool of its own.
+ * - `TEST_MODERATION_URL`: where the moderation classifier is called, so the
+ *   end-to-end server screens against its local stand-in (apps/e2e/serve.mjs).
  */
-export const TEST_VARS = ['TEST_SEAMS', 'FAKE_PAYMENTS', 'TEST_POOL_ACCOUNT_ID'] as const;
+export const TEST_VARS = [
+  'TEST_SEAMS',
+  'FAKE_PAYMENTS',
+  'TEST_POOL_ACCOUNT_ID',
+  'TEST_MODERATION_URL',
+] as const;
 
 export type ConfigVarName = (typeof CONFIG_VARS)[number] | (typeof TEST_VARS)[number];
 
@@ -143,6 +151,7 @@ export type ConfigVars = { [K in ConfigVarName]?: string };
 /** The names in `CONFIG_VARS` that are secrets (`wrangler secret put`), never wrangler.jsonc vars. */
 export const CONFIG_SECRETS: ReadonlySet<ConfigVarName> = new Set<ConfigVarName>([
   'ADMIN_USER_IDS',
+  'MODERATION_API_KEY',
   'BETTER_AUTH_SECRET',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
@@ -438,6 +447,13 @@ export interface AppConfig {
     shareMinAccountAgeMs: number;
     /** `SHARE_CREATES_PER_DAY`: new links per user in any 24 hours. */
     shareCreatesPerDay: number;
+    /**
+     * `MODERATION_API_KEY`: the classifier that screens every publish; null =
+     * nothing is screened and `SHARING=everyone` acts as `allowlist`.
+     */
+    moderationApiKey: string | null;
+    /** `TEST_MODERATION_URL` (tests only); null = the provider's endpoint. */
+    moderationUrl: string | null;
     adminUserIds: readonly string[];
   };
   auth: {
@@ -742,6 +758,8 @@ function parse(env: AppEnv): AppConfig {
       sharing: enumVar('SHARING', v('SHARING'), SHARING_MODES, 'allowlist'),
       shareMinAccountAgeMs: int('SHARE_MIN_ACCOUNT_AGE_MS', 86_400_000),
       shareCreatesPerDay: int('SHARE_CREATES_PER_DAY', 20, { min: 1 }),
+      moderationApiKey: text('MODERATION_API_KEY'),
+      moderationUrl: testSeams ? text('TEST_MODERATION_URL') : null,
       adminUserIds: listVar(v('ADMIN_USER_IDS')),
     },
     auth: {

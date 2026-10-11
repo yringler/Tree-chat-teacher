@@ -9,6 +9,7 @@ import {
   ShareService,
   type ChatSettings,
   type GenerationProfile,
+  type ShareServiceDeps,
 } from '@tangent/core';
 import { createProviderRegistry, decorateProvider } from '@tangent/providers';
 import {
@@ -374,11 +375,18 @@ export function chatService(
   });
 }
 
-export function shareService(env: AppEnv, requestUrl: string, accountId?: string): ShareService {
+/** `screen` screens what the owner publishes (share/moderation.ts `shareScreen`). */
+export function shareService(
+  env: AppEnv,
+  requestUrl: string,
+  accountId?: string,
+  screen?: ShareServiceDeps['screen'],
+): ShareService {
   const base = appConfig(env).site.publicBaseUrl ?? new URL(requestUrl).origin;
   return new ShareService({
     repos: createD1Repositories(env.DB),
     publicBaseUrl: base,
     ...(accountId ? { accountId } : {}),
+    ...(screen ? { screen } : {}),
   });
 }

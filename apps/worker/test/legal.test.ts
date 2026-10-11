@@ -83,7 +83,19 @@ describe('the legal pages', () => {
       expect(await page(path, { SHARING: 'everyone' })).not.toMatch(limited);
       expect(await page(path, { SHARING: 'allowlist' })).toMatch(limited);
       expect(await page(path, { SHARING: 'off' })).toMatch(limited);
+      // `everyone` without the classifier is `allowlist`.
+      expect(await page(path, { SHARING: 'everyone', MODERATION_API_KEY: '' })).toMatch(limited);
     }
+  });
+
+  it('name the moderation provider as a recipient of shared text only while it screens', async () => {
+    const recipient = /<strong>OpenAI<\/strong> \(USA\): screens share links/;
+    const screened = await page('/privacy', { MODERATION_API_KEY: 'mod-key' });
+    expect(screened).toMatch(recipient);
+    expect(screened).toContain('its text is screened automatically');
+    const unscreened = await page('/privacy', { MODERATION_API_KEY: '' });
+    expect(unscreened).not.toMatch(recipient);
+    expect(unscreened).not.toContain('screened automatically');
   });
 });
 

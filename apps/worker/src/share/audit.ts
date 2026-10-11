@@ -3,6 +3,7 @@
 // record is the evidence that the operator acted, so nothing updates or
 // deletes one (a test checks the sources). `data` carries ids, versions and
 // scores, never message content.
+import type { CategoryScores, ModerationCategory, SharePublish } from '@tangent/core';
 import type { HoldReportKind, LegalHoldReason, ShareScope } from '@tangent/shared';
 import type { auditEvents } from '../db/schema.js';
 import type { SqlRow } from '../db/rows.js';
@@ -28,6 +29,23 @@ export interface ShareAuditEvent extends AuditBase {
   data: { version: number; scope?: ShareScope };
 }
 
+/**
+ * A publish the classifier screened (share/moderation.ts), allowed or not:
+ * the highest score of each category, never the text. A refused create's
+ * share id never reaches `shares`.
+ */
+export interface ScreenAuditEvent extends AuditBase {
+  kind: 'share_screened';
+  shareId: string;
+  data: {
+    trigger: SharePublish['trigger'];
+    verdict: 'allow' | 'block' | 'csam_flag';
+    /** The categories over their thresholds, when blocked. */
+    reasons?: readonly ModerationCategory[];
+    maxScores: CategoryScores;
+  };
+}
+
 /** A legal hold placed, released, or reported outside Tangent (share/legal-hold.ts). */
 export type HoldAuditEvent = AuditBase & { holdId: string } & (
     | { kind: 'hold_placed'; data: { reason: LegalHoldReason; held: string[] } }
@@ -35,7 +53,7 @@ export type HoldAuditEvent = AuditBase & { holdId: string } & (
     | { kind: 'hold_reported'; data: { kind: HoldReportKind; reference: string } }
   );
 
-export type AuditEvent = ShareAuditEvent | HoldAuditEvent;
+export type AuditEvent = ShareAuditEvent | ScreenAuditEvent | HoldAuditEvent;
 
 /** The INSERT of one audit row, to run alone or in the batch that makes the change it records. */
 export function auditStatement(

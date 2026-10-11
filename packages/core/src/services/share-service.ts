@@ -9,6 +9,7 @@ import {
   type UpdateShareRequest,
 } from '@tangent/shared';
 import { GoneError, NotFoundError, ValidationError } from '../errors.js';
+import { shareTexts } from '../moderation/share-texts.js';
 import type { Repositories, ShareWithTree } from '../repository.js';
 import { projectShare, type ProjectShareResult } from '../share-projection.js';
 import { newId as defaultNewId, newShareToken, systemClock, type Clock } from '../util.js';
@@ -22,6 +23,27 @@ export interface ShareServiceDeps {
   clock?: Clock;
   newId?: () => string;
   newToken?: () => string;
+  /**
+   * Screens what a publish would make public before it is stored; rejects
+   * (a DomainError) to refuse it. Called on create, republish, and a new
+   * title. Without it nothing is screened.
+   */
+  screen?: (publish: SharePublish) => Promise<void>;
+}
+
+/** What a publish would make public, for `ShareServiceDeps.screen`. */
+export interface SharePublish {
+  /** A new link, a republish, or a new title on an existing link. */
+  trigger: 'create' | 'republish' | 'title';
+  /** The share as it would be stored; on create its id is not stored yet. */
+  share: Share;
+  /**
+   * What the link would show: the new snapshot, or for a new title the
+   * stored one carrying it (null when none is stored).
+   */
+  payload: SharePayload | null;
+  /** The text to screen: the whole snapshot, or only the new title. */
+  texts: readonly string[];
 }
 
 export type PublicShareResult =
@@ -95,15 +117,25 @@ export class ShareService {
       viewCount: 0,
     };
     const payload = await this.project(share);
+    await this.deps.screen?.({ trigger: 'create', share, payload, texts: shareTexts(payload) });
     await this.shares.createShare(share, JSON.stringify(payload));
     return this.summarize({ ...share, treeTitle: tree.title });
   }
 
   async update(shareId: string, request: UpdateShareRequest): Promise<ShareSummary> {
     const req = updateShareRequestSchema.parse(request);
-    await this.requireOwnedShare(shareId);
+    const share = await this.requireOwnedShare(shareId);
     const patch: Parameters<Repositories['shares']['updateShare']>[1] = { updatedAt: this.now() };
     if (req.title !== undefined) patch.title = req.title?.trim() ? req.title.trim() : null;
+    if (patch.title && patch.title !== share.title && this.deps.screen) {
+      const stored = await this.shares.getSnapshot(shareId);
+      await this.deps.screen({
+        trigger: 'title',
+        share: { ...share, title: patch.title },
+        payload: stored ? { ...(JSON.parse(stored) as SharePayload), title: patch.title } : null,
+        texts: [patch.title],
+      });
+    }
     if (req.expiresAt !== undefined) patch.expiresAt = req.expiresAt;
     const updated = await this.shares.updateShare(shareId, patch);
     if (!updated) throw new NotFoundError('Share');
@@ -116,6 +148,7 @@ export class ShareService {
     if (share.revokedAt) throw new GoneError('This share has been revoked');
     const now = this.now();
     const payload = await this.project(share);
+    await this.deps.screen?.({ trigger: 'republish', share, payload, texts: shareTexts(payload) });
     const updated = await this.shares.updateShare(
       shareId,
       { updatedAt: now, version: share.version + 1, publishedAt: now },

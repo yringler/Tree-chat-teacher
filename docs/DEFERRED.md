@@ -62,3 +62,5 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 
 - **`shares.mode` is still in the schema.** Every share is a snapshot and the code writes `snapshot`; migrations are expand-only, so the column is dropped in a release after the one that stopped reading it.
 - **Alerts are email only.** A chat webhook (Zulip) for the high-severity alerts would reach the operator faster; it needs a secret for the webhook URL and a second sender behind `sendAlert`.
+- **Screening thresholds are a first guess.** They are constants in `packages/core/src/moderation/moderation.ts`; tune them from the scores `share_screened` rows record once there are a few weeks of them.
+- **Republishing screens the whole conversation again.** A cache of screened texts (by hash) would send only what changed; screening is free and a publish is rare, so it isn't worth it yet.

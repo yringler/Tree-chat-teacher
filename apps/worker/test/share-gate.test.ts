@@ -193,13 +193,23 @@ describe('the audit log', () => {
 
     const rows = await auditOf(share.id);
     expect(rows.map((r) => [r.kind, r.actor, r.actor_user_id, r.subject_user_id])).toEqual([
+      ['share_screened', 'system', null, user.id],
       ['share_created', 'user', user.id, user.id],
+      ['share_screened', 'system', null, user.id],
       ['share_updated', 'user', user.id, user.id],
+      ['share_screened', 'system', null, user.id],
       ['share_republished', 'user', user.id, user.id],
       ['share_revoked', 'admin', admin.id, user.id],
       ['share_deleted', 'user', user.id, user.id],
     ]);
-    expect(JSON.parse(rows[2]!.data!)).toEqual({ version: 2, scope: 'tree' });
+    expect(JSON.parse(rows[5]!.data!)).toEqual({ version: 2, scope: 'tree' });
+    expect(rows.filter((r) => r.kind === 'share_screened').map((r) => JSON.parse(r.data!))).toEqual(
+      ['create', 'title', 'republish'].map((trigger) => ({
+        trigger,
+        verdict: 'allow',
+        maxScores: expect.objectContaining({ 'sexual/minors': 0.001, violence: 0.001 }),
+      })),
+    );
     const all = JSON.stringify(rows);
     expect(all).not.toContain('GATED-QUESTION');
     expect(all).not.toContain('SECRET-TITLE');

@@ -23,6 +23,11 @@ export interface LegalInfo {
    * pages say links exist only where the operator enables them, and point to export.
    */
   sharing: boolean;
+  /**
+   * Share links are screened by the moderation provider before they are
+   * published (`MODERATION_API_KEY` is set), so it is listed as a recipient.
+   */
+  screening: boolean;
 }
 
 export function legalInfo(env: AppEnv, request: Request): LegalInfo {
@@ -34,6 +39,7 @@ export function legalInfo(env: AppEnv, request: Request): LegalInfo {
     jurisdiction: legal.jurisdiction,
     origin,
     sharing: sharingMode(env) === 'everyone',
+    screening: appConfig(env).site.moderationApiKey !== null,
   };
 }
 

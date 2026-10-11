@@ -267,6 +267,14 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         <li>
           <strong>Resend</strong> (USA): sends sign-in link emails to your address.
         </li>
+        {info.screening && (
+          <li>
+            <strong>OpenAI</strong> (USA): screens share links for illegal and harmful content
+            before they are published. It receives the text of the conversations you share (your
+            messages, the AI's replies and the titles), not your account details, under OpenAI's own
+            terms.
+          </li>
+        )}
         <li>
           <strong>Google and GitHub</strong>: only if you choose to sign in with them.
         </li>
@@ -303,8 +311,11 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
       </p>
       <p>
         A new account can publish share links after its first day, and each account can create a
-        limited number a day. We keep a record of each change to a link: which link, which account,
-        when, and whether you or we made it, without what the conversation says.
+        limited number a day.{' '}
+        {info.screening &&
+          'Before a link is published or republished, its text is screened automatically, and we refuse to publish what the screening flags, without saying why.'}{' '}
+        We keep a record of each change to a link: which link, which account, when, and whether you
+        or we made it, without what the conversation says.
       </p>
 
       <h2>Cookies and browser storage</h2>
@@ -359,18 +370,19 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           caps, and then deleted. Neither contains message content or an email address.
         </li>
         <li>
-          Records of changes to share links (which link, which account, when, by whom; no message
-          content): kept after the link or your account is deleted, as the record of how we handle
-          reports about shared content.
+          Records of changes to share links (which link, which account, when, by whom, and the
+          screening's scores; no message content): kept after the link or your account is deleted,
+          as the record of how we handle reports about shared content.
         </li>
         <li>
           Content we must preserve: if a shared conversation is reported to us as illegal (such as
-          child sexual abuse material or a threat of violence), or law enforcement asks us to, we
-          keep a copy of the share, the conversation it came from, your account details and your
-          sessions' IP addresses and browsers, apart from your data and readable only by us, even if
-          you revoke the link or delete the conversation or your account. We delete the copy when it
-          is no longer needed; once we have reported it to the authorities, not before a year after
-          the report, as US law requires.
+          child sexual abuse material or a threat of violence), screening flags one you try to
+          publish as child sexual abuse material, or law enforcement asks us to, we keep a copy of
+          the share, the conversation it came from, your account details and your sessions' IP
+          addresses and browsers, apart from your data and readable only by us, even if you revoke
+          the link or delete the conversation or your account. We delete the copy when it is no
+          longer needed; once we have reported it to the authorities, not before a year after the
+          report, as US law requires.
         </li>
         <li>
           Database recovery history: deleted data remains in our hosting provider's point-in-time
