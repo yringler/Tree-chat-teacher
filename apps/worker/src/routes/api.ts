@@ -36,7 +36,7 @@ export function apiRoutes(): Hono<AppBindings> {
 
   // The membership rides along so the apps can gate at startup without a second
   // request (one query, none when no membership is required); so does whether
-  // the user may share (one query while sharing is off, see canShare).
+  // the user may share (one query unless SHARING is off, see canShare).
   api.get('/me', async (c) => {
     const { identity, account } = c.var;
     const [sharing, membership] = await Promise.all([

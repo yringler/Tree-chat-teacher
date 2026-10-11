@@ -9,7 +9,6 @@ import type {
   Payer,
   NodeLink,
   Share,
-  ShareMode,
   ShareScope,
   TokenUsage,
   Tree,
@@ -105,9 +104,9 @@ export interface MeResponse {
    */
   builtInCredit: boolean;
   /**
-   * True when this user may publish share links: everyone once the operator
-   * set DMCA_AGENT_REGISTERED; until then only admins and the users the
-   * operator allowed on the admin page. False: creating, editing and
+   * True when this user may publish share links: everyone while `SHARING` is
+   * `everyone`; under `allowlist` only admins and the users the operator
+   * allowed on the admin page; nobody under `off`. False: creating, editing and
    * republishing a share are 403 and the user's `/s/*` links don't open;
    * exporting still works.
    */
@@ -446,7 +445,6 @@ export interface ContextPlanResponse {
 }
 
 export const shareScopeSchema = z.enum(['tree', 'subtree', 'path']) satisfies z.ZodType<ShareScope>;
-export const shareModeSchema = z.enum(['snapshot', 'live']) satisfies z.ZodType<ShareMode>;
 
 export const createShareRequestSchema = z
   .object({
@@ -455,7 +453,6 @@ export const createShareRequestSchema = z
     /** Required for subtree/path. */
     nodeId: id.nullable().optional(),
     includeAncestors: z.boolean().default(false),
-    mode: shareModeSchema.default('snapshot'),
     title: z.string().trim().max(200).nullable().optional(),
     expiresAt: z.iso.datetime().nullable().optional(),
   })
@@ -471,12 +468,17 @@ export const updateShareRequestSchema = z.object({
 });
 export type UpdateShareRequest = z.infer<typeof updateShareRequestSchema>;
 
-export interface ShareSummary extends Share {
+/**
+ * A share as its owner sees it. A takedown shows only as the `unavailable`
+ * state: never whether it waits for review, so nothing tells the owner how
+ * a report is being handled.
+ */
+export interface ShareSummary extends Omit<Share, 'takedown'> {
   treeTitle: string;
   /** Absolute URL of the public viewer page. */
   url: string;
-  /** Derived: revoked, expired, or active. */
-  state: 'active' | 'revoked' | 'expired';
+  /** Derived: taken down after a report (unavailable), revoked, expired, or active. */
+  state: 'active' | 'unavailable' | 'revoked' | 'expired';
 }
 
 export const exportQuerySchema = z

@@ -9,6 +9,7 @@ import {
   type UpdateShareRequest,
 } from '@tangent/shared';
 import { GoneError, NotFoundError, ValidationError } from '../errors.js';
+import { shareTexts } from '../moderation/share-texts.js';
 import type { Repositories, ShareWithTree } from '../repository.js';
 import { projectShare, type ProjectShareResult } from '../share-projection.js';
 import { newId as defaultNewId, newShareToken, systemClock, type Clock } from '../util.js';
@@ -22,6 +23,27 @@ export interface ShareServiceDeps {
   clock?: Clock;
   newId?: () => string;
   newToken?: () => string;
+  /**
+   * Screens what a publish would make public before it is stored; rejects
+   * (a DomainError) to refuse it. Called on create, republish, and a new
+   * title. Without it nothing is screened.
+   */
+  screen?: (publish: SharePublish) => Promise<void>;
+}
+
+/** What a publish would make public, for `ShareServiceDeps.screen`. */
+export interface SharePublish {
+  /** A new link, a republish, or a new title on an existing link. */
+  trigger: 'create' | 'republish' | 'title';
+  /** The share as it would be stored; on create its id is not stored yet. */
+  share: Share;
+  /**
+   * What the link would show: the new snapshot, or for a new title the
+   * stored one carrying it (null when none is stored).
+   */
+  payload: SharePayload | null;
+  /** The text to screen: the whole snapshot, or only the new title. */
+  texts: readonly string[];
 }
 
 export type PublicShareResult =
@@ -37,9 +59,18 @@ const PROJECTION_ERRORS: Record<Exclude<ProjectShareResult, { ok: true }>['reaso
 };
 
 /**
+ * A link taken down after a report stays down until an admin restores it:
+ * its owner can't edit or republish it back up, only delete it. The message
+ * gives no reason, so it doesn't tell the owner about the report.
+ */
+function assertNotTakenDown(share: Share): void {
+  if (share.takedown) throw new GoneError('This link is unavailable');
+}
+
+/**
  * Owner-side share management plus public resolution.
- * Snapshot shares store the projected payload JSON at create/republish time;
- * live shares project on every view. Private exclusion happens in
+ * Every share stores the projected payload JSON at create and republish
+ * time, and views read only that snapshot. Private exclusion happens in
  * `projectShare`, so excluded content never reaches the payload.
  */
 export class ShareService {
@@ -85,55 +116,63 @@ export class ShareService {
       scope: req.scope,
       targetNodeId: req.scope === 'tree' ? null : (req.nodeId ?? null),
       includeAncestors: req.scope === 'subtree' && req.includeAncestors,
-      mode: req.mode,
       title: req.title?.trim() ? req.title.trim() : null,
       expiresAt: req.expiresAt ?? null,
       revokedAt: null,
       createdAt: now,
       updatedAt: now,
-      publishedAt: req.mode === 'snapshot' ? now : null,
+      publishedAt: now,
       version: 1,
       viewCount: 0,
+      takedown: null,
     };
-    // Validate for both modes; only snapshots store the payload.
     const payload = await this.project(share);
-    await this.shares.createShare(
-      share,
-      share.mode === 'snapshot' ? JSON.stringify(payload) : null,
-    );
+    await this.deps.screen?.({ trigger: 'create', share, payload, texts: shareTexts(payload) });
+    await this.shares.createShare(share, JSON.stringify(payload));
     return this.summarize({ ...share, treeTitle: tree.title });
   }
 
   async update(shareId: string, request: UpdateShareRequest): Promise<ShareSummary> {
     const req = updateShareRequestSchema.parse(request);
-    await this.requireOwnedShare(shareId);
+    const share = await this.requireOwnedShare(shareId);
+    assertNotTakenDown(share);
     const patch: Parameters<Repositories['shares']['updateShare']>[1] = { updatedAt: this.now() };
     if (req.title !== undefined) patch.title = req.title?.trim() ? req.title.trim() : null;
+    if (patch.title && patch.title !== share.title && this.deps.screen) {
+      const stored = await this.shares.getSnapshot(shareId);
+      await this.deps.screen({
+        trigger: 'title',
+        share: { ...share, title: patch.title },
+        payload: stored ? { ...(JSON.parse(stored) as SharePayload), title: patch.title } : null,
+        texts: [patch.title],
+      });
+    }
     if (req.expiresAt !== undefined) patch.expiresAt = req.expiresAt;
     const updated = await this.shares.updateShare(shareId, patch);
     if (!updated) throw new NotFoundError('Share');
     return this.summarize(updated);
   }
 
-  /** Snapshot: re-project and replace the stored payload, bump version. Live: bump version only. */
+  /** Re-projects the tree, replaces the stored payload and bumps the version. */
   async republish(shareId: string): Promise<ShareSummary> {
     const share = await this.requireOwnedShare(shareId);
     if (share.revokedAt) throw new GoneError('This share has been revoked');
+    assertNotTakenDown(share);
     const now = this.now();
-    const patch = { updatedAt: now, version: share.version + 1 };
-    let updated: ShareWithTree | null;
-    if (share.mode === 'snapshot') {
-      const payload = await this.project(share);
-      updated = await this.shares.updateShare(
-        shareId,
-        { ...patch, publishedAt: now },
-        JSON.stringify(payload),
-      );
-    } else {
-      updated = await this.shares.updateShare(shareId, patch);
-    }
+    const payload = await this.project(share);
+    await this.deps.screen?.({ trigger: 'republish', share, payload, texts: shareTexts(payload) });
+    const updated = await this.shares.updateShare(
+      shareId,
+      { updatedAt: now, version: share.version + 1, publishedAt: now },
+      JSON.stringify(payload),
+    );
     if (!updated) throw new NotFoundError('Share');
     return this.summarize(updated);
+  }
+
+  /** One of the account's shares. */
+  async get(shareId: string): Promise<ShareSummary> {
+    return this.summarize(await this.requireOwnedShare(shareId));
   }
 
   /** Sets revokedAt and deletes the stored snapshot. Idempotent. */
@@ -164,7 +203,7 @@ export class ShareService {
 
   /**
    * Cheap validity check (no payload) used before serving an edge-cached copy.
-   * Returns the share when active.
+   * Returns the share when active; a taken-down, revoked or expired one is gone.
    */
   async checkPublic(token: string): Promise<PublicShareCheck> {
     if (!token || token.length > 128) return { ok: false, reason: 'not_found' };
@@ -174,24 +213,18 @@ export class ShareService {
     return { ok: true, share };
   }
 
-  /** Validates token state (revoked/expired → gone) and returns the payload. */
+  /**
+   * Validates token state (revoked/expired → gone) and returns the stored
+   * snapshot. A share without one is gone: the tree is never projected for a
+   * viewer, so nothing is public that wasn't published.
+   */
   async resolvePublic(token: string): Promise<PublicShareResult> {
     const check = await this.checkPublic(token);
     if (!check.ok) return check;
     const { share } = check;
-    if (share.mode === 'snapshot') {
-      const json = await this.shares.getSnapshot(share.id);
-      if (!json) return { ok: false, reason: 'gone' };
-      return { ok: true, share, payload: JSON.parse(json) as SharePayload };
-    }
-    try {
-      return { ok: true, share, payload: await this.project(share) };
-    } catch (err) {
-      if (err instanceof ValidationError || err instanceof NotFoundError) {
-        return { ok: false, reason: 'gone' };
-      }
-      throw err;
-    }
+    const json = await this.shares.getSnapshot(share.id);
+    if (!json) return { ok: false, reason: 'gone' };
+    return { ok: true, share, payload: JSON.parse(json) as SharePayload };
   }
 
   /** A share owned by another account is reported as not found. */
@@ -228,6 +261,7 @@ export class ShareService {
   }
 
   private stateOf(share: Share): ShareSummary['state'] {
+    if (share.takedown) return 'unavailable';
     if (share.revokedAt) return 'revoked';
     if (share.expiresAt && share.expiresAt <= this.now()) return 'expired';
     return 'active';
@@ -235,6 +269,7 @@ export class ShareService {
 
   private summarize(share: ShareWithTree): ShareSummary {
     const base = this.deps.publicBaseUrl.replace(/\/+$/, '');
-    return { ...share, url: `${base}/s/${share.token}`, state: this.stateOf(share) };
+    const { takedown: _takedown, ...shown } = share;
+    return { ...shown, url: `${base}/s/${share.token}`, state: this.stateOf(share) };
   }
 }

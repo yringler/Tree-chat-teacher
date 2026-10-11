@@ -11,7 +11,7 @@ describe('payloadToMarkdown', () => {
 
   it('puts ancestor context in a details block before the branches', () => {
     expect(md).toContain(
-      '<details>\n<summary>Earlier context</summary>\n\n**User:**\n\nCONTEXTQ earlier question\n\n**Assistant:**\n\nCONTEXTA earlier answer\n\n</details>',
+      '<details>\n<summary>Earlier context</summary>\n\n**User:**\n\nCONTEXTQ earlier question\n\n**AI:**\n\nCONTEXTA earlier answer\n\n</details>',
     );
     expect(md.indexOf('</details>')).toBeLessThan(md.indexOf('## Trunk'));
     expect(payloadToMarkdown(samplePayload({ context: null }))).not.toContain('<details>');
@@ -42,9 +42,7 @@ describe('payloadToMarkdown', () => {
 
   it('emits message content verbatim', () => {
     expect(md).toContain('**User:**\n\n# CONTENTQ1 How do *trees* work?');
-    expect(md).toContain(
-      '**Assistant:**\n\nCONTENTA1 Like this:\n\n```ts\nconst x: number = 1;\n```',
-    );
+    expect(md).toContain('**AI:**\n\nCONTENTA1 Like this:\n\n```ts\nconst x: number = 1;\n```');
     expect(md).toContain('CONTENTQ2 <script>alert("x")</script>');
   });
 
@@ -106,7 +104,7 @@ describe('tangents in shared replies', () => {
   it('turns the block into a "Where next?" list and keeps it out of fork excerpts', () => {
     const md = payloadToMarkdown(payload);
     expect(md).toContain(
-      '**Assistant:**\n\nThe answer.\n\n**Where next?**\n\n- **Why ice floats** — density again\n- **Heavy water**',
+      '**AI:**\n\nThe answer.\n\n**Where next?**\n\n- **Why ice floats** — density again\n- **Heavy water**',
     );
     expect(md).not.toContain('<tangents>\n- Why');
     expect(md).toContain('Forked from: “The answer.”');

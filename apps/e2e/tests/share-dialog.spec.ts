@@ -33,7 +33,7 @@ test('the share dialog lists this conversation’s links; new and revoked ones s
   // A member, so the conversation on the offline test provider can be sent to.
   await paymentWebhook(request, [membership(userId, 'active', 1)]);
 
-  // "Prime numbers": one exchange, and a live link to the path ending in the reply.
+  // "Prime numbers": one exchange, and a link to the path ending in the reply.
   const primes = await newTree(request, baseURL!, 'Prime numbers');
   const sent = await request.post(`/api/branches/${primes.trunkBranchId}/messages`, {
     headers,
@@ -44,13 +44,7 @@ test('the share dialog lists this conversation’s links; new and revoked ones s
   const reply = detail.nodes.find((n) => n.role === 'assistant')!;
   const earlier = await request.post('/api/shares', {
     headers,
-    data: {
-      treeId: primes.id,
-      scope: 'path',
-      nodeId: reply.id,
-      mode: 'live',
-      title: 'Earlier link',
-    },
+    data: { treeId: primes.id, scope: 'path', nodeId: reply.id, title: 'Earlier link' },
   });
   expect(earlier.status(), await earlier.text()).toBe(201);
   // "Tides": no links of its own.
@@ -66,14 +60,13 @@ test('the share dialog lists this conversation’s links; new and revoked ones s
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);
 
-  // Prime numbers' dialog: its live path link, with the branch, the link and its actions.
+  // Prime numbers' dialog: its path link, with the branch, the link and its actions.
   await page.goto(`/t/${primes.id}`);
   await page.getByRole('button', { name: 'Share…' }).click();
   const cards = existing.locator('.share-card');
   await expect(cards).toHaveCount(1);
   const old = cards.filter({ hasText: 'Earlier link' });
   await expect(old.locator('.share-top')).toContainText('active');
-  await expect(old.locator('.share-top')).toContainText('live');
   await expect(old.locator('.share-top')).toContainText('Path');
   await expect(old).toContainText('ends in “Main thread”');
   await expect(old.locator('.share-url')).toContainText('/s/');
@@ -86,7 +79,7 @@ test('the share dialog lists this conversation’s links; new and revoked ones s
   await expect(dialog).toContainText('Anyone with this link can read this conversation.');
   await expect(cards).toHaveCount(2);
   const made = cards.first();
-  await expect(made.locator('.share-top')).toContainText('snapshot');
+  await expect(made.locator('.share-top')).toContainText('active');
   await expect(made.locator('.share-top')).toContainText('Whole conversation');
   const url = await dialog.getByLabel('Share link').inputValue();
   await expect(made.locator('.share-url')).toHaveText(url);

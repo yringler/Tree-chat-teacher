@@ -193,14 +193,32 @@ Free credit Tangent provides, for Learn users who can't pay; nobody can buy it. 
 
 `/admin/` (`apps/admin`) is for the operator. Admins are the user ids in the `ADMIN_USER_IDS` secret: sign in, copy your **Account ID** from the account dialog, then `npx wrangler secret put ADMIN_USER_IDS` (comma-separated for several). To everyone else, `/admin*` and `/api/admin/*` answer 404.
 
+Before setting `SHARING` to `everyone`, set the moderation key (`npx wrangler secret put MODERATION_API_KEY`, an OpenAI API key; the moderation endpoint is free): every publish is then screened, and without the key `everyone` acts as `allowlist` (Workers Logs shows `sharing_moderation_missing`). With the key set, admins' and allowed users' publishes are screened too. A refused publish leaves a `share_screened` row in `audit_events` with the scores; `share_screen_failed` in the logs means the classifier failed and publishing was refused, so check the key and OpenAI's status. A possible-CSAM refusal also places a legal hold and sends an alert (below).
+
+The page says which `SHARING` mode is set. To take every share link down at once, admins' included, set `SHARING` to `off` (`wrangler.jsonc` `vars`, then deploy); links open again when it goes back to `allowlist` or `everyone`.
+
 The page lists users (newest first, searchable by email) and lets you:
 
-- allow users to publish share links while `DMCA_AGENT_REGISTERED` is off (**May share**); the check runs on every view of a link, so turning a user off takes their links down at once;
-- see a user's shares and **Revoke** any of them (how to act on a takedown notice);
+- allow users to publish share links while `SHARING` is `allowlist` (**May share**); the check runs on every view of a link, so turning a user off takes their links down at once;
+- see a user's shares and **Remove** any of them (how to act on a takedown notice that came by email), or **Restore** one;
+- suspend a user's sharing (**Sharing suspended**: nothing new is published and their links stop opening at once), and see how many of their shares were removed and how many reports of them wait;
 - see a user's credit balance and add or take back credit (**Credit**);
 - waive the membership (**Member**);
 - suspend or restore a user's open pool access (**Pool suspended**), and see who uses the pool most;
 - see the pool's balance, pending holds and the breaker, and top it up or correct it.
+
+**Reports** from share pages wait in the **Reports** queue at the top of the page (undecided ones oldest first; **Show: All reports** for the rest), with the reporter's words, the share's state, how many people reported it, its owner and whether it is held. Review within 24 to 48 hours; CSAM and violent or illegal reports, which also email you, as soon as you see them. **Review** opens the conversation at `/admin/review/<shareId>` in a new tab (it shows a held copy once the share is gone, and every opening is logged); then decide, with optional notes:
+
+- **Remove**: the link stays down for good, and the share's open reports count as acted on. That is a strike against the owner; a second removed share suspends their sharing automatically (**Sharing suspended** on their row). Lifting a suspension is up to you.
+- **Restore**: the link goes back up and its reports are rejected, which takes back a removal's strike.
+- **Reject**: this report was wrong. The link goes back up unless another open report would have taken it down on its own.
+- **Hold**, for a report that didn't place a legal hold itself.
+
+The owner is never told why. The API behind it is `GET /api/admin/reports` and `POST /api/admin/reports/:reportId/resolve`; `GET /api/admin/users/:userId/events` is the audit trail about a user (publishes, screenings, reports, takedowns, suspensions, holds), with ids and metadata only.
+
+**Legal holds** preserve a share as evidence: the share, its conversation and its owner's account details, where deleting can't reach them. The **Legal holds** list shows each (metadata only), **Record** notes an NCMEC or law-enforcement report number, and **Release** deletes the copies (refused within a year of a report). A hold of a share nobody reported is placed with `POST /api/admin/shares/:shareId/hold` (`{ "reason": "csam" | "violent_or_illegal" | "law_enforcement" | "other" }`). What to do when you learn of child sexual abuse material or a threat of violence: [runbooks/csam.md](runbooks/csam.md).
+
+**Alerts** go by email to `LEGAL_CONTACT_EMAIL` (or `privacy@<host>`) when something needs you at once, such as screening refusing a share as possible child sexual abuse material. They are sent with the sign-in email setup (`RESEND_API_KEY`, `EMAIL_FROM`), so the contact address must accept mail from it. An alert names the reason, the share, owner, hold and report ids and links the admin page; it never contains the conversation. Sending is best-effort: a failure logs `alert_failed` with the same ids, so watch Workers Logs for it.
 
 The API behind it also reports pool consumption: `GET /api/admin/pool/usage?days=7&limit=50` lists users by spend and today's network keys by the number of users on each (many accounts on one key is what a farm looks like).
 
@@ -208,4 +226,4 @@ Optionally, put a Cloudflare Access application in front of `<your domain>/admin
 
 ## Observability
 
-Workers Logs is on (`observability` in `wrangler.jsonc`). The Worker logs one JSON event per line (`apps/worker/src/log.ts`): `llm_call` for every metered call (funding, model, tokens, cost, finish reason), `pool_refused`, `payment_webhook_failed`, `fee_estimated`, `pool_misconfigured`, `pool_breaker_tripped` and others. Nothing logs request headers or bodies.
+Workers Logs is on (`observability` in `wrangler.jsonc`). The Worker logs one JSON event per line (`apps/worker/src/log.ts`): `llm_call` for every metered call (funding, model, tokens, cost, finish reason), `pool_refused`, `payment_webhook_failed`, `fee_estimated`, `pool_misconfigured`, `pool_breaker_tripped`, `alert_sent`, `alert_failed` and others. Nothing logs request headers or bodies.

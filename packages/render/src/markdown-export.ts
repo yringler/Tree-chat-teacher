@@ -46,9 +46,7 @@ export function messageMarkdown(m: ShareMessage): string {
 }
 
 function renderMessages(messages: readonly ShareMessage[]): string[] {
-  return messages.map(
-    (m) => `**${m.role === 'user' ? 'User' : 'Assistant'}:**\n\n${messageMarkdown(m)}`,
-  );
+  return messages.map((m) => `**${m.role === 'user' ? 'User' : 'AI'}:**\n\n${messageMarkdown(m)}`);
 }
 
 /** Collapse newlines so user-provided titles cannot break the heading. */
@@ -61,7 +59,7 @@ function oneLine(text: string): string {
  * (<details>), then branches depth-first. Each branch gets a heading with its
  * breadcrumb (e.g. "Trunk › Side topic"), a "Forked from: …" line quoting the
  * fork message excerpt, an optional anchor-quote blockquote, then messages as
- * "**User:**" / "**Assistant:**" blocks. Message content is emitted verbatim,
+ * "**User:**" / "**AI:**" blocks. Message content is emitted verbatim,
  * except that a reply's `<tangents>` block becomes a "Where next?" list.
  */
 export function payloadToMarkdown(payload: SharePayload): string {

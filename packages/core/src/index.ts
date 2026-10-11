@@ -13,3 +13,5 @@ export * from './services/chat-service.js';
 export * from './services/share-service.js';
 export * from './generation/hub.js';
 export * from './grounding/policy.js';
+export * from './moderation/moderation.js';
+export * from './moderation/share-texts.js';

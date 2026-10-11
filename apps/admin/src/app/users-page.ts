@@ -1,11 +1,11 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import type { AdminCreditRequest, AdminUser, ShareSummary } from '@tangent/shared';
+import type { AdminCreditRequest, AdminShare, AdminUser } from '@tangent/shared';
 import { ApiClient, errorMessage, formatCents, formatCharge, Icon } from '@tangent/web-shared';
 import { signedCreditCents } from './credit-amount';
 
 /** A user's shares once expanded: loading (null) or the list. */
-type SharesState = ShareSummary[] | null;
+type SharesState = AdminShare[] | null;
 
 /** What a user's credit form holds. */
 export interface UserCreditForm {
@@ -45,17 +45,20 @@ function newKey(): string {
 const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
 
 /**
- * Users, newest first, searchable by email: the per-user "May share"
- * permission, the open pool suspension, the membership (a waiver makes the
- * user a member without paying; a paid one is marked), the user's credit balance with a
- * form to add (or take back) credit, and, expanded, the user's shares with
- * Revoke (a takedown).
+ * Users, newest first, searchable by email: their shares (active, removed,
+ * and reports waiting), the per-user "May share" permission, the sharing
+ * suspension (set here or by the strike rule), the open pool suspension, the
+ * membership (a waiver makes the user a member without paying; a paid one is
+ * marked), the user's credit balance with a form to add (or take back)
+ * credit, and, expanded, the user's shares with Review, Remove (a takedown)
+ * and Restore.
  */
 @Component({
   selector: 'app-users-page',
   imports: [DatePipe, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <h2>Users</h2>
     <form class="admin-search" role="search" (submit)="$event.preventDefault(); search(q.value)">
       <label class="field">
         <span class="field-label">Search by email</span>
@@ -75,8 +78,9 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
             <th scope="col">Email</th>
             <th scope="col">Account ID</th>
             <th scope="col">Signed up</th>
-            <th scope="col">Active shares</th>
+            <th scope="col">Shares</th>
             <th scope="col">May share</th>
+            <th scope="col">Sharing suspended</th>
             <th scope="col">Pool suspended</th>
             <th scope="col">Member</th>
             <th scope="col">Credit</th>
@@ -101,7 +105,17 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
                 <code class="admin-id">{{ u.id }}</code>
               </td>
               <td class="admin-nowrap">{{ u.createdAt | date: 'mediumDate' }}</td>
-              <td>{{ u.activeShares }}</td>
+              <td class="admin-nowrap">
+                {{ u.activeShares }} active
+                @if (u.removedShares) {
+                  <div class="small">{{ u.removedShares }} removed</div>
+                }
+                @if (u.openReports) {
+                  <div class="small">
+                    <span class="badge badge-warn">{{ u.openReports }} open reports</span>
+                  </div>
+                }
+              </td>
               <td>
                 <label class="check">
                   <input
@@ -111,6 +125,17 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
                     (change)="setShareAllowed(u, $any($event.target))"
                   />
                   <span class="sr-only">{{ u.email }} may share</span>
+                </label>
+              </td>
+              <td>
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    [checked]="u.sharingSuspended"
+                    [disabled]="busy().has(u.id)"
+                    (change)="setSharingSuspended(u, $any($event.target))"
+                  />
+                  <span class="sr-only">{{ u.email }}'s sharing is suspended</span>
                 </label>
               </td>
               <td>
@@ -174,7 +199,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
             </tr>
             @if (creditFor() === u.id) {
               <tr [id]="'credit-' + u.id">
-                <td colspan="9" class="admin-shares">
+                <td colspan="10" class="admin-shares">
                   <form class="admin-search" (submit)="$event.preventDefault(); credit(u)">
                     <label class="field">
                       <span class="field-label">Amount ($, negative to debit)</span>
@@ -209,7 +234,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
             }
             @if (shares().has(u.id)) {
               <tr [id]="'shares-' + u.id">
-                <td colspan="9" class="admin-shares">
+                <td colspan="10" class="admin-shares">
                   @if (shares().get(u.id); as list) {
                     @if (list.length === 0) {
                       <p class="muted small">No shares.</p>
@@ -218,22 +243,43 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
                         @for (s of list; track s.id) {
                           <li class="admin-share">
                             <span class="admin-share-title">{{ s.title || s.treeTitle }}</span>
-                            <span class="badge state-{{ s.state }}">{{ s.state }}</span>
+                            <span class="badge state-{{ s.state }}">{{
+                              s.takedown ? s.takedown.replace('_', ' ') : s.state
+                            }}</span>
                             <span class="muted small">
-                              {{ s.mode }} · {{ s.viewCount }} views · created
+                              {{ s.viewCount }} views · created
                               {{ s.createdAt | date: 'mediumDate' }}
                             </span>
                             @if (s.state === 'active') {
                               <a [href]="s.url" target="_blank" rel="noopener noreferrer">
                                 <app-icon name="external" [size]="14" /> Open
                               </a>
+                            }
+                            <a
+                              [href]="'/admin/review/' + s.id"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <app-icon name="external" [size]="14" /> Review
+                            </a>
+                            @if (s.takedown) {
+                              <button
+                                type="button"
+                                class="btn btn-sm"
+                                [disabled]="busy().has(s.id)"
+                                (click)="takedown(u, s, 'restore')"
+                              >
+                                Restore
+                              </button>
+                            }
+                            @if (s.takedown !== 'removed' && s.state !== 'revoked') {
                               <button
                                 type="button"
                                 class="btn btn-danger-ghost btn-sm"
                                 [disabled]="busy().has(s.id)"
-                                (click)="revoke(u, s)"
+                                (click)="takedown(u, s, 'remove')"
                               >
-                                <app-icon name="trash" [size]="14" /> Revoke
+                                <app-icon name="trash" [size]="14" /> Remove
                               </button>
                             }
                           </li>
@@ -249,7 +295,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
           } @empty {
             @if (!loading()) {
               <tr>
-                <td colspan="9" class="muted">No users found.</td>
+                <td colspan="10" class="muted">No users found.</td>
               </tr>
             }
           }
@@ -306,7 +352,7 @@ export class UsersPage {
       user.activeShares > 0 &&
       !confirm(
         `${user.email} has ${user.activeShares} active share link(s). They stop opening at once ` +
-          '(unless DMCA_AGENT_REGISTERED is on). Continue?',
+          '(unless SHARING is everyone). Continue?',
       )
     ) {
       box.checked = true;
@@ -317,6 +363,19 @@ export class UsersPage {
         this.replaceUser(await this.api.updateAdminUser(user.id, { shareAllowed: allowed }));
       } catch (err) {
         box.checked = user.shareAllowed;
+        throw err;
+      }
+    });
+  }
+
+  /** Suspends the user's sharing (nothing new is published, their links close at once) or lifts it. */
+  protected async setSharingSuspended(user: AdminUser, box: HTMLInputElement): Promise<void> {
+    const suspended = box.checked;
+    await this.run(user.id, async () => {
+      try {
+        this.replaceUser(await this.api.updateAdminUser(user.id, { sharingSuspended: suspended }));
+      } catch (err) {
+        box.checked = user.sharingSuspended;
         throw err;
       }
     });
@@ -423,21 +482,35 @@ export class UsersPage {
     }
   }
 
-  protected async revoke(user: AdminUser, share: ShareSummary): Promise<void> {
+  /**
+   * Takes the share down for good (its open reports count as acted on, so
+   * it may be a strike) or puts it back up (rejecting its reports), then
+   * reloads the user's counts, which either can change.
+   */
+  protected async takedown(
+    user: AdminUser,
+    share: AdminShare,
+    action: 'remove' | 'restore',
+  ): Promise<void> {
     const name = share.title || share.treeTitle;
-    if (!confirm(`Revoke "${name}"? The link stops working for everyone, for good.`)) return;
+    const question =
+      action === 'remove'
+        ? `Remove "${name}"? The link stops working for everyone until it is restored.`
+        : `Restore "${name}"? The link opens again and its reports are rejected.`;
+    if (!confirm(question)) return;
     await this.run(share.id, async () => {
-      const revoked = await this.api.adminRevokeShare(share.id);
+      const updated =
+        action === 'remove'
+          ? await this.api.adminRemoveShare(share.id)
+          : await this.api.adminRestoreShare(share.id);
       const list = this.shares().get(user.id);
       if (list)
         this.setShares(
           user.id,
-          list.map((s) => (s.id === revoked.id ? revoked : s)),
+          list.map((s) => (s.id === updated.id ? updated : s)),
         );
-      const current = this.users().find((u) => u.id === user.id);
-      if (current && share.state === 'active') {
-        this.replaceUser({ ...current, activeShares: Math.max(0, current.activeShares - 1) });
-      }
+      const fresh = (await this.api.adminUsers(user.email)).users.find((u) => u.id === user.id);
+      if (fresh) this.replaceUser(fresh);
     });
   }
 

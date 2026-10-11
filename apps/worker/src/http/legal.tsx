@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { Child } from 'hono/jsx';
 import type { AppBindings } from '../env.js';
 import { POOL_IDENTITY_RETENTION_DAYS } from '../pool/identity.js';
+import { STRIKES_TO_SUSPEND } from '../share/review.js';
 import { joinList } from './copy.js';
 import { hostedAi, type HostedAi } from './hosted-ai.js';
 import { pageResponse } from './layout.js';
@@ -22,7 +23,7 @@ import { DOC_STYLE } from './page-styles.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '9 October 2026';
+export const LEGAL_UPDATED = '11 October 2026';
 
 /** A long-form public page (the legal pages, `/pool`), cacheable for five minutes. */
 export function docResponse(
@@ -128,7 +129,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           <strong>The short version.</strong> We keep what you need to use Tangent: your email
           address, your conversations and your settings. Your conversations are private to your
           account: other users can't see them unless you publish a share link
-          {/* Worded by DMCA_AGENT_REGISTERED (LegalInfo.sharing): links for everyone, or only where enabled. */}
+          {/* Worded by SHARING (LegalInfo.sharing): links for everyone, or only where enabled. */}
           {info.sharing ? '.' : ', which only accounts we have enabled it for can do.'} They are not
           end-to-end encrypted, so they are readable by the service itself (which is how it sends
           them to the AI model) and by the operator with database access, who looks at them only to
@@ -222,6 +223,18 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
             </td>
           </tr>
           <tr>
+            <td>Reports about share links</td>
+            <td>
+              When you report a shared conversation: the category you pick, what you write, the
+              email address you give if you want a reply, and either your user id (if you are signed
+              in) or the day's network key (a keyed hash of your IP address, as for the open pool).
+            </td>
+            <td>
+              To review the report and act on it, to tell independent reports of the same link
+              apart, and to reply to you. The link's owner never sees the report or who filed it.
+            </td>
+          </tr>
+          <tr>
             <td>Technical logs</td>
             <td>
               Errors and request metadata (time, path, status, IP address) kept by our hosting
@@ -267,6 +280,14 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         <li>
           <strong>Resend</strong> (USA): sends sign-in link emails to your address.
         </li>
+        {info.screening && (
+          <li>
+            <strong>OpenAI</strong> (USA): screens share links for illegal and harmful content
+            before they are published. It receives the text of the conversations you share (your
+            messages, the AI's replies and the titles), not your account details, under OpenAI's own
+            terms.
+          </li>
+        )}
         <li>
           <strong>Google and GitHub</strong>: only if you choose to sign in with them.
         </li>
@@ -300,6 +321,20 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         signing in. Private branches are always left out. Revoking the link or deleting the
         conversation stops it at once in our database; copies already cached at the network edge
         expire within 24 hours, and we can't recall copies people already saved.
+      </p>
+      <p>
+        A new account can publish share links after its first day, and each account can create a
+        limited number a day.{' '}
+        {info.screening &&
+          'Before a link is published or republished, its text is screened automatically, and we refuse to publish what the screening flags, without saying why.'}{' '}
+        We keep a record of each change to a link: which link, which account, when, and whether you
+        or we made it, without what the conversation says.
+      </p>
+      <p>
+        Anyone who opens a link can report it from the page. A report of illegal content or of
+        copyright infringement, or two reports from different people of defamation or harassment,
+        takes the link down at once until we review it; the owner then sees it as unavailable,
+        without the reason, and can only delete it.
       </p>
 
       <h2>Cookies and browser storage</h2>
@@ -354,6 +389,26 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           caps, and then deleted. Neither contains message content or an email address.
         </li>
         <li>
+          Records of changes to share links (which link, which account, when, by whom, and the
+          screening's scores; no message content): kept after the link or your account is deleted,
+          as the record of how we handle reports about shared content.
+        </li>
+        <li>
+          Reports about share links (what the reporter wrote, the optional email address, and their
+          user id or network key): kept after the link or either account is deleted, as the record
+          of how we handled them.
+        </li>
+        <li>
+          Content we must preserve: if a shared conversation is reported to us as illegal (such as
+          child sexual abuse material or a threat of violence), screening flags one you try to
+          publish as child sexual abuse material, or law enforcement asks us to, we keep a copy of
+          the share, the conversation it came from, your account details and your sessions' IP
+          addresses and browsers, apart from your data and readable only by us, even if you revoke
+          the link or delete the conversation or your account. We delete the copy when it is no
+          longer needed; once we have reported it to the authorities, not before a year after the
+          report, as US law requires.
+        </li>
+        <li>
           Database recovery history: deleted data remains in our hosting provider's point-in-time
           recovery for up to 30 days, after which it is gone for good.
         </li>
@@ -375,7 +430,8 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           which Power, Learn and Canvas share, with every conversation, share link and setting, your
           sign-in methods and sessions, and your customer record at Polar (anonymised; Polar keeps
           the order records tax law requires), which also cancels your membership. Unused credit is
-          forfeited. Payment records and open pool records are kept as described above.
+          forfeited. Payment records, open pool records and records of changes to share links are
+          kept as described above.
         </li>
         <li>
           Depending on where you live (for example the EEA, UK or California) you may also have the
@@ -458,9 +514,11 @@ function TermsOfService(props: { info: LegalInfo }) {
       <p>
         You keep all rights to what you write, and, as far as we're concerned, to the replies
         generated for you. You give us the permission we need to run the service: to store your
-        content, send it to the AI provider that writes the reply, and show it to the people you
-        share it with. That permission ends when you delete the content, except for copies already
-        shared or cached as the privacy policy describes.
+        content and send it to the AI provider that writes the reply. When you publish a share link,
+        you also give us a worldwide, non-exclusive, royalty-free license to host, copy and display
+        that conversation to anyone who has the link. These permissions end when you delete the
+        content or revoke the link, except for copies already shared or cached, and copies we must
+        keep as evidence, as the privacy policy describes.
       </p>
       <p>
         You are responsible for your content and for any share link you publish. Only share what you
@@ -468,30 +526,46 @@ function TermsOfService(props: { info: LegalInfo }) {
         {!info.sharing &&
           ' Share links are available only to accounts we enable them for. Anyone can export a conversation and share the file; where you put it is up to you, and so is the responsibility for it.'}
       </p>
+      <p>
+        {info.screening &&
+          'Before a share link is published, an automated classifier screens its text, and we may refuse to publish it without saying why. '}
+        Anyone who opens a shared conversation can report it. We may take it down while we review a
+        report, and remove it if it breaks these terms or the law. A shared page says that its
+        replies are AI-generated and that a user, not Tangent, shared it.
+      </p>
 
       <h2>5. Acceptable use</h2>
       <p>Don't use Tangent to:</p>
       <ul>
-        <li>break the law or infringe anyone's rights, including copyright and privacy;</li>
         <li>
-          create or share sexual content involving minors, content that harasses, threatens or
-          incites violence against people, or malware;
+          break the law, or create or share content that infringes anyone's rights, including
+          copyright and privacy;
+        </li>
+        <li>
+          create or share sexual content involving minors, content that harasses or threatens
+          people, or incites violence against them, or malware;
+        </li>
+        <li>plan or prepare violence against anyone;</li>
+        <li>
+          post other people's personal information, such as their home address, phone number or
+          identity documents, without their permission (doxxing);
         </li>
         <li>
           break the usage policies of the AI provider handling your request (for example
           OpenRouter's and the model maker's);
         </li>
         <li>
-          get around rate limits, billing or security, probe other users' data, or overload the
-          service;
+          get around rate limits, billing or security, the screening of share links or the limits on
+          them (for example with more accounts or by rewording what was refused), probe other users'
+          data, or overload the service;
         </li>
         <li>
           resell access, or use automated means to scrape or bulk-generate content outside the app.
         </li>
       </ul>
       <p>
-        We may remove content or suspend accounts that break these rules, and report illegal content
-        to the authorities.
+        We may remove content, turn off sharing for an account or suspend accounts that break these
+        rules, and report illegal content to the authorities.
       </p>
 
       <h2>6. Your own API keys</h2>
@@ -549,8 +623,13 @@ function TermsOfService(props: { info: LegalInfo }) {
         {contact} with: your contact details, the work you claim is infringed, the share link, a
         statement that you believe in good faith the use isn't authorized, and a statement under
         penalty of perjury that your notice is accurate and that you are the owner or authorized to
-        act for them, with your physical or electronic signature. We remove infringing content and
-        close the accounts of repeat infringers.
+        act for them, with your physical or electronic signature. You can also report the link from
+        the shared page; a link reported for copyright is taken down while we review it.
+      </p>
+      <p>
+        We remove infringing content, and we act against repeat infringers: once we have removed{' '}
+        {STRIKES_TO_SUSPEND} of your share links after reports, sharing is turned off for your
+        account, and we may close the accounts of repeat infringers.
       </p>
 
       <h2>9. Our rights</h2>
@@ -572,9 +651,10 @@ function TermsOfService(props: { info: LegalInfo }) {
 
       <h2>11. Ending the agreement</h2>
       <p>
-        You can stop at any time and delete your account. We may suspend or close your account if
-        you break these terms or if the law requires it, and will tell you why unless the law
-        forbids it.
+        You can stop at any time and delete your account. We may suspend or close your account, or
+        turn off sharing for it, if you break these terms or if the law requires it. We will tell
+        you why, unless the law forbids it or telling you could harm an investigation, ours or the
+        authorities'.
       </p>
 
       <h2>12. Disclaimers</h2>

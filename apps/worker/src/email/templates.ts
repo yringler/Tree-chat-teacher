@@ -23,3 +23,27 @@ export function magicLinkEmail(to: string, url: string, expiresInMinutes: number
 </body></html>`,
   };
 }
+
+/**
+ * An alert to the operator (alerts.ts): what happened, the ids to look up and
+ * a link to the admin page. Callers pass ids and fixed text only, never a
+ * conversation's content.
+ */
+export function alertEmail(
+  to: string,
+  alert: { title: string; summary: string; facts: readonly (readonly [string, string])[] },
+  adminUrl: string,
+): EmailMessage {
+  const facts = alert.facts.map(([label, value]) => `${label}: ${value}`);
+  return {
+    to,
+    subject: `Tangent alert: ${alert.title}`,
+    text: [alert.summary, '', ...facts, '', `Admin: ${adminUrl}`].join('\n'),
+    html: `<!doctype html>
+<html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#1f2328">
+<p>${escapeHtml(alert.summary)}</p>
+<ul>${alert.facts.map(([label, value]) => `<li>${escapeHtml(label)}: <code>${escapeHtml(value)}</code></li>`).join('')}</ul>
+<p><a href="${escapeHtml(adminUrl)}">Open the admin page</a></p>
+</body></html>`,
+  };
+}

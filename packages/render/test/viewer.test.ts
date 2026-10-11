@@ -156,20 +156,50 @@ describe('renderViewerPage', () => {
       expect(u.startsWith('https://example.com') || u.startsWith('https://t.example/')).toBe(true);
   });
 
-  it('escapes head metadata', () => {
-    const t = 'Trees &amp; &quot;Branches&quot; &lt;script&gt;alert(1)&lt;/script&gt;';
-    const desc = 'How do &lt;trees&gt; work? &quot;quoted&quot; &amp; more';
-    expect(html).toContain(`<title>${t}</title>`);
-    expect(html).toContain(`<meta name="description" content="${desc}">`);
-    expect(html).toContain(`<meta property="og:title" content="${t}">`);
-    expect(html).toContain(`<meta property="og:description" content="${desc}">`);
-    expect(html).toContain('<meta property="og:type" content="article">');
-    expect(html).toContain(
+  it('keeps the conversation out of share metadata and search engines', () => {
+    const generic = 'Shared Tangent conversation';
+    const desc = 'A conversation shared by a Tangent user.';
+    const headHtml = html.slice(0, html.indexOf('</head>'));
+    expect(headHtml).toContain(`<title>${generic}</title>`);
+    expect(headHtml).toContain(`<meta name="description" content="${desc}">`);
+    expect(headHtml).toContain(`<meta property="og:title" content="${generic}">`);
+    expect(headHtml).toContain(`<meta property="og:description" content="${desc}">`);
+    expect(headHtml).toContain(`<meta name="twitter:title" content="${generic}">`);
+    expect(headHtml).toContain(`<meta name="twitter:description" content="${desc}">`);
+    expect(headHtml).toContain('<meta property="og:type" content="article">');
+    expect(headHtml).toContain(
       '<meta property="og:url" content="https://t.example/s/abc?x=1&amp;y=&quot;2&quot;">',
     );
-    expect(html).toContain('<meta name="twitter:card" content="summary">');
-    expect(html).toContain('<meta name="robots" content="noindex">');
+    expect(headHtml).toContain('<meta name="twitter:card" content="summary">');
+    expect(headHtml).toContain('<meta name="robots" content="noindex, nofollow">');
+    expect(headHtml).not.toContain('Trees');
+    expect(headHtml).not.toContain('How do');
+    // The page itself still names the conversation, escaped.
+    expect(html).toContain(
+      '<h1>Trees &amp; &quot;Branches&quot; &lt;script&gt;alert(1)&lt;/script&gt;</h1>',
+    );
     expect(html).toContain('Shared with Tangent · read-only');
+  });
+
+  it('says the replies are AI-generated and shared by a user', () => {
+    expect(html).toContain(
+      '<p class="disclaimer" role="note">This conversation includes AI-generated responses, which may be inaccurate. ' +
+        'It was shared by a user and doesn&#39;t represent Tangent&#39;s views.</p>',
+    );
+    expect(html).toContain('<span class="msg-role">AI</span>');
+    expect(html).toContain('<span class="msg-role">User</span>');
+    expect(html).not.toContain('Assistant');
+  });
+
+  it('links the report page from the footer when given one', () => {
+    expect(html).not.toContain('Report this conversation');
+    const reported = renderViewerPage(payload, {
+      variant: 'share',
+      reportUrl: 'https://t.example/s/abc/report?a=1&b=2',
+    });
+    expect(reported).toContain(
+      '<a href="https://t.example/s/abc/report?a=1&amp;b=2">Report this conversation</a>',
+    );
   });
 
   it('escapes branch titles and anchor quotes', () => {
@@ -241,6 +271,12 @@ describe('renderViewerPage', () => {
       url: 'https://ignored.example',
     });
     expect(exported).toContain('Exported from Tangent on September 29, 2026');
+    const t = 'Trees &amp; &quot;Branches&quot; &lt;script&gt;alert(1)&lt;/script&gt;';
+    const desc = 'How do &lt;trees&gt; work? &quot;quoted&quot; &amp; more';
+    expect(exported).toContain(`<title>${t}</title>`);
+    expect(exported).toContain(`<meta name="description" content="${desc}">`);
+    expect(exported).toContain(`<meta property="og:title" content="${t}">`);
+    expect(exported).not.toContain('class="disclaimer"');
     expect(exported).not.toContain('noindex');
     expect(exported).not.toContain('og:url');
     expect(exported).not.toContain('Content-Security-Policy');
