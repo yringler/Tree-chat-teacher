@@ -185,7 +185,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           <tr>
             <td>Your content</td>
             <td>
-              Conversations (messages, replies, branch titles, summaries), system prompts, your
+              Conversations (messages, replies, tangent titles, summaries), system prompts, your
               instructions for Learn lessons, settings, and share links you create.
             </td>
             <td>This is the service. Stored in our database until you delete it.</td>
@@ -326,7 +326,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
       )}
       <p>
         When you create a share link, anyone who has the link can read what it covers, without
-        signing in. Private branches are always left out. Revoking the link or deleting the
+        signing in. Private tangents are always left out. Revoking the link or deleting the
         conversation stops it at once in our database; copies already cached at the network edge
         expire within 24 hours, and we can't recall copies people already saved.
       </p>
