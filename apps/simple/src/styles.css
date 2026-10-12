@@ -865,12 +865,13 @@ app-related-links.connections {
 
 /* Where the message goes, before the text: on a narrow screen only its icon
    until the box has the focus. With the focus it takes a row of its own, and
-   the box grows to three lines. */
+   the box grows to three lines. Size changes follow `is-open`, not
+   :focus-within, so a click elsewhere lands before the box shrinks. */
 .composer-host .composer {
   flex-wrap: wrap;
 }
 
-.composer-host .composer:focus-within textarea {
+.composer-host .composer.is-open textarea {
   min-height: calc(4.5em * var(--chat-font-scale, 1));
 }
 
@@ -881,7 +882,7 @@ app-related-links.connections {
   max-width: 60%;
 }
 
-.composer:focus-within .composer-lead {
+.composer.is-open .composer-lead {
   flex-basis: 100%;
   max-width: 100%;
 }
@@ -927,7 +928,7 @@ app-related-links.connections {
 }
 
 @media (max-width: 559px) {
-  .composer:not(:focus-within) .composer-dest-label {
+  .composer:not(.is-open) .composer-dest-label {
     display: none;
   }
 }
