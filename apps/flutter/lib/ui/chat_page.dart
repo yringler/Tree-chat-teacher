@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,6 +11,7 @@ import '../api/models.dart';
 import '../api/tangents.dart';
 import '../state/app_scope.dart';
 import '../state/chat_controller.dart';
+import 'lesson_outline.dart';
 import 'message_view.dart';
 import 'theme.dart';
 import 'tier_switch.dart';
@@ -35,6 +37,16 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Follows the end of the thread until the learner scrolls up.
   bool _stickToBottom = true;
+
+  /// The header is in view. On a narrow screen it slides away while the
+  /// learner reads down, to give the thread the room, and back on the way up.
+  bool _headerShown = true;
+
+  static const _outlineWidth = 280.0;
+
+  /// From this width the outline stays beside the thread; below it, it is a
+  /// drawer.
+  static const _wideFrom = contentMaxWidth + _outlineWidth;
 
   @override
   void initState() {
@@ -80,6 +92,7 @@ class _ChatPageState extends State<ChatPage> {
   /// The main thread opens at its end, a side question at its start.
   void _showBranch() {
     _stickToBottom = !_chat.isSideBranch;
+    _headerShown = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
       final position = _scroll.position;
@@ -90,6 +103,19 @@ class _ChatPageState extends State<ChatPage> {
   void _onScroll() {
     final position = _scroll.position;
     _stickToBottom = position.pixels >= position.maxScrollExtent - 48;
+  }
+
+  /// Only the learner's own scrolling moves the header: not following a
+  /// reply, and not a code block or formula scrolled sideways.
+  bool _onUserScroll(UserScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    final shown = switch (notification.direction) {
+      ScrollDirection.forward => true,
+      ScrollDirection.reverse => false,
+      ScrollDirection.idle => _headerShown,
+    };
+    if (shown != _headerShown) setState(() => _headerShown = shown);
+    return false;
   }
 
   void _followEnd() {
@@ -125,34 +151,128 @@ class _ChatPageState extends State<ChatPage> {
     if (opened.created) await _send(tangent.title);
   }
 
+  void _open(Branch branch) => context.go(
+    branch.parentBranchId == null
+        ? '/t/${widget.treeId}'
+        : '/t/${widget.treeId}/b/${branch.id}',
+  );
+
   @override
   Widget build(BuildContext context) {
     final lessons = AppScope.of(context).lessons;
+    final wide = MediaQuery.sizeOf(context).width >= _wideFrom;
     return ListenableBuilder(
       listenable: Listenable.merge([_chat, lessons]),
-      builder: (context, _) => Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            tooltip: 'Your lessons',
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => context.go('/'),
+      builder: (context, _) {
+        // The main thread alone needs no outline.
+        final hasOutline = _chat.outline.length > 1;
+        return Scaffold(
+          endDrawer: hasOutline && !wide
+              ? Drawer(
+                  child: SafeArea(
+                    child: Builder(
+                      builder: (context) => _outline(
+                        onOpen: (branch) {
+                          Scaffold.of(context).closeEndDrawer();
+                          _open(branch);
+                        },
+                      ),
+                    ),
+                  ),
+                )
+              : null,
+          body: SafeArea(
+            child: Row(
+              children: [
+                if (hasOutline && wide)
+                  Container(
+                    key: const ValueKey('outline'),
+                    width: _outlineWidth,
+                    decoration: BoxDecoration(
+                      border: Border(
+                        right: BorderSide(
+                          color: TangentColors.of(context).border,
+                        ),
+                      ),
+                    ),
+                    child: _outline(onOpen: _open),
+                  ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _header(wide: wide, hasOutline: hasOutline),
+                      Expanded(
+                        child: NotificationListener<UserScrollNotification>(
+                          onNotification: _onUserScroll,
+                          child: _body(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          titleSpacing: 0,
-          title: Text(
-            _chat.loading ? '' : lessonTitle(_chat.title),
-            overflow: TextOverflow.ellipsis,
-          ),
-          actions: [
-            if (_chat.branch != null)
-              TierSwitch(
-                tier: _chat.tier,
-                enabled: _chat.canSwitchTier,
-                onChanged: (tier) => unawaited(_chat.setTier(tier)),
+        );
+      },
+    );
+  }
+
+  Widget _outline({required ValueChanged<Branch> onOpen}) =>
+      LessonOutline(outline: _chat.outline, chain: _chat.chain, onOpen: onOpen);
+
+  /// The app bar and, on a side question, the path down to it.
+  Widget _header({required bool wide, required bool hasOutline}) {
+    final drawer = hasOutline && !wide;
+    return ClipRect(
+      child: AnimatedAlign(
+        alignment: Alignment.bottomCenter,
+        heightFactor: wide || _headerShown ? 1 : 0,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              primary: false,
+              leading: IconButton(
+                tooltip: 'Your lessons',
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => context.go('/'),
               ),
-            const SizedBox(width: 12),
+              titleSpacing: 0,
+              title: Text(
+                _chat.loading ? '' : lessonTitle(_chat.title),
+                overflow: TextOverflow.ellipsis,
+              ),
+              actions: [
+                if (_chat.branch != null)
+                  TierSwitch(
+                    tier: _chat.tier,
+                    enabled: _chat.canSwitchTier,
+                    onChanged: (tier) => unawaited(_chat.setTier(tier)),
+                  ),
+                if (drawer)
+                  Builder(
+                    builder: (context) => IconButton(
+                      tooltip: 'Side questions',
+                      icon: const Icon(Icons.account_tree_outlined),
+                      onPressed: Scaffold.of(context).openEndDrawer,
+                    ),
+                  ),
+                const SizedBox(width: 12),
+              ],
+            ),
+            if (_chat.isSideBranch)
+              Builder(
+                builder: (context) => _Breadcrumb(
+                  chain: _chat.chain,
+                  onOpen: _open,
+                  onMore: drawer ? Scaffold.of(context).openEndDrawer : null,
+                ),
+              ),
           ],
         ),
-        body: SafeArea(child: _body(context)),
       ),
     );
   }
@@ -170,11 +290,6 @@ class _ChatPageState extends State<ChatPage> {
     final busy = _chat.sending;
     return Column(
       children: [
-        if (_chat.isSideBranch)
-          _Breadcrumb(
-            title: _chat.branch?.title ?? '',
-            onMainThread: () => context.go('/t/${widget.treeId}'),
-          ),
         Expanded(
           child: thread.isEmpty
               ? const _EmptyThread()
@@ -266,41 +381,80 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
+/// Main thread › … › the parent › the side question on screen. The steps in
+/// between are left out; the outline lists them.
 class _Breadcrumb extends StatelessWidget {
-  const _Breadcrumb({required this.title, required this.onMainThread});
+  const _Breadcrumb({required this.chain, required this.onOpen, this.onMore});
 
-  final String title;
-  final VoidCallback onMainThread;
+  /// The main thread down to the side question on screen.
+  final List<Branch> chain;
+  final ValueChanged<Branch> onOpen;
+
+  /// Opens the outline, when it is a drawer.
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
     final tokens = TangentColors.of(context);
+    final parent = chain.length > 2 ? chain[chain.length - 2] : null;
+    final chevron = Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Icon(Icons.chevron_right, size: 18, color: tokens.fgMuted),
+    );
+    final buttonStyle = TextButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      minimumSize: const Size(0, 40),
+    );
+    Widget step(Branch branch) => TextButton(
+      style: buttonStyle,
+      onPressed: () => onOpen(branch),
+      child: Text(
+        outlineTitle(branch),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
     return Container(
+      key: const ValueKey('breadcrumb'),
       width: double.infinity,
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: tokens.border)),
       ),
       child: ContentColumn(
-        child: Row(
-          children: [
-            TextButton(
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              step(chain.first),
+              chevron,
+              if (chain.length > 3) ...[
+                TextButton(
+                  style: buttonStyle,
+                  onPressed: onMore,
+                  child: const Text('…'),
+                ),
+                chevron,
+              ],
+              if (parent != null) ...[
+                // The parent takes at most a third, so the side question on
+                // screen keeps the most room.
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: constraints.maxWidth / 3,
+                  ),
+                  child: step(parent),
+                ),
+                chevron,
+              ],
+              Expanded(
+                child: Text(
+                  outlineTitle(chain.last),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 15),
+                ),
               ),
-              onPressed: onMainThread,
-              child: const Text('Main thread'),
-            ),
-            Icon(Icons.chevron_right, size: 18, color: tokens.fgMuted),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 15),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

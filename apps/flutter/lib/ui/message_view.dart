@@ -4,6 +4,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../api/models.dart';
 import '../api/tangents.dart';
 import 'links.dart';
+import 'math_markdown.dart';
 import 'theme.dart';
 
 /// One message of the thread: the learner's, or the tutor's reply rendered
@@ -120,6 +121,9 @@ class _Markdown extends StatelessWidget {
     return MarkdownBody(
       data: data,
       selectable: true,
+      blockSyntaxes: mathBlockSyntaxes,
+      inlineSyntaxes: mathInlineSyntaxes,
+      builders: mathBuilders,
       onTapLink: (text, href, title) {
         if (href != null) openLink(context, href, newTab: true);
       },

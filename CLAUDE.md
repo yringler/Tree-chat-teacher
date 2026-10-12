@@ -46,6 +46,8 @@ These come from what went wrong here before. Follow them unless the owner says o
 - **Comments say why, in the present.** No history ("was", "used to", "since PR…", "for one release") and no citations of plans, sections or decision ids. Link a current doc only when it adds something.
 - **Bug first, test first.** Write a failing test that reproduces the bug, next to the existing tests for that area, then fix it.
 - **Frozen areas.** Don't add features to the money model (credit, membership, pool and their pricing), links between messages or share links without the owner's say. Bug fixes are fine.
+- **Research before building.** Before writing something nontrivial yourself (a parser, a renderer, an integration), look for best practice and a well-maintained library that already does it, and compare the candidates (a Sonnet subagent can do the survey). Write it yourself only when none fits, and say why.
+- **Rendering parity.** The web apps and the Flutter app render a reply the same way. Whatever Markdown the web renderer (`packages/render`) supports, such as TeX math or a future Mermaid, the Flutter app supports in the same change, with the same delimiters and edge cases, and vice versa.
 - **Shared logic lives once,** in `packages/web-shared` or `packages/*`, never copied between apps. If two apps need it, move it there first.
 - **Money:** integer micro-dollars, never floats; every hold is one conditional statement; never log request headers or bodies (they carry users' API keys).
 - **Strict TypeScript:** no `any`, no `as unknown as`, no `@ts-ignore`, no `eslint-disable`.

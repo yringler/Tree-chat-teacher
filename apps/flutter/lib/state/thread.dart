@@ -47,3 +47,41 @@ String? effectiveModel(String branchId, Map<String, Branch> branches) {
   }
   return null;
 }
+
+/// The branches from the trunk down to [branchId], trunk first.
+List<Branch> branchChain(String branchId, Map<String, Branch> branches) {
+  final chain = <Branch>[];
+  final seen = <String>{};
+  String? id = branchId;
+  while (id != null && seen.add(id)) {
+    final branch = branches[id];
+    if (branch == null) break;
+    chain.add(branch);
+    id = branch.parentBranchId;
+  }
+  return chain.reversed.toList();
+}
+
+/// One branch in a lesson's outline, [depth] levels below the trunk.
+typedef OutlineEntry = ({Branch branch, int depth});
+
+/// Every branch reachable from the trunk, depth first: each side question
+/// under the one it came from, siblings in the server's order.
+List<OutlineEntry> branchOutline(String trunkId, Map<String, Branch> branches) {
+  final children = <String, List<Branch>>{};
+  for (final b in branches.values) {
+    final parent = b.parentBranchId;
+    if (parent != null) (children[parent] ??= []).add(b);
+  }
+  final outline = <OutlineEntry>[];
+  void visit(Branch branch, int depth) {
+    outline.add((branch: branch, depth: depth));
+    for (final child in children[branch.id] ?? const <Branch>[]) {
+      visit(child, depth + 1);
+    }
+  }
+
+  final trunk = branches[trunkId];
+  if (trunk != null) visit(trunk, 0);
+  return outline;
+}

@@ -41,7 +41,8 @@ dependencies:
   web: ^1.1.1
   webview_flutter: ^4.14.1
   flutter_secure_storage: ^11.2.0
-
+  flutter_math_fork: ^0.7.4
+  markdown: ^7.3.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

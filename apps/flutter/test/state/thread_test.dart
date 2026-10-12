@@ -83,4 +83,42 @@ void main() {
     ]);
     expect(effectiveModel('side', branches), 'max-model');
   });
+
+  final tree = byId([
+    branch('trunk'),
+    branch('tides', parent: 'trunk', fork: 'a1'),
+    branch('moon', parent: 'tides', fork: 's1'),
+    branch('sun', parent: 'trunk', fork: 'a3'),
+  ]);
+
+  test('a branch’s path runs from the trunk down to it', () {
+    expect(
+      [for (final b in branchChain('moon', tree)) b.id],
+      ['trunk', 'tides', 'moon'],
+    );
+    expect([for (final b in branchChain('trunk', tree)) b.id], ['trunk']);
+  });
+
+  test('the outline nests each side question under the one it came from', () {
+    expect(
+      [
+        for (final e in branchOutline('trunk', tree))
+          '${e.depth} ${e.branch.id}',
+      ],
+      ['0 trunk', '1 tides', '2 moon', '1 sun'],
+    );
+  });
+
+  test('a cycle in malformed data ends the path and the outline', () {
+    final looped = byId([
+      branch('trunk'),
+      branch('a', parent: 'b', fork: 'x'),
+      branch('b', parent: 'a', fork: 'y'),
+    ]);
+    expect([for (final b in branchChain('a', looped)) b.id], ['b', 'a']);
+    expect(
+      [for (final e in branchOutline('trunk', looped)) e.branch.id],
+      ['trunk'],
+    );
+  });
 }

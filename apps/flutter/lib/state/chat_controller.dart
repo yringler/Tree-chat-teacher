@@ -69,6 +69,18 @@ class ChatController extends ChangeNotifier {
 
   String branchTitle(String branchId) => _branches[branchId]?.title ?? '';
 
+  /// The branches from the trunk down to the one on screen.
+  List<Branch> get chain {
+    final id = branchId;
+    return id == null ? const [] : branchChain(id, _branches);
+  }
+
+  /// Every branch of the lesson, side questions nested under their parents.
+  List<OutlineEntry> get outline {
+    final trunkId = _tree?.trunkBranchId;
+    return trunkId == null ? const [] : branchOutline(trunkId, _branches);
+  }
+
   List<ChatNode> get thread {
     final id = branchId;
     if (id == null) return const [];

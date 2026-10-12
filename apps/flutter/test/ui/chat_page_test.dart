@@ -327,6 +327,141 @@ void main() {
     expect(tester.getCenter(title).dx, closeTo(thread.center.dx, 1));
   });
 
+  /// Tides, with Spring tides › Moon gravity › Neap tides under its first
+  /// reply and The sun under its second.
+  TreeDetail nestedLesson({String trunkReply = 'Tides rise and fall.'}) =>
+      treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('tides', parent: 'trunk', fork: 'a1', title: 'Spring tides'),
+          branch('moon', parent: 'tides', fork: 's1', title: 'Moon gravity'),
+          branch('neap', parent: 'moon', fork: 'm1', title: 'Neap tides'),
+          branch('sun', parent: 'trunk', fork: 'a2', title: 'The sun'),
+        ],
+        nodes: [
+          userNode,
+          node(
+            'a1',
+            branch: 'trunk',
+            seq: 1,
+            role: Role.assistant,
+            content: trunkReply,
+          ),
+          node('u2', branch: 'trunk', seq: 2, content: 'And the sun?'),
+          node(
+            'a2',
+            branch: 'trunk',
+            seq: 3,
+            role: Role.assistant,
+            content: trunkReply,
+          ),
+          node('s1', branch: 'tides', seq: 0, content: 'Why spring?'),
+          node('m1', branch: 'moon', seq: 0, content: 'How strong?'),
+          node('n1', branch: 'neap', seq: 0, content: 'And neap?'),
+          node('o1', branch: 'sun', seq: 0, content: 'How far?'),
+        ],
+      );
+
+  Finder crumb(String text) => find.descendant(
+    of: find.byKey(const ValueKey('breadcrumb')),
+    matching: find.text(text),
+  );
+
+  testWidgets('a nested side question’s path shows the main thread and its '
+      'parent', (tester) async {
+    api.details['t1'] = nestedLesson();
+    await pumpApp(tester, api, location: '/t/t1/b/neap');
+    expect(crumb('Main thread'), findsOneWidget);
+    expect(crumb('…'), findsOneWidget);
+    expect(crumb('Spring tides'), findsNothing);
+    expect(crumb('Moon gravity'), findsOneWidget);
+    expect(crumb('Neap tides'), findsOneWidget);
+
+    await tester.tap(crumb('Moon gravity'));
+    await settle(tester);
+    expect(crumb('…'), findsNothing);
+    expect(crumb('Spring tides'), findsOneWidget);
+    expect(crumb('Moon gravity'), findsOneWidget);
+    expect(crumb('Neap tides'), findsNothing);
+  });
+
+  testWidgets('the outline lists every side question and opens one', (
+    tester,
+  ) async {
+    api.details['t1'] = nestedLesson();
+    await pumpApp(tester, api, location: '/t/t1/b/neap');
+    await tester.tap(find.byTooltip('Side questions'));
+    await settle(tester);
+    final drawer = find.byType(Drawer);
+    for (final title in [
+      'Main thread',
+      'Spring tides',
+      'Moon gravity',
+      'Neap tides',
+      'The sun',
+    ]) {
+      expect(
+        find.descendant(of: drawer, matching: find.text(title)),
+        findsOneWidget,
+      );
+    }
+
+    await tester.tap(
+      find.descendant(of: drawer, matching: find.text('The sun')),
+    );
+    await settle(tester);
+    expect(drawer, findsNothing);
+    expect(crumb('The sun'), findsOneWidget);
+    expect(find.text('How far?'), findsOneWidget);
+  });
+
+  testWidgets('a lesson without side questions has no outline', (tester) async {
+    api.details['t1'] = treeDetail(title: 'Tides', nodes: [userNode]);
+    await pumpApp(tester, api, location: '/t/t1');
+    expect(find.byTooltip('Side questions'), findsNothing);
+  });
+
+  testWidgets('on a wide screen the outline stays beside the thread', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    api.details['t1'] = nestedLesson();
+    await pumpApp(tester, api, location: '/t/t1/b/moon');
+    expect(find.byTooltip('Side questions'), findsNothing);
+    final panel = find.byKey(const ValueKey('outline'));
+    expect(
+      find.descendant(of: panel, matching: find.text('The sun')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.descendant(of: panel, matching: find.text('The sun')),
+    );
+    await settle(tester);
+    expect(crumb('The sun'), findsOneWidget);
+  });
+
+  testWidgets('the header hides while reading down and returns on the way '
+      'up', (tester) async {
+    final long = List.filled(60, 'The moon pulls the sea.').join('\n\n');
+    api.details['t1'] = nestedLesson(trunkReply: long);
+    await pumpApp(tester, api, location: '/t/t1/b/tides');
+    final list = find.byType(Scrollable).first;
+    final shownTop = tester.getRect(list).top;
+    expect(shownTop, greaterThan(0));
+
+    await tester.drag(list, const Offset(0, -200));
+    await settle(tester);
+    expect(tester.getRect(list).top, 0);
+
+    await tester.drag(list, const Offset(0, 100));
+    await settle(tester);
+    expect(tester.getRect(list).top, shownTop);
+  });
+
   testWidgets('a refusal from the pool shows why and keeps the text', (
     tester,
   ) async {
