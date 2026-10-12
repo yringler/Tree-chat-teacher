@@ -130,6 +130,7 @@ export {
 } from './ui/links-view';
 export { selectionText, TypesetMath, typesetMath } from './ui/math';
 export { ShortcutsTable } from './ui/shortcuts-table';
+export { SuggestionGroups } from './ui/suggestion-groups';
 export { TangentAsk } from './ui/tangent-ask';
 export { TangentHelp } from './ui/tangent-help';
 export { TextSizeMenu } from './ui/text-size-menu';

@@ -157,7 +157,7 @@ describe('Card', () => {
     // The lane already following one still opens.
     const photons = within(tangents()).getByRole<HTMLButtonElement>('button', { name: 'Photons' });
     expect(photons.disabled).toBe(false);
-    expect(photons.title).toBe('Open this tangent');
+    expect(photons.title).toBe('Open tangent');
     expect(
       screen.getByRole<HTMLTextAreaElement>('textbox', { name: /Ask your own/ }).disabled,
     ).toBe(true);

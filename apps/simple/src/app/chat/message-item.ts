@@ -4,10 +4,7 @@ import {
   groupTangents,
   isCutOffReply,
   isStoppedReply,
-  KEEP_GOING_LABEL,
-  REPLY_ACTION,
   splitTangents,
-  TANGENTS_LABEL,
   type ChatNode,
 } from '@tangent/shared';
 import {
@@ -16,6 +13,7 @@ import {
   RelatedLinks,
   relatedLinks,
   SourcesList,
+  SuggestionGroups,
   TypesetMath,
   type LinkNoteEdit,
 } from '@tangent/web-shared';
@@ -28,7 +26,7 @@ import { branchTitle } from './titles';
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, RelatedLinks, SourcesList, TypesetMath],
+  imports: [Icon, RelatedLinks, SourcesList, SuggestionGroups, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -105,59 +103,16 @@ import { branchTitle } from './titles';
         (check)="checkSources()"
       />
 
-      @if (keepGoing().length > 0 || sideTrips().length > 0) {
-        <div class="tangents">
-          @if (keepGoing().length > 0) {
-            <nav class="tangents-group" [attr.aria-labelledby]="'keep-going-' + n.id">
-              <span class="tangents-group-label muted small" [id]="'keep-going-' + n.id">{{
-                keepGoingLabel
-              }}</span>
-              @for (t of keepGoing(); track t.title) {
-                <button
-                  type="button"
-                  class="tangent tangent-continue"
-                  [disabled]="store.busy() || opening() !== null"
-                  [title]="t.why ?? nextHint()"
-                  (click)="keepGoingWith(t.title)"
-                >
-                  <app-icon name="next" [size]="14" />
-                  <span class="tangent-title">{{ t.title }}</span>
-                  @if (t.why) {
-                    <span class="tangent-why muted">{{ t.why }}</span>
-                  }
-                </button>
-              }
-            </nav>
-          }
-          @if (sideTrips().length > 0) {
-            <nav class="tangents-group" [attr.aria-labelledby]="'tangents-' + n.id">
-              <span class="tangents-group-label muted small" [id]="'tangents-' + n.id">{{
-                tangentsLabel
-              }}</span>
-              @for (t of sideTrips(); track t.title) {
-                <button
-                  type="button"
-                  class="tangent"
-                  [class.is-followed]="followed().has(t.title)"
-                  [class.is-on]="followedOn().has(t.title)"
-                  [disabled]="opening() !== null"
-                  [title]="followed().has(t.title) ? 'Open tangent' : (t.why ?? t.title)"
-                  (click)="follow(t.title)"
-                >
-                  <app-icon
-                    [name]="followed().has(t.title) ? 'chevronRight' : 'tangent'"
-                    [size]="14"
-                  />
-                  <span class="tangent-title">{{ t.title }}</span>
-                  @if (t.why) {
-                    <span class="tangent-why muted">{{ t.why }}</span>
-                  }
-                </button>
-              }
-            </nav>
-          }
-        </div>
-      }
+      <app-suggestion-groups
+        [tangents]="suggestions()"
+        [latest]="store.isLatest(n.id)"
+        [inTangent]="inTangent()"
+        [children]="children()"
+        [chainIds]="store.chainIds()"
+        [busy]="store.busy()"
+        [send]="keepGoingWith"
+        [open]="openTangent"
+      />
 
       @if (otherChildren().length > 0) {
         <nav class="side-questions" [attr.aria-label]="'Tangents from this message'">
@@ -213,8 +168,6 @@ export class MessageItem {
   private readonly md = inject(MarkdownService);
   protected readonly branchTitle = branchTitle;
   protected readonly connectedLabel = connectedLabel;
-  protected readonly keepGoingLabel = KEEP_GOING_LABEL;
-  protected readonly tangentsLabel = TANGENTS_LABEL;
 
   readonly node = input.required<ChatNode>();
   readonly ancestor = input(false);
@@ -267,48 +220,17 @@ export class MessageItem {
     if (!this.focused()) this.store.focus(this.node().id);
   }
 
-  /** The tutor's suggestions, offered once the reply is complete, split into next steps and side trips. */
-  private readonly suggested = computed(() =>
-    groupTangents(this.askable() ? this.split().tangents : []),
-  );
-  /**
-   * Next steps, sent as the lesson's next message: offered only on the last
-   * reply of the open thread, where a next step follows on.
-   */
-  protected readonly keepGoing = computed(() =>
-    this.store.isLatest(this.node().id) ? this.suggested().continue : [],
-  );
+  /** The tutor's suggestions, offered once the reply is complete. */
+  protected readonly suggestions = computed(() => (this.askable() ? this.split().tangents : []));
   /** Inside a tangent, the next step continues that tangent rather than the main lesson. */
-  protected readonly nextHint = computed(() =>
-    this.store.branchOf(this.node().id)?.parentBranchId
-      ? REPLY_ACTION.hintInTangent
-      : REPLY_ACTION.hint,
+  protected readonly inTangent = computed(
+    () => !!this.store.branchOf(this.node().id)?.parentBranchId,
   );
-  /** Side trips, each opening (or reopening) a tangent of its own. */
-  protected readonly sideTrips = computed(() => this.suggested().tangent);
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
-  /** Titles of the tangents the learner already followed (a child branch carries the title). */
-  protected readonly followed = computed<ReadonlySet<string>>(() => {
-    const titles = new Set(this.sideTrips().map((t) => t.title));
-    return new Set(
-      this.children()
-        .map((b) => b.title)
-        .filter((t) => titles.has(t)),
-    );
-  });
-  /** Followed tangents on the current path. */
-  protected readonly followedOn = computed<ReadonlySet<string>>(() => {
-    const on = this.store.chainIds();
-    return new Set(
-      this.children()
-        .filter((b) => on.has(b.id))
-        .map((b) => b.title),
-    );
-  });
-  /** Tangents that are not followed suggestions (those show among the suggestions). */
+  /** Tangents that don't follow a suggestion (those show among the suggestions). */
   protected readonly otherChildren = computed(() => {
-    const followed = this.followed();
-    return this.children().filter((b) => !followed.has(b.title));
+    const suggested = new Set(groupTangents(this.suggestions()).tangent.map((t) => t.title));
+    return this.children().filter((b) => !suggested.has(b.title));
   });
   protected readonly depth = computed(() => this.store.depthOf(this.node().branchId));
   /** A finished reply on a provider that can search, while nothing else is generating. */
@@ -345,26 +267,16 @@ export class MessageItem {
     void this.store.updateLinkNote(edit.linkId, edit.note);
   }
 
-  /** Title of the tangent whose branch is being created. */
-  protected readonly opening = signal<string | null>(null);
   protected async remove(branchId: string): Promise<void> {
     await confirmDeleteSideQuestion(this.store, branchId);
   }
 
   /** Sends a "Keep going" suggestion as the next message of the open thread, unmarking any message first. */
-  protected keepGoingWith(title: string): void {
+  protected readonly keepGoingWith = (title: string) => {
     const n = this.node();
     if (this.store.focusedNodeId()) this.store.go(n.branchId, null, true);
-    void this.store.continueWith(n.id, title);
-  }
-
-  protected async follow(title: string): Promise<void> {
-    if (this.opening() !== null) return;
-    this.opening.set(title);
-    try {
-      await this.store.followTangent(this.node().id, title);
-    } finally {
-      this.opening.set(null);
-    }
-  }
+    return this.store.continueWith(n.id, title);
+  };
+  protected readonly openTangent = (title: string) =>
+    this.store.followTangent(this.node().id, title);
 }
