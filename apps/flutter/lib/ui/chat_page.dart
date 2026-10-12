@@ -240,13 +240,14 @@ class _ChatPageState extends State<ChatPage> {
     _composerFocus.requestFocus();
   }
 
+  /// The composer's placeholder, as Learn web words it: where the message
+  /// goes, not which button sends it.
   String _hint() {
     if (_chat.thread.isEmpty) return 'Ask a question or name a topic';
-    if (_quote != null) return 'Ask about this…';
     if (_chat.isSideBranch && _chat.isEmptyBranch) {
       return 'Ask your tangent…';
     }
-    if (_chat.asideFrom != null) return 'Ask anything…';
+    if (_quote != null) return 'Ask about this…';
     return _chat.isSideBranch
         ? 'Ask anything in this tangent…'
         : 'Ask anything…';

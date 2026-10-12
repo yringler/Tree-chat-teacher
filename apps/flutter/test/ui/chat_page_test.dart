@@ -338,6 +338,32 @@ void main() {
       expect(api.sends.single.target, 'side-9');
     });
 
+    testWidgets('in a tangent with a reply, the hint names the tangent', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon'),
+        ],
+        nodes: [
+          userNode,
+          answered,
+          node('s1', branch: 'side-9', seq: 0, content: 'Why the moon?'),
+          node(
+            's2',
+            branch: 'side-9',
+            seq: 1,
+            role: Role.assistant,
+            content: 'Gravity.',
+          ),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      expect(hint(tester), 'Ask anything in this tangent…');
+    });
+
     testWidgets('Tangent goes on a tangent from the last reply', (
       tester,
     ) async {
