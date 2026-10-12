@@ -247,6 +247,147 @@ void main() {
     expect(find.text('Why does it pull?'), findsOneWidget);
   });
 
+  group('the composer', () {
+    final answered = node(
+      'a1',
+      branch: 'trunk',
+      seq: 1,
+      role: Role.assistant,
+      content: reply,
+    );
+
+    String? hint(WidgetTester tester) =>
+        tester.widget<TextField>(find.byType(TextField)).decoration?.hintText;
+
+    testWidgets('asks a side question from the last reply', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(hint(tester), 'Ask a side question…');
+
+      await sendTyped(tester, 'Why the moon?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 'a1');
+      expect(api.createdBranches.single.title, isNull);
+      expect(api.createdBranches.single.anchorQuote, isNull);
+      expect(api.sends.single.target, 'side-1');
+      expect(api.sends.single.content, 'Why the moon?');
+      expect(find.text('Main thread'), findsOneWidget);
+    });
+
+    testWidgets('switches to continuing the lesson, and back', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(find.bySemanticsLabel('Send as: Side question'));
+      await tester.pump();
+      expect(hint(tester), 'Continue this lesson…');
+
+      await sendTyped(tester, 'And the sun?');
+      expect(api.createdBranches, isEmpty);
+      expect(api.sends.single.target, 'trunk');
+
+      await tester.tap(find.bySemanticsLabel('Send as: Continue'));
+      await tester.pump();
+      expect(hint(tester), 'Ask a side question…');
+    });
+
+    testWidgets('after a failed reply, continues with nothing to choose', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [
+          userNode,
+          node(
+            'a1',
+            branch: 'trunk',
+            seq: 1,
+            role: Role.assistant,
+            status: NodeStatus.error,
+          ),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.bySemanticsLabel(RegExp('Send as')), findsNothing);
+      expect(hint(tester), 'Continue this lesson…');
+    });
+
+    testWidgets('"Ask about this" on selected words asks about them', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.longPress(
+        find.textContaining('pulls the sea', findRichText: true).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ask about this'));
+      await tester.pumpAndSettle();
+      expect(api.createdBranches, isEmpty);
+      expect(hint(tester), 'Ask about this…');
+      final quote = find.byKey(const ValueKey('composer-quote'));
+      expect(quote, findsOneWidget);
+
+      await sendTyped(tester, 'What does?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 'a1');
+      expect(api.createdBranches.single.anchorQuote, isNotEmpty);
+      expect(api.sends.single.target, 'side-1');
+      expect(quote, findsNothing);
+    });
+
+    testWidgets('a quote can be taken off the composer', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.longPress(
+        find.textContaining('pulls the sea', findRichText: true).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ask about this'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Don’t ask about these words'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('composer-quote')), findsNothing);
+      expect(hint(tester), 'Ask a side question…');
+    });
+
+    testWidgets('a side question shows the words it asks about', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch(
+            'side-9',
+            parent: 'trunk',
+            fork: 'a1',
+            title: 'Moon gravity',
+            anchorQuote: 'pulls the sea',
+          ),
+        ],
+        nodes: [
+          userNode,
+          answered,
+          node('s1', branch: 'side-9', seq: 0, content: 'How?'),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      expect(find.text('pulls the sea'), findsOneWidget);
+    });
+  });
+
   testWidgets('a long reply is followed until its start reaches the top', (
     tester,
   ) async {
@@ -321,7 +462,7 @@ void main() {
     expect(find.text('Spring tides'), findsOneWidget);
     expect(find.text('Tidal locking'), findsOneWidget);
     expect(find.textContaining('more'), findsNothing);
-    expect(find.textContaining('side question'), findsNothing);
+    expect(find.text('1 side question'), findsNothing);
   });
 
   testWidgets('a side question’s divider centres its title in the thread', (

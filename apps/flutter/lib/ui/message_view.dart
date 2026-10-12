@@ -17,6 +17,7 @@ class MessageView extends StatelessWidget {
     required this.sideQuestions,
     required this.onFollow,
     required this.onOpenSideQuestion,
+    required this.onAskAbout,
   });
 
   final ChatNode node;
@@ -32,6 +33,9 @@ class MessageView extends StatelessWidget {
   final ValueChanged<Tangent>? onFollow;
 
   final ValueChanged<Branch> onOpenSideQuestion;
+
+  /// "Ask about this" on words selected in a finished reply.
+  final ValueChanged<String> onAskAbout;
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +96,11 @@ class MessageView extends StatelessWidget {
                 ),
               ),
             ),
-          if (split.body.isNotEmpty) _Markdown(split.body),
+          if (split.body.isNotEmpty)
+            _SelectableReply(
+              onAskAbout: complete ? onAskAbout : null,
+              child: _Markdown(split.body),
+            ),
           if (streaming) const BlinkingCursor(),
           if (node.status == NodeStatus.error) _ErrorBox(node),
           if (tangents.isNotEmpty)
@@ -109,6 +117,54 @@ class MessageView extends StatelessWidget {
   }
 }
 
+/// The longest quote a side question can ask about (the API's limit).
+const maxQuote = 10000;
+
+/// A reply's text, selectable as a whole; with [onAskAbout], the selection's
+/// menu offers "Ask about this" for the selected words.
+class _SelectableReply extends StatefulWidget {
+  const _SelectableReply({required this.onAskAbout, required this.child});
+
+  final ValueChanged<String>? onAskAbout;
+  final Widget child;
+
+  @override
+  State<_SelectableReply> createState() => _SelectableReplyState();
+}
+
+class _SelectableReplyState extends State<_SelectableReply> {
+  String _selected = '';
+
+  @override
+  Widget build(BuildContext context) => SelectionArea(
+    onSelectionChanged: (content) =>
+        _selected = content?.plainText.trim() ?? '',
+    contextMenuBuilder: (context, region) {
+      final ask = widget.onAskAbout;
+      final quote = _selected.length > maxQuote
+          ? _selected.substring(0, maxQuote)
+          : _selected;
+      return AdaptiveTextSelectionToolbar.buttonItems(
+        anchors: region.contextMenuAnchors,
+        buttonItems: [
+          if (ask != null && quote.isNotEmpty)
+            ContextMenuButtonItem(
+              label: 'Ask about this',
+              onPressed: () {
+                region
+                  ..hideToolbar()
+                  ..clearSelection();
+                ask(quote);
+              },
+            ),
+          ...region.contextMenuButtonItems,
+        ],
+      );
+    },
+    child: widget.child,
+  );
+}
+
 class _Markdown extends StatelessWidget {
   const _Markdown(this.data);
   final String data;
@@ -120,7 +176,6 @@ class _Markdown extends StatelessWidget {
     final base = MarkdownStyleSheet.fromTheme(theme);
     return MarkdownBody(
       data: data,
-      selectable: true,
       blockSyntaxes: mathBlockSyntaxes,
       inlineSyntaxes: mathInlineSyntaxes,
       builders: mathBuilders,

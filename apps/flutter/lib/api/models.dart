@@ -215,6 +215,7 @@ class Branch {
     required this.branchPointNodeId,
     required this.title,
     required this.model,
+    this.anchorQuote,
   });
 
   factory Branch.fromJson(Json json) => Branch(
@@ -224,6 +225,7 @@ class Branch {
     branchPointNodeId: json.strOrNull('branchPointNodeId'),
     title: json.strOrNull('title') ?? '',
     model: json.strOrNull('model'),
+    anchorQuote: json.strOrNull('anchorQuote'),
   );
 
   final String id;
@@ -236,6 +238,9 @@ class Branch {
   final String? branchPointNodeId;
   final String title;
   final String? model;
+
+  /// The words of the parent's message this side question asks about.
+  final String? anchorQuote;
 }
 
 enum Role { user, assistant, system }

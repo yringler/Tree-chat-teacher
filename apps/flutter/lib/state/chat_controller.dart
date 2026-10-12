@@ -69,6 +69,8 @@ class ChatController extends ChangeNotifier {
 
   String branchTitle(String branchId) => _branches[branchId]?.title ?? '';
 
+  String? anchorQuoteOf(String branchId) => _branches[branchId]?.anchorQuote;
+
   /// The branches from the trunk down to the one on screen.
   List<Branch> get chain {
     final id = branchId;
@@ -85,6 +87,24 @@ class ChatController extends ChangeNotifier {
     final id = branchId;
     if (id == null) return const [];
     return threadPath(branchId: id, branches: _branches, nodes: _nodes.values);
+  }
+
+  /// The branch on screen has no message of its own yet.
+  bool get isEmptyBranch {
+    final last = thread.lastOrNull;
+    return last != null && last.branchId != branchId;
+  }
+
+  /// The reply a side question asked from the composer starts at: the last
+  /// message on screen, once it is a reply that didn't fail. Null (the
+  /// message continues the branch): an empty lesson or side question, or a
+  /// failed reply.
+  ChatNode? get asideFrom {
+    final last = thread.lastOrNull;
+    if (last == null || isEmptyBranch) return null;
+    return last.role == Role.assistant && last.status != NodeStatus.error
+        ? last
+        : null;
   }
 
   /// The reply being written on this thread, if any.
@@ -206,18 +226,31 @@ class ChatController extends ChangeNotifier {
       selectBranch(existing.id);
       return (branchId: existing.id, created: false);
     }
+    final created = await openSideQuestion(node, title: tangent.title);
+    return created == null ? null : (branchId: created, created: true);
+  }
+
+  /// Creates a side question from [node] and puts it on screen, about
+  /// [anchorQuote] when the learner selected words in it. Returns its id
+  /// (its first message is still to send), or null on error (see [notice]).
+  Future<String?> openSideQuestion(
+    ChatNode node, {
+    String? title,
+    String? anchorQuote,
+  }) async {
     _notice = null;
     _sending = true;
     _notify();
     try {
       final created = await api.createBranch(
         fromNodeId: node.id,
-        title: tangent.title,
+        title: title,
+        anchorQuote: anchorQuote,
       );
       _branches[created.id] = created;
       _sending = false;
       selectBranch(created.id);
-      return (branchId: created.id, created: true);
+      return created.id;
     } on Object catch (error) {
       _sending = false;
       _fail(error);

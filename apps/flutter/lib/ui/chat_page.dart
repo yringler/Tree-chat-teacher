@@ -33,7 +33,16 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   late final ChatController _chat;
   final _composer = TextEditingController();
+  final _composerFocus = FocusNode();
   final _scroll = ScrollController();
+
+  /// The composer asks a side question, the point of a lesson, unless the
+  /// learner switched it to continue the branch on screen.
+  bool _asksAside = true;
+
+  /// Words "Ask about this" put on the composer, in the reply they are from:
+  /// the next message asks about them.
+  ({ChatNode node, String text})? _quote;
 
   /// Follows the end of the thread until the learner scrolls up.
   bool _stickToBottom = true;
@@ -80,6 +89,7 @@ class _ChatPageState extends State<ChatPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.branchId != widget.branchId) {
       _chat.selectBranch(widget.branchId);
+      _quote = null;
       _showBranch();
     }
   }
@@ -88,6 +98,7 @@ class _ChatPageState extends State<ChatPage> {
   void dispose() {
     _chat.dispose();
     _composer.dispose();
+    _composerFocus.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -167,7 +178,59 @@ class _ChatPageState extends State<ChatPage> {
   void _sendComposer() {
     final text = _composer.text.trim();
     if (text.isEmpty || _chat.sending || _chat.streamingNode != null) return;
-    unawaited(_send(text));
+    final quote = _quote;
+    final from = quote?.node ?? (_asksAside ? _chat.asideFrom : null);
+    unawaited(from == null ? _send(text) : _ask(from, text, quote?.text));
+  }
+
+  /// Asks [text] in a new side question from [node], about [quote] if given.
+  /// The text stays in the composer if it can't be made.
+  Future<void> _ask(ChatNode node, String text, String? quote) async {
+    final id = await _chat.openSideQuestion(node, anchorQuote: quote);
+    if (id == null || !mounted) return;
+    context.go('/t/${widget.treeId}/b/$id');
+    await _send(text);
+  }
+
+  void _askAbout(ChatNode node, String text) {
+    setState(() => _quote = (node: node, text: text));
+    _composerFocus.requestFocus();
+  }
+
+  void _switchDestination() {
+    setState(() => _asksAside = !_asksAside);
+    _composerFocus.requestFocus();
+  }
+
+  void _dropQuote() {
+    setState(() => _quote = null);
+    _composerFocus.requestFocus();
+  }
+
+  String _hint() {
+    if (_chat.thread.isEmpty) return 'Ask a question or name a topic';
+    if (_quote != null) return 'Ask about this…';
+    if (_chat.isSideBranch && _chat.isEmptyBranch) {
+      return 'Ask your side question…';
+    }
+    if (_asksAside && _chat.asideFrom != null) return 'Ask a side question…';
+    return _chat.isSideBranch
+        ? 'Continue this side question…'
+        : 'Continue this lesson…';
+  }
+
+  /// Where the composer's message goes, when there is a choice: the quote
+  /// it asks about, or a side question or not.
+  Widget? _composerLead({required bool compact}) {
+    if (_quote case final quote?) {
+      return _QuoteChip(text: quote.text, onRemove: _dropQuote);
+    }
+    if (_chat.asideFrom == null) return null;
+    return _DestinationChip(
+      aside: _asksAside,
+      compact: compact,
+      onPressed: _switchDestination,
+    );
   }
 
   Future<void> _follow(ChatNode node, Tangent tangent) async {
@@ -335,11 +398,11 @@ class _ChatPageState extends State<ChatPage> {
               ],
               _Composer(
                 controller: _composer,
+                focusNode: _composerFocus,
                 enabled: !busy,
                 streaming: streaming != null,
-                hint: thread.isEmpty
-                    ? 'Ask a question or name a topic'
-                    : 'Ask a follow-up',
+                hint: _hint(),
+                lead: _composerLead,
                 onSend: _sendComposer,
                 onStop: () => unawaited(_chat.stop()),
               ),
@@ -389,13 +452,16 @@ class _ChatPageState extends State<ChatPage> {
       status: _chat.statusOf(node.id),
       sideQuestions: _chat.sideQuestionsAt(node),
       onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),
+      onAskAbout: (text) => _askAbout(node, text),
       onOpenSideQuestion: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),
     );
     final forked = i > 0 && thread[i - 1].branchId != node.branchId;
     if (!forked) return message;
+    final quote = _chat.anchorQuoteOf(node.branchId);
     return Column(
       children: [
         _ForkDivider(title: _branchTitle(node.branchId)),
+        if (quote != null && quote.isNotEmpty) _AnchorQuote(quote),
         message,
       ],
     );
@@ -524,6 +590,33 @@ class _ForkDivider extends StatelessWidget {
   );
 }
 
+/// The words of the message before it that a side question asks about.
+class _AnchorQuote extends StatelessWidget {
+  const _AnchorQuote(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = TangentColors.of(context);
+    final accent = Theme.of(context).colorScheme.primary;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.fromLTRB(12, 4, 0, 4),
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: accent, width: 3)),
+      ),
+      child: Text(
+        text,
+        maxLines: 4,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(color: tokens.fgMuted),
+      ),
+    );
+  }
+}
+
 class _EmptyThread extends StatelessWidget {
   const _EmptyThread();
 
@@ -583,23 +676,36 @@ class _CantOpen extends StatelessWidget {
 }
 
 /// The message box. On the web, Enter sends and Shift+Enter starts a new
-/// line, as in the web apps.
+/// line, as in the web apps. Where the message goes ([lead]) sits before the
+/// text; with the focus it takes a row of its own, and the box grows to
+/// three lines.
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
+    required this.focusNode,
     required this.enabled,
     required this.streaming,
     required this.hint,
+    required this.lead,
     required this.onSend,
     required this.onStop,
   });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final bool enabled;
   final bool streaming;
   final String hint;
+
+  /// Builds where the message goes, if there is a choice; [compact]: just
+  /// its icon.
+  final Widget? Function({required bool compact}) lead;
   final VoidCallback onSend;
   final VoidCallback onStop;
+
+  /// Below this width the lead shows only its icon until the box has the
+  /// focus.
+  static const _narrow = 560.0;
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     final enter =
@@ -617,17 +723,64 @@ class _Composer extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => ListenableBuilder(
+      listenable: focusNode,
+      builder: (context, _) {
+        final focused = focusNode.hasFocus;
+        final leading = lead(
+          compact: !focused && constraints.maxWidth < _narrow,
+        );
+        // A tap on it keeps the focus in the box.
+        final tappable = leading == null
+            ? null
+            : TextFieldTapRegion(child: leading);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (focused && tappable != null) ...[
+              tappable,
+              const SizedBox(height: 6),
+            ],
+            _row(
+              focused: focused,
+              leading: focused ? null : tappable,
+              maxLeadWidth: constraints.maxWidth / 2,
+            ),
+          ],
+        );
+      },
+    ),
+  );
+
+  Widget _row({
+    required bool focused,
+    required Widget? leading,
+    required double maxLeadWidth,
+  }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
+        if (leading != null) ...[
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxLeadWidth),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: leading,
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
         Expanded(
+          key: const ValueKey('composer-field'),
           child: Focus(
             onKeyEvent: _onKey,
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               enabled: enabled,
-              minLines: 1,
+              minLines: focused ? 3 : 1,
               maxLines: 8,
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.newline,
@@ -654,6 +807,97 @@ class _Composer extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Where the composer's message goes: a new side question from the last
+/// reply, or on in the branch on screen. A tap switches it.
+class _DestinationChip extends StatelessWidget {
+  const _DestinationChip({
+    required this.aside,
+    required this.compact,
+    required this.onPressed,
+  });
+
+  final bool aside;
+  final bool compact;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = TangentColors.of(context);
+    final label = aside ? 'Side question' : 'Continue';
+    final color = aside
+        ? Theme.of(context).colorScheme.primary
+        : tokens.fgMuted;
+    return Semantics(
+      button: true,
+      label: 'Send as: $label',
+      excludeSemantics: true,
+      child: Tooltip(
+        message: aside
+            ? 'Your message starts a side question from the last reply. '
+                  'Tap to continue here instead.'
+            : 'Your message continues here. Tap to ask a side question '
+                  'instead.',
+        child: Material(
+          color: aside ? tokens.accentSoft : Colors.transparent,
+          shape: StadiumBorder(side: BorderSide(color: color)),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: onPressed,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 8 : 12,
+                vertical: 6,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    aside ? Icons.call_split : Icons.chevron_right,
+                    size: 16,
+                    color: color,
+                  ),
+                  if (!compact) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.labelMedium
+                          ?.copyWith(color: color),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The words the composer's message asks about, with a way to take them off.
+class _QuoteChip extends StatelessWidget {
+  const _QuoteChip({required this.text, required this.onRemove});
+
+  final String text;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = TangentColors.of(context);
+    final accent = Theme.of(context).colorScheme.primary;
+    return InputChip(
+      key: const ValueKey('composer-quote'),
+      avatar: Icon(Icons.call_split, size: 16, color: accent),
+      label: Text('“$text”', maxLines: 1, overflow: TextOverflow.ellipsis),
+      backgroundColor: tokens.accentSoft,
+      side: BorderSide(color: accent),
+      shape: const StadiumBorder(),
+      onDeleted: onRemove,
+      deleteButtonTooltipMessage: 'Don’t ask about these words',
     );
   }
 }

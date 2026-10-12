@@ -54,6 +54,7 @@ Branch branch(
   String? fork,
   String title = '',
   String? model,
+  String? anchorQuote,
 }) => Branch(
   id: id,
   treeId: treeId,
@@ -61,6 +62,7 @@ Branch branch(
   branchPointNodeId: fork,
   title: title,
   model: model,
+  anchorQuote: anchorQuote,
 );
 
 TreeDetail treeDetail({
@@ -135,7 +137,8 @@ class FakeTangentApi implements TangentApi {
   final magicLinks = <({String email, String captchaToken})>[];
   final codes = <({String email, String code})>[];
   final createdTrees = <({String? providerId, String? model})>[];
-  final createdBranches = <({String fromNodeId, String? title})>[];
+  final createdBranches =
+      <({String fromNodeId, String? title, String? anchorQuote})>[];
   final deletedTrees = <String>[];
 
   /// The emails `deleteAccount` was confirmed with.
@@ -236,12 +239,17 @@ class FakeTangentApi implements TangentApi {
     String? title,
     String? anchorQuote,
   }) async {
-    createdBranches.add((fromNodeId: fromNodeId, title: title));
+    createdBranches.add((
+      fromNodeId: fromNodeId,
+      title: title,
+      anchorQuote: anchorQuote,
+    ));
     return branch(
       'side-${++_branchCount}',
       parent: 'trunk',
       fork: fromNodeId,
       title: title ?? '',
+      anchorQuote: anchorQuote,
     );
   }
 
