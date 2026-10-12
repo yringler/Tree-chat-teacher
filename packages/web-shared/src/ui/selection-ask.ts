@@ -92,7 +92,7 @@ export class PendingQuote {
         (mousedown)="$event.preventDefault()"
         (click)="ask.emit()"
       >
-        <app-icon name="branch" /> {{ label() }}
+        <app-icon name="tangent" /> {{ label() }}
       </button>
       @if (moreLabel(); as gear) {
         <button

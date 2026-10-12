@@ -104,7 +104,7 @@ import { Icon } from './icon';
             class="btn btn-primary btn-sm"
             [disabled]="disabled() || busy() || !text().trim()"
           >
-            <app-icon name="send" [size]="14" /> {{ busy() ? 'Branching…' : 'Ask' }}
+            <app-icon name="send" [size]="14" /> {{ busy() ? 'Starting…' : 'Ask' }}
           </button>
         </div>
       } @else if (!expandable() && text().trim()) {
