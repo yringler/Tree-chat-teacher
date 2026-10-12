@@ -190,6 +190,15 @@ describe('InputLimitSetting', () => {
     });
   });
 
+  it('opened before the conversation loads, loads its numbers once it does', async () => {
+    const s = await open(OWN_KEY, { conversation: false });
+    expect(s.api.inputBudget).not.toHaveBeenCalled();
+    openTree(TestBed.inject(TreeStore), detail());
+    await vi.waitFor(() => expect(s.notes().route).toContain('Without a limit'));
+    expect(s.api.inputBudget).toHaveBeenCalledTimes(1);
+    expect(s.api.inputBudget).toHaveBeenCalledWith('trunk');
+  });
+
   it('when the numbers fail to load, shows the size alone', async () => {
     const s = await open(new Error('offline'));
     await vi.waitFor(() => expect(s.api.inputBudget).toHaveBeenCalled());
