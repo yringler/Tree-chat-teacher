@@ -49,8 +49,8 @@ import { ModelPicker } from '../ui/model-picker';
     <div class="home">
       <section class="home-start">
         <p class="lead">
-          Ask anything. Later, branch from any message to explore a tangent — with the full path, a
-          summary, or a clean slate as context.
+          Ask anything. Later, go on a tangent from any message — with the full path, a summary, or
+          a clean slate as context.
         </p>
         @if (readOnly(); as text) {
           <!-- Nothing to generate on: own keys need the membership the user lacks, and no credit is sold. -->

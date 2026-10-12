@@ -108,7 +108,7 @@ export function inputLimitNotes(
     <fieldset class="settings-section">
       <legend>Input limit</legend>
       <p class="muted small">
-        Each message sends the conversation so far (its branch's path) to the model, and you pay for
+        Each message sends the conversation so far (its thread's path) to the model, and you pay for
         all of it as input. On your own key only the model's context window bounds it, so a long
         conversation can send hundreds of thousands of tokens with every message. Sizes are rough,
         for English: ¾ of a word a token, {{ wordsPerPage }} words a paperback page.
