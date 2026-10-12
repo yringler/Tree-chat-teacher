@@ -40,7 +40,7 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
       @if (store.account.canGenerate()) {
         <button
           type="button"
-          class="btn btn-ghost btn-sm"
+          class="btn btn-ghost btn-sm msg-tangent"
           (mousedown)="captureSelection()"
           (click)="branch($event)"
           title="Tangent from here (b): Wait, what’s that? Explore on the side without derailing the conversation."

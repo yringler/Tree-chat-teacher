@@ -766,8 +766,10 @@ app-link-dialog app-node-picker {
     font-size: 1rem;
   }
 
-  /* Pick mode's one button keeps its label. */
-  .msg-actions .btn.link-here {
+  /* Pick mode's one button keeps its label, and so does Tangent ↳, which has
+     no icon (its arrow is in the label) and is the action to keep in view. */
+  .msg-actions .btn.link-here,
+  .msg-actions .btn.msg-tangent {
     font-size: 0.8rem;
     gap: 4px;
   }

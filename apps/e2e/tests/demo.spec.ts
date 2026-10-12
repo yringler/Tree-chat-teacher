@@ -128,6 +128,20 @@ test('power demo: a tangent is deleted from under its message, without the outli
   expect(errors).toEqual([]);
 });
 
+test('power demo: on a phone, a reply keeps its Tangent ↳ label among the icon-only actions', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/demo');
+  await page.locator('.home-list .tree-row a').first().click();
+  const reply = page.locator('.msg-assistant').last();
+  await reply.click();
+  const tangent = reply.getByRole('button', { name: 'Tangent ↳' });
+  await expect(tangent).toBeVisible();
+  // Its arrow is in the label, so without the label nothing would show.
+  expect((await tangent.boundingBox())!.width).toBeGreaterThan(50);
+});
+
 test('power demo: the conversation text size scales the messages only, and is remembered', async ({
   page,
 }) => {
