@@ -91,6 +91,21 @@ describe('ChatPage', () => {
     );
   });
 
+  it('the header names the open thread: the main thread is not called a tangent', async () => {
+    await page();
+    expect(screen.getByRole('button', { name: /^Link the main thread/ })).toBeTruthy();
+    expect(screen.getByTitle('Main thread settings')).toBeTruthy();
+    expect(
+      screen.queryByText(/tangent/i, { selector: '.chat-head button, .chat-head span' }),
+    ).toBeNull();
+  });
+
+  it('inside a tangent the header says tangent', async () => {
+    await page({ branchId: 'side' });
+    expect(screen.getByRole('button', { name: /^Link this tangent/ })).toBeTruthy();
+    expect(screen.getByTitle('Tangent settings')).toBeTruthy();
+  });
+
   it('while a reply streams, the box is disabled and Stop stops it', async () => {
     const p = await page();
     p.store.detail.set(

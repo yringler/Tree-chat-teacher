@@ -50,7 +50,10 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
   imports: [Icon, Modal, ModePicker, ModelPicker],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Tangent settings" (closed)="close()">
+    <app-modal
+      [heading]="branch().parentBranchId ? 'Tangent settings' : 'Main thread settings'"
+      (closed)="close()"
+    >
       <form class="form" (submit)="$event.preventDefault(); save()">
         <label class="field">
           <span class="field-label">Title</span>
@@ -222,7 +225,7 @@ export class BranchSettings implements OnInit {
     const ok = await this.store.updateBranch(b.id, req);
     this.saving.set(false);
     if (ok) {
-      this.toast.notify('Tangent updated');
+      this.toast.notify(b.parentBranchId ? 'Tangent updated' : 'Main thread updated');
       this.close();
     }
   }

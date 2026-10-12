@@ -93,6 +93,15 @@ describe('Tangent settings', () => {
     expect(d.api.updateBranch).toHaveBeenCalledWith('side', { title: 'Waves' });
   });
 
+  it('on the main thread, is the main thread’s settings, with no delete', async () => {
+    const d = await open(BranchSettings, { branch: branch() });
+    screen.getByRole('dialog', { name: 'Main thread settings' });
+    expect(screen.queryByRole('button', { name: /^Delete/ })).toBeNull();
+    await d.user.click(screen.getByRole('checkbox', { name: /^Private/ }));
+    await d.user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(d.api.updateBranch).toHaveBeenCalledWith('trunk', { isPrivate: true });
+  });
+
   it('closes when the selection moves to another branch (Back, a link), not on a focus change', async () => {
     const d = await open(DialogHost);
     d.dialogs.open({ kind: 'branch-settings' });
