@@ -3,6 +3,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../api/models.dart';
 import '../api/tangents.dart';
+import 'lesson_outline.dart';
 import 'links.dart';
 import 'math_markdown.dart';
 import 'theme.dart';
@@ -25,8 +26,8 @@ class MessageView extends StatelessWidget {
   /// Transient progress text while the reply is written.
   final String? status;
 
-  /// The side questions that fork from this message. One titled like a
-  /// tangent is that tangent followed before, so following it reopens it.
+  /// The tangents that fork from this message. One titled like a suggested
+  /// tangent is that suggestion followed before, so following it reopens it.
   final List<Branch> sideQuestions;
 
   /// Null while following isn't possible (e.g. a send is in flight).
@@ -117,7 +118,7 @@ class MessageView extends StatelessWidget {
   }
 }
 
-/// The longest quote a side question can ask about (the API's limit).
+/// The longest quote a tangent can ask about (the API's limit).
 const maxQuote = 10000;
 
 /// A reply's text, selectable as a whole; with [onAskAbout], the selection's
@@ -295,7 +296,9 @@ class _TangentsState extends State<_Tangents> {
               ),
               onPressed: () => setState(() => _expanded = true),
               icon: const Icon(Icons.expand_more, size: 18),
-              label: Text('$hidden more'),
+              label: Text(
+                hidden == 1 ? '1 more tangent' : '$hidden more tangents',
+              ),
             ),
         ],
       ),
@@ -303,7 +306,7 @@ class _TangentsState extends State<_Tangents> {
   }
 }
 
-/// Side questions from this message that aren't one of its tangents, such as
+/// Tangents from this message that aren't one of its suggestions, such as
 /// one the learner asked in their own words.
 class _SideQuestions extends StatelessWidget {
   const _SideQuestions({required this.branches, required this.onOpen});
@@ -321,7 +324,7 @@ class _SideQuestions extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            count == 1 ? '1 side question' : '$count side questions',
+            count == 1 ? '1 tangent' : '$count tangents',
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: 6),
@@ -336,10 +339,7 @@ class _SideQuestions extends StatelessWidget {
                     size: 18,
                     color: theme.colorScheme.primary,
                   ),
-                  label: Text(
-                    b.title.isEmpty ? 'Side question' : b.title,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  label: Text(outlineTitle(b), overflow: TextOverflow.ellipsis),
                   onPressed: () => onOpen(b),
                 ),
             ],
@@ -382,7 +382,9 @@ class _TangentButton extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  followed ? Icons.chevron_right : Icons.call_split,
+                  followed
+                      ? Icons.chevron_right
+                      : Icons.subdirectory_arrow_right,
                   size: 18,
                   color: theme.colorScheme.primary,
                 ),

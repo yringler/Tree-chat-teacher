@@ -167,7 +167,7 @@ class _NewLessonCardState extends State<_NewLessonCard> {
             const SizedBox(height: 4),
             Text(
               'Name a topic or ask a first question. Every answer ends with '
-              'tangents you can follow.',
+              'next steps and tangents you can follow.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
@@ -225,9 +225,7 @@ class _LessonTile extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete lesson?'),
-        content: Text(
-          'Delete the lesson “$title” with all its side questions?',
-        ),
+        content: Text('Delete the lesson “$title” with all its tangents?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -255,7 +253,7 @@ class _LessonTile extends StatelessWidget {
       child: ListTile(
         title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
         subtitle: Text(
-          '${relativeDate(tree.updatedAt)}${sideQuestionsLabel(tree.branchCount)}',
+          '${relativeDate(tree.updatedAt)}${tangentsLabel(tree.branchCount)}',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         onTap: () => context.go('/t/${tree.id}'),

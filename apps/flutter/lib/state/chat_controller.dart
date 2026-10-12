@@ -67,7 +67,7 @@ class ChatController extends ChangeNotifier {
 
   bool get isSideBranch => branch?.parentBranchId != null;
 
-  String branchTitle(String branchId) => _branches[branchId]?.title ?? '';
+  Branch? branchById(String branchId) => _branches[branchId];
 
   String? anchorQuoteOf(String branchId) => _branches[branchId]?.anchorQuote;
 

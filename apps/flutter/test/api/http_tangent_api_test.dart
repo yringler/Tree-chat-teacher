@@ -125,6 +125,7 @@ const Json branch = {
   'parentBranchId': null,
   'branchPointNodeId': null,
   'title': 'Trunk',
+  'titleSource': 'auto',
   'model': 'm',
 };
 
@@ -265,8 +266,12 @@ void main() {
               ],
             },
           ]),
-          ('POST', '/api/branches') ||
-          ('PATCH', '/api/branches/b2') => json({...branch, 'id': 'b2'}),
+          ('POST', '/api/branches') || ('PATCH', '/api/branches/b2') => json({
+            ...branch,
+            'id': 'b2',
+            'title': 'Tangent: Why',
+            'titleSource': 'default',
+          }),
           _ => empty(),
         },
       );
@@ -278,6 +283,7 @@ void main() {
 
       final created = await f.api.createBranch(fromNodeId: 'n1', title: 'Why');
       expect(created.id, 'b2');
+      expect(created.titleSource, 'default');
       expect(f.seen.last.json, {
         'fromNodeId': 'n1',
         'contextMode': 'path',

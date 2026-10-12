@@ -28,7 +28,7 @@ void main() {
   testWidgets('lists the lessons', (tester) async {
     await pumpApp(tester, api);
     expect(find.text('Why the sky is blue'), findsOneWidget);
-    expect(find.text('5 min ago · 2 side questions'), findsOneWidget);
+    expect(find.text('5 min ago · 2 tangents'), findsOneWidget);
     expect(find.text('New lesson'), findsNWidgets(2), reason: 'card and row');
     expect(api.payerSet, Payer.credit);
   });
@@ -83,7 +83,7 @@ void main() {
     await settle(tester);
     expect(
       find.text(
-        'Delete the lesson “Why the sky is blue” with all its side questions?',
+        'Delete the lesson “Why the sky is blue” with all its tangents?',
       ),
       findsOneWidget,
     );

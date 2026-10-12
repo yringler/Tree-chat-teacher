@@ -107,7 +107,12 @@ void main() {
     });
 
     test('reads every event shape', () {
-      final branch = {'id': 'b1', 'treeId': 't1', 'title': 'Trunk'};
+      final branch = {
+        'id': 'b1',
+        'treeId': 't1',
+        'title': 'Trunk',
+        'titleSource': 'auto',
+      };
       final parsed = [
         for (final json in <Json>[
           {
