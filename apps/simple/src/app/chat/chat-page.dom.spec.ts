@@ -83,33 +83,70 @@ describe('Learn: the lesson page', () => {
     expect(button !== null).toBe(shown);
   });
 
-  it('shows the lesson, and the composer goes on a tangent from its last reply', async () => {
-    const p = await page();
+  it('after a reply the composer offers Tangent ↳ first and Next ➜, each saying what it is for', async () => {
+    await page();
     screen.getByRole('heading', { name: 'Light' });
     expect(screen.getByText('A wave.')).toBeTruthy();
     expect(composer()?.placeholder).toBe('Ask anything…');
+    const [tangent, next] = within(dock()).getAllByRole('button', { name: /Tangent ↳|Next ➜/ });
+    expect(tangent?.textContent?.trim()).toBe('Tangent ↳');
+    expect(tangent?.dataset['action']).toBe('tangent');
+    expect(tangent?.title).toBe(
+      'Wait, what’s that? Explore on the side without derailing the lesson. (Enter)',
+    );
+    expect(next?.textContent?.trim()).toBe('Next ➜');
+    expect(next?.dataset['action']).toBe('next');
+    expect(next?.title).toBe('Got it, what’s next? Keeps the main lesson moving. (Ctrl+Enter)');
+    expect(within(dock()).queryByRole('button', { name: 'Send' })).toBeNull();
+  });
+
+  it('Tangent ↳ goes on a tangent from the last reply; Next ➜ continues the lesson', async () => {
+    const p = await page();
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'And a particle?');
+    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent ↳' }));
+    expect(askFrom).toHaveBeenCalledWith('a1', 'And a particle?', null);
+    expect(send).not.toHaveBeenCalled();
+    await p.user.click(within(dock()).getByRole('button', { name: 'Next ➜' }));
+    expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
+    expect(askFrom).toHaveBeenCalledTimes(1);
+  });
+
+  it('Enter sends as a tangent, Ctrl+Enter as Next', async () => {
+    const p = await page();
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?{Enter}');
     expect(askFrom).toHaveBeenCalledWith('a1', 'And a particle?', null);
     expect(send).not.toHaveBeenCalled();
+    await p.user.keyboard('{Control>}{Enter}{/Control}');
+    expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
   });
 
-  it('the composer’s destination switches to continuing the lesson, and back', async () => {
-    const p = await page();
+  it('inside a tangent, Next ➜ keeps that tangent moving', async () => {
+    const p = await page(branchyLesson(), {}, 'side');
+    expect(composer()?.placeholder).toBe('Ask anything in this tangent…');
+    const next = within(dock()).getByRole('button', { name: 'Next ➜' });
+    expect(next.title).toBe('Got it, what’s next? Keeps this tangent moving. (Ctrl+Enter)');
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
-    await p.user.click(within(dock()).getByRole('button', { name: 'Send as: Tangent' }));
-    expect(composer()?.placeholder).toBe('Ask anything…');
-    expect(document.activeElement).toBe(composer());
-    await p.user.type(composer()!, 'And a particle?{Enter}');
-    expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
-    await p.user.click(within(dock()).getByRole('button', { name: 'Send as: Next' }));
-    expect(composer()?.placeholder).toBe('Ask anything…');
+    await p.user.type(composer()!, 'More?');
+    await p.user.click(next);
+    expect(send).toHaveBeenCalledWith('side', 'More?');
+  });
+
+  it('a new lesson has nothing to go on a tangent from: a single Send', async () => {
+    const p = await page(detail([], [branch('trunk', { title: 'Main thread' })]));
+    expect(within(dock()).queryByRole('button', { name: /Tangent ↳|Next ➜/ })).toBeNull();
+    within(dock()).getByRole('button', { name: 'Send' });
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'Light?{Enter}');
+    expect(send).toHaveBeenCalledWith('trunk', 'Light?');
   });
 
   it('a reply that failed is continued: the composer offers no tangent', async () => {
     const p = await page(lesson('normal-model', { status: 'error', error: 'It broke.' }));
-    expect(within(dock()).queryByRole('button', { name: /Send as/ })).toBeNull();
+    expect(within(dock()).queryByRole('button', { name: /Tangent ↳|Next ➜/ })).toBeNull();
     expect(composer()?.placeholder).toBe('Ask anything…');
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'Again?{Enter}');
@@ -126,6 +163,9 @@ describe('Learn: the lesson page', () => {
     expect(createBranch).not.toHaveBeenCalled();
     within(dock()).getByText('“wave”');
     expect(composer()?.placeholder).toBe('Ask about this…');
+    // Words to ask about only go on a tangent.
+    within(dock()).getByRole('button', { name: 'Tangent ↳' });
+    expect(within(dock()).queryByRole('button', { name: 'Next ➜' })).toBeNull();
     expect(document.activeElement).toBe(composer());
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     await p.user.type(composer()!, 'Of what?{Enter}');
@@ -150,7 +190,7 @@ describe('Learn: the lesson page', () => {
       branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1', title: 'Why' }),
     );
     const p = await page(d, {}, 'side');
-    expect(within(dock()).queryByRole('button', { name: /Send as/ })).toBeNull();
+    expect(within(dock()).queryByRole('button', { name: /Tangent ↳|Next ➜/ })).toBeNull();
     expect(composer()?.placeholder).toBe('Ask your tangent…');
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'Why?{Enter}');
@@ -300,7 +340,64 @@ describe('Learn: finding your way around a lesson', () => {
     expect(focus).toHaveBeenCalledWith('a1');
     focus.mockClear();
     vi.spyOn(p.store, 'createBranch').mockResolvedValue(null);
-    await p.user.click(screen.getByRole('button', { name: 'Tangent ↳' }));
+    const reply = document.getElementById('msg-a1')!;
+    await p.user.click(within(reply).getByRole('button', { name: 'Tangent ↳' }));
     expect(focus).not.toHaveBeenCalled();
+  });
+});
+
+/** A reply ending with suggestions: one to keep going, one tangent, and one the model left untagged. */
+const SUGGESTED = [
+  'A wave.',
+  '',
+  '<tangents>',
+  '- [continue] Colour — what sets it',
+  '- [tangent] Photons — the particle side',
+  '- Polarisation — which way it wiggles',
+  '</tangents>',
+].join('\n');
+
+describe('Learn: suggestions after a reply', () => {
+  it('come in two labelled groups, an untagged one under Tangents', async () => {
+    await page(lesson('normal-model', { content: SUGGESTED }));
+    const keep = screen.getByRole('navigation', { name: 'Keep going' });
+    const side = screen.getByRole('navigation', { name: 'Tangents' });
+    expect(within(keep).getByText('Keep going')).toBeTruthy();
+    const titles = (group: HTMLElement) =>
+      within(group)
+        .getAllByRole('button')
+        .map((b) => b.querySelector('.tangent-title')?.textContent);
+    expect(titles(keep)).toEqual(['Colour']);
+    expect(titles(side)).toEqual(['Photons', 'Polarisation']);
+  });
+
+  it('Keep going sends the suggestion as the lesson’s next message', async () => {
+    const p = await page(lesson('normal-model', { content: SUGGESTED }));
+    const continueWith = vi.spyOn(p.store, 'continueWith').mockResolvedValue(true);
+    const follow = vi.spyOn(p.store, 'followTangent').mockResolvedValue(null);
+    const keep = screen.getByRole('navigation', { name: 'Keep going' });
+    await p.user.click(within(keep).getByRole('button', { name: /Colour/ }));
+    expect(continueWith).toHaveBeenCalledWith('a1', 'Colour');
+    expect(follow).not.toHaveBeenCalled();
+  });
+
+  it('a tangent suggestion opens a tangent of its own', async () => {
+    const p = await page(lesson('normal-model', { content: SUGGESTED }));
+    const follow = vi.spyOn(p.store, 'followTangent').mockResolvedValue(null);
+    const side = screen.getByRole('navigation', { name: 'Tangents' });
+    await p.user.click(within(side).getByRole('button', { name: /Photons/ }));
+    expect(follow).toHaveBeenCalledWith('a1', 'Photons');
+  });
+
+  it('Keep going shows only on the latest reply; older ones keep their tangents', async () => {
+    const d = lesson('normal-model', { content: SUGGESTED });
+    d.nodes.push(
+      node('u2', { parentId: 'a1', seq: 2, role: 'user', content: 'Colour' }),
+      node('a2', { parentId: 'u2', seq: 3, content: 'By frequency.' }),
+    );
+    await page(d);
+    const older = document.getElementById('msg-a1')!;
+    expect(within(older).queryByRole('navigation', { name: 'Keep going' })).toBeNull();
+    within(older).getByRole('navigation', { name: 'Tangents' });
   });
 });

@@ -185,46 +185,29 @@
         [disabled]="store.busy()"
         [busy]="store.streamingNode() !== null"
         [canCompare]="canCompare()"
+        [actions]="actions()"
         (send)="send($event)"
+        (act)="act($event)"
         (compare)="compare($event)"
         (stop)="stop()"
       >
-        <!-- Where the message goes; pressing it leaves the focus in the box. -->
-        @if (quote() || asideFrom()) {
+        <!-- The words the message asks about; dropping them leaves the focus in the box. -->
+        @if (quote(); as q) {
           <div composerLead class="composer-lead">
-            @if (quote(); as q) {
-              <span class="composer-pill composer-quote">
-                <app-icon name="tangent" [size]="14" />
-                <span class="composer-quote-text" [attr.title]="q.quote">“{{ q.quote }}”</span>
-                <button
-                  type="button"
-                  class="icon-btn"
-                  [attr.aria-label]="'Don’t ask about “' + q.quote + '”'"
-                  title="Don’t ask about these words"
-                  (mousedown)="$event.preventDefault()"
-                  (click)="dropQuote()"
-                >
-                  <app-icon name="x" [size]="13" />
-                </button>
-              </span>
-            } @else {
+            <span class="composer-pill composer-quote">
+              <app-icon name="tangent" [size]="14" />
+              <span class="composer-quote-text" [attr.title]="q.quote">“{{ q.quote }}”</span>
               <button
                 type="button"
-                class="composer-pill composer-dest"
-                [class.is-aside]="asksAside()"
-                [title]="
-                  asksAside()
-                    ? 'Tangent ↳: Wait, what’s that? Explore on the side without derailing the lesson. Click to send as Next instead.'
-                    : 'Next ➜: Got it, what’s next? Keeps the main lesson moving. Click to send as a tangent instead.'
-                "
+                class="icon-btn"
+                [attr.aria-label]="'Don’t ask about “' + q.quote + '”'"
+                title="Don’t ask about these words"
                 (mousedown)="$event.preventDefault()"
-                (click)="switchDestination()"
+                (click)="dropQuote()"
               >
-                <span class="sr-only">Send as: </span>
-                <app-icon [name]="asksAside() ? 'tangent' : 'next'" [size]="14" />
-                <span class="composer-dest-label">{{ asksAside() ? 'Tangent' : 'Next' }}</span>
+                <app-icon name="x" [size]="13" />
               </button>
-            }
+            </span>
           </div>
         }
       </app-composer>

@@ -1,9 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import {
   CONTINUE_MESSAGE,
+  groupTangents,
   isCutOffReply,
   isStoppedReply,
+  KEEP_GOING_LABEL,
+  REPLY_ACTION,
   splitTangents,
+  TANGENTS_LABEL,
   type ChatNode,
 } from '@tangent/shared';
 import {
@@ -101,27 +105,58 @@ import { branchTitle } from './titles';
         (check)="checkSources()"
       />
 
-      @if (askable()) {
-        <nav class="tangents" aria-label="Tangents worth following">
-          <span class="tangents-label muted small">Where next?</span>
-          @for (t of tangents(); track t.title) {
-            <button
-              type="button"
-              class="tangent"
-              [class.is-followed]="followed().has(t.title)"
-              [class.is-on]="followedOn().has(t.title)"
-              [disabled]="opening() !== null"
-              [title]="followed().has(t.title) ? 'Open tangent' : (t.why ?? t.title)"
-              (click)="follow(t.title)"
-            >
-              <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'tangent'" [size]="14" />
-              <span class="tangent-title">{{ t.title }}</span>
-              @if (t.why) {
-                <span class="tangent-why muted">{{ t.why }}</span>
+      @if (keepGoing().length > 0 || sideTrips().length > 0) {
+        <div class="tangents">
+          @if (keepGoing().length > 0) {
+            <nav class="tangents-group" [attr.aria-labelledby]="'keep-going-' + n.id">
+              <span class="tangents-group-label muted small" [id]="'keep-going-' + n.id">{{
+                keepGoingLabel
+              }}</span>
+              @for (t of keepGoing(); track t.title) {
+                <button
+                  type="button"
+                  class="tangent tangent-continue"
+                  [disabled]="store.busy() || opening() !== null"
+                  [title]="t.why ?? nextHint"
+                  (click)="keepGoingWith(t.title)"
+                >
+                  <app-icon name="next" [size]="14" />
+                  <span class="tangent-title">{{ t.title }}</span>
+                  @if (t.why) {
+                    <span class="tangent-why muted">{{ t.why }}</span>
+                  }
+                </button>
               }
-            </button>
+            </nav>
           }
-        </nav>
+          @if (sideTrips().length > 0) {
+            <nav class="tangents-group" [attr.aria-labelledby]="'tangents-' + n.id">
+              <span class="tangents-group-label muted small" [id]="'tangents-' + n.id">{{
+                tangentsLabel
+              }}</span>
+              @for (t of sideTrips(); track t.title) {
+                <button
+                  type="button"
+                  class="tangent"
+                  [class.is-followed]="followed().has(t.title)"
+                  [class.is-on]="followedOn().has(t.title)"
+                  [disabled]="opening() !== null"
+                  [title]="followed().has(t.title) ? 'Open tangent' : (t.why ?? t.title)"
+                  (click)="follow(t.title)"
+                >
+                  <app-icon
+                    [name]="followed().has(t.title) ? 'chevronRight' : 'tangent'"
+                    [size]="14"
+                  />
+                  <span class="tangent-title">{{ t.title }}</span>
+                  @if (t.why) {
+                    <span class="tangent-why muted">{{ t.why }}</span>
+                  }
+                </button>
+              }
+            </nav>
+          }
+        </div>
       }
 
       @if (otherChildren().length > 0) {
@@ -178,6 +213,9 @@ export class MessageItem {
   private readonly md = inject(MarkdownService);
   protected readonly branchTitle = branchTitle;
   protected readonly connectedLabel = connectedLabel;
+  protected readonly keepGoingLabel = KEEP_GOING_LABEL;
+  protected readonly tangentsLabel = TANGENTS_LABEL;
+  protected readonly nextHint = REPLY_ACTION.hint;
 
   readonly node = input.required<ChatNode>();
   readonly ancestor = input(false);
@@ -230,12 +268,23 @@ export class MessageItem {
     if (!this.focused()) this.store.focus(this.node().id);
   }
 
-  /** The tutor's suggested tangents, offered once the reply is complete. */
-  protected readonly tangents = computed(() => (this.askable() ? this.split().tangents : []));
+  /** The tutor's suggestions, offered once the reply is complete, split into next steps and side trips. */
+  private readonly suggested = computed(() =>
+    groupTangents(this.askable() ? this.split().tangents : []),
+  );
+  /**
+   * Next steps, sent as the lesson's next message: offered only on the last
+   * reply of the open thread, where a next step follows on.
+   */
+  protected readonly keepGoing = computed(() =>
+    this.store.isLatest(this.node().id) ? this.suggested().continue : [],
+  );
+  /** Side trips, each opening (or reopening) a tangent of its own. */
+  protected readonly sideTrips = computed(() => this.suggested().tangent);
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
   /** Titles of the tangents the learner already followed (a child branch carries the title). */
   protected readonly followed = computed<ReadonlySet<string>>(() => {
-    const titles = new Set(this.tangents().map((t) => t.title));
+    const titles = new Set(this.sideTrips().map((t) => t.title));
     return new Set(
       this.children()
         .map((b) => b.title)
@@ -251,7 +300,7 @@ export class MessageItem {
         .map((b) => b.title),
     );
   });
-  /** Side questions that are not followed tangents (those show in the tangents row). */
+  /** Tangents that are not followed suggestions (those show among the suggestions). */
   protected readonly otherChildren = computed(() => {
     const followed = this.followed();
     return this.children().filter((b) => !followed.has(b.title));
@@ -295,6 +344,13 @@ export class MessageItem {
   protected readonly opening = signal<string | null>(null);
   protected async remove(branchId: string): Promise<void> {
     await confirmDeleteSideQuestion(this.store, branchId);
+  }
+
+  /** Sends a "Keep going" suggestion as the next message of the open thread, unmarking any message first. */
+  protected keepGoingWith(title: string): void {
+    const n = this.node();
+    if (this.store.focusedNodeId()) this.store.go(n.branchId, null, true);
+    void this.store.continueWith(n.id, title);
   }
 
   protected async follow(title: string): Promise<void> {

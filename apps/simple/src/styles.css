@@ -790,7 +790,7 @@ app-related-links.connections {
   font-size: calc(0.8 * var(--chat-rem));
 }
 
-/* Buttons in a message (Side question, Check sources) go with its text. */
+/* Buttons in a message (Tangent ↳, Check sources) go with its text. */
 .messages-inner .btn-sm {
   font-size: calc(0.85 * var(--chat-rem));
 }
@@ -900,11 +900,6 @@ app-related-links.connections {
   font-size: 0.85rem;
 }
 
-.composer-dest {
-  cursor: pointer;
-}
-
-.composer-dest.is-aside,
 .composer-quote {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -924,12 +919,6 @@ app-related-links.connections {
 .composer-quote .icon-btn {
   width: 26px;
   height: 26px;
-}
-
-@media (max-width: 559px) {
-  .composer:not(:focus-within) .composer-dest-label {
-    display: none;
-  }
 }
 
 .composer textarea:disabled {

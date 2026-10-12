@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { branchyLesson, learner } from '../learn.testing';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
-import { Keyboard } from './keyboard';
+import { Keyboard, SHORTCUTS } from './keyboard';
 
 function setup(d = branchyLesson(), branchId: string | null = null) {
   TestBed.configureTestingModule({ providers: appProviders({}) });
@@ -44,5 +44,10 @@ describe('Learn: keyboard', () => {
     expect(k.ui.dialogs.list()).toEqual([{ kind: 'shortcuts' }]);
     k.press('j');
     expect(k.go).not.toHaveBeenCalled();
+  });
+
+  it('the help lists how the message box sends: Enter as a tangent, Ctrl+Enter as Next', () => {
+    expect(SHORTCUTS).toContainEqual({ keys: ['Enter'], label: 'Send as a tangent' });
+    expect(SHORTCUTS).toContainEqual({ keys: ['Ctrl+Enter'], label: 'Send as Next' });
   });
 });
