@@ -1,0 +1,269 @@
+import 'dart:async';
+
+import 'package:tangent/api/models.dart';
+import 'package:tangent/api/tangent_api.dart';
+
+/// The screens [ScreenApi] can open on, by `?screen=` name, and where each
+/// one starts.
+const screenLocations = {
+  // The main thread after its first reply, with next steps and tangents.
+  'lesson-reply': '/t/tides',
+  // A tangent from that reply, with a reply of its own.
+  'in-tangent': '/t/tides/b/bulge',
+  // Back on the main thread, the tangent listed under the reply.
+  'back-on-trunk': '/t/tides',
+};
+
+const _normal = ModelInfo(id: 'normal', label: 'Normal', tier: Tier.normal);
+const _max = ModelInfo(id: 'max', label: 'Max', tier: Tier.max);
+
+const _trunkReply = '''
+Tides are the sea rising and falling twice a day, and the **Moon** does most of the work.
+
+Its gravity pulls hardest on the water facing it, so the ocean heaps up into a bulge there. The Earth turns under that bulge, and each coast passes through it: high tide.
+
+<tangents>
+- [continue] Why two tides a day? — the bulge on the far side
+- [tangent] What is a tidal bulge? — the shape the pull makes
+- [tangent] Spring and neap tides — when the Sun joins in
+- [tangent] Tidal locking — why we only ever see one face of the Moon
+</tangents>''';
+
+const _tangentReply = '''
+A tidal bulge is the ocean stretched into a slight egg shape, a metre or so high in open water, pointing at the Moon and away from it.
+
+<tangents>
+- [continue] How high does it get? — coasts that funnel it
+- [tangent] Why away from the Moon too? — the pull is weaker there
+</tangents>''';
+
+const _nextReply = '''
+Here is the next step: the bulge on the far side forms because the Moon pulls the Earth itself a little more than the water behind it.
+
+<tangents>
+- [continue] What sets the exact times? — the Moon's day is 24 h 50 min
+- [tangent] Inertia — what “left behind” really means
+</tangents>''';
+
+/// A [TangentApi] for the screenshot harness (screens.dart): a learner who
+/// is signed in, one lesson about tides, and replies that write themselves.
+/// It stands in for the Worker so the screens look the same on every run;
+/// the widget tests use test/fakes.dart instead.
+class ScreenApi implements TangentApi {
+  ScreenApi({required this.screen}) {
+    _branches['trunk'] = _branch('trunk', title: '');
+    _nodes
+      ..add(_node('u1', 'trunk', 0, Role.user, 'Why are there tides?'))
+      ..add(_node('a1', 'trunk', 1, Role.assistant, _trunkReply));
+    if (screen == 'in-tangent' || screen == 'back-on-trunk') {
+      _branches['bulge'] = _branch(
+        'bulge',
+        parent: 'trunk',
+        fork: 'a1',
+        title: 'What is a tidal bulge?',
+      );
+      _nodes
+        ..add(_node('s1', 'bulge', 0, Role.user, 'What is a tidal bulge?'))
+        ..add(_node('s2', 'bulge', 1, Role.assistant, _tangentReply));
+    }
+  }
+
+  /// One of [screenLocations]' names.
+  final String screen;
+
+  final _branches = <String, Branch>{};
+  final _nodes = <ChatNode>[];
+  var _count = 0;
+
+  static const _treeId = 'tides';
+
+  Branch _branch(
+    String id, {
+    String? parent,
+    String? fork,
+    required String title,
+    String? anchorQuote,
+  }) => Branch(
+    id: id,
+    treeId: _treeId,
+    parentBranchId: parent,
+    branchPointNodeId: fork,
+    title: title,
+    model: 'normal',
+    anchorQuote: anchorQuote,
+  );
+
+  ChatNode _node(
+    String id,
+    String branchId,
+    int seq,
+    Role role,
+    String content, {
+    NodeStatus status = NodeStatus.complete,
+  }) => ChatNode(
+    id: id,
+    branchId: branchId,
+    parentId: null,
+    seq: seq,
+    role: role,
+    content: content,
+    status: status,
+    error: null,
+    errorKind: null,
+  );
+
+  @override
+  set payer(Payer payer) {}
+
+  @override
+  Future<LoginOptions> loginOptions() async => const LoginOptions(
+    configured: true,
+    devMode: true,
+    turnstileSiteKey: null,
+    signupsOpen: true,
+  );
+
+  @override
+  Future<void> sendMagicLink({
+    required String email,
+    required String captchaToken,
+    required String callbackPath,
+    required String errorCallbackPath,
+  }) async {}
+
+  @override
+  Future<void> signInWithCode({
+    required String email,
+    required String code,
+  }) async {}
+
+  @override
+  Future<Me> me() async => const Me(
+    userId: 'learner',
+    email: 'learner@example.com',
+    devMode: true,
+    builtInCredit: true,
+  );
+
+  @override
+  Future<bool> refreshSession() async => true;
+
+  @override
+  Future<void> signOut() async {}
+
+  @override
+  Future<void> deleteAccount(String confirmEmail) async {}
+
+  @override
+  Future<PoolStatus> poolStatus() async =>
+      const PoolStatus(enabled: false, modelLabel: null);
+
+  @override
+  Future<BillingSummary> billing() async => const BillingSummary(
+    enabled: true,
+    builtInCredit: true,
+    availableMicros: 5000000,
+  );
+
+  @override
+  Future<List<ProviderInfo>> providers() async => const [
+    ProviderInfo(
+      id: 'openrouter',
+      defaultModel: 'normal',
+      models: [_normal, _max],
+    ),
+  ];
+
+  @override
+  Future<List<TreeSummary>> trees() async => [
+    TreeSummary(
+      id: _treeId,
+      title: 'How tides work',
+      updatedAt: DateTime.now(),
+      branchCount: _branches.length,
+    ),
+  ];
+
+  @override
+  Future<TreeDetail> createTree({String? providerId, String? model}) =>
+      tree(_treeId);
+
+  @override
+  Future<TreeDetail> tree(String treeId) async => TreeDetail(
+    tree: const Tree(
+      id: _treeId,
+      title: 'How tides work',
+      trunkBranchId: 'trunk',
+    ),
+    branches: _branches.values.toList(),
+    nodes: List.of(_nodes),
+  );
+
+  @override
+  Future<void> deleteTree(String treeId) async {}
+
+  @override
+  Future<Branch> createBranch({
+    required String fromNodeId,
+    String? title,
+    String? anchorQuote,
+  }) async {
+    final from = _nodes.firstWhere((n) => n.id == fromNodeId);
+    final created = _branch(
+      'side-${++_count}',
+      parent: from.branchId,
+      fork: fromNodeId,
+      title: title ?? '',
+      anchorQuote: anchorQuote,
+    );
+    _branches[created.id] = created;
+    return created;
+  }
+
+  @override
+  Future<Branch> setBranchModel(String branchId, String model) async {
+    final b = _branches[branchId]!;
+    return _branches[branchId] = Branch(
+      id: b.id,
+      treeId: b.treeId,
+      parentBranchId: b.parentBranchId,
+      branchPointNodeId: b.branchPointNodeId,
+      title: b.title,
+      model: model,
+      anchorQuote: b.anchorQuote,
+    );
+  }
+
+  /// Writes a canned reply a few words at a time.
+  @override
+  Stream<StreamEvent> sendMessage(String branchId, String content) async* {
+    final branch = _branches[branchId]!;
+    final seq = _nodes.where((n) => n.branchId == branchId).length;
+    final id = ++_count;
+    final user = _node('u-$id', branchId, seq, Role.user, content);
+    final reply = branch.parentBranchId == null ? _nextReply : _tangentReply;
+    var assistant = _node(
+      'a-$id',
+      branchId,
+      seq + 1,
+      Role.assistant,
+      '',
+      status: NodeStatus.streaming,
+    );
+    _nodes.add(user);
+    yield StartEvent(userNode: user, assistantNode: assistant, branch: branch);
+    for (final word in reply.split(' ')) {
+      await Future<void>.delayed(const Duration(milliseconds: 15));
+      yield DeltaEvent(nodeId: assistant.id, text: '$word ');
+    }
+    assistant = _node('a-$id', branchId, seq + 1, Role.assistant, reply);
+    _nodes.add(assistant);
+    yield DoneEvent(node: assistant, branch: branch);
+  }
+
+  @override
+  Stream<StreamEvent> resume(String nodeId) => const Stream.empty();
+
+  @override
+  Future<void> cancel(String nodeId) async {}
+}

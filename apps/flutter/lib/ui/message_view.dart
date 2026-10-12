@@ -9,7 +9,8 @@ import 'math_markdown.dart';
 import 'theme.dart';
 
 /// One message of the thread: the learner's, or the tutor's reply rendered
-/// as Markdown with its tangents ("Where next?") once it's complete.
+/// as Markdown with its suggestions once it's complete: next steps ("Keep
+/// going") on the newest reply only, and tangents on every reply.
 class MessageView extends StatelessWidget {
   const MessageView({
     super.key,
@@ -19,6 +20,8 @@ class MessageView extends StatelessWidget {
     required this.onFollow,
     required this.onOpenSideQuestion,
     required this.onAskAbout,
+    this.latest = false,
+    this.onContinue,
   });
 
   final ChatNode node;
@@ -32,6 +35,14 @@ class MessageView extends StatelessWidget {
 
   /// Null while following isn't possible (e.g. a send is in flight).
   final ValueChanged<Tangent>? onFollow;
+
+  /// The newest reply of the thread on screen. Only it offers next steps:
+  /// on an older reply, the thread has already moved on.
+  final bool latest;
+
+  /// Sends a next step as a reply on the thread on screen; null while that
+  /// isn't possible.
+  final ValueChanged<Tangent>? onContinue;
 
   final ValueChanged<Branch> onOpenSideQuestion;
 
@@ -71,7 +82,11 @@ class MessageView extends StatelessWidget {
     final split = splitTangents(node.content);
     final streaming = node.status == NodeStatus.streaming;
     final complete = node.status == NodeStatus.complete;
-    final tangents = complete ? split.tangents : const <Tangent>[];
+    final groups = groupTangents(complete ? split.tangents : const []);
+    final nextSteps = latest ? groups.continueOn : const <Tangent>[];
+    final tangents = groups.tangent;
+    // A next step is sent as a reply, so only tangents can have been
+    // followed into a branch.
     final tangentTitles = {for (final t in tangents) t.title};
     final followed = {
       for (final b in sideQuestions)
@@ -104,6 +119,8 @@ class MessageView extends StatelessWidget {
             ),
           if (streaming) const BlinkingCursor(),
           if (node.status == NodeStatus.error) _ErrorBox(node),
+          if (nextSteps.isNotEmpty)
+            _KeepGoing(steps: nextSteps, onContinue: onContinue),
           if (tangents.isNotEmpty)
             _Tangents(
               tangents: tangents,
@@ -242,6 +259,36 @@ class _ErrorBox extends StatelessWidget {
   }
 }
 
+/// The next steps the newest reply offers; one is sent as a reply.
+class _KeepGoing extends StatelessWidget {
+  const _KeepGoing({required this.steps, required this.onContinue});
+
+  final List<Tangent> steps;
+  final ValueChanged<Tangent>? onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    final onContinue = this.onContinue;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Keep going', style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 6),
+          for (final step in steps)
+            _TangentButton(
+              tangent: step,
+              followed: false,
+              icon: Icons.arrow_forward,
+              onPressed: onContinue == null ? null : () => onContinue(step),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The tangents a reply offers. A phone has little height to spare, so only
 /// the first one and any followed before show until the learner asks for the
 /// rest.
@@ -281,7 +328,7 @@ class _TangentsState extends State<_Tangents> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Where next?', style: theme.textTheme.bodySmall),
+          Text('Tangents', style: theme.textTheme.bodySmall),
           const SizedBox(height: 6),
           for (final tangent in shown)
             _TangentButton(
@@ -355,11 +402,15 @@ class _TangentButton extends StatelessWidget {
     required this.tangent,
     required this.followed,
     required this.onPressed,
+    this.icon,
   });
 
   final Tangent tangent;
   final bool followed;
   final VoidCallback? onPressed;
+
+  /// Overrides the tangent arrow, as for a next step.
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -382,9 +433,10 @@ class _TangentButton extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  followed
-                      ? Icons.chevron_right
-                      : Icons.subdirectory_arrow_right,
+                  icon ??
+                      (followed
+                          ? Icons.chevron_right
+                          : Icons.subdirectory_arrow_right),
                   size: 18,
                   color: theme.colorScheme.primary,
                 ),
