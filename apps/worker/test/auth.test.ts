@@ -585,6 +585,22 @@ describe('sign-in by code', () => {
     expect(findSetCookie(res, SESSION_COOKIE)).toBeDefined();
     expect(res.headers.get('set-auth-token')).toBeNull();
   });
+  it('the reviewer email gets the fixed code every time, and no email', async () => {
+    const e = authEnv({ REVIEWER_SIGN_IN: 'Play-Review@example.com:424242' });
+    for (let i = 0; i < 2; i++) {
+      const s = setup(e);
+      expect((await requestMagicLink(s.call, 'play-review@example.com')).status).toBe(200);
+      expect(s.mail.sent).toEqual([]);
+      const res = await submitCode('play-review@example.com', '424242', { env: e });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('set-auth-token')).toMatch(/^[^.]+\..+$/);
+    }
+    // Everyone else still gets a random code by email.
+    const other = setup(e);
+    const code = await requestCode(other, 'someone@example.com');
+    expect(code).toMatch(/^\d{6}$/);
+    expect(other.mail.sent).toHaveLength(1);
+  });
 });
 
 describe('the app’s captcha page', () => {

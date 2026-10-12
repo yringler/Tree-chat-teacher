@@ -55,6 +55,7 @@ export const CONFIG_VARS = [
   'GITHUB_CLIENT_SECRET',
   'TURNSTILE_SITE_KEY',
   'TURNSTILE_SECRET_KEY',
+  'REVIEWER_SIGN_IN',
   'MAX_USERS',
   'EMAIL_PROVIDER',
   'EMAIL_FROM',
@@ -159,6 +160,7 @@ export const CONFIG_SECRETS: ReadonlySet<ConfigVarName> = new Set<ConfigVarName>
   'GITHUB_CLIENT_ID',
   'GITHUB_CLIENT_SECRET',
   'TURNSTILE_SECRET_KEY',
+  'REVIEWER_SIGN_IN',
   'RESEND_API_KEY',
   'KEY_ENCRYPTION_SECRET',
   'ANTHROPIC_API_KEY',
@@ -482,6 +484,8 @@ export interface AppConfig {
     turnstileTestSecret: boolean;
     /** `MAX_USERS`: sign-ups stop at this many users; null = no cap. */
     maxUsers: number | null;
+    /** `REVIEWER_SIGN_IN`: the app-store reviewer's email and fixed code; null = none. */
+    reviewer: ReviewerSignIn | null;
   };
   email: {
     provider: 'resend' | 'log';
@@ -574,6 +578,21 @@ export class ConfigError extends Error {
     super(`Invalid ${name}=${JSON.stringify(raw)}: expected ${expected}`);
     this.name = 'ConfigError';
   }
+}
+
+export type ReviewerSignIn = { email: string; code: string };
+
+/**
+ * `REVIEWER_SIGN_IN`: `<email>:<6 digits>`; empty gives null. The email is
+ * lowercased, as Better Auth stores it. The error leaves the value out: it is
+ * a secret.
+ */
+export function reviewerSignInVar(raw: string | undefined): ReviewerSignIn | null {
+  const s = raw?.trim();
+  if (!s) return null;
+  const m = /^([^\s:@]+@[^\s:@]+):(\d{6})$/.exec(s);
+  if (!m) throw new Error('Invalid REVIEWER_SIGN_IN: expected <email>:<6 digits>');
+  return { email: m[1]!.toLowerCase(), code: m[2]! };
 }
 
 /** The trimmed value; null when empty or unset. */
@@ -794,6 +813,7 @@ function parse(env: AppEnv): AppConfig {
       turnstileSecretKey,
       turnstileTestSecret,
       maxUsers: int('MAX_USERS', 0) || null,
+      reviewer: reviewerSignInVar(v('REVIEWER_SIGN_IN')),
     },
     email: {
       provider: enumVar('EMAIL_PROVIDER', v('EMAIL_PROVIDER'), ['resend', 'log'], 'resend'),
