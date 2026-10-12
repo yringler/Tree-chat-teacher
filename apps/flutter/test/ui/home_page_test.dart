@@ -103,4 +103,43 @@ void main() {
     expect(api.signedOut, isTrue);
     expect(find.text('Sign in to Tangent Learn'), findsOneWidget);
   });
+
+  testWidgets(
+    'deletes the account from the account menu once the email is typed',
+    (tester) async {
+      await pumpApp(tester, api);
+      await tester.tap(find.byTooltip('Account'));
+      await settle(tester);
+      await tester.tap(find.text('Delete account'));
+      await settle(tester);
+      final delete = find.widgetWithText(FilledButton, 'Delete my account');
+      expect(tester.widget<FilledButton>(delete).onPressed, isNull);
+
+      await tester.enterText(find.byType(TextField).last, ' Ada@Example.com ');
+      await tester.pump();
+      await tester.tap(delete);
+      await settle(tester);
+      expect(api.deletedAccounts, ['Ada@Example.com']);
+      expect(find.text('Sign in to Tangent Learn'), findsOneWidget);
+    },
+  );
+
+  testWidgets('a refused deletion stays open and says why', (tester) async {
+    api.refuseDeleteAccount = const ApiException(
+      status: 500,
+      code: 'internal',
+      message: "Couldn't cancel your billing",
+    );
+    await pumpApp(tester, api);
+    await tester.tap(find.byTooltip('Account'));
+    await settle(tester);
+    await tester.tap(find.text('Delete account'));
+    await settle(tester);
+    await tester.enterText(find.byType(TextField).last, 'ada@example.com');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete my account'));
+    await settle(tester);
+    expect(find.text("Couldn't cancel your billing"), findsOneWidget);
+    expect(find.text('Sign in to Tangent Learn'), findsNothing);
+  });
 }

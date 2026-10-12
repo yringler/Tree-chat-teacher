@@ -110,6 +110,15 @@ class HttpTangentApi implements TangentApi {
     }
   }
 
+  @override
+  Future<void> deleteAccount(String confirmEmail) async {
+    await _send('DELETE', ['account'], body: {'confirmEmail': confirmEmail});
+    // The session went with the account. A refusal throws above and keeps
+    // the token: the account is still there.
+    _token = Future.value(null);
+    await tokens?.clear();
+  }
+
   // Paying for replies.
 
   @override

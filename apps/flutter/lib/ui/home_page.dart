@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../api/models.dart';
 import '../state/app_scope.dart';
 import '../state/lessons_controller.dart';
+import 'delete_account_dialog.dart';
 import 'format.dart';
 import 'tier_switch.dart';
 import 'widgets.dart';
@@ -107,6 +108,20 @@ class _AccountMenu extends StatelessWidget {
           onTap: () => unawaited(session.signOut()),
           child: const Text('Sign out'),
         ),
+        if (session.me?.email case final email?)
+          PopupMenuItem<void>(
+            onTap: () => unawaited(
+              showDialog<void>(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => DeleteAccountDialog(email: email),
+              ),
+            ),
+            child: Text(
+              'Delete account',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
       ],
     );
   }

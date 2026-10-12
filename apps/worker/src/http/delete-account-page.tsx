@@ -43,8 +43,8 @@ function DeleteAccountPage(props: { info: LegalInfo }) {
         </li>
       </ol>
       <p>
-        Already signed in? <strong>Delete account</strong> is also in the account menu of the web
-        apps. Download backups of any conversations you want to keep first.
+        Already signed in? <strong>Delete account</strong> is also in the account menu of every app,
+        the phone app included. Download backups of any conversations you want to keep first.
       </p>
 
       <h2>What is deleted</h2>
