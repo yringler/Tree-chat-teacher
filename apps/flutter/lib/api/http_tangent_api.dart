@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
@@ -9,14 +10,16 @@ import 'token_store.dart';
 
 /// [TangentApi] over `package:http`. On the web, `http.Client()` is a
 /// fetch-based client that streams response bodies and sends the session
-/// cookie on same-origin requests. A native build has no cookies: it signs
-/// in by code and keeps the session token in [tokens], sending it as
-/// `Authorization: Bearer`.
+/// and key cookies on same-origin requests. A native build has no cookies:
+/// it signs in by code and keeps the session token in [tokens], sending it
+/// as `Authorization: Bearer`, and keeps the sealed key cookie in
+/// [keyCookie], sending it back as the browser would.
 class HttpTangentApi implements TangentApi {
   HttpTangentApi({
     required this.baseUri,
     http.Client? client,
     this.tokens,
+    this.keyCookie,
     Future<void> Function(Duration)? delay,
   }) : _client = client ?? http.Client(),
        _delay = delay ?? Future<void>.delayed;
@@ -30,6 +33,14 @@ class HttpTangentApi implements TangentApi {
 
   /// The token, read from [tokens] before the first call.
   Future<String?>? _token;
+
+  /// Where the sealed `__Host-llmkey` cookie is kept; null on the web. The
+  /// value is sealed by the Worker for this user, so the app can't read the
+  /// key in it.
+  final TokenStore? keyCookie;
+
+  /// The key cookie's value, read from [keyCookie] before the first call.
+  Future<String?>? _keyCookieValue;
 
   /// Waits between reconnects; tests pass one that doesn't.
   final Future<void> Function(Duration) _delay;
@@ -104,9 +115,9 @@ class HttpTangentApi implements TangentApi {
         'sign-out',
       ], body: const <String, Object?>{});
     } finally {
-      // Signed out on this device either way.
-      _token = Future.value(null);
-      await tokens?.clear();
+      // Signed out on this device either way, and the key with the session,
+      // as the server clears the browser's key cookie.
+      await _forgetSession();
     }
   }
 
@@ -115,8 +126,13 @@ class HttpTangentApi implements TangentApi {
     await _send('DELETE', ['account'], body: {'confirmEmail': confirmEmail});
     // The session went with the account. A refusal throws above and keeps
     // the token: the account is still there.
+    await _forgetSession();
+  }
+
+  Future<void> _forgetSession() async {
     _token = Future.value(null);
     await tokens?.clear();
+    await _keepKeyCookie('');
   }
 
   // Paying for replies.
@@ -128,6 +144,26 @@ class HttpTangentApi implements TangentApi {
   @override
   Future<BillingSummary> billing() async =>
       BillingSummary.fromJson(await _object('GET', ['billing']));
+
+  // The learner's own key.
+
+  @override
+  Future<KeyStatus> keyStatus() async =>
+      KeyStatus.fromJson(await _object('GET', ['key', 'status']));
+
+  @override
+  Future<void> saveKey(String apiKey) async {
+    await _send(
+      'POST',
+      ['key'],
+      body: {'provider': openRouterProviderId, 'apiKey': apiKey},
+    );
+  }
+
+  @override
+  Future<void> forgetKey() async {
+    await _send('DELETE', ['key'], body: {'provider': openRouterProviderId});
+  }
 
   // Lessons.
 
@@ -308,7 +344,8 @@ class HttpTangentApi implements TangentApi {
     Json? body,
     Map<String, String> headers = const {},
   }) async {
-    final token = await (_token ??= _readToken());
+    final token = await (_token ??= _read(tokens));
+    final key = await (_keyCookieValue ??= _read(keyCookie));
     final request = http.Request(method, _url(path))
       ..headers.addAll({
         'x-tangent-mode': 'simple',
@@ -316,12 +353,22 @@ class HttpTangentApi implements TangentApi {
         'accept': 'application/json, text/event-stream',
         if (body != null) 'content-type': 'application/json',
         if (token != null) 'authorization': 'Bearer $token',
+        // Better Auth refuses a POST with cookies but no Origin, and needs
+        // no key.
+        if (key != null && key.isNotEmpty && path.first != 'auth')
+          'cookie': '$keyCookieName=$key',
         ...headers,
       });
     // Bytes, not `body`, so package:http leaves the content type as set.
     if (body != null) request.bodyBytes = utf8.encode(jsonEncode(body));
     try {
       final response = await _client.send(request);
+      // Saving, renewing and clearing the key all set the cookie, on
+      // refusals too (an unreadable key is cleared with its 401).
+      if (keyCookie != null) {
+        final kept = keyCookieIn(response.headers['set-cookie']);
+        if (kept != null) await _keepKeyCookie(kept);
+      }
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return response;
       }
@@ -331,13 +378,29 @@ class HttpTangentApi implements TangentApi {
     }
   }
 
-  Future<String?> _readToken() async {
+  Future<String?> _read(TokenStore? store) async {
     try {
-      return await tokens?.read();
+      return await store?.read();
     } on Object {
       // A keystore that can't be read (e.g. restored onto another device)
-      // means signing in again.
+      // means signing in again, or saving the key again.
       return null;
+    }
+  }
+
+  /// Keeps the key cookie's new value; empty clears it.
+  Future<void> _keepKeyCookie(String value) async {
+    final store = keyCookie;
+    if (store == null) return;
+    _keyCookieValue = Future.value(value.isEmpty ? null : value);
+    try {
+      if (value.isEmpty) {
+        await store.clear();
+      } else {
+        await store.write(value);
+      }
+    } on Object {
+      // Kept for this run only; the key is asked for again after a restart.
     }
   }
 
@@ -372,6 +435,21 @@ class HttpTangentApi implements TangentApi {
         _ => null,
       },
     );
+  }
+
+  /// The `__Host-llmkey` cookie (`KEY_COOKIE_NAME` in apps/worker).
+  static const keyCookieName = '__Host-llmkey';
+
+  /// The key cookie's value in a response's `Set-Cookie` (several cookies
+  /// arrive joined by commas): empty when the server cleared it, null when
+  /// the response doesn't set it. The sealed value is base64url with a
+  /// version prefix, so it holds no comma or semicolon.
+  @visibleForTesting
+  static String? keyCookieIn(String? setCookie) {
+    if (setCookie == null) return null;
+    final match = RegExp('(?:^|,)\\s*${RegExp.escape(keyCookieName)}=([^;,]*)')
+        .firstMatch(setCookie);
+    return match?.group(1);
   }
 
   static String? _stringAt(Json? json, String key) => switch (json?[key]) {

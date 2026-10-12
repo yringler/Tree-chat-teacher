@@ -424,6 +424,49 @@ describe('the key cookie belongs to its user', () => {
     expect(status.hasKey).toBe(false);
   });
 
+  it('works for a client without cookies (the phone app) that sends it back itself', async () => {
+    const phone = client();
+    const address = email();
+    const sent = await phone.call('/api/auth/sign-in/magic-link', {
+      method: 'POST',
+      headers: { origin: BASE, 'x-captcha-response': 'pass' },
+      json: { email: address, callbackURL: '/', errorCallbackURL: '/login' },
+    });
+    expect(sent.status).toBe(200);
+    const otp = /code in the app: (\d{6})/.exec(phone.mail.sent.at(-1)!.text)![1];
+    const signedIn = await phone.call('/api/auth/sign-in/email-otp', {
+      method: 'POST',
+      json: { email: address, otp },
+    });
+    expect(signedIn.status, await signedIn.clone().text()).toBe(200);
+    const token = signedIn.headers.get('set-auth-token')!;
+    // An explicit cookie header, only the key's or none, keeps the client's jar out.
+    const native = (path: string, init: CallInit = {}, sealed?: string) =>
+      phone.call(path, {
+        ...init,
+        headers: {
+          authorization: `Bearer ${token}`,
+          cookie: sealed ? `${KEY_COOKIE_NAME}=${sealed}` : '',
+        },
+      });
+
+    const saved = await native('/api/key', { method: 'POST', json: { provider: 'ant', apiKey } });
+    expect(saved.status, await saved.clone().text()).toBe(204);
+    const sealed = sealedFrom(saved);
+    const status = (cookie?: string) =>
+      native('/api/key/status', {}, cookie).then((res) => ok<KeyStatusResponse>(res, 200));
+    expect(await status(sealed)).toMatchObject({ hasKey: true, providers: ['ant'] });
+    expect((await status()).hasKey).toBe(false);
+    // A write with the key cookie and no Origin: only Sec-Fetch-Site marks a cross-site request.
+    const forgot = await native(
+      '/api/key',
+      { method: 'DELETE', json: { provider: 'ant' } },
+      sealed,
+    );
+    expect(forgot.status).toBe(204);
+    expect(setCookieOf(forgot)).toMatch(new RegExp(`^${KEY_COOKIE_NAME}=;.*Max-Age=0`));
+  });
+
   it('is cleared by signing out', async () => {
     const browser = await withSavedKey();
     const out = await browser.call('/api/auth/sign-out', {

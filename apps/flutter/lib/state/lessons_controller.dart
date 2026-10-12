@@ -32,7 +32,7 @@ class LessonsController extends ChangeNotifier {
   /// Learn runs on OpenRouter where the server offers it.
   ProviderInfo? get provider {
     for (final p in _providers) {
-      if (p.id == 'openrouter') return p;
+      if (p.id == openRouterProviderId) return p;
     }
     return _providers.isEmpty ? null : _providers.first;
   }
@@ -144,6 +144,7 @@ class LessonsController extends ChangeNotifier {
       session.signedOut();
     } else {
       _notice = noticeFor(error);
+      session.refused(error);
     }
   }
 
