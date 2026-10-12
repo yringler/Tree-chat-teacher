@@ -7,11 +7,7 @@
     "dart": {
       "type": "stdio",
       "command": "dart",
-      "args": [
-        "mcp-server",
-        "--enable",
-        "get_app_logs,launch_app,list_running_apps,stop_app"
-      ]
+      "args": ["mcp-server", "--enable", "get_app_logs,launch_app,list_running_apps,stop_app"]
     }
   }
 }
