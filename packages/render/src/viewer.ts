@@ -546,6 +546,8 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
   const rootBranch = vm.byKey.get(payload.rootBranchKey) ?? payload.branches[0];
   const seen = new Set<string>();
   let outlineHtml = rootBranch === undefined ? '' : renderOutlineItem(vm, rootBranch, seen);
+  // The head counts tangents: every branch but the shared thread they hang off.
+  const tangentCount = Math.max(0, payload.branches.length - 1);
   // Branches unreachable from the root (malformed payloads) are still listed.
   for (const b of payload.branches) {
     if (!seen.has(b.key)) outlineHtml += renderOutlineItem(vm, b, seen);
@@ -579,7 +581,7 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
     `<h1>${title}</h1><span class="badge">Read-only</span></header>\n` +
     '<div class="layout">\n' +
     `<nav class="outline" id="outline" aria-label="Tangents"><div class="outline-head"><span>Tangents</span>` +
-    `<span class="count">${payload.branches.length}</span></div><ul class="tree">${outlineHtml}</ul></nav>\n` +
+    `<span class="count">${tangentCount}</span></div><ul class="tree">${outlineHtml}</ul></nav>\n` +
     '<div class="scrim" id="scrim"></div>\n' +
     '<main class="main" id="main"><div class="col">\n' +
     disclaimer +

@@ -225,6 +225,11 @@ describe('renderViewerPage', () => {
     expect(VIEWER_SCRIPT).toContain("isCurrent ? 'Tangent' : 'Via tangent'");
   });
 
+  it('counts the tangents in the outline head, not the thread they hang off', () => {
+    // Five branches: the shared thread and four tangents under it.
+    expect(html).toContain('<span>Tangents</span><span class="count">4</span>');
+  });
+
   it('renders the outline with message counts in depth-first order', () => {
     const outline = /<nav class="outline"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
     const order = [...outline.matchAll(/data-branch="(b\d+)"/g)].map((m) => m[1]);
