@@ -37,6 +37,8 @@ export const accountSettings = sqliteTable('account_settings', {
   accountId: text('account_id').primaryKey(),
   /** System prompt of new trees; null = the built-in default. */
   systemPrompt: text('system_prompt'),
+  /** When the account finished or skipped the first-run tangent walkthrough; null = not yet. */
+  walkthroughDoneAt: text('walkthrough_done_at'),
   updatedAt: text('updated_at').notNull(),
 });
 
