@@ -12,6 +12,7 @@ import {
   MarkdownService,
   RelatedLinks,
   relatedLinks,
+  RenderDiagrams,
   SourcesList,
   SuggestionGroups,
   TypesetMath,
@@ -26,7 +27,7 @@ import { branchTitle } from './titles';
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, RelatedLinks, SourcesList, SuggestionGroups, TypesetMath],
+  imports: [Icon, RelatedLinks, RenderDiagrams, SourcesList, SuggestionGroups, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -67,7 +68,13 @@ import { branchTitle } from './titles';
       @if (streaming() && liveStatus()) {
         <p class="msg-status muted small">{{ liveStatus() }}</p>
       }
-      <div class="msg-body md" [innerHTML]="html()" [appTypesetMath]="html()"></div>
+      <div
+        class="msg-body md"
+        [innerHTML]="html()"
+        [appTypesetMath]="html()"
+        [appRenderDiagrams]="html()"
+        [diagramsPaused]="streaming()"
+      ></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Writing…</span>

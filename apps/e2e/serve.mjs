@@ -161,7 +161,14 @@ const vars = {
         // few long messages pass it and the context gets compacted (context-compaction.spec.ts).
         { id: 'fake-small', label: 'Fake small', maxContextTokens: 6600, maxOutputTokens: 600 },
       ],
-      options: { chunkSize: 8 },
+      // A reply holding a diagram, streamed like any other (diagrams.spec.ts).
+      options: {
+        chunkSize: 8,
+        responses: {
+          'Draw the cache flow':
+            'Here it is:\n\n```mermaid\nflowchart LR\n  A[Request] --> B{Cached?}\n```\n',
+        },
+      },
     },
     {
       id: 'keyed',

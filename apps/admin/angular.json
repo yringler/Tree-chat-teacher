@@ -17,6 +17,13 @@
           "builder": "@angular/build:application",
           "options": {
             "browser": "src/main.ts",
+            "allowedCommonJsDependencies": [
+              "@braintree/sanitize-url",
+              "cytoscape-cose-bilkent",
+              "cytoscape-fcose",
+              "dayjs",
+              "elkjs"
+            ],
             "tsConfig": "tsconfig.app.json",
             "styles": ["src/styles.css"],
             "outputPath": "dist/admin",

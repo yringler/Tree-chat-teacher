@@ -244,7 +244,9 @@ describe('flutterAppRoutes', () => {
       "script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com",
     );
     expect(flutter.get('frame-src')).toBe('frame-src https://challenges.cloudflare.com');
-    expect(flutter.get('trusted-types')).toBe('trusted-types flutter-js tangent-turnstile');
+    expect(flutter.get('trusted-types')).toBe(
+      'trusted-types flutter-js tangent-turnstile dart.deferred-loading',
+    );
   });
 });
 
@@ -279,6 +281,14 @@ describe('learn-app CSP matches _headers', () => {
     expect(all!.get('content-security-policy')).toBe(LEARN_APP_CSP);
     for (const [name, value] of Object.entries(LEARN_COMMON_HEADERS))
       expect(all!.get(name.toLowerCase())).toBe(value);
+  });
+
+  it('lets only the Angular, DOMPurify and gated default policies write HTML', () => {
+    const directives = new Map(LEARN_APP_CSP.split('; ').map((d) => [d.split(' ')[0], d]));
+    expect(directives.get('require-trusted-types-for')).toBe("require-trusted-types-for 'script'");
+    expect(directives.get('trusted-types')).toBe(
+      'trusted-types angular angular#bundler dompurify default',
+    );
   });
 
   it('login policy equals the /login rule', () => {

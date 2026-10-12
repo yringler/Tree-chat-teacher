@@ -8,12 +8,14 @@ import { finishWalkthrough, newEmail, paymentWebhook, sameOrigin, signIn, topUp 
  * Signs `context` in as a new user with $5 of Tangent credit and imports the
  * example lesson into the account of `app` (Learn, or power, whose branches
  * move onto credit: the built-in provider's own-key route has no key here).
- * A Learn account has had the first-run walkthrough. Returns the new tree's id.
+ * A Learn account has had the first-run walkthrough. `firstReply` replaces the
+ * text of the main thread's first reply. Returns the new tree's id.
  */
 export async function withExampleLesson(
   context: BrowserContext,
   baseURL: string,
   app: 'learn' | 'power',
+  firstReply?: string,
 ): Promise<string> {
   const userId = await signIn(context, baseURL, newEmail(`example-${app}`));
   await paymentWebhook(context.request, [topUp(userId, 500)]);
@@ -30,6 +32,10 @@ export async function withExampleLesson(
   };
   seedDemoLesson(state, { accountId: 'e2e', now: new Date(), newId: () => crypto.randomUUID() });
   const [tree] = [...state.trees.values()];
+  const nodes = [...state.nodes.values()];
+  const i = nodes.findIndex((n) => n.role === 'assistant');
+  const reply = nodes[i];
+  if (firstReply !== undefined && reply) nodes[i] = { ...reply, content: firstReply };
   const backup = {
     format: 'tangent-tree-backup',
     version: 1,
@@ -38,7 +44,7 @@ export async function withExampleLesson(
     branches: [...state.branches.values()].map((b) =>
       app === 'power' ? { ...b, funding: 'credit' } : b,
     ),
-    nodes: [...state.nodes.values()],
+    nodes,
     links: [...state.links.values()],
   };
   const res = await context.request.post('/api/import', {

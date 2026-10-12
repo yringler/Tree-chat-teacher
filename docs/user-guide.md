@@ -34,6 +34,8 @@ New conversations in both apps start with the same built-in system prompt: it an
 
 The Flutter and phone apps show the first tangent and any you followed before, with **N more tangents** for the rest, and list the reply's other tangents (such as ones asked from the message box) under it. Inside a tangent, its path shows the **Main thread**, the tangent it came from, and **…** for any steps between. The outline (the **Tangents** button on a phone, beside the thread on a wide screen) lists every tangent in the lesson, nested under the one each came from. On a phone the header slides away while you read down and comes back when you scroll up.
 
+**Diagrams.** When a picture would make an answer clearer, the tutor offers a specific one in its last sentence (say, a sequence diagram of a handshake); ask, and it draws it in the reply once the reply has finished. On the web, **Show source** shows the text behind it. A diagram that can't be drawn shows that text, with a note; share links and exports always show the text.
+
 **Checking facts.** On Tangent credit, and on OpenRouter or Anthropic with your own key, a reply can search the web when it likely needs to: deep in a tangent, a specific fact, something recent, or when you ask for sources. A grounded reply cites its claims as links and lists its sources ("Checked against 3 sources"). An unchecked one says "From the tutor's own knowledge", with a **Check sources** button that searches and adds a corrected, cited answer. The open pool never searches.
 
 ## The power app

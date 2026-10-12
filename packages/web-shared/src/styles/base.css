@@ -2043,6 +2043,45 @@ app-node-picker {
 }
 
 /*
+ * Mermaid diagrams (renderMarkdown placeholders, drawn by RenderDiagrams).
+ * Undrawn, a diagram is its code block. Drawn, the code block hides behind
+ * "Show source"; a wide diagram scrolls sideways rather than shrinking its
+ * labels past reading.
+ */
+.diagram {
+  margin: 0.75em 0;
+}
+.diagram > pre {
+  margin: 0;
+}
+.diagram-figure {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px 0;
+}
+.diagram-figure > svg {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+}
+.diagram.is-drawn > pre,
+.diagram.show-source > .diagram-figure {
+  display: none;
+}
+.diagram.show-source > pre {
+  display: block;
+}
+.diagram-toggle {
+  display: flex;
+  margin-left: auto;
+}
+.diagram-note {
+  margin: 0 0 4px;
+  color: var(--fg-muted);
+  font-size: 0.9em;
+}
+
+/*
  * The conversation sidebar (ConversationSidebar): conversations, the open
  * one's outline, and a drawer on narrow screens. Each app lays out the
  * column it sits in (`.sidebar` beside its main column).

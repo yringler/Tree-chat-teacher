@@ -12,9 +12,13 @@ import type { AppBindings } from '../env.js';
  * (test/learn-app.test.ts compares them): Workers Static Assets doesn't
  * apply `_headers` to responses the Worker generates, so the Worker sets
  * these itself.
+ * Trusted Types allows Angular's sanitizing policies, DOMPurify's, and a
+ * `default` policy that exists only once mermaid has loaded, accepts HTML
+ * strings only while a diagram renders and sanitizes them
+ * (web-shared `mermaid-render.ts`).
  */
 export const LEARN_APP_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types angular angular#bundler";
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types angular angular#bundler dompurify default";
 
 /**
  * The login page's policy, identical to the `/login` policy in `_headers`:
@@ -31,11 +35,13 @@ export const LEARN_LOGIN_CSP =
  * file, never a CDN's). The app is one document, so Turnstile, which its
  * sign-in page shows, may load its script and iframe on every page of it.
  * Trusted Types stays enforced: script URLs pass only through Flutter's
- * loader's policy (`flutter-js`) and the app's own for Turnstile's script
- * (`tangent-turnstile`); Flutter draws to a canvas and writes no HTML.
+ * loader's policy (`flutter-js`), the app's own for Turnstile's script
+ * (`tangent-turnstile`) and dart2js's for the app's deferred parts, such as
+ * the diagram library (`dart.deferred-loading`; still `script-src 'self'`);
+ * Flutter draws to a canvas and writes no HTML.
  */
 export const FLUTTER_APP_CSP =
-  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types flutter-js tangent-turnstile";
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types flutter-js tangent-turnstile dart.deferred-loading";
 
 /** The other headers `_headers` sets on every response under `/*`. */
 export const LEARN_COMMON_HEADERS: Readonly<Record<string, string>> = {

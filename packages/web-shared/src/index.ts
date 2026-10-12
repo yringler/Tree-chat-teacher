@@ -128,6 +128,7 @@ export {
   type PickerRow,
   type RelatedLink,
 } from './ui/links-view';
+export { RenderDiagrams } from './ui/diagrams';
 export { selectionText, TypesetMath, typesetMath } from './ui/math';
 export { ShortcutsTable } from './ui/shortcuts-table';
 export { SuggestionGroups } from './ui/suggestion-groups';

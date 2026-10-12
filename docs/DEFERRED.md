@@ -55,6 +55,10 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **Not yet run on a phone.** The Android build compiles, and native sign-in is covered by unit and widget tests, but no device or emulator was available where it was built. To check on Android and iOS: Turnstile passes in the web view, the keyboard offers the emailed code, the token survives a restart, and (Android) a release build signed with the upload key installs.
 - **Small things seen in the browser run:** a lesson whose first send fails stays in the list as an empty "New lesson"; on a phone, "The open pool uses one model" crowds the lesson title in the chat header; Enter sends on the web on phones too; an unknown branch id in the URL shows the main thread with the bad URL kept; "Stopped." uses the error colour though the learner chose it; the logo's dark square nearly vanishes in dark mode.
 - **Emoji and non-Latin scripts (Chinese, Hebrew, Arabic, …) show as empty boxes.** The app bundles Roboto and subsets of Noto Sans Math, Symbols 2 and Mono, so arrows, maths and code render; for a glyph none of them has, Flutter's web engine fetches a Noto font from `fonts.gstatic.com`; `FLUTTER_APP_CSP` refuses it (`connect-src 'self'`), which also keeps learners' addresses from Google, and the console logs each refusal. Fixing it means serving the fallback fonts from `/app/` and pointing the engine's `fontFallbackBaseUrl` there (a custom `web/flutter_bootstrap.js`); Google serves them as hundreds of subset files, so only the scripts and emoji learners need.
+- **Diagram text ignores the text size.** `mermaid_flutter` paints its labels at its own size, so the learner's text scale doesn't reach them.
+- **A diagram's accessible label names its nodes only.** Edge labels ("yes", "SYN-ACK received") are left out of its semantics, as on the web; a reader hears the steps but not what connects them.
+- **State names in state diagrams lose their last letter.** `mermaid_flutter` 0.3.x measures them at normal weight but paints them bold; a fix is proposed upstream. Bump the pinned version once a release has it.
+- **A tab open across a deploy can't draw diagrams.** The web build loads the diagram library (about 660 KB gzipped) as a deferred part on first use; a tab still running the previous `main.dart.js` asks for a part the deploy replaced, and shows each diagram as its source under the failure note until it reloads.
 
 ## Reply and tangent guidance
 
@@ -78,6 +82,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 
 ## Sharing
 
+- **Share links and the HTML export don't draw diagrams.** A mermaid block shows as its source, labelled "Diagram (Mermaid source)" (`VIEWER_STYLE`). Drawing it in the page would add mermaid (about a megabyte of script) to a viewer that is one offline file with one hashed inline script; drawing it in the Worker needs a DOM that measures text, which Workers lack. One way: have the publishing browser draw each diagram and store the sanitized SVG with the snapshot.
 - **`shares.mode` is still in the schema.** Every share is a snapshot and the code writes `snapshot`; migrations are expand-only, so the column is dropped in a release after the one that stopped reading it.
 - **Alerts are email only.** A chat webhook (Zulip) for the high-severity alerts would reach the operator faster; it needs a secret for the webhook URL and a second sender behind `sendAlert`.
 - **Screening thresholds are a first guess.** They are constants in `packages/core/src/moderation/moderation.ts`; tune them from the scores `share_screened` rows record once there are a few weeks of them.

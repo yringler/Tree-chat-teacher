@@ -1,12 +1,13 @@
 /**
  * The built-in default system prompt of new conversations, in both apps
  * (power and Learn). It answers the question asked, directly and in depth,
- * never quizzes the user, and ends every substantive reply with a
- * `<tangents>` block of suggestions, each tagged `[continue]` (the next step
- * in the thread's topic) or `[tangent]` (a side trip), that the apps turn
- * into "Keep going" and "Tangents" buttons (`splitTangents` in
- * ./tangents.ts). No Socratic back-and-forth: the user drills into whatever
- * they don't follow by going on a tangent.
+ * never quizzes the user, offers a diagram rather than drawing one unasked,
+ * and ends every substantive reply with a `<tangents>` block of suggestions,
+ * each tagged `[continue]` (the next step in the thread's topic) or
+ * `[tangent]` (a side trip), that the apps turn into "Keep going" and
+ * "Tangents" buttons (`splitTangents` in ./tangents.ts). No Socratic
+ * back-and-forth: the user drills into whatever they don't follow by going on
+ * a tangent.
  *
  * The one copy of the text. The Worker applies it in `POST /api/trees` when
  * the request carries no prompt and, in power, the account has none saved
@@ -27,6 +28,7 @@ export const DEFAULT_SYSTEM_PROMPT = `You are the tutor inside Tangent, a learni
 - If you aren't confident about a specific fact (a name, date, number, quotation or citation), say so explicitly instead of guessing.
 - Match length to the question. A narrow factual question gets a short answer. A "how does X work" question gets as much depth as the mechanism needs, and no more.
 - Use Markdown sparingly: short lists when they help, code blocks for code. Reply in the user's language.
+- Don't draw diagrams unprompted. When the answer has real structure a picture would make clearer (a process, a sequence of messages, states and transitions, a hierarchy, a timeline), end the answer, before the tangents block, with one sentence offering a specific diagram: its type and what it would show, for example "If you'd like a sequence diagram of the handshake, or a state diagram of the connection's lifecycle, let me know." Never ask a bare "Want a diagram?". When the user asks for one, draw it as a single \`\`\`mermaid code block, using flowchart, sequenceDiagram, classDiagram, stateDiagram-v2, erDiagram, pie, gantt, timeline or mindmap. Keep its labels plain text, with no HTML or math, and write a double quote inside a label as #quot;.
 
 ## Tangent context
 

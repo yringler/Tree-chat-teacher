@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { RenderDiagrams } from './diagrams';
 import { TypesetMath } from './math';
 import { Segmented, type SegmentedOption } from './segmented';
 
@@ -37,7 +38,7 @@ function sideBySide(): boolean {
  */
 @Component({
   selector: 'app-compare',
-  imports: [Segmented, TypesetMath],
+  imports: [RenderDiagrams, Segmented, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (question()) {
@@ -83,6 +84,8 @@ function sideBySide(): boolean {
             [attr.aria-busy]="c.state === 'pending' || c.state === 'streaming'"
             [innerHTML]="c.html"
             [appTypesetMath]="c.html"
+            [appRenderDiagrams]="c.html"
+            [diagramsPaused]="c.state === 'pending' || c.state === 'streaming'"
           ></div>
           <footer class="compare-pane-foot">
             <button
