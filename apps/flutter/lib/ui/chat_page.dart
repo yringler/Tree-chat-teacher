@@ -38,6 +38,9 @@ class _ChatPageState extends State<ChatPage> {
   /// Follows the end of the thread until the learner scrolls up.
   bool _stickToBottom = true;
 
+  /// Each message's key, to find where a reply starts on screen.
+  final _messageKeys = <String, GlobalKey>{};
+
   /// The header is in view. On a narrow screen it slides away while the
   /// learner reads down, to give the thread the room, and back on the way up.
   bool _headerShown = true;
@@ -118,11 +121,34 @@ class _ChatPageState extends State<ChatPage> {
     return false;
   }
 
+  /// Follows a reply only until its first line reaches the top of the view,
+  /// so the learner reads it from its start; past that, the end grows out of
+  /// sight. A learner who scrolls on below its start is followed again.
   void _followEnd() {
     if (!_stickToBottom) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      if (!_scroll.hasClients) return;
+      final position = _scroll.position;
+      final top = _replyTop();
+      if (top != null &&
+          position.pixels <= top &&
+          top < position.maxScrollExtent) {
+        _stickToBottom = false;
+        _scroll.jumpTo(top);
+      } else {
+        _scroll.jumpTo(position.maxScrollExtent);
+      }
     });
+  }
+
+  /// The scroll offset that puts the start of the reply being written at the
+  /// top of the view, while it is laid out.
+  double? _replyTop() {
+    final reply = _chat.streamingNode;
+    if (reply == null) return null;
+    final box = _messageKeys[reply.id]?.currentContext?.findRenderObject();
+    if (box == null || !box.attached) return null;
+    return RenderAbstractViewport.of(box).getOffsetToReveal(box, 0).offset;
   }
 
   /// Sends [text]. A refused message stays (or lands) in the composer, so it
@@ -358,7 +384,7 @@ class _ChatPageState extends State<ChatPage> {
   Widget _message(List<ChatNode> thread, int i) {
     final node = thread[i];
     final message = MessageView(
-      key: ValueKey(node.id),
+      key: _messageKeys.putIfAbsent(node.id, GlobalKey.new),
       node: node,
       status: _chat.statusOf(node.id),
       sideQuestions: _chat.sideQuestionsAt(node),

@@ -152,6 +152,37 @@ describe('Learn: the lesson page', () => {
     expect(p.store.poolBlock()).toBeNull();
   });
 
+  it('follows a long reply only until its start reaches the top of the view', async () => {
+    const p = await page(lesson('normal-model', { status: 'streaming', content: '' }));
+    // jsdom lays nothing out: a 500px view on 3000px of lesson, the reply 400px down.
+    const scroller = document.querySelector<HTMLElement>('.messages')!;
+    let scrollTop = 0;
+    Object.defineProperties(scroller, {
+      scrollHeight: { value: 3000 },
+      clientHeight: { value: 500 },
+      scrollTop: { get: () => scrollTop, set: (v: number) => (scrollTop = v) },
+    });
+    const reply = document.getElementById('msg-a1')!;
+    reply.getBoundingClientRect = () => new DOMRect(0, 400 - scrollTop, 600, 2600);
+
+    p.store.live.set(
+      new Map([
+        [
+          'a1',
+          {
+            nodeId: 'a1',
+            treeId: 't1',
+            branchId: 'trunk',
+            content: 'A wave.',
+            status: null,
+            reconnecting: false,
+          },
+        ],
+      ]),
+    );
+    await vi.waitFor(() => expect(scrollTop).toBe(400));
+  });
+
   it('a reply cut off at its length limit says "Cut off." with Continue, not that it failed', async () => {
     const p = await page(
       lesson('normal-model', { status: 'error', errorKind: 'cut_off', error: 'It hit the limit.' }),

@@ -247,6 +247,30 @@ void main() {
     expect(find.text('Why does it pull?'), findsOneWidget);
   });
 
+  testWidgets('a long reply is followed until its start reaches the top', (
+    tester,
+  ) async {
+    await pumpApp(tester, api, location: '/t/t1');
+    await sendTyped(tester, 'Why tides?');
+    await start(tester);
+    await emit(tester, const DeltaEvent(nodeId: 'a1', text: 'First line.'));
+    for (var i = 0; i < 6; i++) {
+      await emit(
+        tester,
+        DeltaEvent(
+          nodeId: 'a1',
+          text: List.filled(10, '\n\nThe moon pulls the sea.').join(),
+        ),
+      );
+    }
+
+    final list = tester.getRect(find.byType(Scrollable).first);
+    final first = tester.getTopLeft(
+      find.textContaining('First line.', findRichText: true).first,
+    );
+    expect(first.dy, inInclusiveRange(list.top, list.top + 64));
+  });
+
   testWidgets('one tangent shows until the learner asks for more', (
     tester,
   ) async {

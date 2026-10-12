@@ -170,7 +170,7 @@ export class ChatPage implements OnDestroy {
       }
     });
 
-    // Keep the view pinned to the bottom while a reply streams in.
+    // Follow a reply while it streams in, while the view is pinned.
     effect(() => {
       const s = this.store.streamingNode();
       const live = s ? this.store.live().get(s.id)?.content : undefined;
@@ -278,7 +278,27 @@ export class ChatPage implements OnDestroy {
         .getElementById(`msg-${nodeId}`)
         ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } else {
-      el.scrollTop = el.scrollHeight;
+      this.followEnd(el);
     }
+  }
+
+  /**
+   * Scrolls to the bottom, but a reply being written only until its start
+   * reaches the top of the view, so the learner reads it from its first line;
+   * past that, the end grows out of sight. A learner who scrolls on below its
+   * start is followed again.
+   */
+  private followEnd(el: HTMLElement): void {
+    const reply = this.store.streamingNode();
+    const host = reply ? document.getElementById(`msg-${reply.id}`) : null;
+    if (host) {
+      const top = el.scrollTop + host.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      if (el.scrollTop <= top && top < el.scrollHeight - el.clientHeight) {
+        this.pinned.set(false);
+        el.scrollTop = top;
+        return;
+      }
+    }
+    el.scrollTop = el.scrollHeight;
   }
 }
