@@ -15,6 +15,3 @@ docs/audits/
 
 # The Flutter app: `dart format` owns its code, and Flutter's tools write its platform files.
 apps/flutter/
-
-# Raw pasted model output kept verbatim as a rendering sample; formatting would merge its lines and drop its tabs.
-SAMPLE.md
