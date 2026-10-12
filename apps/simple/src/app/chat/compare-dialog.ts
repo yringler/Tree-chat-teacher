@@ -96,7 +96,7 @@ export class CompareDialog implements OnInit {
       this.store.compareRefused(refusal);
     });
 
-    // The branch went away under the sheet (another lesson opened, side question deleted).
+    // The branch went away under the sheet (another lesson opened, tangent deleted).
     effect(() => {
       const idx = this.store.index();
       if (this.run() && !idx?.branches.has(this.branchId())) this.close();

@@ -34,7 +34,7 @@ export interface LinkNoteEdit {
  *   with the app's own `titleOf`. Renders nothing while empty.
  * - `canEdit` (false): show "Edit note" and "Remove" on each chip.
  * - `collapsible` (true): a toggle shows the chips (like the power app's
- *   "N branches"); false lists them under a label (Learn's side questions).
+ *   "N tangents"); false lists them under a label (Learn's tangents).
  * - `expanded` (false, two-way `[(expanded)]`): the toggle's state.
  * - `compact` (false): title only, no breadcrumb or note (Canvas cards);
  *   both stay in the chip's tooltip.
@@ -94,7 +94,7 @@ export interface LinkNoteEdit {
                   [title]="e.tooltip"
                   (click)="$event.stopPropagation(); open.emit(e.nodeId)"
                 >
-                  <app-icon [name]="e.endpoint.isTangentHead ? 'branch' : 'link'" [size]="13" />
+                  <app-icon [name]="e.endpoint.isTangentHead ? 'tangent' : 'link'" [size]="13" />
                   <span class="related-text">
                     @if (!compact() && e.crumbs) {
                       <span class="related-crumbs">{{ e.crumbs }}</span>

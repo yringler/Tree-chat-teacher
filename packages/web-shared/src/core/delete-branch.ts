@@ -1,6 +1,6 @@
 import type { TreeIndex } from '@tangent/core/tree';
 
-/** What an app calls a branch: "branch" in power, "side question" in Learn, "lane" on the canvas. */
+/** What an app calls a branch: "tangent" in power and Learn, "lane" on the canvas. */
 export interface BranchNoun {
   one: string;
   many: string;

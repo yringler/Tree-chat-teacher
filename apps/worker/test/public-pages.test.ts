@@ -9,9 +9,13 @@ import {
   formatBps,
   formatCents,
   formatMicros,
+  HELP_DEFAULT,
+  HELP_TITLE,
   POOL_EMPTY_TEXT,
   poolModelText,
+  REPLY_ACTION,
   roughWords,
+  TANGENT_ACTION,
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
@@ -457,6 +461,22 @@ describe('the landing page', () => {
       expect(html).toContain(`class="dm-pane p${b}"`);
     }
     expect(html.match(/<input type="radio"[^>]* checked/g)).toHaveLength(1);
+  });
+
+  it('shows how tangents work, always open, with both actions, and links to it from the hero and header', async () => {
+    const { html } = await get(deployment(), '/welcome');
+    const card = /<section id="how-tangents"[^]*?<\/section>/.exec(html)?.[0] ?? '';
+    expect(card).not.toBe('');
+    expect(card).not.toContain('<details');
+    const words = text(card);
+    expect(words).toContain(HELP_TITLE);
+    for (const label of [REPLY_ACTION.label, TANGENT_ACTION.label, HELP_DEFAULT.label])
+      expect(words).toContain(label);
+    expect(html.match(/href="#how-tangents"/g)).toHaveLength(1);
+    expect(html).toContain('href="/welcome#how-tangents"');
+    // Ahead of the pool and the ways in, after the problem and fix.
+    expect(html.indexOf('id="how-tangents"')).toBeGreaterThan(html.indexOf('id="fix"'));
+    expect(html.indexOf('id="how-tangents"')).toBeLessThan(html.indexOf('id="modes"'));
   });
 });
 

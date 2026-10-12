@@ -171,13 +171,23 @@ export interface ShareRepository {
 export interface AccountSettings {
   /** System prompt of new trees; null = the built-in default. */
   systemPrompt: string | null;
+  /** When the first-run tangent walkthrough was finished or skipped; null = not yet. */
+  walkthroughDoneAt: string | null;
 }
 
 export interface SettingsRepository {
   /** The account's settings, or null when it has never saved any. */
   getSettings(accountId: string): Promise<AccountSettings | null>;
-  /** Creates or replaces the account's settings. */
-  putSettings(accountId: string, settings: AccountSettings, updatedAt: string): Promise<void>;
+  /**
+   * Sets the fields `patch` names, in one write that leaves the others as
+   * stored (null on the first save), so two changes of different fields at
+   * once both stick. Returns the settings as saved.
+   */
+  updateSettings(
+    accountId: string,
+    patch: Partial<AccountSettings>,
+    updatedAt: string,
+  ): Promise<AccountSettings>;
 }
 
 export interface Repositories {

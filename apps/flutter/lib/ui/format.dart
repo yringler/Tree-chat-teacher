@@ -31,12 +31,12 @@ String relativeDate(DateTime time, {DateTime? now}) {
   return local.year == current.year ? date : '$date ${local.year}';
 }
 
-/// "· 2 side questions" for a lesson with [branchCount] branches, the trunk
-/// among them; empty for a lesson without side questions.
-String sideQuestionsLabel(int branchCount) {
+/// "· 2 tangents" for a lesson with [branchCount] branches, the trunk among
+/// them; empty for a lesson without tangents.
+String tangentsLabel(int branchCount) {
   final count = branchCount - 1;
   if (count < 1) return '';
-  return ' · $count ${count == 1 ? 'side question' : 'side questions'}';
+  return ' · $count ${count == 1 ? 'tangent' : 'tangents'}';
 }
 
 /// `1234567` → `$1.23`, rounded to the nearest cent, negative balances keep

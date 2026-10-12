@@ -3,12 +3,15 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../api/models.dart';
 import '../api/tangents.dart';
+import 'lesson_outline.dart';
 import 'links.dart';
 import 'math_markdown.dart';
+import 'tangent_help_copy.dart';
 import 'theme.dart';
 
 /// One message of the thread: the learner's, or the tutor's reply rendered
-/// as Markdown with its tangents ("Where next?") once it's complete.
+/// as Markdown with its suggestions once it's complete: next steps ("Keep
+/// going") on the newest reply only, and tangents on every reply.
 class MessageView extends StatelessWidget {
   const MessageView({
     super.key,
@@ -18,6 +21,8 @@ class MessageView extends StatelessWidget {
     required this.onFollow,
     required this.onOpenSideQuestion,
     required this.onAskAbout,
+    this.latest = false,
+    this.onContinue,
   });
 
   final ChatNode node;
@@ -25,12 +30,20 @@ class MessageView extends StatelessWidget {
   /// Transient progress text while the reply is written.
   final String? status;
 
-  /// The side questions that fork from this message. One titled like a
-  /// tangent is that tangent followed before, so following it reopens it.
+  /// The tangents that fork from this message. One titled like a suggested
+  /// tangent is that suggestion followed before, so following it reopens it.
   final List<Branch> sideQuestions;
 
   /// Null while following isn't possible (e.g. a send is in flight).
   final ValueChanged<Tangent>? onFollow;
+
+  /// The newest reply of the thread on screen. Only it offers next steps:
+  /// on an older reply, the thread has already moved on.
+  final bool latest;
+
+  /// Sends a next step as a reply on the thread on screen; null while that
+  /// isn't possible.
+  final ValueChanged<Tangent>? onContinue;
 
   final ValueChanged<Branch> onOpenSideQuestion;
 
@@ -70,7 +83,11 @@ class MessageView extends StatelessWidget {
     final split = splitTangents(node.content);
     final streaming = node.status == NodeStatus.streaming;
     final complete = node.status == NodeStatus.complete;
-    final tangents = complete ? split.tangents : const <Tangent>[];
+    final groups = groupTangents(complete ? split.tangents : const []);
+    final nextSteps = latest ? groups.continueOn : const <Tangent>[];
+    final tangents = groups.tangent;
+    // A next step is sent as a reply, so only tangents can have been
+    // followed into a branch.
     final tangentTitles = {for (final t in tangents) t.title};
     final followed = {
       for (final b in sideQuestions)
@@ -103,6 +120,8 @@ class MessageView extends StatelessWidget {
             ),
           if (streaming) const BlinkingCursor(),
           if (node.status == NodeStatus.error) _ErrorBox(node),
+          if (nextSteps.isNotEmpty)
+            _KeepGoing(steps: nextSteps, onContinue: onContinue),
           if (tangents.isNotEmpty)
             _Tangents(
               tangents: tangents,
@@ -117,7 +136,7 @@ class MessageView extends StatelessWidget {
   }
 }
 
-/// The longest quote a side question can ask about (the API's limit).
+/// The longest quote a tangent can ask about (the API's limit).
 const maxQuote = 10000;
 
 /// A reply's text, selectable as a whole; with [onAskAbout], the selection's
@@ -241,6 +260,36 @@ class _ErrorBox extends StatelessWidget {
   }
 }
 
+/// The next steps the newest reply offers; one is sent as a reply.
+class _KeepGoing extends StatelessWidget {
+  const _KeepGoing({required this.steps, required this.onContinue});
+
+  final List<Tangent> steps;
+  final ValueChanged<Tangent>? onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    final onContinue = this.onContinue;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(keepGoingLabel, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 6),
+          for (final step in steps)
+            _TangentButton(
+              tangent: step,
+              followed: false,
+              icon: Icons.arrow_forward,
+              onPressed: onContinue == null ? null : () => onContinue(step),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The tangents a reply offers. A phone has little height to spare, so only
 /// the first one and any followed before show until the learner asks for the
 /// rest.
@@ -280,7 +329,7 @@ class _TangentsState extends State<_Tangents> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Where next?', style: theme.textTheme.bodySmall),
+          Text(tangentsLabel, style: theme.textTheme.bodySmall),
           const SizedBox(height: 6),
           for (final tangent in shown)
             _TangentButton(
@@ -295,7 +344,9 @@ class _TangentsState extends State<_Tangents> {
               ),
               onPressed: () => setState(() => _expanded = true),
               icon: const Icon(Icons.expand_more, size: 18),
-              label: Text('$hidden more'),
+              label: Text(
+                hidden == 1 ? '1 more tangent' : '$hidden more tangents',
+              ),
             ),
         ],
       ),
@@ -303,7 +354,7 @@ class _TangentsState extends State<_Tangents> {
   }
 }
 
-/// Side questions from this message that aren't one of its tangents, such as
+/// Tangents from this message that aren't one of its suggestions, such as
 /// one the learner asked in their own words.
 class _SideQuestions extends StatelessWidget {
   const _SideQuestions({required this.branches, required this.onOpen});
@@ -321,7 +372,7 @@ class _SideQuestions extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            count == 1 ? '1 side question' : '$count side questions',
+            count == 1 ? '1 tangent' : '$count tangents',
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: 6),
@@ -336,10 +387,7 @@ class _SideQuestions extends StatelessWidget {
                     size: 18,
                     color: theme.colorScheme.primary,
                   ),
-                  label: Text(
-                    b.title.isEmpty ? 'Side question' : b.title,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  label: Text(outlineTitle(b), overflow: TextOverflow.ellipsis),
                   onPressed: () => onOpen(b),
                 ),
             ],
@@ -355,11 +403,15 @@ class _TangentButton extends StatelessWidget {
     required this.tangent,
     required this.followed,
     required this.onPressed,
+    this.icon,
   });
 
   final Tangent tangent;
   final bool followed;
   final VoidCallback? onPressed;
+
+  /// Overrides the tangent arrow, as for a next step.
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -382,7 +434,10 @@ class _TangentButton extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  followed ? Icons.chevron_right : Icons.call_split,
+                  icon ??
+                      (followed
+                          ? Icons.chevron_right
+                          : Icons.subdirectory_arrow_right),
                   size: 18,
                   color: theme.colorScheme.primary,
                 ),

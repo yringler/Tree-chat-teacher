@@ -9,7 +9,7 @@ export function treeTitle(title: string): string {
 
 /**
  * A lane's title. A branch started from a whole message is named
- * "Branch: <its first words>" until the first reply renames it; on the canvas
+ * `DEFAULT_BRANCH_TITLE_PREFIX` and its first words until the first reply renames it; on the canvas
  * every column is visibly a lane, so the prefix goes.
  */
 export function laneTitle(branch: Pick<Branch, 'title' | 'titleSource'>): string {

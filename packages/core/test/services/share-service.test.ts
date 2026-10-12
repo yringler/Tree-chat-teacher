@@ -125,11 +125,15 @@ describe('ShareService', () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('refuses to share inside a private branch', async () => {
+  it('refuses to share inside a private tangent', async () => {
     const { shares, tree, secretMsg } = await seeded();
-    await expect(
-      shares.create({ treeId: tree.id, scope: 'path', nodeId: secretMsg.begin.assistantNode.id }),
-    ).rejects.toBeInstanceOf(ValidationError);
+    const create = shares.create({
+      treeId: tree.id,
+      scope: 'path',
+      nodeId: secretMsg.begin.assistantNode.id,
+    });
+    await expect(create).rejects.toBeInstanceOf(ValidationError);
+    await expect(create).rejects.toThrow('That message is inside a private tangent');
   });
 
   it('refuses to republish once the target becomes private, keeping the published snapshot', async () => {

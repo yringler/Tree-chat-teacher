@@ -13,9 +13,9 @@ export interface SidebarWords {
   noTrees: string;
   /** What one is called: "conversation", "lesson". */
   tree: string;
-  /** What a branch is called: "branch", "side question". */
+  /** What a branch is called: "tangent". */
   branch: string;
-  /** The outline's accessible name: "Branches", "Side questions". */
+  /** The outline's accessible name: "Tangents". */
   branches: string;
 }
 

@@ -230,6 +230,18 @@ class TreeSummary {
   final int branchCount;
 }
 
+/// `GET /api/settings`: the account's settings this app reads.
+class Settings {
+  const Settings({required this.walkthroughDoneAt});
+
+  factory Settings.fromJson(Json json) =>
+      Settings(walkthroughDoneAt: json.strOrNull('walkthroughDoneAt'));
+
+  /// When the account finished or skipped the first-run walkthrough (ISO
+  /// time); null while it hasn't, so the walkthrough shows.
+  final String? walkthroughDoneAt;
+}
+
 class Tree {
   const Tree({
     required this.id,
@@ -256,6 +268,7 @@ class Branch {
     required this.branchPointNodeId,
     required this.title,
     required this.model,
+    this.titleSource = 'user',
     this.anchorQuote,
   });
 
@@ -266,6 +279,7 @@ class Branch {
     branchPointNodeId: json.strOrNull('branchPointNodeId'),
     title: json.strOrNull('title') ?? '',
     model: json.strOrNull('model'),
+    titleSource: json.str('titleSource'),
     anchorQuote: json.strOrNull('anchorQuote'),
   );
 
@@ -280,7 +294,12 @@ class Branch {
   final String title;
   final String? model;
 
-  /// The words of the parent's message this side question asks about.
+  /// Who named the branch: 'default' while it carries the server's
+  /// placeholder ("Tangent: " and the first words), 'auto' once the tutor's
+  /// first reply named it, 'user' when the learner did.
+  final String titleSource;
+
+  /// The words of the parent's message this tangent asks about.
   final String? anchorQuote;
 }
 

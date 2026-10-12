@@ -76,17 +76,17 @@ test('every suggested model stays in view under the model id, in power and Canva
 }) => {
   const treeId = await setUp(page, baseURL!);
 
-  // Power: Branch from here.
+  // Power: Tangent ↳ on a reply.
   await page.goto(`/t/${treeId}`);
   const reply = page.locator('.msg-assistant').first();
   await expect(reply).toBeVisible();
-  await reply.getByRole('button', { name: 'Branch from here' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await reply.getByRole('button', { name: 'Tangent ↳' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await dialog
     .getByRole('combobox', { name: 'Provider' })
     .selectOption({ label: 'Tangent credit' });
   await pickMax(dialog, dialog.getByRole('textbox', { name: 'Model' }));
-  await dialog.getByRole('button', { name: 'Create branch' }).click();
+  await dialog.getByRole('button', { name: 'Start tangent' }).click();
   await expect(dialog).toHaveCount(0);
   expect(await creditModels(page, treeId)).toEqual(['max']);
 

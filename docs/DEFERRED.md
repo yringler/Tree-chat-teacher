@@ -56,6 +56,18 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **Small things seen in the browser run:** a lesson whose first send fails stays in the list as an empty "New lesson"; on a phone, "The open pool uses one model" crowds the lesson title in the chat header; Enter sends on the web on phones too; an unknown branch id in the URL shows the main thread with the bad URL kept; "Stopped." uses the error colour though the learner chose it; the logo's dark square nearly vanishes in dark mode.
 - **Emoji and non-Latin scripts (Chinese, Hebrew, Arabic, …) show as empty boxes.** The app bundles Roboto and subsets of Noto Sans Math, Symbols 2 and Mono, so arrows, maths and code render; for a glyph none of them has, Flutter's web engine fetches a Noto font from `fonts.gstatic.com`; `FLUTTER_APP_CSP` refuses it (`connect-src 'self'`), which also keeps learners' addresses from Google, and the console logs each refusal. Fixing it means serving the fallback fonts from `/app/` and pointing the engine's `fontFallbackBaseUrl` there (a custom `web/flutter_bootstrap.js`); Google serves them as hundreds of subset files, so only the scripts and emoji learners need.
 
+## Reply and tangent guidance
+
+- **Suggestions aren't provider-native structured output.** They are a `[continue]`/`[tangent]`-tagged block in the reply's text ([DECISIONS](DECISIONS.md#reply-or-tangent)). JSON mode or tool calls would split the streamed Markdown, need code per provider, and a new SSE event or column to carry them.
+- **No walkthrough in power or Canvas.** It is for a learner's first conversation, and these are surfaces for people past it; power has the help without **Replay the walkthrough**. Adding it means reporting power's screen events to `Walkthrough` and adding the `data-coach` targets.
+- **No help sheet in Canvas.** Its "Reading the canvas" help only says tangent. `TangentHelp` would go in its dialog stack like power's.
+- **Power's Send keeps the label Send,** with the Next hint as its tooltip: power starts tangents from a message's **Tangent ↳** action, and a Tangent and Next pair in its composer would need its own design.
+- **The Flutter help has no keyboard shortcuts link.** The app has no shortcuts list to open; Enter and Ctrl or Cmd+Enter are named in the send buttons' tooltips.
+- **No standalone `/help` page.** `/welcome#how-tangents` is the one public entry point. A page would reuse `TangentHelpCard`.
+- **The Play Store listing text isn't in the repository,** so it still needs the tangent wording by hand in the Play Console; only the feature graphic (`apps/flutter/store/`) changed.
+- **The send buttons' long-press tooltips and the coach marks are checked in widget tests and the browser only,** like the rest of the Flutter app (see [Not yet run on a phone](#the-flutter-app-appsflutter)).
+- **The e2e scripted upstream emits no suggestions.** `apps/e2e/serve.mjs` answers without a `<tangents>` block, so grouped suggestions are covered end to end only through `/learn/demo`, whose generator emits tagged blocks.
+
 ## Links between messages
 
 - **Links across trees.** Only two messages of one tree can be linked. Across trees needs rules for ownership, deleting either tree, and backups that hold one end.

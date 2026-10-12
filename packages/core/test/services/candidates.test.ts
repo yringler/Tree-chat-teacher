@@ -196,7 +196,9 @@ describe('ChatService compare candidates', () => {
 
     const d = await ask(chat, tree.trunkBranchId, 'WHILE STREAMING', { model: 'm1' });
     await chat.beginSend(tree.trunkBranchId, 'pending');
-    await expect(chat.commitCandidate(d.held!)).rejects.toThrow(/still being generated/);
+    await expect(chat.commitCandidate(d.held!)).rejects.toThrow(
+      /still being generated in this thread/,
+    );
   });
 
   it('answers and commits in an empty branch, after its branch point', async () => {

@@ -32,10 +32,10 @@ import { ScopePicker } from '../ui/scope-picker';
               [checked]="includePrivate()"
               (change)="includePrivate.set(!includePrivate())"
             />
-            Include private branches
+            Include private tangents
           </label>
           @if (disabled()) {
-            <p class="muted small">This branch has no messages to export yet.</p>
+            <p class="muted small">This tangent has no messages to export yet.</p>
           } @else {
             <div class="menu-actions">
               <a

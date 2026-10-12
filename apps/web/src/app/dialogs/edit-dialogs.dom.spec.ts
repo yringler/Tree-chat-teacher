@@ -74,7 +74,7 @@ async function open<T>(type: new () => T, inputs: Record<string, unknown> = {}) 
   };
 }
 
-describe('Branch settings', () => {
+describe('Tangent settings', () => {
   it('a title given by a reply while open is not reverted (nor pinned) by Save', async () => {
     const d = await open(BranchSettings, { branch: side });
     await d.set({ branch: { ...side, title: 'Light as a wave', titleSource: 'auto' } });
@@ -93,14 +93,23 @@ describe('Branch settings', () => {
     expect(d.api.updateBranch).toHaveBeenCalledWith('side', { title: 'Waves' });
   });
 
+  it('on the main thread, is the main thread’s settings, with no delete', async () => {
+    const d = await open(BranchSettings, { branch: branch() });
+    screen.getByRole('dialog', { name: 'Main thread settings' });
+    expect(screen.queryByRole('button', { name: /^Delete/ })).toBeNull();
+    await d.user.click(screen.getByRole('checkbox', { name: /^Private/ }));
+    await d.user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(d.api.updateBranch).toHaveBeenCalledWith('trunk', { isPrivate: true });
+  });
+
   it('closes when the selection moves to another branch (Back, a link), not on a focus change', async () => {
     const d = await open(DialogHost);
     d.dialogs.open({ kind: 'branch-settings' });
     await d.fixture.whenStable();
-    screen.getByRole('dialog', { name: 'Branch settings' });
+    screen.getByRole('dialog', { name: 'Tangent settings' });
     d.store.setRoute('t1', 'side', 'a1');
     await d.fixture.whenStable();
-    screen.getByRole('dialog', { name: 'Branch settings' });
+    screen.getByRole('dialog', { name: 'Tangent settings' });
     d.store.setRoute('t1', null, null);
     await d.fixture.whenStable();
     expect(d.dialogs.isOpen('branch-settings')).toBe(false);

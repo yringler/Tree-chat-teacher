@@ -3,9 +3,9 @@ import type { LessonStore } from '../state/lesson-store';
 import { branchTitle } from './titles';
 
 /**
- * Asks, then deletes a side question with every side question below it.
- * Shared by the lesson header (the open side question) and each message's
- * side-question chips. Resolves true if it was deleted.
+ * Asks, then deletes a tangent with every tangent below it.
+ * Shared by the lesson header (the open tangent) and each message's
+ * tangent chips. Resolves true if it was deleted.
  */
 export async function confirmDeleteSideQuestion(
   store: LessonStore,
@@ -17,7 +17,7 @@ export async function confirmDeleteSideQuestion(
     idx && branch
       ? deleteBranchQuestion(idx, branchId, {
           title: branchTitle(branch),
-          noun: { one: 'side question', many: 'side questions' },
+          noun: { one: 'tangent', many: 'tangents' },
           consequences: 'Replies still being written there are stopped.',
         })
       : null;

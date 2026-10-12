@@ -38,12 +38,12 @@ test('Learn: the example lesson shows its connection at both ends', async ({
   const secondReply = message(page, 'that is how creative kittens are born');
   await expect(secondReply.locator('.related-label')).toHaveText(/Connected to 1 message/);
   const chip = secondReply.locator('.connections .related-chip');
-  await expect(chip).toHaveText(/Side question: Why practice works better in the evening/);
+  await expect(chip).toHaveText(/Tangent: Why practice works better in the evening/);
   await expect(secondReply.locator('.related-note')).toHaveText(
     'A made-up tune still needs practice to get catchy',
   );
 
-  // Following it opens the side question, focused on its first message, which links back.
+  // Following it opens the tangent, focused on its first message, which links back.
   await chip.click();
   await expect(page).toHaveURL(/\/learn\/t\/[^/]+\/b\/[^/?]+\?m=/);
   const head = page.locator('app-message-item .msg-focused');
@@ -72,7 +72,7 @@ test('Learn: connect two messages, follow the connection, come back, remove it',
   await page.keyboard.press('Escape');
   await expect(sheet).toBeHidden();
 
-  // Search, pick the side question with Enter, add a note, Connect.
+  // Search, pick the tangent with Enter, add a note, Connect.
   await firstReply.locator('.msg-connect').click();
   await expect(sheet).toBeVisible();
   await sheet.getByRole('combobox').fill('owl hums');
@@ -87,7 +87,7 @@ test('Learn: connect two messages, follow the connection, come back, remove it',
 
   // The chip under the message it was made from…
   const chip = firstReply.locator('.connections .related-chip');
-  await expect(chip).toHaveText(/Side question: Why the owl hums first/);
+  await expect(chip).toHaveText(/Tangent: Why the owl hums first/);
   await expect(firstReply.locator('.related-note')).toHaveText('Both are about the owl');
 
   // …and, after following it, under the other end, with the way back.
@@ -115,14 +115,14 @@ test('Learn: connect two messages, follow the connection, come back, remove it',
     await d.accept();
   });
   await firstReply
-    .getByRole('button', { name: 'Remove the connection to Side question: Why the owl hums first' })
+    .getByRole('button', { name: 'Remove the connection to Tangent: Why the owl hums first' })
     .click();
   await expect.poll(() => asked.length).toBe(1);
   expect(asked[0]).toContain('Remove this connection?');
   await expect(firstReply.locator('.connections .related-chip')).toHaveCount(0);
   await expect(page.locator('.toast').filter({ hasText: 'Connection removed' })).toBeVisible();
 
-  // The side question's first message has no chip either.
+  // The tangent's first message has no chip either.
   await firstReply.locator('.side-questions .chip', { hasText: 'Why the owl hums first' }).click();
   await expect(page).toHaveURL(/\/b\/[^/?]+\?m=/);
   await expect(message(page, 'Why does the owl hum first?')).toBeVisible();

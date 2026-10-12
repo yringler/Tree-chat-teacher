@@ -6,7 +6,7 @@ Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in
 - **Learn** (`/learn/`): a tutor with nothing to configure.
 - **Canvas** (`/canvas/`): experimental. Your conversations as lanes on one surface.
 
-Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. They are views of the same conversations, so a conversation can be opened in any of them: with one open, the switch opens it, on the same branch, in the other app. Learn replies on its own models: a branch on a provider or model Learn doesn't offer is answered by Normal there (or the open pool's model), and keeps its own model in power. Picking a model in Learn moves the branch onto it.
+Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. They are views of the same conversations, so a conversation can be opened in any of them: with one open, the switch opens it, on the same thread, in the other app. Learn replies on its own models: a thread on a provider or model Learn doesn't offer is answered by Normal there (or the open pool's model), and keeps its own model in power. Picking a model in Learn moves the thread onto it.
 
 Tangent is in beta: a notice at the top of each app asks you to report problems to `admin@` the site's domain. Closing it hides it for a day in that browser.
 
@@ -14,48 +14,64 @@ Signing in by email sends one email with a link and a 6-digit code. The link sig
 
 When Tangent is full (a deployment can cap its number of users), the login page still signs existing users in, and offers new people **Join the waitlist**: you get one email when there's room.
 
+## Reply or tangent
+
+Every conversation has a **main thread**, and any message can start a **tangent**: a thread of its own that starts from a message and never writes back into the thread it came from. In Learn a tangent sees everything before it; in power its context mode decides. A tangent can have tangents of its own. (The code and the API call them branches.)
+
+**Reply = the next step. Tangent = a side trip.** If you read the main thread back later, would this exchange belong in the story? If yes, reply; if it would interrupt, go on a tangent. Judge by the thread's topic, not by the last reply: in a lesson on what _e_ is, "Where does that actually come from?" moves the lesson on, while "Wait, what's a limit?" is a detour.
+
+**Not sure? Tangent.** A needless tangent costs nothing: you come back and carry on. A stray reply stays in the main thread, the model reads it on every later turn, and the lesson no longer reads straight through. The loop is: read, go on a tangent for anything confusing or interesting, come back, and reply with what's next. Replies are the next chapter; tangents are footnotes that can grow into books of their own.
+
+- **How tangents work** says this in short: the **?** in Learn's header, **How tangents work** at the foot of the power app's sidebar, the **?** in the Flutter and phone apps' bars, and a card on the landing page (`/welcome#how-tangents`). In the web apps the help links to the keyboard shortcuts, and the `?` key still opens those.
+- **The first-run walkthrough:** in Learn (web, Flutter and the phone apps) a new account is walked round the loop once, in three short notes: after the first reply, one at **Tangent ↳**; inside the tangent, one at the way back to the **Main thread**; back on the main thread, one at **Next ➜**, and replying with it (or **Done**) finishes the tour. They never block the page: you move on by using the control they point at. **Skip tour** (or `Esc`) ends it at any step. Finished or skipped, it doesn't come back on any device; **Replay the walkthrough** in the help runs it again. The demos show it on every new visit.
+
 ## How Tangent answers
 
-New conversations in both apps start with the same built-in system prompt: it answers the question asked, directly and in depth, and never quizzes you. Whatever you don't follow, you branch into. Every substantive reply ends with two to four suggested **tangents** (shown as buttons under the reply, **Where next?**); clicking one opens a branch titled after it and asks it. The Flutter and phone apps show the first tangent and any you followed before, with **N more** for the rest, and list the reply's other side questions (such as ones asked from the message box) under it. Inside a side question, their path shows the main thread, the side question it came from, and **…** for any steps between. The outline (the **Side questions** button on a phone, beside the thread on a wide screen) lists every side question in the lesson, nested under the one each came from. On a phone the header slides away while you read down and comes back when you scroll up.
+New conversations in both apps start with the same built-in system prompt: it answers the question asked, directly and in depth, and never quizzes you. Whatever you don't follow, you go on a tangent into. Every substantive reply ends with suggestions in two groups under it:
+
+- **Keep going**: next steps in the thread's topic. Clicking one sends it as your next message in the thread on screen. Only the newest reply of that thread offers them, since the thread has moved past older ones.
+- **Tangents**: a term or idea from the reply worth clearing up, or a side topic worth exploring. Clicking one opens a tangent titled after it and asks it (or opens the one you started from it before). Every reply offers them.
+
+The Flutter and phone apps show the first tangent and any you followed before, with **N more tangents** for the rest, and list the reply's other tangents (such as ones asked from the message box) under it. Inside a tangent, its path shows the **Main thread**, the tangent it came from, and **…** for any steps between. The outline (the **Tangents** button on a phone, beside the thread on a wide screen) lists every tangent in the lesson, nested under the one each came from. On a phone the header slides away while you read down and comes back when you scroll up.
 
 **Checking facts.** On Tangent credit, and on OpenRouter or Anthropic with your own key, a reply can search the web when it likely needs to: deep in a tangent, a specific fact, something recent, or when you ask for sources. A grounded reply cites its claims as links and lists its sources ("Checked against 3 sources"). An unchecked one says "From the tutor's own knowledge", with a **Check sources** button that searches and adds a corrected, cited answer. The open pool never searches.
 
 ## The power app
 
-- **Replying** in the message box continues the current branch ("Continue this thread…"). Anything new is meant to be a branch, a click away.
-- **Ask about this:** select text in a finished message and **Ask about this** appears above the message box. It opens a branch quoting the selection, with the box focused for your question (nothing is sent until you send it). Its gear (**More**) opens **Branch from here** with the quote filled in. Selecting and pressing `b` opens that dialog too.
-- **Branch from here**, on any message: quote highlighted text, write a starting message (`Ctrl`/`Cmd+Enter` creates and asks), pick a context mode, provider and model. By default a branch inherits its parent's. There is no title field: a branch is named after its first reply; rename it in **Branch settings** or in the outline.
-- **Context modes** decide what the model sees in a branch:
-  - `path`: everything its parent saw, plus the branch's own messages;
+- **Replying** in the message box (**Send**, whose tooltip reads **Next ➜**) continues the thread on screen. Anything new is meant to be a tangent, a click away.
+- **Ask about this:** select text in a finished message and **Ask about this** appears above the message box. It opens a tangent quoting the selection, with the box focused for your question (nothing is sent until you send it). Its gear (**More**) opens **Tangent from here** with the quote filled in. Selecting and pressing `b` opens that dialog too.
+- **Tangent ↳**, on any message, opens **Tangent from here**: quote highlighted text, write a starting message (`Ctrl`/`Cmd+Enter` creates and asks), pick a context mode, provider and model. By default a tangent inherits its parent's. There is no title field: a tangent is named after its first reply; rename it in **Tangent settings** or in the outline.
+- **Context modes** decide what the model sees in a tangent:
+  - `path`: everything its parent saw, plus the tangent's own messages;
   - `summary`: a summary of the parent's conversation;
-  - `message`: only the message the branch forks from, plus the quote;
+  - `message`: only the message the tangent starts from, plus the quote;
   - `independent`: only the quote or topic.
-- **Ask your own question…** ends every finished reply's **Where next?** list. On the newest reply it is already open, without taking focus. Enter asks in a new `path` branch (Shift+Enter for a new line, Escape folds it); its gear opens **Branch from here** with the question.
-- **"N branches"** under a message lists its children. Breadcrumbs and **↩ Parent message** go back to the exact branch point.
-- **Deleting a branch**, with everything below it, after a confirmation: the trash beside a branch in a message's branch list, beside **↩ Parent message**, in the outline or in **Branch settings**. Conversations delete from the home page and the sidebar.
+- **Ask your own question…** ends every finished reply's suggestions, after **Keep going** and **Tangents**. On the newest reply it is already open, without taking focus. Enter asks in a new `path` tangent (Shift+Enter for a new line, Escape folds it); its gear opens **Tangent from here** with the question.
+- **"N tangents"** under a message lists the tangents started from it. Breadcrumbs and **↩ Parent message** go back to the exact message a tangent started from.
+- **Deleting a tangent**, with everything below it, after a confirmation: the trash beside it in a message's tangent list, beside **↩ Parent message**, in the outline or in **Tangent settings**. Conversations delete from the home page and the sidebar.
 - **Context Inspector** (`i`): exactly what the next message will send, and why: inherited messages, summaries, the quote, and what was compacted or dropped.
-- **Review up to here** (on any reply, or `v`): sends the conversation, as the model saw it, to a reviewer model (default in **Settings**). The review lists corrections and says whether to continue on a stronger model; one click moves the branch to the reviewer's model, branches off on it, or puts the corrections in the message box. Reviews aren't stored.
+- **Review up to here** (on any reply, or `v`): sends the conversation, as the model saw it, to a reviewer model (default in **Settings**). The review lists corrections and says whether to continue on a stronger model; one click moves the thread to the reviewer's model, starts a tangent on it, or puts the corrections in the message box. Reviews aren't stored.
 - **Normal | Max and Compare:** a switch in the bar under the message box picks the suggested models; **Compare** asks both and lets you keep one answer. Only the answer you keep enters the conversation, and both are paid for.
-- **The bar under the message box** shows the branch's route (provider, who pays, model) and opens its settings. If the branch is on your own key and this browser has no key for it, it says so before you send, with **Use Tangent credit** and **Add your key**.
+- **The bar under the message box** shows the thread's route (provider, who pays, model) and opens its settings. If the thread is on your own key and this browser has no key for it, it says so before you send, with **Use Tangent credit** and **Add your key**.
 - **Links between messages:** **Link…** on any message (or `l`) links it to another message of the conversation, with an optional note: search or browse, or **Pick on the page instead**. Linked messages show **N related** chips at both ends; a chip opens the other end, with a **Back to ‘…’** pill. Links aren't sent to the model.
 - **Text size:** **Aa** in the chat header (85% to 140%), or `-`, `+` and `0` outside a text field. It applies to the messages and the message box, and is saved in this browser; Learn and Canvas have their own.
 - **Settings** (sidebar): your default system prompt for new conversations in power and Canvas (saved to your account; Learn's lessons keep the tutor prompt; **Use default** starts from the built-in one), and, saved in this browser, the default reviewer, the Normal and Max models, **Reply length** and **Input limit**. The input limit caps how much of a conversation each message sends (16,000 to 128,000 tokens, or a custom number); over it, the oldest messages are summarized (the default) or dropped. As you edit it, it shows what that means in words, pages and, where the price is known, dollars.
 - **Conversation settings:** the conversation's own system prompt (clear it for none) and title.
-- **Private branches** (a branch setting) are left out of every share and export, with everything below them.
-- **Sharing:** **Share…** in the chat header picks a scope (the whole tree, a subtree or one path), with an optional title and expiry. A link shows the conversation as it was when shared; later messages reach it only when you republish it. The dialog first lists the links the conversation already has. The **Shares** page lists every link; republish a link in place or revoke it, which takes effect at once. A shared page is kept out of search engines, labels messages "User" and "AI", and tells readers the replies are AI-generated. Until the operator turns sharing on for everyone, **Share…** appears only for allowed accounts. A new account can publish links after its first day, and each account can create 20 links a day; deleting a link doesn't give it back, and a publish the screening refuses uses one up too. What a link publishes (a new link, a republish or a new title) is screened automatically first; a conversation the screening flags can't be shared, and the app says only that. Every shared page has a **Report this conversation** link, for anyone who opens it, signed in or not; a report may take the link down while it is reviewed. A link taken down shows as **unavailable** on the Shares page, and the only thing left to do with it is delete it.
+- **Private tangents** (a tangent setting) are left out of every share and export, with everything below them.
+- **Sharing:** **Share…** in the chat header picks a scope (the whole conversation, a tangent and everything below it, or one path), with an optional title and expiry. A link shows the conversation as it was when shared; later messages reach it only when you republish it. The dialog first lists the links the conversation already has. The **Shares** page lists every link; republish a link in place or revoke it, which takes effect at once. A shared page is kept out of search engines, labels messages "User" and "AI", and tells readers the replies are AI-generated. Until the operator turns sharing on for everyone, **Share…** appears only for allowed accounts. A new account can publish links after its first day, and each account can create 20 links a day; deleting a link doesn't give it back, and a publish the screening refuses uses one up too. What a link publishes (a new link, a republish or a new title) is screened automatically first; a conversation the screening flags can't be shared, and the app says only that. Every shared page has a **Report this conversation** link, for anyone who opens it, signed in or not; a report may take the link down while it is reviewed. A link taken down shows as **unavailable** on the Shares page, and the only thing left to do with it is delete it.
 - **Export:** Markdown, or one offline HTML file with the same viewer as share links.
-- **Backup:** **Export → JSON backup (everything)** includes everything, private branches and links too. **Import** restores it as a new conversation. Files over 10 MB, Markdown or HTML exports and other JSON are refused with a message saying why.
+- **Backup:** **Export → JSON backup (everything)** includes everything, private tangents and links too. **Import** restores it as a new conversation. Files over 10 MB, Markdown or HTML exports and other JSON are refused with a message saying why.
 - **Keys & credit** (sidebar): your own provider keys, and where credit is sold the balance and **Add credit**. **Billing** (`/billing`): the membership, balance, top-ups and recent usage.
 
 ### Keyboard shortcuts
 
 | Keys              | Action                                                   |
 | ----------------- | -------------------------------------------------------- |
-| `Alt+↑` or `[`    | Parent branch (at the branch point)                      |
-| `Alt+←` / `Alt+→` | Previous / next sibling branch                           |
-| `Alt+↓` or `]`    | First child branch                                       |
+| `Alt+↑` or `[`    | Parent thread (where this tangent started)               |
+| `Alt+←` / `Alt+→` | Previous / next tangent                                  |
+| `Alt+↓` or `]`    | First tangent from here                                  |
 | `j` / `k`         | Next / previous message                                  |
-| `b`               | Branch from the focused message                          |
+| `b`               | Tangent from the focused message                         |
 | `v`               | Review up to the focused (or latest) reply               |
 | `l`               | Link the focused (or latest) message to another          |
 | `/`               | Focus the message box                                    |
@@ -67,7 +83,7 @@ New conversations in both apps start with the same built-in system prompt: it an
 
 ### Without a membership
 
-Where the operator charges a membership, replies on your own keys need one. Without it, nothing is locked away: conversations stay listed, readable, exportable and manageable. A branch on your own key shows a notice where the message box was: **Renew membership** (or **Become a member**), **Open in Learn** (the same conversation in Learn, where the open pool or Tangent credit can reply), and, while credit can pay, **Continue with Tangent credit**, which moves that branch onto credit.
+Where the operator charges a membership, replies on your own keys need one. Without it, nothing is locked away: conversations stay listed, readable, exportable and manageable. A thread on your own key shows a notice where the message box was: **Renew membership** (or **Become a member**), **Open in Learn** (the same conversation in Learn, where the open pool or Tangent credit can reply), and, while credit can pay, **Continue with Tangent credit**, which moves that thread onto credit.
 
 ## Learn
 
@@ -75,27 +91,29 @@ Learn keeps only the essentials:
 
 - a list of lessons, with **Import** above it and **Export** (the download icon) on each lesson;
 - a chat with a **Normal | Max** toggle (while Max is on, a note says about how many times as much it uses) and **Compare** next to Send: Normal and Max both answer, side by side on a wide screen; only the answer you keep enters the lesson;
-- the tutor's suggested tangents under each reply. After a reply, the message box asks a **side question** from it ("Ask a side question…"): the pill at its start says where your message goes, and a click switches it to **Continue** the lesson or side question you're in (kept until you open another lesson). After a reply that failed, or inside a side question with no message yet, the box just continues. The box grows to three lines while you type in it, and the pill gets a row of its own; on a phone it shows only its icon until then. The Flutter and phone apps work the same way;
-- **Ask about this** on selected text (above the message box on the web, in the selection menu in the Flutter and phone apps) puts the words on the message box ("Ask about this…"). Your next message asks about them in a new side question, which shows the quote under its title; **×** takes them off;
+- the tutor's **Keep going** and **Tangents** suggestions under each reply ([How Tangent answers](#how-tangent-answers));
+- two buttons under the message box after a reply: **Tangent ↳** ("Wait, what's that?") sends your message as a new tangent from that reply, and **Next ➜** ("Got it, what's next?") sends it as the next message of the thread you're in, the main thread or, inside a tangent, that tangent. Their tooltips (a long press in the Flutter and phone apps) say when to pick each. `Enter` sends as a tangent and `Ctrl`/`Cmd+Enter` as Next (`Shift+Enter` for a new line). With nothing to go on a tangent from (a new lesson, a reply that failed, a tangent with no message yet) there is just **Send**. The box grows to three lines while you type in it. The Flutter and phone apps work the same way;
+- **Ask about this** on selected text (above the message box on the web, in the selection menu in the Flutter and phone apps) puts the words on the message box ("Ask about this…"). Your next message asks about them in a new tangent, which shows the quote under its title, so only **Tangent ↳** shows; **×** takes them off;
 - **Connect** on a message: link it to a related message of the lesson, with an optional note; both then list it under **Connected to N**;
-- finding your way: a side question opens at its first message. Inside one, the path (**Lesson** › … › here) returns to the message it started from; on a phone the path shows its start and its last steps. The **sidebar** (the menu button on a phone) lists your lessons, and under the open one the lesson and every side question in it, nested under the one each came from; delete a lesson or side question from its trash. Click a message to mark it (the URL then points at it). On a keyboard: `Alt`+arrows or `[` / `]` between side questions, `j` / `k` between messages, `/` the message box, `?` lists them all;
-- deleting a side question with everything below it (the trash beside its chip, or beside it in the sidebar);
+- finding your way: a tangent opens at its first message. Inside one, the path (**Main thread** › … › here) returns to the message it started from; **Main thread** goes back to the lesson's main thread. On a phone the path shows its start and its last steps. The **sidebar** (the menu button on a phone) lists your lessons, and under the open one the main thread and every tangent in it, nested under the one each came from; delete a lesson or tangent from its trash. Click a message to mark it (the URL then points at it). On a keyboard: `Alt`+arrows or `[` / `]` between tangents, `j` / `k` between messages, `/` the message box, `?` lists them all;
+- **How tangents work** (the **?** in the header) and the first-run walkthrough ([Reply or tangent](#reply-or-tangent));
+- deleting a tangent with everything below it (the trash beside its chip, or beside it in the sidebar);
 - **Aa** for the lesson's text size;
 - **Your instructions** (the pencil in a lesson's header, while replies are paid with your own key or credit): instructions of your own for that lesson, such as "Answer in French", added after the tutor's. The open pool ignores them, and so does power;
 - **How replies are paid for** (account menu): your own OpenRouter key, **Tangent credit** (prepaid; the header shows the balance), or the **open pool** (free within daily limits, while it has credit). Where the membership is required, your own key needs it; credit and the pool never do. A message refused for want of a key, credit or membership is kept and sent once you pick a way on. The Flutter and phone apps have the same dialog in their account menu, and a refused message stays in the message box with **How you pay**, to send again once you pick; they keep the key encrypted (on a phone, in its keychain) and send members to the web for the membership and credit;
 - **Billing** (`/learn/billing`): the membership, and with credit the balance, top-ups and recent usage.
 - **Delete account** (account menu, here and in the Flutter and phone apps, or `/learn/delete-account` as a page of its own): deletes the account all three apps share, once you retype your email. The public `/delete-account` page says what is deleted and kept, and its button signs you in and opens that page.
 
-An import into Learn is adapted so it can be continued there: branches on a provider or model Learn doesn't offer move to Normal, every side question gets the whole path as context, and the lesson gets Learn's tutor prompt. Nothing is charged by an import.
+An import into Learn is adapted so it can be continued there: threads on a provider or model Learn doesn't offer move to Normal, every tangent gets the whole path as context, and the lesson gets Learn's tutor prompt. Nothing is charged by an import.
 
 ## Canvas (experimental)
 
 A view of the same conversations: anything started in power or Learn opens on the canvas and the other way round.
 
-- **Every branch is a lane** on one pannable, zoomable surface, hanging to the right of the message it forks from. The curve's stroke shows its context mode (solid `path`, dashed `summary`, dash-dot `message`, dotted `independent`).
+- **Every thread is a lane** on one pannable, zoomable surface, a tangent's lane hanging to the right of the message it starts from. The curve's stroke shows its context mode (solid `path`, dashed `summary`, dash-dot `message`, dotted `independent`).
 - **Every lane has its own message box and streams on its own;** the bar counts how many are writing.
-- **Branch into variants:** the branch button opens one lane or several at once, each with its own mode and model, and an optional starting message sent to all of them ("Every context mode" asks the same question three ways).
-- **Ask your own** and **Ask about this** work as in power, opening new lanes.
+- **Tangent from here, in variants:** the tangent button opens one lane or several at once, each with its own mode and model, and an optional starting message sent to all of them ("Every context mode" asks the same question three ways).
+- **Keep going**, **Tangents**, **Ask your own** and **Ask about this** work as in power: Keep going (on the selected lane's last reply) sends the lane's next message, and the others open new lanes.
 - **Lineage:** with a lane selected, the cards the model would see light up; summarized and dropped ones are marked.
 - **Fold** a lane's subtree into a capsule; a minimap and keyboard navigation (`?` lists it) cover the rest.
 - **Links** across lanes: drag the port on a card's edge onto another card, or press `r` for pick mode.
@@ -106,4 +124,4 @@ There is no reviewer, share, export or settings editor on the canvas; use the po
 
 ## The demos
 
-`/learn/demo`, `/demo` and `/canvas/demo` run the apps entirely in the browser: no sign-in, no model calls, and nothing kept after the tab closes. Replies are random English sentences, but branching, tangents, "Ask about this", Check sources (on pretend sources), export and import behave as in the real app.
+`/learn/demo`, `/demo` and `/canvas/demo` run the apps entirely in the browser: no sign-in, no model calls, and nothing kept after the tab closes. Replies are random English sentences, but tangents, suggestions, "Ask about this", Check sources (on pretend sources), export and import behave as in the real app.

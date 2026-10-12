@@ -31,7 +31,7 @@ import { ModePicker } from '../ui/mode-picker';
   imports: [Modal, ModePicker, ModelPicker],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Branch from here" (closed)="close()">
+    <app-modal heading="Tangent from here" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); create()">
         @if (source(); as n) {
           <div class="excerpt">
@@ -42,14 +42,14 @@ import { ModePicker } from '../ui/mode-picker';
 
         <label class="field">
           <span class="field-label"
-            >Anchor quote <span class="muted">(optional; focuses the new branch)</span></span
+            >Anchor quote <span class="muted">(optional; focuses the new tangent)</span></span
           >
           <textarea
             rows="3"
             [value]="quote()"
             (input)="quote.set(q.value)"
             #q
-            placeholder="Select text in a message before branching to quote it"
+            placeholder="Select text in a message before starting the tangent to quote it"
           ></textarea>
         </label>
         @if (quote()) {
@@ -65,7 +65,7 @@ import { ModePicker } from '../ui/mode-picker';
           <label class="field">
             <span class="field-label"
               >Starting message
-              <span class="muted">(optional; sent as the branch’s first message)</span></span
+              <span class="muted">(optional; sent as the tangent’s first message)</span></span
             >
             <textarea
               rows="3"
@@ -74,7 +74,7 @@ import { ModePicker } from '../ui/mode-picker';
               (input)="message.set(m.value)"
               (keydown)="onMessageKey($event)"
               #m
-              placeholder="Ask something to start the branch, or leave empty to write it later"
+              placeholder="Ask something to start the tangent, or leave empty to write it later"
             ></textarea>
           </label>
         }
@@ -93,7 +93,7 @@ import { ModePicker } from '../ui/mode-picker';
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
-            {{ saving() ? 'Creating…' : firstMessage() ? 'Create and ask' : 'Create branch' }}
+            {{ saving() ? 'Creating…' : firstMessage() ? 'Create and ask' : 'Start tangent' }}
           </button>
         </div>
       </form>

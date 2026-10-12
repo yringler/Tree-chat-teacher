@@ -10,7 +10,7 @@ import {
   type ShareSource,
 } from '@tangent/shared';
 
-/** Longest "Forked from" excerpt. */
+/** Longest "Tangent from" excerpt. */
 const EXCERPT_MAX = 80;
 
 /** Text of a Markdown link: no brackets or newlines that would break it. */
@@ -35,8 +35,8 @@ export function sourcesMarkdown(sources: readonly ShareSource[] | undefined): st
 
 /**
  * A message as shared or exported: an assistant reply's `<tangents>` block
- * becomes a plain "Where next?" list (there are no buttons to follow it),
- * and a grounded reply ends with its "Sources".
+ * becomes plain "Keep going" and "Tangents" lists (there are no buttons to
+ * follow them), and a grounded reply ends with its "Sources".
  */
 export function messageMarkdown(m: ShareMessage): string {
   if (m.role !== 'assistant') return m.content;
@@ -57,10 +57,11 @@ function oneLine(text: string): string {
 /**
  * Markdown export of a payload: title, optional collapsed ancestor context
  * (<details>), then branches depth-first. Each branch gets a heading with its
- * breadcrumb (e.g. "Trunk › Side topic"), a "Forked from: …" line quoting the
+ * breadcrumb (e.g. "Trunk › Side topic"), a "Tangent from: …" line quoting the
  * fork message excerpt, an optional anchor-quote blockquote, then messages as
  * "**User:**" / "**AI:**" blocks. Message content is emitted verbatim,
- * except that a reply's `<tangents>` block becomes a "Where next?" list.
+ * except that a reply's `<tangents>` block becomes "Keep going" and
+ * "Tangents" lists.
  */
 export function payloadToMarkdown(payload: SharePayload): string {
   const byKey = new Map<string, ShareBranch>(payload.branches.map((b) => [b.key, b]));
@@ -100,7 +101,7 @@ export function payloadToMarkdown(payload: SharePayload): string {
     const fork = branch.forkMessageKey === null ? undefined : messages.get(branch.forkMessageKey);
     if (fork !== undefined) {
       blocks.push(
-        `Forked from: “${plainText(splitTangents(fork.content).body, { max: EXCERPT_MAX })}”`,
+        `Tangent from: “${plainText(splitTangents(fork.content).body, { max: EXCERPT_MAX })}”`,
       );
     }
     if (branch.anchorQuote !== null && branch.anchorQuote.trim() !== '') {

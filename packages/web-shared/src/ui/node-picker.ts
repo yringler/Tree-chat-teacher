@@ -54,7 +54,7 @@ const noLinks: LinksByNode = new Map();
  * - `placeholder`, `noteLabel`, `notePlaceholder`, `submitLabel`: copy
  *   (Learn: "This connects to…", "Why? (a note for yourself)", "Connect").
  * - `tangentLabel` ('Tangent'): what a branch heading is called, before its
- *   title ("Tangent: ‹title›"; Learn: 'Side question').
+ *   title ("Tangent: ‹title›").
  *
  * Outputs:
  * - `picked`: `{ nodeId, note }`; the app creates the link and closes.
@@ -108,7 +108,7 @@ const noLinks: LinksByNode = new Map();
         @for (row of rows(); track row.key; let i = $index) {
           @if (row.nodeId === null) {
             <li class="node-picker-heading" role="presentation" [style.--depth]="row.depth">
-              <app-icon name="branch" [size]="13" />
+              <app-icon name="tangent" [size]="13" />
               <span class="node-picker-title">{{ row.title }}</span>
             </li>
           } @else {
@@ -126,7 +126,7 @@ const noLinks: LinksByNode = new Map();
               (click)="choose(i)"
             >
               @if (row.kind === 'branch') {
-                <app-icon name="branch" [size]="13" />
+                <app-icon name="tangent" [size]="13" />
                 <span class="node-picker-title"
                   ><span class="sr-only">{{ tangentLabel() }}: </span>{{ row.title }}</span
                 >
@@ -153,7 +153,7 @@ const noLinks: LinksByNode = new Map();
       </ul>
     } @else {
       <div class="node-picker-chosen">
-        <app-icon [name]="c.kind === 'branch' ? 'branch' : 'link'" [size]="14" />
+        <app-icon [name]="c.kind === 'branch' ? 'tangent' : 'link'" [size]="14" />
         <span class="node-picker-text">
           @if (chosenCrumbs(); as crumbs) {
             <span class="node-picker-crumbs">{{ crumbs }}</span>

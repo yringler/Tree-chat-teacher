@@ -553,7 +553,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         await runBatch(db, items);
       } catch (err) {
         if (isUniqueViolation(err)) {
-          throw new ConflictError('The branch changed concurrently; reload and try again');
+          throw new ConflictError('This thread changed in the meantime; reload and try again');
         }
         throw err;
       }
@@ -805,21 +805,31 @@ export function createD1Repositories(d1: D1Database): Repositories {
   const settingsRepo: SettingsRepository = {
     async getSettings(accountId) {
       const row = await db
-        .select({ systemPrompt: accountSettings.systemPrompt })
+        .select({
+          systemPrompt: accountSettings.systemPrompt,
+          walkthroughDoneAt: accountSettings.walkthroughDoneAt,
+        })
         .from(accountSettings)
         .where(eq(accountSettings.accountId, accountId))
         .get();
-      return row ? { systemPrompt: row.systemPrompt } : null;
+      return row
+        ? { systemPrompt: row.systemPrompt, walkthroughDoneAt: row.walkthroughDoneAt }
+        : null;
     },
 
-    async putSettings(accountId, settings, updatedAt) {
-      await db
+    async updateSettings(accountId, patch, updatedAt) {
+      // Only the named columns in the update, so a concurrent change of another one stays.
+      const set = { ...definedOnly(patch), updatedAt };
+      const row = await db
         .insert(accountSettings)
-        .values({ accountId, systemPrompt: settings.systemPrompt, updatedAt })
-        .onConflictDoUpdate({
-          target: accountSettings.accountId,
-          set: { systemPrompt: settings.systemPrompt, updatedAt },
-        });
+        .values({ accountId, ...set })
+        .onConflictDoUpdate({ target: accountSettings.accountId, set })
+        .returning({
+          systemPrompt: accountSettings.systemPrompt,
+          walkthroughDoneAt: accountSettings.walkthroughDoneAt,
+        })
+        .get();
+      return { systemPrompt: row.systemPrompt, walkthroughDoneAt: row.walkthroughDoneAt };
     },
   };
 

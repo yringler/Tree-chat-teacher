@@ -33,11 +33,11 @@ describe('payloadToMarkdown', () => {
       md.indexOf('## Trunk › Side'),
       md.indexOf('## Trunk › Side <b>topic</b> › Deep'),
     );
-    expect(side).toContain('Forked from: “CONTENTA1 Like this: const x: number = 1;”');
+    expect(side).toContain('Tangent from: “CONTENTA1 Like this: const x: number = 1;”');
     expect(side).toContain('> ANCHORQ the "quote" <i>');
-    expect(side.indexOf('Forked from')).toBeLessThan(side.indexOf('> ANCHORQ'));
+    expect(side.indexOf('Tangent from')).toBeLessThan(side.indexOf('> ANCHORQ'));
     expect(side.indexOf('> ANCHORQ')).toBeLessThan(side.indexOf('**User:**'));
-    expect(md).not.toMatch(/## Trunk\n\nForked from/);
+    expect(md).not.toMatch(/## Trunk\n\nTangent from/);
   });
 
   it('emits message content verbatim', () => {
@@ -48,7 +48,7 @@ describe('payloadToMarkdown', () => {
 
   it('marks empty branches and ends with a newline', () => {
     expect(md).toContain(
-      '## Trunk › Other\n\nForked from: “CONTENTA1 Like this: const x: number = 1;”\n\n_(no messages)_',
+      '## Trunk › Other\n\nTangent from: “CONTENTA1 Like this: const x: number = 1;”\n\n_(no messages)_',
     );
     expect(md.endsWith('\n')).toBe(true);
     expect(md.endsWith('\n\n')).toBe(false);
@@ -60,9 +60,9 @@ describe('payloadToMarkdown', () => {
     const m3 = trunk?.messages[1];
     if (m3) m3.content = 'word '.repeat(50);
     const out = payloadToMarkdown(p);
-    const line = out.split('\n').find((l) => l.startsWith('Forked from:')) ?? '';
+    const line = out.split('\n').find((l) => l.startsWith('Tangent from:')) ?? '';
     expect(line.endsWith('…”')).toBe(true);
-    expect(Array.from(line).length).toBeLessThanOrEqual('Forked from: “”'.length + 80);
+    expect(Array.from(line).length).toBeLessThanOrEqual('Tangent from: “”'.length + 80);
   });
 
   it('prefixes every line of a multi-line anchor quote', () => {
@@ -75,7 +75,7 @@ describe('payloadToMarkdown', () => {
 
 describe('tangents in shared replies', () => {
   const reply =
-    'The answer.\n\n<tangents>\n- Why ice floats — density again\n- Heavy water\n</tangents>';
+    'The answer.\n\n<tangents>\n- [tangent] Why ice floats — density again\n- [continue] Heavy water\n</tangents>';
   const payload = samplePayload({
     context: null,
     branches: [
@@ -101,20 +101,20 @@ describe('tangents in shared replies', () => {
     ],
   });
 
-  it('turns the block into a "Where next?" list and keeps it out of fork excerpts', () => {
+  it('turns the block into "Keep going" and "Tangents" lists and keeps it out of fork excerpts', () => {
     const md = payloadToMarkdown(payload);
     expect(md).toContain(
-      '**AI:**\n\nThe answer.\n\n**Where next?**\n\n- **Why ice floats** — density again\n- **Heavy water**',
+      '**AI:**\n\nThe answer.\n\n**Keep going**\n\n- **Heavy water**\n\n**Tangents**\n\n- **Why ice floats** — density again',
     );
     expect(md).not.toContain('<tangents>\n- Why');
-    expect(md).toContain('Forked from: “The answer.”');
+    expect(md).toContain('Tangent from: “The answer.”');
     // Only assistant replies carry tangents; user text stays verbatim.
     expect(md).toContain('Q <tangents>\n- kept\n</tangents>');
   });
 });
 
 describe('sources in exports', () => {
-  it('ends a grounded reply with a Sources list, after Where next?', () => {
+  it('ends a grounded reply with a Sources list, after the suggestions', () => {
     const md = messageMarkdown({
       key: 'm1',
       role: 'assistant',
@@ -126,7 +126,7 @@ describe('sources in exports', () => {
       ],
     });
     expect(md).toBe(
-      'Body.\n\n**Where next?**\n\n- **Next** — why\n\n**Sources**\n\n' +
+      'Body.\n\n**Tangents**\n\n- **Next** — why\n\n**Sources**\n\n' +
         '- [An odd title](https://example.org/a)\n- [example.com](https://example.com/b%20%28c%29)',
     );
   });

@@ -4,8 +4,8 @@ import { withExampleLesson } from './example-lesson';
 /*
  * Links between messages in the Canvas, against the Worker: the demos'
  * example conversation ("How do kittens learn to whistle?"), imported into
- * the power account on Tangent credit, has a main thread, a side question
- * lane ("Why the owl hums first"), a followed tangent lane ("Why practice
+ * the power account on Tangent credit, has a main thread, a tangent lane
+ * ("Why the owl hums first"), a followed suggestion's lane ("Why practice
  * works better in the evening") and one link (the main thread's second reply
  * to that tangent's first message). Links are drawn as lines between the
  * lanes with a glyph halfway. Each test is a new user.
@@ -70,7 +70,7 @@ test('canvas: drag a link between cards, follow it from its glyph, come back, re
   expect(owlsId).toBeTruthy();
   expect(kittensId).toBeTruthy();
 
-  // From the side question's reply (one lane) onto the main thread's first question (another).
+  // From the tangent's reply (one lane) onto the main thread's first question (another).
   await dragLink(page, owls, kittens);
   await expect(page.locator('.toast', { hasText: 'Messages linked' })).toBeVisible();
   await expect(page.locator('.xlink-path')).toHaveCount(2);

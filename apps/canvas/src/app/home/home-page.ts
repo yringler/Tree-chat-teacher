@@ -25,11 +25,11 @@ import { ModelField } from '../dialogs/model-field';
   template: `
     <div class="page-body">
       <section class="intro">
-        <h1>Every branch, side by side.</h1>
+        <h1>Every tangent, side by side.</h1>
         <p class="lead">
-          Canvas lays a conversation out as a map: each branch is a lane, lanes hang off the message
-          they fork from, and all of them can stream at once. Branch from any message into several
-          variants and watch the answers arrive next to each other.
+          Canvas lays a conversation out as a map: each tangent is a lane, lanes hang off the
+          message they start from, and all of them can stream at once. Go on a tangent from any
+          message, in several variants at once, and watch the answers arrive next to each other.
         </p>
       </section>
 

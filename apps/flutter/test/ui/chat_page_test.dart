@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
+import 'package:tangent/ui/tangent_help_copy.dart';
 
 import '../fakes.dart';
 
@@ -9,6 +10,14 @@ const reply =
     '<tangents>\n'
     '- Spring tides — when the sun and moon line up\n'
     '- Tidal locking — why we see one face of the moon\n'
+    '</tangents>';
+
+/// A reply whose suggestions carry their kind.
+const taggedReply =
+    'The **moon** pulls the sea.\n\n'
+    '<tangents>\n'
+    '- [continue] Neap tides — the other half of the month\n'
+    '- [tangent] Tidal locking — why we see one face of the moon\n'
     '</tangents>';
 
 final userNode = node('u1', branch: 'trunk', seq: 0, content: 'Why tides?');
@@ -36,6 +45,13 @@ void main() {
   Future<void> sendTyped(WidgetTester tester, String text) async {
     await type(tester, text);
     await tester.tap(find.byTooltip('Send'));
+    await tester.pump();
+  }
+
+  /// Types [text] and sends it with the action labelled [label].
+  Future<void> sendAs(WidgetTester tester, String label, String text) async {
+    await type(tester, text);
+    await tester.tap(find.text(label));
     await tester.pump();
   }
 
@@ -90,7 +106,7 @@ void main() {
       findsWidgets,
     );
     expect(find.textContaining('tangents', findRichText: true), findsNothing);
-    expect(find.text('Where next?'), findsNothing);
+    expect(find.text('Tangents'), findsNothing);
 
     await emit(
       tester,
@@ -106,8 +122,9 @@ void main() {
       ),
     );
     await settle(tester);
-    expect(find.byTooltip('Send'), findsOneWidget);
-    expect(find.text('Where next?'), findsOneWidget);
+    expect(find.text(tangentAction.label), findsOneWidget);
+    expect(find.text(replyAction.label), findsOneWidget);
+    expect(find.text('Tangents'), findsOneWidget);
     expect(find.text('Spring tides'), findsOneWidget);
     expect(find.text('when the sun and moon line up'), findsOneWidget);
 
@@ -120,9 +137,7 @@ void main() {
     expect(find.text('Main thread'), findsOneWidget);
   });
 
-  testWidgets('a tangent followed before reopens its side question', (
-    tester,
-  ) async {
+  testWidgets('a tangent followed before reopens it', (tester) async {
     api.details['t1'] = treeDetail(
       title: 'Tides',
       branches: [
@@ -149,14 +164,14 @@ void main() {
     expect(api.createdBranches, isEmpty);
     expect(api.sends, isEmpty);
     expect(find.text('Main thread'), findsOneWidget);
-    expect(find.text('Side question · Spring tides'), findsOneWidget);
+    expect(find.text('Tangent · Spring tides'), findsOneWidget);
 
     await tester.tap(find.text('Main thread'));
     await settle(tester);
     expect(find.text('Main thread'), findsNothing);
   });
 
-  testWidgets('a side question asked in its own words is listed and opens', (
+  testWidgets('a tangent asked in its own words is listed and opens', (
     tester,
   ) async {
     api.details['t1'] = treeDetail(
@@ -178,18 +193,16 @@ void main() {
       ],
     );
     await pumpApp(tester, api, location: '/t/t1');
-    expect(find.text('1 side question'), findsOneWidget);
+    expect(find.text('1 tangent'), findsOneWidget);
 
     await tester.tap(find.text('Moon gravity'));
     await settle(tester);
     expect(api.createdBranches, isEmpty);
-    expect(find.text('Side question · Moon gravity'), findsOneWidget);
+    expect(find.text('Tangent · Moon gravity'), findsOneWidget);
     expect(find.text('Why does it pull?'), findsOneWidget);
   });
 
-  testWidgets('opening a side question shows it from its start', (
-    tester,
-  ) async {
+  testWidgets('opening a tangent shows it from its start', (tester) async {
     final long = List.filled(60, 'The moon pulls the sea.').join('\n\n');
     api.details['t1'] = treeDetail(
       title: 'Tides',
@@ -241,7 +254,7 @@ void main() {
 
     final top = tester.getRect(list).top;
     expect(
-      tester.getTopLeft(find.text('Side question · Moon gravity')).dy,
+      tester.getTopLeft(find.text('Tangent · Moon gravity')).dy,
       inInclusiveRange(top, top + 64),
     );
     expect(find.text('Why does it pull?'), findsOneWidget);
@@ -259,15 +272,109 @@ void main() {
     String? hint(WidgetTester tester) =>
         tester.widget<TextField>(find.byType(TextField)).decoration?.hintText;
 
-    testWidgets('asks a side question from the last reply', (tester) async {
+    testWidgets('offers Tangent and Next after a reply, not Send', (
+      tester,
+    ) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',
         nodes: [userNode, answered],
       );
       await pumpApp(tester, api, location: '/t/t1');
-      expect(hint(tester), 'Ask a side question…');
+      expect(find.text(tangentAction.label), findsOneWidget);
+      expect(find.text(replyAction.label), findsOneWidget);
+      expect(find.bySemanticsLabel('Send as tangent'), findsOneWidget);
+      expect(find.bySemanticsLabel('Send as next step'), findsOneWidget);
+      expect(find.byTooltip('Send'), findsNothing);
+      // Equally wide, the tangent first.
+      final tangent = tester.getRect(find.byType(FilledButton));
+      final next = tester.getRect(find.byType(OutlinedButton));
+      expect(tangent.width, closeTo(next.width, 0.5));
+      expect(tangent.left, lessThan(next.left));
+    });
 
-      await sendTyped(tester, 'Why the moon?');
+    testWidgets('an empty lesson offers only Send', (tester) async {
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.byTooltip('Send'), findsOneWidget);
+      expect(find.text(tangentAction.label), findsNothing);
+      expect(find.text(replyAction.label), findsNothing);
+    });
+
+    testWidgets('the actions say when to pick each', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.byTooltip(tangentAction.hint), findsOneWidget);
+      expect(find.byTooltip(replyAction.hint), findsOneWidget);
+    });
+
+    testWidgets('in a tangent, Next keeps the tangent moving', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon'),
+        ],
+        nodes: [
+          userNode,
+          answered,
+          node('s1', branch: 'side-9', seq: 0, content: 'Why the moon?'),
+          node(
+            's2',
+            branch: 'side-9',
+            seq: 1,
+            role: Role.assistant,
+            content: 'Gravity.',
+          ),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      expect(find.byTooltip(replyAction.hintInTangent), findsOneWidget);
+      expect(find.byTooltip(replyAction.hint), findsNothing);
+
+      await sendAs(tester, replyAction.label, 'And the sun?');
+      expect(api.createdBranches, isEmpty);
+      expect(api.sends.single.target, 'side-9');
+    });
+
+    testWidgets('in a tangent with a reply, the hint names the tangent', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon'),
+        ],
+        nodes: [
+          userNode,
+          answered,
+          node('s1', branch: 'side-9', seq: 0, content: 'Why the moon?'),
+          node(
+            's2',
+            branch: 'side-9',
+            seq: 1,
+            role: Role.assistant,
+            content: 'Gravity.',
+          ),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      expect(hint(tester), 'Ask anything in this tangent…');
+    });
+
+    testWidgets('Tangent goes on a tangent from the last reply', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(hint(tester), 'Ask anything…');
+
+      await sendAs(tester, tangentAction.label, 'Why the moon?');
       await settle(tester);
       expect(api.createdBranches.single.fromNodeId, 'a1');
       expect(api.createdBranches.single.title, isNull);
@@ -277,23 +384,16 @@ void main() {
       expect(find.text('Main thread'), findsOneWidget);
     });
 
-    testWidgets('switches to continuing the lesson, and back', (tester) async {
+    testWidgets('Next replies on the branch on screen', (tester) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',
         nodes: [userNode, answered],
       );
       await pumpApp(tester, api, location: '/t/t1');
-      await tester.tap(find.bySemanticsLabel('Send as: Side question'));
-      await tester.pump();
-      expect(hint(tester), 'Continue this lesson…');
-
-      await sendTyped(tester, 'And the sun?');
+      await sendAs(tester, replyAction.label, 'And the sun?');
       expect(api.createdBranches, isEmpty);
       expect(api.sends.single.target, 'trunk');
-
-      await tester.tap(find.bySemanticsLabel('Send as: Continue'));
-      await tester.pump();
-      expect(hint(tester), 'Ask a side question…');
+      expect(api.sends.single.content, 'And the sun?');
     });
 
     testWidgets('after a failed reply, continues with nothing to choose', (
@@ -314,7 +414,8 @@ void main() {
       );
       await pumpApp(tester, api, location: '/t/t1');
       expect(find.bySemanticsLabel(RegExp('Send as')), findsNothing);
-      expect(hint(tester), 'Continue this lesson…');
+      expect(find.byTooltip('Send'), findsOneWidget);
+      expect(hint(tester), 'Ask anything…');
     });
 
     testWidgets('"Ask about this" on selected words asks about them', (
@@ -335,8 +436,12 @@ void main() {
       expect(hint(tester), 'Ask about this…');
       final quote = find.byKey(const ValueKey('composer-quote'));
       expect(quote, findsOneWidget);
+      // A quote is asked about on a tangent, so that is the only action.
+      expect(find.text(tangentAction.label), findsOneWidget);
+      expect(find.text(replyAction.label), findsNothing);
+      expect(find.byTooltip('Send'), findsNothing);
 
-      await sendTyped(tester, 'What does?');
+      await sendAs(tester, tangentAction.label, 'What does?');
       await settle(tester);
       expect(api.createdBranches.single.fromNodeId, 'a1');
       expect(api.createdBranches.single.anchorQuote, isNotEmpty);
@@ -359,12 +464,10 @@ void main() {
       await tester.tap(find.byTooltip('Don’t ask about these words'));
       await tester.pump();
       expect(find.byKey(const ValueKey('composer-quote')), findsNothing);
-      expect(hint(tester), 'Ask a side question…');
+      expect(hint(tester), 'Ask anything…');
     });
 
-    testWidgets('a side question shows the words it asks about', (
-      tester,
-    ) async {
+    testWidgets('a tangent shows the words it asks about', (tester) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',
         branches: [
@@ -432,10 +535,10 @@ void main() {
     expect(find.text('Spring tides'), findsOneWidget);
     expect(find.text('Tidal locking'), findsNothing);
 
-    await tester.tap(find.text('1 more'));
+    await tester.tap(find.text('1 more tangent'));
     await settle(tester);
     expect(find.text('Tidal locking'), findsOneWidget);
-    expect(find.text('1 more'), findsNothing);
+    expect(find.text('1 more tangent'), findsNothing);
   });
 
   testWidgets('a followed tangent stays in view when the rest are hidden', (
@@ -462,10 +565,193 @@ void main() {
     expect(find.text('Spring tides'), findsOneWidget);
     expect(find.text('Tidal locking'), findsOneWidget);
     expect(find.textContaining('more'), findsNothing);
-    expect(find.text('1 side question'), findsNothing);
+    expect(find.text('1 tangent'), findsNothing);
   });
 
-  testWidgets('a side question’s divider centres its title in the thread', (
+  group('suggestions', () {
+    ChatNode tagged(String id, int seq, String next) => node(
+      id,
+      branch: 'trunk',
+      seq: seq,
+      role: Role.assistant,
+      content: taggedReply.replaceFirst('Neap tides', next),
+    );
+
+    testWidgets('next steps show on the last reply only, and send a reply', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [
+          userNode,
+          tagged('a1', 1, 'Neap tides'),
+          node('u2', branch: 'trunk', seq: 2, content: 'And the sun?'),
+          tagged('a2', 3, 'Solar tides'),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text('Keep going'), findsOneWidget);
+      expect(find.text('Neap tides'), findsNothing);
+      expect(find.text('Solar tides'), findsOneWidget);
+      // Every reply keeps its tangents.
+      expect(find.text('Tangents'), findsNWidgets(2));
+
+      await tester.tap(find.text('Solar tides'));
+      await settle(tester);
+      expect(api.createdBranches, isEmpty);
+      expect(api.sends.single.target, 'trunk');
+      expect(api.sends.single.content, 'Solar tides');
+    });
+
+    testWidgets('a tangent suggestion opens a tangent', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, tagged('a1', 1, 'Neap tides')],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(find.text('Tidal locking'));
+      await settle(tester);
+      expect(api.createdBranches.single.title, 'Tidal locking');
+      expect(api.sends.single.target, 'side-1');
+    });
+
+    testWidgets('an untagged suggestion is a tangent', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [
+          userNode,
+          node(
+            'a1',
+            branch: 'trunk',
+            seq: 1,
+            role: Role.assistant,
+            content: reply,
+          ),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text('Keep going'), findsNothing);
+      expect(find.text('Tangents'), findsOneWidget);
+      expect(find.text('Spring tides'), findsOneWidget);
+    });
+  });
+
+  group('the walkthrough', () {
+    final answered = node(
+      'a1',
+      branch: 'trunk',
+      seq: 1,
+      role: Role.assistant,
+      content: reply,
+    );
+
+    setUp(() {
+      api.settingsAnswer = const Settings(walkthroughDoneAt: null);
+    });
+
+    testWidgets('points at Tangent once the first reply is in', (tester) async {
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text(walkthroughSteps.tangent), findsNothing);
+
+      await sendTyped(tester, 'Why tides?');
+      await start(tester);
+      expect(find.text(walkthroughSteps.tangent), findsNothing, reason: 'yet');
+      await emit(tester, DoneEvent(node: answered, branch: trunk));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.tangent), findsOneWidget);
+      // The message box stays clear, to type what to ask.
+      expect(
+        tester.getRect(find.byKey(const ValueKey('coach-mark'))).bottom,
+        lessThanOrEqualTo(tester.getRect(find.byType(TextField)).top),
+      );
+    });
+
+    testWidgets('never shows for an account that has had it', (tester) async {
+      api.settingsAnswer = const Settings(walkthroughDoneAt: '2026-01-01');
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text(walkthroughSteps.tangent), findsNothing);
+    });
+
+    testWidgets('leaves the control it points at usable, and walks the loop', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text(walkthroughSteps.tangent), findsOneWidget);
+
+      await sendAs(tester, tangentAction.label, 'Why the moon?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 'a1');
+      expect(find.text(walkthroughSteps.back), findsOneWidget);
+
+      await tester.tap(find.text('Main thread'));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.next), findsOneWidget);
+
+      await tester.tap(find.text(walkthroughButtons.done));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.next), findsNothing);
+      expect(api.walkthroughDoneMarks, 1);
+    });
+
+    testWidgets('a reply sent with Next ➜ on the main thread ends it at step '
+        '3', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await sendAs(tester, tangentAction.label, 'Why the moon?');
+      await settle(tester);
+      final side = branch('side-1', parent: 'trunk', fork: 'a1');
+      final sideReply = node(
+        's2',
+        branch: 'side-1',
+        seq: 1,
+        role: Role.assistant,
+        content: 'Gravity.',
+      );
+      await emit(
+        tester,
+        StartEvent(
+          userNode: node('s1', branch: 'side-1', seq: 0, content: 'Why?'),
+          assistantNode: sideReply,
+          branch: side,
+        ),
+      );
+      await emit(tester, DoneEvent(node: sideReply, branch: side));
+      await tester.tap(find.text('Main thread'));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.next), findsOneWidget);
+
+      await sendAs(tester, replyAction.label, 'And then?');
+      await settle(tester);
+      expect(api.sends.last.target, 'trunk');
+      expect(find.text(walkthroughSteps.next), findsNothing);
+      expect(api.walkthroughDoneMarks, 1);
+    });
+
+    testWidgets('Skip tour ends it and says so to the server', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(find.text(walkthroughButtons.skip));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.tangent), findsNothing);
+      expect(api.walkthroughDoneMarks, 1);
+    });
+  });
+
+  testWidgets('a tangent’s divider centres its title in the thread', (
     tester,
   ) async {
     api.details['t1'] = treeDetail(
@@ -487,9 +773,48 @@ void main() {
       ],
     );
     await pumpApp(tester, api, location: '/t/t1/b/side-9');
-    final title = find.text('Side question · Spring tides');
+    final title = find.text('Tangent · Spring tides');
     final thread = tester.getRect(find.byType(Scrollable).first);
     expect(tester.getCenter(title).dx, closeTo(thread.center.dx, 1));
+  });
+
+  testWidgets('a tangent with the placeholder title shows its words alone, '
+      'and the main thread step leads back', (tester) async {
+    api.details['t1'] = treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        const Branch(
+          id: 'side-9',
+          treeId: 't1',
+          parentBranchId: 'trunk',
+          branchPointNodeId: 'a1',
+          title: 'Tangent: The moon pulls',
+          titleSource: 'default',
+          model: null,
+        ),
+      ],
+      nodes: [
+        userNode,
+        node(
+          'a1',
+          branch: 'trunk',
+          seq: 1,
+          role: Role.assistant,
+          content: reply,
+        ),
+        node('s1', branch: 'side-9', seq: 0, content: 'Why?'),
+      ],
+    );
+    await pumpApp(tester, api, location: '/t/t1/b/side-9');
+    expect(find.text('Tangent · The moon pulls'), findsOneWidget);
+    expect(find.textContaining('Tangent: '), findsNothing);
+    expect(find.byTooltip('Back to main thread'), findsOneWidget);
+    expect(find.bySemanticsLabel('Back to main thread'), findsOneWidget);
+
+    await tester.tap(find.text('Main thread'));
+    await settle(tester);
+    expect(find.byKey(const ValueKey('breadcrumb')), findsNothing);
   });
 
   /// Tides, with Spring tides › Moon gravity › Neap tides under its first
@@ -533,7 +858,7 @@ void main() {
     matching: find.text(text),
   );
 
-  testWidgets('a nested side question’s path shows the main thread and its '
+  testWidgets('a nested tangent’s path shows the main thread and its '
       'parent', (tester) async {
     api.details['t1'] = nestedLesson();
     await pumpApp(tester, api, location: '/t/t1/b/neap');
@@ -551,12 +876,10 @@ void main() {
     expect(crumb('Neap tides'), findsNothing);
   });
 
-  testWidgets('the outline lists every side question and opens one', (
-    tester,
-  ) async {
+  testWidgets('the outline lists every tangent and opens one', (tester) async {
     api.details['t1'] = nestedLesson();
     await pumpApp(tester, api, location: '/t/t1/b/neap');
-    await tester.tap(find.byTooltip('Side questions'));
+    await tester.tap(find.byTooltip('Tangents'));
     await settle(tester);
     final drawer = find.byType(Drawer);
     for (final title in [
@@ -581,10 +904,10 @@ void main() {
     expect(find.text('How far?'), findsOneWidget);
   });
 
-  testWidgets('a lesson without side questions has no outline', (tester) async {
+  testWidgets('a lesson without tangents has no outline', (tester) async {
     api.details['t1'] = treeDetail(title: 'Tides', nodes: [userNode]);
     await pumpApp(tester, api, location: '/t/t1');
-    expect(find.byTooltip('Side questions'), findsNothing);
+    expect(find.byTooltip('Tangents'), findsNothing);
   });
 
   testWidgets('on a wide screen the outline stays beside the thread', (
@@ -595,7 +918,7 @@ void main() {
     addTearDown(tester.view.reset);
     api.details['t1'] = nestedLesson();
     await pumpApp(tester, api, location: '/t/t1/b/moon');
-    expect(find.byTooltip('Side questions'), findsNothing);
+    expect(find.byTooltip('Tangents'), findsNothing);
     final panel = find.byKey(const ValueKey('outline'));
     expect(
       find.descendant(of: panel, matching: find.text('The sun')),

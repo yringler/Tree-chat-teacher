@@ -30,7 +30,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   constructor() {
     super(inject(ApiClient), inject(Router), {
       tree: 'conversation',
-      branch: 'branch',
+      branch: 'tangent',
       link: 'link',
       linked: { created: 'Messages linked', existing: 'Already linked' },
     });

@@ -18,7 +18,7 @@ import { getAdjectives, getNouns, sentence as txtSentence, setRandom, setTemplat
 /*
  * "Fun lorem ipsum" for the demo: English-ish nonsense from txtgen, shaped
  * like a Learn reply (short paragraphs, sometimes a list or a bold phrase,
- * ending with a `<tangents>` block of places to go next). Nothing here
+ * ending with a `<tangents>` block of next steps and tangents). Nothing here
  * calls a model.
  */
 
@@ -150,30 +150,56 @@ function words(random: Random): Words {
   return { noun, noun2, adjective: pick(random, getAdjectives()) };
 }
 
+/** Next steps in the lesson's topic (sent as replies). */
+const CONTINUES: readonly ((w: Words) => Tangent)[] = [
+  (w) => ({
+    title: `What comes after the ${w.adjective} ${w.noun}`,
+    why: `the next step of the same lesson`,
+    kind: 'continue',
+  }),
+  (w) => ({
+    title: `Putting ${plural(w.noun)} to work`,
+    why: `the idea in practice, one step further`,
+    kind: 'continue',
+  }),
+  (w) => ({
+    title: `How ${plural(w.noun)} lead to ${plural(w.noun2)}`,
+    why: `where the lesson goes from here`,
+    kind: 'continue',
+  }),
+];
+
+/** Side trips (each opens a tangent). */
 const TANGENTS: readonly ((w: Words) => Tangent)[] = [
   (w) => ({
     title: `Why ${plural(w.noun)} are ${w.adjective}`,
     why: `the mechanism underneath, one layer down`,
+    kind: 'tangent',
   }),
   (w) => ({
     title: `What happens when ${article(w.noun)} meets ${article(w.noun2)}`,
     why: `the same idea in a different place`,
+    kind: 'tangent',
   }),
   (w) => ({
     title: `The ${w.adjective} ${w.noun} misconception`,
     why: `where the simple picture breaks`,
+    kind: 'tangent',
   }),
   (w) => ({
     title: `How ${plural(w.noun)} got their name`,
     why: `the history is better than it sounds`,
+    kind: 'tangent',
   }),
   (w) => ({
     title: `${capitalize(plural(w.noun))} versus ${plural(w.noun2)}`,
     why: `an edge case that shows what the rule is really about`,
+    kind: 'tangent',
   }),
   (w) => ({
     title: `Is ${article(w.noun)} ever ${w.adjective}?`,
     why: `a question that is still open`,
+    kind: 'tangent',
   }),
 ];
 
@@ -185,18 +211,30 @@ const OPENERS: readonly ((w: Words) => string)[] = [
   () => 'Mostly, but not always.',
 ];
 
-/** Two to four suggested tangents, built from templates and txtgen words (no two alike). */
-export function loremTangents(random: Random = Math.random): Tangent[] {
+/** `count` suggestions drawn from `templates`, no template twice. */
+function draw(
+  random: Random,
+  templates: readonly ((w: Words) => Tangent)[],
+  count: number,
+): Tangent[] {
   const out: Tangent[] = [];
   const used = new Set<number>();
-  const count = between(random, 2, 4);
-  while (out.length < count && used.size < TANGENTS.length) {
-    const i = Math.floor(random() * TANGENTS.length) % TANGENTS.length;
+  while (out.length < count && used.size < templates.length) {
+    const i = Math.floor(random() * templates.length) % templates.length;
     if (used.has(i)) continue;
     used.add(i);
-    out.push(TANGENTS[i]!(words(random)));
+    out.push(templates[i]!(words(random)));
   }
   return out;
+}
+
+/**
+ * Suggestions as the prompt asks for them: one or two next steps, then two
+ * to four tangents, built from templates and txtgen words (no two alike).
+ */
+export function loremTangents(random: Random = Math.random): Tangent[] {
+  const next = draw(random, CONTINUES, between(random, 1, 2));
+  return [...next, ...draw(random, TANGENTS, between(random, 2, 4))];
 }
 
 function sentences(random: Random, count: number): string {
@@ -219,8 +257,8 @@ function boldSome(random: Random, text: string): string {
 /**
  * A Learn-shaped reply in Markdown: 1–3 short paragraphs (Max writes
  * more), sometimes a bulleted list or a bold phrase, always ending
- * with a `<tangents>` block (the prompt's format; the app turns it into
- * branch buttons).
+ * with a `<tangents>` block (the prompt's format, with kind tags; the app
+ * turns it into Keep going and Tangents buttons).
  */
 export function loremReply(model: string, random: Random = Math.random): string {
   return withRandom(random, () => {
@@ -268,7 +306,7 @@ const TITLE_CHARS = 48;
  * so that a lesson on "Why is the sky blue?" is called that and not
  * "Cheetahs versus flies". The ChatService's title prompt wraps the first
  * messages as "User: …" / "Assistant: …" lines (core/context/render.ts);
- * a side question's quote comes first as "User: Focus: …" and is skipped.
+ * a tangent's quote comes first as "User: Focus: …" and is skipped.
  * Falls back to a random title when no learner message can be found.
  */
 export function titleFor(messages: readonly { content: string }[], random: Random): string {

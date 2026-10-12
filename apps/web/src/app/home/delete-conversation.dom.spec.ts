@@ -25,7 +25,7 @@ function tree(id: string, title: string): TreeSummary {
 }
 
 const QUESTION = (title: string) =>
-  `Delete “${title}” with all its branches and messages? Its shares stop working. This cannot be undone.`;
+  `Delete “${title}” with all its tangents and messages? Its shares stop working. This cannot be undone.`;
 
 /** `type` over the conversations "Sky colour" (t1) and "Tides" (t2); `open`: t2 is open, renamed "Tides, again". */
 async function list<C>(type: Type<C>, opts: { open?: boolean; lapsed?: boolean } = {}) {

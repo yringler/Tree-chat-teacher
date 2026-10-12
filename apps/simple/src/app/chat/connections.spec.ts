@@ -1,10 +1,15 @@
 import '@angular/compiler'; // JIT: @tangent/web-shared's components, imported with relatedLinks.
 import { indexLinks } from '@tangent/core/links';
 import { indexTree } from '@tangent/core/tree';
-import { DEFAULT_BRANCH_TITLE_PREFIX, TRUNK_TITLE, type ChatNode } from '@tangent/shared';
+import {
+  DEFAULT_BRANCH_TITLE_PREFIX,
+  MAIN_THREAD_LABEL,
+  TRUNK_TITLE,
+  type ChatNode,
+} from '@tangent/shared';
 import { relatedLinks } from '@tangent/web-shared';
 import { describe, expect, it } from 'vitest';
-import { connectedLabel, connectionTitleOf, learnConnections, LESSON_CRUMB } from './connections';
+import { connectedLabel, connectionTitleOf, learnConnections } from './connections';
 import { branch, link } from '@tangent/web-shared/testing';
 import * as fixtures from '@tangent/web-shared/testing';
 
@@ -29,8 +34,8 @@ const index = indexTree(
 );
 
 describe('connectionTitleOf', () => {
-  it('names the main thread "Lesson" and side questions in Learn’s words', () => {
-    expect(connectionTitleOf(trunk)).toBe(LESSON_CRUMB);
+  it('names the main thread "Main thread" and tangents in Learn’s words', () => {
+    expect(connectionTitleOf(trunk)).toBe(MAIN_THREAD_LABEL);
     expect(connectionTitleOf(side)).toBe('Why waves');
   });
 });
@@ -45,22 +50,22 @@ describe('connectedLabel', () => {
 describe('learnConnections', () => {
   const byNode = indexLinks([link('l1', 'a1', 's1', 'Same idea'), link('l2', 'a1', 's2', null)]);
 
-  it('shows a side question’s first message as the side question', () => {
+  it('shows a tangent’s first message as the tangent', () => {
     const [toHead, toReply] = learnConnections(
       relatedLinks(index, byNode, 'a1', connectionTitleOf),
     );
-    expect(toHead?.title).toBe('Side question: Why waves');
-    expect(toHead?.crumbs).toBe(LESSON_CRUMB);
-    expect(toHead?.tooltip).toBe('Lesson\nSide question: Why waves\nSame idea');
+    expect(toHead?.title).toBe('Tangent: Why waves');
+    expect(toHead?.crumbs).toBe(MAIN_THREAD_LABEL);
+    expect(toHead?.tooltip).toBe('Main thread\nTangent: Why waves\nSame idea');
     // Any other message keeps its snippet, under its breadcrumb.
     expect(toReply?.title).toBe('It interferes.');
-    expect(toReply?.crumbs).toBe('Lesson › Why waves');
+    expect(toReply?.crumbs).toBe('Main thread › Why waves');
   });
 
   it('shows the other end from either side', () => {
     const [back] = learnConnections(relatedLinks(index, byNode, 's1', connectionTitleOf));
     expect(back?.nodeId).toBe('a1');
     expect(back?.title).toBe('Light is a wave.');
-    expect(back?.crumbs).toBe(LESSON_CRUMB);
+    expect(back?.crumbs).toBe(MAIN_THREAD_LABEL);
   });
 });

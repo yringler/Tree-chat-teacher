@@ -65,4 +65,17 @@ describe('DialogHost', () => {
     expect(open()).toEqual(['Share']);
     expect(h.api.listShares).toHaveBeenCalledTimes(1);
   });
+
+  it('How tangents work: the help, whose shortcuts link opens Keyboard shortcuts in its place', async () => {
+    const h = await host();
+    h.dialogs.open({ kind: 'help' });
+    await h.fixture.whenStable();
+    expect(open()).toEqual(['How tangents work']);
+    const help = screen.getByRole('dialog');
+    expect(help.textContent).toContain('Reply = the next step. Tangent = a side trip.');
+    // Power has no walkthrough to replay.
+    expect(within(help).queryByRole('button', { name: 'Replay the walkthrough' })).toBeNull();
+    await h.user.click(within(help).getByRole('button', { name: 'Keyboard shortcuts' }));
+    expect(open()).toEqual(['Keyboard shortcuts']);
+  });
 });

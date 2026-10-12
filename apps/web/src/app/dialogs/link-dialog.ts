@@ -28,7 +28,7 @@ import { UiStore, type LinkDialogState } from '../state/ui-store';
             [index]="index"
             [sourceNodeId]="state().fromNodeId"
             [linksByNode]="store.linksByNode()"
-            placeholder="Search messages and branches"
+            placeholder="Search messages and tangents"
             (picked)="link($event)"
             (cancelled)="close()"
           >

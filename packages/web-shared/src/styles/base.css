@@ -215,6 +215,37 @@ hr {
   font-size: 0.85rem;
 }
 
+/*
+ * The composer's actions in place of Send (ui/composer.ts): equal widths, the
+ * primary one filled (`.btn-primary`) and the others outlined in the
+ * accent, so each reads as a real choice. On a narrow screen they take a row
+ * of their own under the text.
+ */
+.composer-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.composer-action {
+  flex: 1 1 0;
+  min-width: 7.5em;
+}
+
+.composer-action:not(.is-primary) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+@media (max-width: 559px) {
+  .composer:has(.composer-actions) {
+    flex-wrap: wrap;
+  }
+
+  .composer-actions {
+    flex-basis: 100%;
+  }
+}
+
 /* Power / Learn switch (ui/mode-switch.ts) */
 .mode-switch {
   display: inline-flex;
@@ -1028,7 +1059,11 @@ app-beta-banner {
   min-height: 65px;
 }
 
-/* Tangents: the "Where next?" buttons under an assistant reply (both apps). */
+/*
+ * Suggestions under an assistant reply (every app): a "Keep going" group of
+ * next steps and a "Tangents" group of side trips, labelled alike so neither
+ * outranks the other.
+ */
 .tangents {
   display: flex;
   flex-direction: column;
@@ -1039,10 +1074,22 @@ app-beta-banner {
   border-top: 1px dashed var(--border-strong);
 }
 
-.tangents-label {
+.tangents-label,
+.tangents-group-label {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   font-weight: 600;
+}
+
+.tangents-group {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.tangents-group + .tangents-group {
+  margin-top: 6px;
 }
 
 .tangent {
@@ -2229,4 +2276,116 @@ app-node-picker {
   margin: 1px 4px 1px 2px;
   padding: 2px 6px;
   font-size: 0.88rem;
+}
+
+/*
+ * "How tangents work" (ui/tangent-help.ts): the rule, a small picture of a
+ * main thread with tangents off it, the two actions as their buttons look,
+ * and the rest in a few short lines.
+ */
+.tangent-help {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: tangent-help-in 0.18s ease-out;
+}
+
+.tangent-help p {
+  margin: 0;
+}
+
+.tangent-help-rule {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.tangent-help-diagram {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  color: var(--fg-muted);
+}
+
+.tangent-help-diagram path {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.tangent-help-main {
+  stroke: var(--fg);
+}
+
+.tangent-help-side {
+  stroke: var(--accent);
+}
+
+.tangent-help-dot {
+  fill: var(--fg);
+}
+
+.tangent-help-dot.is-side {
+  fill: var(--accent);
+}
+
+.tangent-help-diagram text {
+  fill: currentColor;
+  font-size: 11px;
+}
+
+.tangent-help-items {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.tangent-help-item {
+  display: grid;
+  grid-template-columns: 8.5em 1fr;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tangent-help-item dd {
+  margin: 0;
+}
+
+.tangent-help-chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tangent-help-chip.is-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.tangent-help-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 420px) {
+  .tangent-help-item {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+@keyframes tangent-help-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tangent-help {
+    animation: none;
+  }
 }

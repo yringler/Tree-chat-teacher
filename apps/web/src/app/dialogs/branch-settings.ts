@@ -35,7 +35,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
     idx && branch
       ? deleteBranchQuestion(idx, branchId, {
           title: branch.title,
-          noun: { one: 'branch', many: 'branches' },
+          noun: { one: 'tangent', many: 'tangents' },
           consequences:
             'Replies still generating there are stopped, and shares of its messages stop working.',
         })
@@ -50,7 +50,10 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
   imports: [Icon, Modal, ModePicker, ModelPicker],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Branch settings" (closed)="close()">
+    <app-modal
+      [heading]="branch().parentBranchId ? 'Tangent settings' : 'Main thread settings'"
+      (closed)="close()"
+    >
       <form class="form" (submit)="$event.preventDefault(); save()">
         <label class="field">
           <span class="field-label">Title</span>
@@ -103,7 +106,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
             <span class="muted small">
               The model decides whether to search, at most once per reply. A search costs about
               $0.007 at OpenRouter, or $0.01 plus the results as input tokens at Anthropic. New
-              branches inherit this setting.
+              tangents inherit this setting.
             </span>
           </label>
         } @else {
@@ -124,7 +127,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
         <div class="form-actions">
           @if (branch().parentBranchId) {
             <button type="button" class="btn btn-danger btn-left" (click)="remove()">
-              <app-icon name="trash" /> Delete branch
+              <app-icon name="trash" /> Delete tangent
             </button>
           }
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
@@ -222,7 +225,7 @@ export class BranchSettings implements OnInit {
     const ok = await this.store.updateBranch(b.id, req);
     this.saving.set(false);
     if (ok) {
-      this.toast.notify('Branch updated');
+      this.toast.notify(b.parentBranchId ? 'Tangent updated' : 'Main thread updated');
       this.close();
     }
   }

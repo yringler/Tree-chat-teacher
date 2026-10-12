@@ -1,0 +1,1 @@
+ALTER TABLE `account_settings` ADD `walkthrough_done_at` text;

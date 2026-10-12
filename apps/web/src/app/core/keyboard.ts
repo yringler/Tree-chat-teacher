@@ -11,11 +11,11 @@ import { UiStore } from '../state/ui-store';
 import { selectionWithin } from './selection';
 
 export const SHORTCUTS: readonly ShortcutHelp[] = [
-  { keys: ['Alt+↑', '['], label: 'Parent branch (at the branch point)' },
-  { keys: ['Alt+←', 'Alt+→'], label: 'Previous / next sibling branch' },
-  { keys: ['Alt+↓', ']'], label: 'First child branch' },
+  { keys: ['Alt+↑', '['], label: 'Parent thread (where this tangent started)' },
+  { keys: ['Alt+←', 'Alt+→'], label: 'Previous / next tangent' },
+  { keys: ['Alt+↓', ']'], label: 'First tangent from here' },
   { keys: ['j', 'k'], label: 'Next / previous message' },
-  { keys: ['b'], label: 'Branch from the focused message' },
+  { keys: ['b'], label: 'Tangent from the focused message' },
   { keys: ['v'], label: 'Review up to the focused (or latest) reply' },
   { keys: ['l'], label: 'Link the focused (or latest) message to another' },
   { keys: ['/'], label: 'Focus the composer' },

@@ -16,27 +16,28 @@ export const CONTEXT_MODE_META: Readonly<Record<ContextMode, ContextModeMeta>> =
   path: {
     label: 'Full path',
     abbr: 'path',
-    help: 'Sends everything the parent branch had at the branch point, then this branch.',
+    help: 'Sends everything the parent thread had where the tangent started, then this tangent.',
     longHelp:
-      'Full path: the model sees everything the parent branch had at the branch point, then this branch',
+      'Full path: the model sees everything the parent thread had where the tangent started, then this tangent',
   },
   summary: {
     label: 'Summary',
     abbr: 'sum',
-    help: 'Sends a generated summary of the parent context (focused on the quote), then this branch.',
-    longHelp: 'Summary: the model sees a generated summary of the parent context, then this branch',
+    help: 'Sends a generated summary of the parent context (focused on the quote), then this tangent.',
+    longHelp:
+      'Summary: the model sees a generated summary of the parent context, then this tangent',
   },
   message: {
     label: 'Parent message',
     abbr: 'msg',
-    help: 'Sends only the message you branched from and the anchor quote, no other earlier messages.',
+    help: 'Sends only the message the tangent started from and the anchor quote, no other earlier messages.',
     longHelp:
-      'Parent message: the model sees only the message this branch starts from, the quote and this branch',
+      'Parent message: the model sees only the message this tangent starts from, the quote and this tangent',
   },
   independent: {
     label: 'Independent',
     abbr: 'ind',
     help: 'Starts fresh: only the system prompt and the anchor quote, no earlier messages.',
-    longHelp: 'Independent: the model sees only the system prompt, the quote and this branch',
+    longHelp: 'Independent: the model sees only the system prompt, the quote and this tangent',
   },
 };

@@ -5,12 +5,14 @@ import {
   APP_PATHS,
   BetaBanner,
   AuthService,
+  CoachMark,
   DEMO_MODE,
   Modal,
   PoolFirstUseDialog,
   ShortcutsTable,
   SidebarState,
   Toasts,
+  Walkthrough,
 } from '@tangent/web-shared';
 import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
@@ -19,6 +21,7 @@ import { Keyboard, SHORTCUTS } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
+import { HelpDialog } from './shell/help-dialog';
 import { LessonSidebar } from './shell/lesson-sidebar';
 import { ModelAccessDialog } from './shell/model-access-dialog';
 import { DeleteAccountDialog } from './shell/delete-account-dialog';
@@ -46,6 +49,8 @@ import { LearnFunding } from './state/learn-funding';
     Modal,
     ShortcutsTable,
     Toasts,
+    HelpDialog,
+    CoachMark,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -107,8 +112,12 @@ import { LearnFunding } from './state/learn-funding';
           @case ('pool-verify') {
             <app-pool-first-use-dialog (closed)="ui.dialogs.close('pool-verify')" />
           }
+          @case ('help') {
+            <app-help-dialog />
+          }
         }
       }
+      <app-coach-mark />
     }
 
     <app-toasts />
@@ -126,6 +135,7 @@ export class App {
   protected readonly shortcuts = SHORTCUTS;
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
+  private readonly walkthrough = inject(Walkthrough);
   /** `/learn/demo/`: an in-browser backend, no sign-in (see @tangent/web-shared/demo). */
   protected readonly demo = inject(DEMO_MODE);
   protected readonly signupUrl = DEMO_SIGNUP_URL;
@@ -154,6 +164,8 @@ export class App {
       const me = this.demo ? await this.api.me() : await this.auth.requireUser();
       if (!me) return;
       this.account.me.set(me);
+      // The first-run tour, unless this account has had it (the demo answers for its visitor).
+      void this.walkthrough.start(this.api);
       await Promise.all([
         this.lessons.init(),
         this.funding.refreshBalance(),

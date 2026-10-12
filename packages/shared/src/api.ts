@@ -217,12 +217,27 @@ export interface SettingsResponse {
   systemPrompt: string | null;
   /** The built-in default the server uses for this account's mode, so a client can show and edit it. */
   defaultSystemPrompt: string;
+  /**
+   * When the account finished or skipped the first-run tangent walkthrough
+   * (ISO time); null = not yet, so Learn shows it.
+   */
+  walkthroughDoneAt: string | null;
 }
 
-/** A blank `systemPrompt` is stored as null (the built-in default). */
-export const updateSettingsRequestSchema = z.object({
-  systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable(),
-});
+/**
+ * Changes the fields it names and keeps the others; it must name at least
+ * one. A blank `systemPrompt` is stored as null (the built-in default).
+ * `walkthroughDone: true` stamps `walkthroughDoneAt` with the server's time,
+ * false clears it.
+ */
+export const updateSettingsRequestSchema = z
+  .object({
+    systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
+    walkthroughDone: z.boolean().optional(),
+  })
+  .refine((r) => r.systemPrompt !== undefined || r.walkthroughDone !== undefined, {
+    message: 'Nothing to update',
+  });
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
 
 /**

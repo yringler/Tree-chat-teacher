@@ -45,8 +45,8 @@ footer a{color:var(--muted)}
 
 /**
  * The landing page: the hero, its demo, the problem/fix pairs (one card
- * each, labeled when stacked on a phone), the pool and
- * the ways in. The demo plays in CSS alone (the page runs no script): the
+ * each, labeled when stacked on a phone), the "How tangents work" card
+ * (highlighted when a link targets it), the pool and the ways in. The demo plays in CSS alone (the page runs no script): the
  * regular chat fills in on timed animations and stops at a gate, a checkbox
  * whose label is the gate's button switches to the Tangent view, and radio
  * chips pick its branch. Every animation only delays a final state, so
@@ -155,8 +155,35 @@ label.chip{cursor:pointer}
 .pool .fee{margin:0;color:var(--muted);font-size:.88rem}
 .pool .ctas{margin:0}
 #pool+.sub{max-width:40rem}
+.help-link{display:inline-flex;align-items:center;gap:8px;margin:16px 0 0;font-weight:600;text-decoration:none}
+.help-link::before{content:"?";display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1.5px solid currentColor;border-radius:50%;font-size:.8rem;font-weight:700}
+.help-link:hover{text-decoration:underline}
+.tangent-help{scroll-margin-top:16px}
+.th-card{display:grid;gap:24px;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);transition:border-color .3s,box-shadow .3s}
+.tangent-help:target .th-card{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft),var(--shadow)}
+.th-rule{margin:0 0 20px;font-size:1.1rem;font-weight:600}
+.th-items{display:grid;gap:12px;margin:0}
+.th-item{display:grid;gap:6px;align-items:start}
+.th-item dt,.th-item dd{margin:0}
+.th-item dd{color:var(--muted)}
+.th-item.default{padding:12px 14px;border-radius:12px;background:var(--accent-soft)}
+.th-item.default dt{color:var(--accent);font-weight:700}
+.th-item.default dd{color:var(--fg)}
+.th-chip{display:inline-flex;align-items:center;min-height:32px;padding:0 14px;border:1.5px solid var(--accent);border-radius:999px;color:var(--accent);font-size:.9rem;font-weight:700;white-space:nowrap}
+.th-chip.tangent{background:var(--accent);color:var(--accent-fg)}
+.th-analogy{margin:20px 0 0;color:var(--muted);font-style:italic}
+.th-diagram{display:block;width:100%;max-width:260px;height:auto;margin:0 auto}
+.th-main,.th-side{fill:none;stroke-width:3;stroke-linecap:round}
+.th-main{stroke:var(--muted)}
+.th-side{stroke:var(--accent)}
+.th-dot{fill:var(--bg-elev);stroke:var(--accent);stroke-width:3}
+.th-dot.main{fill:var(--muted);stroke:none}
+.th-label{fill:var(--muted);font:600 12px var(--font)}
+.th-label.side{fill:var(--accent)}
+@media (min-width:600px){.th-items{grid-template-columns:max-content 1fr;column-gap:20px}.th-item{grid-column:1/-1;grid-template-columns:subgrid;gap:inherit}}
+@media (min-width:720px){.th-card{grid-template-columns:1fr 260px;align-items:center;padding:32px}}
 @media (min-width:720px){.hero{grid-template-columns:1fr 1.1fr;align-items:center;padding-top:48px;padding-bottom:72px}.pairs-head,.pair{grid-template-columns:1fr 1fr}.pairs-head{display:grid;margin-bottom:8px;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.pairs-head span{padding:0 17px}.pairs-head span+span{padding-left:29px;color:var(--accent)}.pair dd{padding-left:28px;border-top:0;border-left:1px solid var(--border)}.pair dd::before{content:'→';top:calc(50% - 12px);right:auto;left:-12px}.pair .tag{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.grid.three{grid-template-columns:repeat(3,1fr)}}
-@media (prefers-reduced-motion:reduce){.dm *,.dm-solve{animation:none!important}}
+@media (prefers-reduced-motion:reduce){.dm *,.dm-solve{animation:none!important}.th-card{transition:none}}
 `;
 
 /** `/pricing`: the plan cards, the comparison chart and its notes. */

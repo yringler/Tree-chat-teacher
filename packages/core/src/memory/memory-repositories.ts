@@ -171,7 +171,8 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         const taken = new Set([...state.nodes.values()].map((n) => `${n.branchId}:${n.seq}`));
         for (const n of nodes) {
           const k = `${n.branchId}:${n.seq}`;
-          if (taken.has(k)) throw new ConflictError('Branch was modified concurrently');
+          if (taken.has(k))
+            throw new ConflictError('This thread changed in the meantime; reload and try again');
           taken.add(k);
         }
         for (const n of nodes) state.nodes.set(n.id, clone(n));
@@ -285,8 +286,13 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         const s = state.settings.get(accountId);
         return s ? clone(s) : null;
       },
-      async putSettings(accountId, settings) {
-        state.settings.set(accountId, clone(settings));
+      async updateSettings(accountId, patch) {
+        const next: AccountSettings = {
+          ...(state.settings.get(accountId) ?? { systemPrompt: null, walkthroughDoneAt: null }),
+          ...patch,
+        };
+        state.settings.set(accountId, next);
+        return clone(next);
       },
     },
   };

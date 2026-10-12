@@ -35,7 +35,7 @@ const credit: ProviderInfo = {
 };
 
 /**
- * "Branch from here" on reply a1 of an own-key trunk on `vendor/x`, for a
+ * "Tangent from here" on reply a1 of an own-key trunk on `vendor/x`, for a
  * user whose membership is `status`, offered `providers`, signed in as the
  * canvas does it (the provider list, the keys, the credit balance and the pool).
  */

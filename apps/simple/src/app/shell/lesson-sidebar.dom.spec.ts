@@ -31,7 +31,7 @@ async function sidebar(branchId: string | null) {
   return { store, go, user: userEvent.setup() };
 }
 
-const outline = () => screen.getByRole('tree', { name: 'Side questions' });
+const outline = () => screen.getByRole('tree', { name: 'Tangents' });
 const row = (name: string) =>
   within(outline()).getByRole('button', { name: new RegExp(`^${name}`) });
 
@@ -43,7 +43,7 @@ describe('Learn: the sidebar', () => {
     confirm.mockClear();
   });
 
-  it('lists the lessons in the learner’s words, the open one with its side questions nested', async () => {
+  it('lists the lessons in the learner’s words, the open one with its tangents nested', async () => {
     await sidebar('deep');
     const nav = screen.getByRole('navigation', { name: 'Lessons' });
     expect(
@@ -56,16 +56,16 @@ describe('Learn: the sidebar', () => {
       within(outline())
         .getAllByRole('treeitem')
         .map((li) => li.querySelector('.outline-title')?.textContent?.trim()),
-    ).toEqual(['Lesson', 'Why waves', 'Particles', 'Duality']);
+    ).toEqual(['Main thread', 'Why waves', 'Particles', 'Duality']);
     expect(row('Duality').getAttribute('aria-current')).toBe('page');
     expect(row('Particles').closest('.outline-row')?.classList).toContain('in-chain');
     expect(row('Why waves').closest('.outline-row')?.classList).not.toContain('in-chain');
-    // Side questions are deleted from the sidebar, but not renamed.
+    // Tangents are deleted from the sidebar, but not renamed.
     within(outline()).getByRole('button', { name: 'Delete Particles' });
     expect(within(outline()).queryByRole('button', { name: /^Rename/ })).toBeNull();
   });
 
-  it('opens a side question at its start, and closes the drawer', async () => {
+  it('opens a tangent at its start, and closes the drawer', async () => {
     const s = await sidebar(null);
     TestBed.inject(SidebarState).drawerOpen.set(true);
     await s.user.click(row('Particles'));
@@ -75,7 +75,7 @@ describe('Learn: the sidebar', () => {
 
   it('opens the lesson where it continues', async () => {
     const s = await sidebar('deep');
-    await s.user.click(row('Lesson'));
+    await s.user.click(row('Main thread'));
     expect(s.go).toHaveBeenLastCalledWith('trunk');
   });
 
@@ -83,9 +83,7 @@ describe('Learn: the sidebar', () => {
     const s = await sidebar(null);
     const del = vi.spyOn(s.store, 'deleteTree').mockResolvedValue(true);
     await s.user.click(screen.getByRole('button', { name: 'Delete New lesson' }));
-    expect(confirm).toHaveBeenCalledWith(
-      'Delete the lesson “New lesson” with all its side questions?',
-    );
+    expect(confirm).toHaveBeenCalledWith('Delete the lesson “New lesson” with all its tangents?');
     expect(del).toHaveBeenCalledWith('t2');
   });
 
