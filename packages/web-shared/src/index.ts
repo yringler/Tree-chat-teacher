@@ -105,7 +105,7 @@ export {
 // UI
 export { BetaBanner } from './ui/beta-banner';
 export { Compare, type CompareCandidate } from './ui/compare';
-export { Composer, ComposerController } from './ui/composer';
+export { Composer, ComposerController, type ComposerAction } from './ui/composer';
 export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
 export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
@@ -131,6 +131,7 @@ export {
 export { selectionText, TypesetMath, typesetMath } from './ui/math';
 export { ShortcutsTable } from './ui/shortcuts-table';
 export { TangentAsk } from './ui/tangent-ask';
+export { TangentHelp } from './ui/tangent-help';
 export { TextSizeMenu } from './ui/text-size-menu';
 export {
   MAX_QUOTE,

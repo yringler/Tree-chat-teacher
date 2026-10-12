@@ -13,7 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { Icon } from './icon';
+import { Icon, type IconName } from './icon';
 
 /** What the controller can ask of one message box. */
 export interface ComposerBox {
@@ -129,9 +129,27 @@ function hovers(): boolean {
 }
 
 /**
+ * A way to send what is typed, offered in place of Send (Learn's Tangent ↳
+ * and Next ➜). Its button carries `data-action="<id>"`, which the
+ * walkthrough points at.
+ */
+export interface ComposerAction {
+  id: string;
+  label: string;
+  /** None where the label carries its own glyph (the arrows of Tangent ↳ and Next ➜). */
+  icon?: IconName;
+  /** What the action is for: the button's tooltip and accessible description. */
+  title: string;
+  /** Filled; the others are outlined. */
+  primary: boolean;
+}
+
+/**
  * Message box of every app. Enter sends, Shift+Enter inserts a newline;
  * Stop replaces Send while a reply streams; with `canCompare`, Compare beside
- * Send asks Normal and Max (the host opens its dialog). The text stays until
+ * Send asks Normal and Max (the host opens its dialog). With `actions`, their
+ * buttons replace Send and emit `act`: Enter fires the first, Ctrl or
+ * Cmd+Enter the second (the first when there is only one). The text stays until
  * the message is in the tree (`ComposerController.sent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed. An element marked `composerLead`
@@ -166,6 +184,28 @@ function hovers(): boolean {
         >
           <app-icon name="stop" [size]="iconSize()" /> Stop
         </button>
+      } @else if (actions().length) {
+        <div class="composer-actions">
+          @for (a of actions(); track a.id) {
+            <button
+              type="button"
+              class="btn composer-action"
+              [class.is-primary]="a.primary"
+              [class.btn-primary]="a.primary"
+              [class.btn-sm]="compact()"
+              [attr.data-action]="a.id"
+              [title]="a.title"
+              [attr.aria-description]="a.title"
+              [disabled]="disabled() || !text().trim()"
+              (click)="fire(a)"
+            >
+              @if (a.icon) {
+                <app-icon [name]="a.icon" [size]="iconSize()" />
+              }
+              {{ a.label }}
+            </button>
+          }
+        </div>
       } @else if (!hideSend()) {
         @if (canCompare()) {
           <button
@@ -227,7 +267,11 @@ export class Composer {
   readonly initial = input('');
   /** Offer Compare beside Send (Normal and Max both answer; one is kept). */
   readonly canCompare = input(false);
+  /** Buttons in place of Send, each sending the text its own way (`act`). */
+  readonly actions = input<readonly ComposerAction[]>([]);
   readonly send = output<string>();
+  /** An action fired with the trimmed text: like Send, the text stays until the message is in the tree. */
+  readonly act = output<{ id: string; text: string }>();
   readonly stop = output();
   /** Compare the message: like Send, the text stays until the picked answer is in the tree. */
   readonly compare = output<string>();
@@ -291,8 +335,17 @@ export class Composer {
   protected onKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      this.submit();
+      const actions = this.actions();
+      const action = e.ctrlKey || e.metaKey ? (actions[1] ?? actions[0]) : actions[0];
+      if (action) this.fire(action);
+      else this.submit();
     }
+  }
+
+  protected fire(action: ComposerAction): void {
+    const content = this.text().trim();
+    if (!content || this.disabled() || this.busy()) return;
+    this.act.emit({ id: action.id, text: content });
   }
 
   /** Kept until the message is in the tree (`ComposerController.sent`). */
