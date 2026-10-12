@@ -56,7 +56,7 @@ describe('Learn: the sidebar', () => {
       within(outline())
         .getAllByRole('treeitem')
         .map((li) => li.querySelector('.outline-title')?.textContent?.trim()),
-    ).toEqual(['Lesson', 'Why waves', 'Particles', 'Duality']);
+    ).toEqual(['Main thread', 'Why waves', 'Particles', 'Duality']);
     expect(row('Duality').getAttribute('aria-current')).toBe('page');
     expect(row('Particles').closest('.outline-row')?.classList).toContain('in-chain');
     expect(row('Why waves').closest('.outline-row')?.classList).not.toContain('in-chain');
@@ -75,7 +75,7 @@ describe('Learn: the sidebar', () => {
 
   it('opens the lesson where it continues', async () => {
     const s = await sidebar('deep');
-    await s.user.click(row('Lesson'));
+    await s.user.click(row('Main thread'));
     expect(s.go).toHaveBeenLastCalledWith('trunk');
   });
 

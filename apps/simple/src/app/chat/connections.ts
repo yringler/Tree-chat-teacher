@@ -1,4 +1,4 @@
-import type { Branch } from '@tangent/shared';
+import { MAIN_THREAD_LABEL, type Branch } from '@tangent/shared';
 import type { RelatedLink } from '@tangent/web-shared';
 import { branchTitle } from './titles';
 
@@ -8,12 +8,9 @@ import { branchTitle } from './titles';
  * a learner connects messages of a lesson and its tangents.
  */
 
-/** The main thread, as the connection chips name it. */
-export const LESSON_CRUMB = 'Lesson';
-
-/** A branch as the connection chips and the picker name it: "Lesson" or the tangent's title. */
+/** A branch as the connection chips and the picker name it: "Main thread" or the tangent's title. */
 export function connectionTitleOf(branch: Branch): string {
-  return branch.parentBranchId === null ? LESSON_CRUMB : branchTitle(branch);
+  return branch.parentBranchId === null ? MAIN_THREAD_LABEL : branchTitle(branch);
 }
 
 /** The label above a message's connection chips. */

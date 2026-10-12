@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, forwardRef, inject } from '@angular/core';
 import type { OutlineItem } from '@tangent/core/tree';
-import type { TreeSummary } from '@tangent/shared';
+import { MAIN_THREAD_LABEL, type TreeSummary } from '@tangent/shared';
 import { ConversationSidebar, SidebarHost } from '@tangent/web-shared';
 import { confirmDeleteSideQuestion } from '../chat/delete-side-question';
 import { branchTitle, lessonTitle } from '../chat/titles';
@@ -38,7 +38,7 @@ export class LessonSidebar extends SidebarHost {
   }
 
   branchTitle(item: OutlineItem): string {
-    return item.depth === 0 ? 'Lesson' : branchTitle(item.branch);
+    return item.depth === 0 ? MAIN_THREAD_LABEL : branchTitle(item.branch);
   }
 
   treeCount(t: TreeSummary): { text: string; title: string } {
