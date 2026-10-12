@@ -117,7 +117,7 @@ import { branchTitle } from './titles';
                   type="button"
                   class="tangent tangent-continue"
                   [disabled]="store.busy() || opening() !== null"
-                  [title]="t.why ?? nextHint"
+                  [title]="t.why ?? nextHint()"
                   (click)="keepGoingWith(t.title)"
                 >
                   <app-icon name="next" [size]="14" />
@@ -215,7 +215,6 @@ export class MessageItem {
   protected readonly connectedLabel = connectedLabel;
   protected readonly keepGoingLabel = KEEP_GOING_LABEL;
   protected readonly tangentsLabel = TANGENTS_LABEL;
-  protected readonly nextHint = REPLY_ACTION.hint;
 
   readonly node = input.required<ChatNode>();
   readonly ancestor = input(false);
@@ -278,6 +277,12 @@ export class MessageItem {
    */
   protected readonly keepGoing = computed(() =>
     this.store.isLatest(this.node().id) ? this.suggested().continue : [],
+  );
+  /** Inside a tangent, the next step continues that tangent rather than the main lesson. */
+  protected readonly nextHint = computed(() =>
+    this.store.branchOf(this.node().id)?.parentBranchId
+      ? REPLY_ACTION.hintInTangent
+      : REPLY_ACTION.hint,
   );
   /** Side trips, each opening (or reopening) a tangent of its own. */
   protected readonly sideTrips = computed(() => this.suggested().tangent);

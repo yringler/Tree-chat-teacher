@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { CONTINUE_MESSAGE, type ChatNode, type TreeDetail } from '@tangent/shared';
+import { CONTINUE_MESSAGE, REPLY_ACTION, type ChatNode, type TreeDetail } from '@tangent/shared';
 import { BillingClient, Walkthrough } from '@tangent/web-shared';
 import {
   appProviders,
@@ -393,6 +393,14 @@ const SUGGESTED = [
   '</tangents>',
 ].join('\n');
 
+/** A reply suggesting one next step, with no reason given. */
+const ONE_STEP = 'A wave.\n\n<tangents>\n- [continue] Next\n</tangents>';
+const nextStep = () =>
+  within(screen.getByRole('navigation', { name: 'Keep going' })).getByRole<HTMLButtonElement>(
+    'button',
+    { name: 'Next' },
+  );
+
 describe('Learn: suggestions after a reply', () => {
   it('come in two labelled groups, an untagged one under Tangents', async () => {
     await page(lesson('normal-model', { content: SUGGESTED }));
@@ -435,6 +443,21 @@ describe('Learn: suggestions after a reply', () => {
     const older = document.getElementById('msg-a1')!;
     expect(within(older).queryByRole('navigation', { name: 'Keep going' })).toBeNull();
     within(older).getByRole('navigation', { name: 'Tangents' });
+  });
+
+  it('Keep going says it keeps the lesson moving', async () => {
+    await page(lesson('normal-model', { content: ONE_STEP }));
+    expect(nextStep().title).toBe(REPLY_ACTION.hint);
+  });
+
+  it('inside a tangent, Keep going says it keeps that tangent moving', async () => {
+    const d = branchyLesson();
+    await page(
+      { ...d, nodes: d.nodes.map((n) => (n.id === 'a3' ? { ...n, content: ONE_STEP } : n)) },
+      {},
+      'deep',
+    );
+    expect(nextStep().title).toBe(REPLY_ACTION.hintInTangent);
   });
 });
 
