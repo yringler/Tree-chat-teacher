@@ -23,9 +23,9 @@ import { ExportMenu } from './export-menu';
             type="button"
             class="btn btn-ghost btn-sm"
             (click)="ui.dialogs.open({ kind: 'branch-settings' })"
-            title="Branch settings"
+            title="Tangent settings"
           >
-            <app-icon name="settings" /> <span class="hide-narrow">Branch</span>
+            <app-icon name="settings" /> <span class="hide-narrow">Tangent</span>
           </button>
           <!-- Shares and exports are made by the server; the demo has none. Public links
                only while this user may publish them (MeResponse.sharing); export always. -->
@@ -84,7 +84,7 @@ import { ExportMenu } from './export-menu';
             <app-icon name="back" [size]="13" /> Back to ‘{{ clip(back.label, 32) }}’
           </button>
         }
-        <nav aria-label="Branch path" class="crumbs">
+        <nav aria-label="Tangent path" class="crumbs">
           <ol>
             @for (c of store.crumbs(); track c.branch.id; let last = $last) {
               <li>
@@ -131,19 +131,19 @@ import { ExportMenu } from './export-menu';
             [disabled]="!firstNodeId()"
             [title]="
               firstNodeId()
-                ? 'Link this branch (its first message) to another message'
-                : 'The branch has no messages to link yet'
+                ? 'Link this tangent (its first message) to another message'
+                : 'The tangent has no messages to link yet'
             "
             (click)="linkBranch()"
           >
-            <app-icon name="link" /> Link this branch…
+            <app-icon name="link" /> Link this tangent…
           </button>
           @if (b.parentBranchId) {
             <button
               type="button"
               class="icon-btn icon-btn-danger"
               [attr.aria-label]="'Delete ' + b.title"
-              title="Delete this branch"
+              title="Delete this tangent"
               (click)="remove(b.id)"
             >
               <app-icon name="trash" [size]="14" />
@@ -166,7 +166,7 @@ export class ChatHeader {
     return this.store.focusedNodeId() === back.focusNodeId ? null : back;
   });
 
-  /** "Link this branch…" links its first message. */
+  /** "Link this tangent…" links its first message. */
   protected readonly firstNodeId = computed(() => {
     const b = this.store.selectedBranch();
     return b ? (this.store.firstNodeOf(b.id)?.id ?? null) : null;

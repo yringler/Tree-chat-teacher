@@ -3,7 +3,7 @@ import type { ShareSummary } from '@tangent/shared';
 
 export const SCOPE_LABEL: Record<ShareSummary['scope'], string> = {
   tree: 'Whole conversation',
-  subtree: 'Subtree',
+  subtree: 'Tangent and below',
   path: 'Path',
 };
 

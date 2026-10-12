@@ -35,7 +35,7 @@ import { ScopePicker } from '../ui/scope-picker';
             Include private branches
           </label>
           @if (disabled()) {
-            <p class="muted small">This branch has no messages to export yet.</p>
+            <p class="muted small">This tangent has no messages to export yet.</p>
           } @else {
             <div class="menu-actions">
               <a

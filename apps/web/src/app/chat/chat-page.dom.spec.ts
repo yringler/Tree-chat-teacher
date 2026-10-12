@@ -78,9 +78,9 @@ describe('ChatPage', () => {
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
   });
 
-  it('a new branch shows where it starts, and asks for its first question', async () => {
+  it('a new tangent shows where it starts, and asks for its first question', async () => {
     await page({ branchId: 'side' });
-    expect(screen.getByText('New branch. Your next message starts it.')).toBeTruthy();
+    expect(screen.getByText('New tangent. Your next message starts it.')).toBeTruthy();
     expect(screen.getByText('A wave', { selector: 'blockquote' })).toBeTruthy();
     expect(composer()?.placeholder).toBe('Ask your question…');
   });

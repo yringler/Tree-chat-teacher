@@ -59,7 +59,7 @@ const OUT_OF_DATE = new Set([404, 409, 410]);
         </p>
       } @else {
         <p class="notice">
-          Normal and Max aren't both available for this branch. Choose them in Settings.
+          Normal and Max aren't both available for this thread. Choose them in Settings.
         </p>
       }
     </app-modal>

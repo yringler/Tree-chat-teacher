@@ -74,7 +74,7 @@ async function open<T>(type: new () => T, inputs: Record<string, unknown> = {}) 
   };
 }
 
-describe('Branch settings', () => {
+describe('Tangent settings', () => {
   it('a title given by a reply while open is not reverted (nor pinned) by Save', async () => {
     const d = await open(BranchSettings, { branch: side });
     await d.set({ branch: { ...side, title: 'Light as a wave', titleSource: 'auto' } });
@@ -97,10 +97,10 @@ describe('Branch settings', () => {
     const d = await open(DialogHost);
     d.dialogs.open({ kind: 'branch-settings' });
     await d.fixture.whenStable();
-    screen.getByRole('dialog', { name: 'Branch settings' });
+    screen.getByRole('dialog', { name: 'Tangent settings' });
     d.store.setRoute('t1', 'side', 'a1');
     await d.fixture.whenStable();
-    screen.getByRole('dialog', { name: 'Branch settings' });
+    screen.getByRole('dialog', { name: 'Tangent settings' });
     d.store.setRoute('t1', null, null);
     await d.fixture.whenStable();
     expect(d.dialogs.isOpen('branch-settings')).toBe(false);

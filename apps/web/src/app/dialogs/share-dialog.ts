@@ -55,7 +55,7 @@ import { ScopePicker } from '../ui/scope-picker';
           <app-scope-picker [(scope)]="scope" [(includeAncestors)]="includeAncestors" />
           @if (missingTarget()) {
             <p class="notice">
-              This branch has no messages yet; share the whole conversation or add a message first.
+              This tangent has no messages yet; share the whole conversation or add a message first.
             </p>
           }
 

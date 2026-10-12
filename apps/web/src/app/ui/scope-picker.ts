@@ -4,11 +4,11 @@ import type { ShareScope } from '@tangent/shared';
 let uid = 0;
 
 export const SCOPES: readonly { value: ShareScope; label: string; help: string }[] = [
-  { value: 'tree', label: 'Whole conversation', help: 'Every branch (private ones excluded).' },
+  { value: 'tree', label: 'Whole conversation', help: 'Every tangent (private ones excluded).' },
   {
     value: 'subtree',
-    label: 'This branch’s subtree',
-    help: 'From the focused message down, with all branches below it.',
+    label: 'This tangent and everything below it',
+    help: 'From the focused message down, with all tangents below it.',
   },
   {
     value: 'path',

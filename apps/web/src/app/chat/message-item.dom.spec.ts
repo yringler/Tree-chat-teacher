@@ -89,14 +89,14 @@ describe('MessageItem: a finished reply', () => {
     expect(article.textContent).not.toContain('<tangents>');
   });
 
-  it('offers Branch from here, Review, Link and Copy', async () => {
+  it('offers Tangent ↳, Review, Link and Copy', async () => {
     await message('a1');
-    for (const name of ['Branch from here', 'Review', 'Link…', 'Copy message']) button(name);
+    for (const name of ['Tangent ↳', 'Review', 'Link…', 'Copy message']) button(name);
   });
 
-  it('Branch from here opens the branch dialog on it', async () => {
+  it('Tangent ↳ opens the tangent dialog on it', async () => {
     const m = await message('a1');
-    await m.user.click(button('Branch from here'));
+    await m.user.click(button('Tangent ↳'));
     expect(m.ui.dialogs.get('branch')).toEqual({ kind: 'branch', fromNodeId: 'a1', quote: null });
   });
 
@@ -113,12 +113,12 @@ describe('MessageItem: a finished reply', () => {
     await message('u1');
     expect(screen.getByRole('article').textContent).toContain('You');
     expect(screen.queryByRole('button', { name: 'Review' })).toBeNull();
-    button('Branch from here');
+    button('Tangent ↳');
   });
 
   it('with nothing left to generate on, offers no new branch, review or question; links stay', async () => {
     await message('a1', { lapsed: true });
-    expect(names()).not.toContain('Branch from here');
+    expect(names()).not.toContain('Tangent ↳');
     expect(names()).not.toContain('Review');
     expect(screen.queryByRole('textbox', { name: /Ask your own/ })).toBeNull();
     button('Link…');
@@ -236,7 +236,7 @@ describe('MessageActions in pick mode', () => {
     const createLink = vi.spyOn(m.store, 'createLink').mockResolvedValue(null);
     m.ui.linkPick.set({ fromNodeId: 'u1' });
     await m.fixture.whenStable();
-    expect(screen.queryByRole('button', { name: 'Branch from here' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Tangent ↳' })).toBeNull();
     await m.user.click(button('Link here'));
     expect(createLink).toHaveBeenCalledWith('u1', 'a1');
     expect(m.ui.linkPick()).toBeNull();

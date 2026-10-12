@@ -47,7 +47,7 @@
               <div class="fork-divider" [class.fork-current]="b.id === store.selectedBranchId()">
                 <span class="fork-line"></span>
                 <span class="fork-label">
-                  Branched here · <app-mode-badge [mode]="b.contextMode" [long]="true" /> ·
+                  Tangent from here · <app-mode-badge [mode]="b.contextMode" [long]="true" /> ·
                   {{ b.title }}
                 </span>
                 <span class="fork-line"></span>
@@ -72,7 +72,7 @@
             <div class="fork-divider fork-current">
               <span class="fork-line"></span>
               <span class="fork-label"
-                >Branched here · <app-mode-badge [mode]="b.contextMode" [long]="true" /> ·
+                >Tangent from here · <app-mode-badge [mode]="b.contextMode" [long]="true" /> ·
                 {{ b.title }}</span
               >
               <span class="fork-line"></span>
@@ -80,7 +80,7 @@
             @if (b.anchorQuote) {
               <blockquote class="anchor-quote">{{ b.anchorQuote }}</blockquote>
             }
-            <p class="muted small center">New branch. Your next message starts it.</p>
+            <p class="muted small center">New tangent. Your next message starts it.</p>
           }
         </div>
       </div>
@@ -90,13 +90,13 @@
           <!-- Floats above the composer, over the end of the messages. -->
           <div class="selection-float">
             <app-selection-ask
-              [label]="selectionLocked() ? 'Branch from this selection…' : 'Ask about this'"
+              [label]="selectionLocked() ? 'Tangent from this selection…' : 'Ask about this'"
               [title]="
                 selectionLocked()
-                  ? 'Branch from here, quoting the selection (pick a route you can use)'
-                  : 'Branch off quoting the selection, keeping the conversation so far, and ask'
+                  ? 'Tangent from here, quoting the selection (pick a route you can use)'
+                  : 'Go on a tangent quoting the selection, keeping the conversation so far'
               "
-              [moreLabel]="selectionLocked() ? null : 'More: Branch from here with this quote…'"
+              [moreLabel]="selectionLocked() ? null : 'More: Tangent from here with this quote…'"
               [busy]="asking()"
               (ask)="askAbout(q)"
               (more)="moreAbout(q)"

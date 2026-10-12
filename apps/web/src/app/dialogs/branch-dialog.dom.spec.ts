@@ -67,10 +67,10 @@ async function open(state: Partial<BranchDialogState> = {}, opts: { lapsed?: boo
 
 const field = (name: RegExp) => screen.getByRole<HTMLTextAreaElement>('textbox', { name });
 
-describe('Branch from here (power)', () => {
+describe('Tangent from here (power)', () => {
   it('shows the message branched from, without its tangents, and the quote it was opened with', async () => {
     await open();
-    screen.getByRole('dialog', { name: 'Branch from here' });
+    screen.getByRole('dialog', { name: 'Tangent from here' });
     expect(screen.getByText('Light is a wave.')).toBeTruthy();
     expect(screen.queryByText(/Photons/)).toBeNull();
     expect(field(/Anchor quote/).value).toBe('a wave');
@@ -82,7 +82,7 @@ describe('Branch from here (power)', () => {
       'openrouter',
     );
     await d.user.click(screen.getByRole('radio', { name: /Independent/ }));
-    await d.user.click(screen.getByRole('button', { name: 'Create branch' }));
+    await d.user.click(screen.getByRole('button', { name: 'Start tangent' }));
     expect(d.store.createBranch).toHaveBeenCalledWith({
       fromNodeId: 'a1',
       contextMode: 'independent',
@@ -119,7 +119,7 @@ describe('Branch from here (power)', () => {
     const route = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Provider' });
     expect(route.value).toBe('openrouter@credit');
     expect(route.selectedOptions[0]?.textContent?.trim()).toBe('Tangent credit');
-    await d.user.click(screen.getByRole('button', { name: 'Create branch' }));
+    await d.user.click(screen.getByRole('button', { name: 'Start tangent' }));
     expect(d.store.createBranch).toHaveBeenCalledWith(
       expect.objectContaining({ providerId: 'openrouter', funding: 'credit', model: 'vendor/x' }),
     );

@@ -35,7 +35,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
     idx && branch
       ? deleteBranchQuestion(idx, branchId, {
           title: branch.title,
-          noun: { one: 'branch', many: 'branches' },
+          noun: { one: 'tangent', many: 'tangents' },
           consequences:
             'Replies still generating there are stopped, and shares of its messages stop working.',
         })
@@ -50,7 +50,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
   imports: [Icon, Modal, ModePicker, ModelPicker],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Branch settings" (closed)="close()">
+    <app-modal heading="Tangent settings" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); save()">
         <label class="field">
           <span class="field-label">Title</span>
@@ -124,7 +124,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
         <div class="form-actions">
           @if (branch().parentBranchId) {
             <button type="button" class="btn btn-danger btn-left" (click)="remove()">
-              <app-icon name="trash" /> Delete branch
+              <app-icon name="trash" /> Delete tangent
             </button>
           }
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
@@ -222,7 +222,7 @@ export class BranchSettings implements OnInit {
     const ok = await this.store.updateBranch(b.id, req);
     this.saving.set(false);
     if (ok) {
-      this.toast.notify('Branch updated');
+      this.toast.notify('Tangent updated');
       this.close();
     }
   }

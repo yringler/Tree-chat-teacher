@@ -43,9 +43,9 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
           class="btn btn-ghost btn-sm"
           (mousedown)="captureSelection()"
           (click)="branch($event)"
-          title="Branch from here (b)"
+          title="Tangent from here (b): Wait, what’s that? Explore on the side without derailing the conversation."
         >
-          <app-icon name="branch" [size]="14" /> Branch from here
+          <app-icon name="tangent" [size]="14" /> Tangent ↳
         </button>
       }
       @if (canReview()) {
@@ -84,7 +84,7 @@ export class MessageActions {
   private readonly toast = inject(ToastStore);
 
   readonly node = input.required<ChatNode>();
-  /** The rendered message, whose selected text "Branch from here" quotes. */
+  /** The rendered message, whose selected text "Tangent ↳" quotes. */
   readonly body = input.required<HTMLElement>();
   /** What Copy copies (the reply without its tangents block). */
   readonly text = input.required<string>();

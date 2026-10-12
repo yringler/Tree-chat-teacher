@@ -150,8 +150,8 @@ export class Sidebar extends SidebarHost {
     trees: 'Conversations',
     noTrees: 'No conversations yet.',
     tree: 'conversation',
-    branch: 'branch',
-    branches: 'Branches',
+    branch: 'tangent',
+    branches: 'Tangents',
   };
   readonly canRename = true;
 
@@ -165,8 +165,8 @@ export class Sidebar extends SidebarHost {
 
   treeCount(t: TreeSummary): { text: string; title: string } {
     return {
-      text: `${t.branchCount}·${t.messageCount}`,
-      title: `${t.branchCount} branches, ${t.messageCount} messages`,
+      text: `${t.branchCount - 1}·${t.messageCount}`,
+      title: `${t.branchCount - 1} ${t.branchCount === 2 ? 'tangent' : 'tangents'}, ${t.messageCount} messages`,
     };
   }
 
