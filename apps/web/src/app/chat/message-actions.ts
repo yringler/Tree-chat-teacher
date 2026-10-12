@@ -45,7 +45,7 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
           (click)="branch($event)"
           title="Tangent from here (b): Wait, what’s that? Explore on the side without derailing the conversation."
         >
-          <app-icon name="tangent" [size]="14" /> Tangent ↳
+          Tangent ↳
         </button>
       }
       @if (canReview()) {
