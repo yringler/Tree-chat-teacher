@@ -9,7 +9,8 @@ import { Overlays, SidebarState } from '@tangent/web-shared';
  * from; `compare`: the Compare sheet (CompareDialog), the question to ask
  * Normal and Max in `branchId` (it stays in the composer meanwhile);
  * `shortcuts`: the keyboard shortcuts; `instructions`: the open lesson's
- * own instructions (InstructionsDialog).
+ * own instructions (InstructionsDialog); `help`: "How tangents work"
+ * (HelpDialog).
  */
 export type Dialog =
   | { kind: 'passkeys' }
@@ -19,7 +20,8 @@ export type Dialog =
   | { kind: 'connect'; sourceNodeId: string }
   | { kind: 'compare'; branchId: string; content: string }
   | { kind: 'shortcuts' }
-  | { kind: 'instructions' };
+  | { kind: 'instructions' }
+  | { kind: 'help' };
 
 /** View state that is not part of the URL: the account menu and dialogs. */
 @Injectable({ providedIn: 'root' })

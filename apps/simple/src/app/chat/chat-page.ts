@@ -35,6 +35,7 @@ import {
   SelectionAsk,
   TextSizeMenu,
   TextSizeStore,
+  Walkthrough,
   type ComposerAction,
   type MessageQuote,
 } from '@tangent/web-shared';
@@ -79,6 +80,7 @@ export class ChatPage implements OnDestroy {
   private readonly ui = inject(UiStore);
   private readonly composer = inject(ComposerController);
   private readonly title = inject(Title);
+  private readonly walkthrough = inject(Walkthrough);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
   private readonly pinned = signal(true);
@@ -197,6 +199,30 @@ export class ChatPage implements OnDestroy {
     effect(() => {
       const t = this.lessonTitle();
       this.title.setTitle(t ? `${t} · ${BRAND}` : BRAND);
+    });
+
+    // Tells the first-run walkthrough where the learner is: on the main thread
+    // with Tangent ↳ and Next ➜ under a reply, or inside a tangent. Again when
+    // its coach mark changes or a dialog closes (a replay, from the help), so
+    // a step waiting for this screen finds it.
+    const coachStep = computed(() => this.walkthrough.current()?.step ?? null);
+    effect(() => {
+      coachStep();
+      this.ui.dialogs.list();
+      const b = this.store.selectedBranch();
+      if (!b) return;
+      const inTangent = b.parentBranchId !== null;
+      const actionsShown =
+        this.actions().length > 1 &&
+        this.asideFrom()?.status === 'complete' &&
+        !this.funding.membershipBlocked();
+      untracked(() => {
+        if (inTangent) this.walkthrough.onEnteredTangent();
+        else if (actionsShown) {
+          this.walkthrough.onTrunkReplyReady();
+          this.walkthrough.onBackOnTrunk();
+        }
+      });
     });
 
     // Scroll to the focused message, or to the bottom when switching branches;

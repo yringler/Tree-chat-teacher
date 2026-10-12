@@ -28,7 +28,7 @@ import { LearnFunding } from '../state/learn-funding';
             [attr.aria-label]="'Replies paid by ' + description() + '. Open billing'"
             title="Credit left · Billing"
           >
-            {{ headerName() }} · {{ headerAmount() }}
+            {{ headerName() }}<span class="hide-narrow"> · {{ headerAmount() }}</span>
           </a>
         }
       } @else {

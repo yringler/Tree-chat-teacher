@@ -1,6 +1,7 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { CONTINUE_MESSAGE, type ChatNode, type TreeDetail } from '@tangent/shared';
-import { BillingClient } from '@tangent/web-shared';
+import { BillingClient, Walkthrough } from '@tangent/web-shared';
 import {
   appProviders,
   billing,
@@ -16,6 +17,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { branchyLesson, learner, NOT_A_MEMBER, POOL_ON } from '../learn.testing';
 import { LessonStore } from '../state/lesson-store';
+import { UiStore } from '../state/ui-store';
 import { ChatPage } from './chat-page';
 
 const LEARN = provider({
@@ -41,14 +43,29 @@ function lesson(model = 'normal-model', reply: Partial<ChatNode> = {}): TreeDeta
   );
 }
 
+/** The walkthrough as the page reports to it: each event a spy. */
+function fakeWalkthrough() {
+  return {
+    current: signal(null),
+    onTrunkReplyReady: vi.fn(),
+    onEnteredTangent: vi.fn(),
+    onBackOnTrunk: vi.fn(),
+  };
+}
+
 /** The lesson page on `d` (at `branchId`), for what `facts` say of the learner. */
 async function page(
   d: TreeDetail = lesson(),
   facts: Parameters<typeof learner>[0] = {},
   branchId: string | null = null,
+  walkthrough = fakeWalkthrough(),
 ) {
   const r = await render(ChatPage, {
-    providers: [...appProviders({}), { provide: BillingClient, useValue: {} }],
+    providers: [
+      ...appProviders({}),
+      { provide: BillingClient, useValue: {} },
+      { provide: Walkthrough, useValue: walkthrough },
+    ],
     setup: () => {
       learner(facts);
       const store = TestBed.inject(LessonStore);
@@ -353,7 +370,7 @@ const SUGGESTED = [
   '<tangents>',
   '- [continue] Colour — what sets it',
   '- [tangent] Photons — the particle side',
-  '- Polarisation — which way it wiggles',
+  '- Diffraction — how it bends round edges',
   '</tangents>',
 ].join('\n');
 
@@ -368,7 +385,7 @@ describe('Learn: suggestions after a reply', () => {
         .getAllByRole('button')
         .map((b) => b.querySelector('.tangent-title')?.textContent);
     expect(titles(keep)).toEqual(['Colour']);
-    expect(titles(side)).toEqual(['Photons', 'Polarisation']);
+    expect(titles(side)).toEqual(['Photons', 'Diffraction']);
   });
 
   it('Keep going sends the suggestion as the lesson’s next message', async () => {
@@ -399,5 +416,48 @@ describe('Learn: suggestions after a reply', () => {
     const older = document.getElementById('msg-a1')!;
     expect(within(older).queryByRole('navigation', { name: 'Keep going' })).toBeNull();
     within(older).getByRole('navigation', { name: 'Tangents' });
+  });
+});
+
+describe('Learn: what the lesson page tells the walkthrough', () => {
+  it('a reply on the main thread, with Tangent ↳ under it: step 1 can show', async () => {
+    const w = fakeWalkthrough();
+    await page(lesson(), {}, null, w);
+    await vi.waitFor(() => expect(w.onTrunkReplyReady).toHaveBeenCalled());
+    expect(w.onEnteredTangent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a new lesson', detail([], [branch('trunk', { title: 'Main thread' })])],
+    ['a reply still being written', lesson('normal-model', { status: 'streaming', content: '' })],
+  ])('%s: not yet', async (_case, d) => {
+    const w = fakeWalkthrough();
+    await page(d, {}, null, w);
+    expect(w.onTrunkReplyReady).not.toHaveBeenCalled();
+    expect(w.onBackOnTrunk).not.toHaveBeenCalled();
+    expect(w.onEnteredTangent).not.toHaveBeenCalled();
+  });
+
+  it('inside a tangent, however it was entered: step 2; back on the main thread: step 3', async () => {
+    const w = fakeWalkthrough();
+    const p = await page(branchyLesson(), {}, 'side', w);
+    await vi.waitFor(() => expect(w.onEnteredTangent).toHaveBeenCalled());
+    expect(w.onBackOnTrunk).not.toHaveBeenCalled();
+    p.store.setRoute('t1', null, null);
+    await p.fixture.whenStable();
+    await vi.waitFor(() => expect(w.onBackOnTrunk).toHaveBeenCalled());
+  });
+
+  it('a replay from the help, which closes it, is told the screen again', async () => {
+    const w = fakeWalkthrough();
+    const p = await page(lesson(), {}, null, w);
+    await vi.waitFor(() => expect(w.onTrunkReplyReady).toHaveBeenCalled());
+    const ui = TestBed.inject(UiStore);
+    ui.dialogs.open({ kind: 'help' });
+    await p.fixture.whenStable();
+    const before = w.onTrunkReplyReady.mock.calls.length;
+    ui.dialogs.close('help');
+    await p.fixture.whenStable();
+    await vi.waitFor(() => expect(w.onTrunkReplyReady.mock.calls.length).toBeGreaterThan(before));
   });
 });

@@ -7,6 +7,7 @@
 @import 'highlight.js/styles/github.css' (prefers-color-scheme: light);
 @import 'highlight.js/styles/github-dark.css' (prefers-color-scheme: dark);
 @import '@tangent/web-shared/styles/base.css';
+@import '@tangent/web-shared/styles/coach-mark.css';
 
 :root {
   --col: 760px;
@@ -58,7 +59,15 @@ body {
 }
 
 .app-head .mode-switch-opt {
-  padding: 2px 6px;
+  padding: 2px 5px;
+}
+
+/* A phone's header holds the mode switch, the pill, How tangents work and the account. */
+@media (max-width: 479px) {
+  .app-head {
+    gap: 4px;
+    padding-inline: 8px;
+  }
 }
 
 @media (min-width: 480px) {
@@ -87,6 +96,7 @@ body {
   font-size: 0.88rem;
   font-variant-numeric: tabular-nums;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .balance-pill:hover {
