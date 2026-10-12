@@ -84,16 +84,26 @@ describe('learnAppRoutes', () => {
     expect(seen).toEqual([]);
   });
 
+  it("sends /delete-account, the short link app stores ask for, to Learn's deletion page", async () => {
+    const { request, seen } = setup();
+    for (const method of ['GET', 'HEAD']) {
+      const res = await request('/delete-account', { method });
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toBe('/learn/delete-account');
+    }
+    expect(seen).toEqual([]);
+  });
+
   it('serves the simple index.html with the app CSP for client-side routes', async () => {
     const { request, seen } = setup();
-    for (const path of ['/learn/', '/learn/t/abc', '/learn/billing']) {
+    for (const path of ['/learn/', '/learn/t/abc', '/learn/billing', '/learn/delete-account']) {
       const res = await request(path);
       expect(res.status).toBe(200);
       expect(await res.text()).toBe(SIMPLE_INDEX);
       expect(res.headers.get('Content-Security-Policy')).toBe(LEARN_APP_CSP);
       expectCommonHeaders(res);
     }
-    expect(seen).toEqual(['GET /learn/', 'GET /learn/', 'GET /learn/']);
+    expect(seen).toEqual(['GET /learn/', 'GET /learn/', 'GET /learn/', 'GET /learn/']);
   });
 
   it('serves the login page with the login CSP (Turnstile, no Trusted Types)', async () => {

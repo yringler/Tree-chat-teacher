@@ -439,12 +439,13 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         </li>
         <li>
           <strong>Deletion:</strong> delete single conversations at any time, or your whole account
-          from the account menu in any of the apps ("Delete account"). That deletes your account,
-          which Power, Learn and Canvas share, with every conversation, share link and setting, your
-          sign-in methods and sessions, and your customer record at Polar (anonymised; Polar keeps
-          the order records tax law requires), which also cancels your membership. Unused credit is
-          forfeited. Payment records, open pool records and records of changes to share links are
-          kept as described above.
+          from the account menu in any of the apps ("Delete account"), or at{' '}
+          <a href="/delete-account">/delete-account</a>, which asks you to sign in first. That
+          deletes your account, which Power, Learn and Canvas share, with every conversation, share
+          link and setting, your sign-in methods and sessions, and your customer record at Polar
+          (anonymised; Polar keeps the order records tax law requires), which also cancels your
+          membership. Unused credit is forfeited. Payment records, open pool records and records of
+          changes to share links are kept as described above.
         </li>
         <li>
           Depending on where you live (for example the EEA, UK or California) you may also have the

@@ -58,7 +58,8 @@ export interface AppOptions {
  *   (admins only, routes/admin.ts).
  * - `/s/*` is public and read-only, but for each link's report form,
  *   `/s/:token/report` (http/report-page.tsx).
- * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
+ * - `/learn`, `/learn/*` serve the simple app (and `/delete-account`
+ *   redirects to its account deletion page), `/canvas`, `/canvas/*` the
  *   canvas app, `/app`, `/app/*` the Flutter app and `/admin`, `/admin/*`
  *   the admin app, to admins only (http/learn-app.ts), but for
  *   `/admin/review/:shareId`, the reported conversation an admin decides on
