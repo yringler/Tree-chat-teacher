@@ -90,6 +90,19 @@ export function sameOrigin(baseURL: string) {
   return { origin: baseURL, 'sec-fetch-site': 'same-origin' };
 }
 
+/**
+ * Marks Learn's first-run walkthrough done for the signed-in account, as
+ * finishing or skipping it does, so its coach marks cover nothing in tests
+ * of other things (tangent-guidance.spec.ts walks it).
+ */
+export async function finishWalkthrough(request: APIRequestContext, baseURL: string) {
+  const res = await request.patch('/api/settings', {
+    headers: { ...sameOrigin(baseURL), 'x-tangent-mode': 'simple' },
+    data: { walkthroughDone: true },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+}
+
 let delivery = 0;
 /**
  * A delivery of the fake payment provider's webhook (PAYMENT_PROVIDER=fake,

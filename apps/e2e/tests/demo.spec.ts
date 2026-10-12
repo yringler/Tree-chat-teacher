@@ -34,6 +34,16 @@ async function selectText(scope: Locator, text: string): Promise<void> {
   }, text);
 }
 
+/**
+ * Skips Learn's first-run walkthrough (tangent-guidance.spec.ts walks it), so
+ * its coach marks cover nothing. A fresh demo session starts it on the first
+ * lesson opened; skipped, it stays away for the session.
+ */
+async function skipTour(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Skip tour' }).click();
+  await expect(page.locator('.coach-mark')).toBeHidden();
+}
+
 test('power demo: a dialog opened over another is on top, and Escape closes that one', async ({
   page,
 }) => {
@@ -83,14 +93,14 @@ test('power demo: deleting from the conversation list asks first, and Cancel kee
   expect(errors).toEqual([]);
 });
 
-test('power demo: a branch is deleted from under its message, without the outline', async ({
+test('power demo: a tangent is deleted from under its message, without the outline', async ({
   page,
 }) => {
   const errors = collectErrors(page);
   await page.goto('/demo');
   await page.locator('.home-list .tree-row a').first().click();
   const toggle = page.locator('.fork-toggle').first();
-  await expect(toggle).toHaveText(/2 branches/);
+  await expect(toggle).toHaveText(/2 tangents/);
   await toggle.click();
   const forks = page.locator('.fork-list .fork-row');
   await expect(forks).toHaveCount(2);
@@ -108,12 +118,12 @@ test('power demo: a branch is deleted from under its message, without the outlin
   expect(asked[0]).toContain(`Delete “${title}”`);
   await expect(forks).toHaveCount(2);
 
-  // Confirm: the branch leaves the list, and the open branch stays where it was.
+  // Confirm: the tangent leaves the list, and the open branch stays where it was.
   const url = page.url();
   page.once('dialog', (d) => d.accept());
   await del.click();
   await expect(forks).toHaveCount(1);
-  await expect(toggle).toHaveText(/1 branch\b/);
+  await expect(toggle).toHaveText(/1 tangent\b/);
   expect(page.url()).toBe(url);
   expect(errors).toEqual([]);
 });
@@ -164,7 +174,7 @@ test('power demo: the conversation text size scales the messages only, and is re
   expect(errors).toEqual([]);
 });
 
-test('power demo: the open branch is deleted from the chat header, back to where it started', async ({
+test('power demo: the open tangent is deleted from the chat header, back to where it started', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -195,21 +205,22 @@ test('power demo: the open branch is deleted from the chat header, back to where
 
   page.once('dialog', (d) => d.accept());
   await del.click();
-  // On the parent, at the message the branch came from; the outline no longer lists it.
+  // On the parent, at the message the tangent came from; the outline no longer lists it.
   await expect.poll(() => page.url()).not.toContain(branchId);
   await expect(page).toHaveURL(/[?&]m=/);
   await expect(page.locator('.msg-focused')).toBeVisible();
   await expect(outline).toHaveCount(0);
-  await expect(page.locator('.toast').filter({ hasText: 'Branch deleted' })).toBeVisible();
+  await expect(page.locator('.toast').filter({ hasText: 'Tangent deleted' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test('Learn demo: a side question is deleted from its chip, or from the sidebar when open', async ({
+test('Learn demo: a tangent is deleted from its chip, or from the sidebar when open', async ({
   page,
 }) => {
   const errors = collectErrors(page);
   await page.goto('/learn/demo/');
   await page.locator('.lesson-row a').first().click();
+  await skipTour(page);
   const chip = page.locator('.side-questions .chip', { hasText: 'Why the owl hums first' });
   await expect(chip).toBeVisible();
 
@@ -218,7 +229,7 @@ test('Learn demo: a side question is deleted from its chip, or from the sidebar 
     asked.push(d.message());
     await d.dismiss();
   });
-  const del = page.getByRole('button', { name: 'Delete the side question Why the owl hums first' });
+  const del = page.getByRole('button', { name: 'Delete the tangent Why the owl hums first' });
   await del.click();
   await expect.poll(() => asked.length).toBe(1);
   expect(asked[0]).toBe(
@@ -228,16 +239,16 @@ test('Learn demo: a side question is deleted from its chip, or from the sidebar 
   page.once('dialog', (d) => d.accept());
   await del.click();
   await expect(chip).toHaveCount(0);
-  await expect(page.locator('.toast').filter({ hasText: 'Side question deleted' })).toBeVisible();
+  await expect(page.locator('.toast').filter({ hasText: 'Tangent deleted' })).toBeVisible();
 
-  // The open side question (a followed tangent): from the sidebar, back to the lesson.
+  // The open tangent (a followed suggestion): from the sidebar, back to the lesson.
   const tangent = page.locator('.tangent.is-followed').first();
   const name = (await tangent.locator('.tangent-title').innerText()).trim();
   await tangent.click();
   await expect(page).toHaveURL(/\/b\//);
   page.once('dialog', (d) => d.accept());
   await page
-    .getByRole('tree', { name: 'Side questions' })
+    .getByRole('tree', { name: 'Tangents' })
     .getByRole('button', { name: `Delete ${name}`, exact: true })
     .click();
   await expect(page).not.toHaveURL(/\/b\//);
@@ -246,27 +257,28 @@ test('Learn demo: a side question is deleted from its chip, or from the sidebar 
   expect(errors).toEqual([]);
 });
 
-test('Learn demo: side questions open where they start; the path, sidebar and keys find the way back', async ({
+test('Learn demo: tangents open where they start; the path, sidebar and keys find the way back', async ({
   page,
 }) => {
   const errors = collectErrors(page);
   await page.goto('/learn/demo/');
   await page.locator('.lesson-row a').first().click();
+  await skipTour(page);
   await expect(page.locator('.msg').first()).toBeVisible();
 
-  // A side question opens at its first message.
+  // A tangent opens at its first message.
   await page.locator('.side-questions .chip', { hasText: 'Why the owl hums first' }).click();
   await expect(page).toHaveURL(/\/b\/[^?]+\?m=/);
   await expect(page.locator('.msg-focused:not(.msg-ancestor)')).toBeVisible();
 
   // The path goes back to the message it started from.
-  await page.locator('.crumbs').getByRole('button', { name: 'Lesson', exact: true }).click();
+  await page.locator('.crumbs').getByRole('button', { name: 'Main thread', exact: true }).click();
   await expect(page).not.toHaveURL(/\/b\//);
   await expect(page).toHaveURL(/[?&]m=/);
   const startedFrom = page.locator('.msg-focused');
   await expect(startedFrom).toBeVisible();
 
-  // j and k move the mark; Alt+arrows move between side questions.
+  // j and k move the mark; Alt+arrows move between tangents.
   const marked = () => page.locator('.msg-focused').getAttribute('id');
   const before = await marked();
   await page.keyboard.press('j');
@@ -280,8 +292,8 @@ test('Learn demo: side questions open where they start; the path, sidebar and ke
   await page.keyboard.press('Alt+ArrowUp');
   await expect(page).not.toHaveURL(/\/b\//);
 
-  // The sidebar lists every side question under the open lesson.
-  const outline = page.getByRole('tree', { name: 'Side questions' });
+  // The sidebar lists every tangent under the open lesson.
+  const outline = page.getByRole('tree', { name: 'Tangents' });
   await outline.getByRole('button', { name: /^Why the owl hums first/ }).click();
   await expect(page).toHaveURL(/\/b\//);
   await expect(page.locator('.msg-focused:not(.msg-ancestor)')).toBeVisible();
@@ -296,12 +308,12 @@ test('Learn demo: side questions open where they start; the path, sidebar and ke
   await page.setViewportSize({ width: 390, height: 800 });
   await expect(page.locator('.crumbs ol')).toBeVisible();
   await expect(
-    page.locator('.crumbs').getByRole('button', { name: 'Lesson', exact: true }),
+    page.locator('.crumbs').getByRole('button', { name: 'Main thread', exact: true }),
   ).toBeVisible();
   await expect(outline).not.toBeInViewport();
   await page.getByRole('button', { name: 'Open menu' }).click();
   await expect(outline).toBeInViewport();
-  await outline.getByRole('button', { name: /^Lesson/ }).click();
+  await outline.getByRole('button', { name: /^Main thread/ }).click();
   await expect(page).not.toHaveURL(/\/b\//);
   await expect(outline).not.toBeInViewport();
   expect(errors).toEqual([]);
@@ -314,6 +326,7 @@ test('Learn demo: the lesson text size scales the messages only, and is remember
   const fontSize = (l: Locator) => l.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
   await page.goto('/learn/demo/');
   await page.locator('.lesson-row a').first().click();
+  await skipTour(page);
   const body = page.locator('.msg-body').first();
   const composer = page.locator('#composer-input');
   const title = page.locator('.lesson-title');
@@ -359,6 +372,8 @@ test('Learn demo: on a phone the lesson title stays whole and every header contr
     await page.setViewportSize({ width, height: 720 });
     await page.goto('/learn/demo/');
     await page.locator('.lesson-row a').first().click();
+    // Skipped once, the tour stays away in this demo session.
+    if (width === 360) await skipTour(page);
     const title = page.locator('.lesson-title');
     await expect(title).toHaveText('How do kittens learn to whistle?');
     // Not cut short: the title has a row of its own, the tools the next one.
@@ -382,22 +397,24 @@ test('Learn demo: on a phone the lesson title stays whole and every header contr
   expect(errors).toEqual([]);
 });
 
-test('power demo: ask your own question under a reply, inline or through the branch dialog', async ({
+test('power demo: ask your own question under a reply, inline or through the tangent dialog', async ({
   page,
 }) => {
   const errors = collectErrors(page);
   await page.goto('/demo');
   await page.locator('.home-list .tree-row a').first().click();
-  // The main thread's last reply (pinned by id: new branches add replies of their own).
+  // The main thread's last reply (pinned by id: new tangents add replies of their own).
   const last = page.locator('.msg-assistant').last();
   await expect(last).toBeVisible();
   const reply = page.locator(`#${await last.getAttribute('id')}`);
   const ask = reply.locator('.tangent-ask');
   const noTitle = (dialog: Locator) =>
     expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
-  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new branch' });
-  // The last item of "Where next?", after the suggested tangents.
-  await expect(reply.locator('.tangents > :last-child .tangent-ask')).toBeVisible();
+  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
+  // The last item of the Tangents group, after the suggested tangents.
+  await expect(
+    reply.locator('.tangents > .tangents-group:last-child > :last-child .tangent-ask'),
+  ).toBeVisible();
   await expect(field).toHaveAttribute('placeholder', 'Ask your own question…');
 
   // One click grows it; Escape folds it, typing in it is not a shortcut.
@@ -410,7 +427,7 @@ test('power demo: ask your own question under a reply, inline or through the bra
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await field.fill('');
 
-  // Enter asks it in a new branch, opened at once.
+  // Enter asks it in a new tangent, opened at once.
   const url = page.url();
   await field.fill('Do owls ever whistle back?');
   await field.press('Enter');
@@ -423,11 +440,11 @@ test('power demo: ask your own question under a reply, inline or through the bra
   await page.goBack();
   await expect.poll(() => page.url()).toBe(url);
 
-  // The gear: the branch dialog without a starting message (or a title), carrying the question.
+  // The gear: the tangent dialog without a starting message (or a title), carrying the question.
   await field.click();
   await field.fill('What do lemons applaud?');
-  await ask.getByRole('button', { name: /^Branch settings/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await ask.getByRole('button', { name: /^Tangent settings/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('Starting message')).toHaveCount(0);
   await noTitle(dialog);
@@ -435,7 +452,7 @@ test('power demo: ask your own question under a reply, inline or through the bra
   // Cancelled, the question stays where it was typed.
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(field).toHaveValue('What do lemons applaud?');
-  await ask.getByRole('button', { name: /^Branch settings/ }).click();
+  await ask.getByRole('button', { name: /^Tangent settings/ }).click();
   await dialog.getByRole('radio', { name: /Independent/ }).check();
   await dialog.getByRole('button', { name: 'Create and ask' }).click();
   await expect(dialog).toHaveCount(0);
@@ -445,8 +462,8 @@ test('power demo: ask your own question under a reply, inline or through the bra
   await expect.poll(() => page.url()).toBe(url);
   await expect(field).toHaveValue('');
 
-  // "Branch from here": a starting message instead of a title; Ctrl+Enter creates and asks.
-  await reply.getByRole('button', { name: 'Branch from here' }).click();
+  // "Tangent ↳": a starting message instead of a title; Ctrl+Enter creates and asks.
+  await reply.getByRole('button', { name: 'Tangent ↳' }).click();
   await expect(dialog).toBeVisible();
   await noTitle(dialog);
   const starting = dialog.getByRole('textbox', { name: /Starting message/ });
@@ -458,7 +475,7 @@ test('power demo: ask your own question under a reply, inline or through the bra
   expect(errors).toEqual([]);
 });
 
-test('power demo: "Ask about this" on selected text branches at once, ready to type', async ({
+test('power demo: "Ask about this" on selected text starts a tangent at once, ready to type', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -476,7 +493,7 @@ test('power demo: "Ask about this" on selected text branches at once, ready to t
   await selectText(body, 'a careful hamster in disguise');
   await expect(bar.getByRole('button', { name: 'Ask about this' })).toBeVisible();
   await bar.getByRole('button', { name: 'Ask about this' }).click();
-  // A new branch quoting it, opened with the composer focused, nothing sent yet.
+  // A new tangent quoting it, opened with the composer focused, nothing sent yet.
   await expect.poll(() => page.url()).not.toBe(url);
   await expect(page.locator('.fork-divider.fork-current')).toContainText(/full path/i);
   await expect(page.locator('.anchor-quote').last()).toHaveText('a careful hamster in disguise');
@@ -490,12 +507,12 @@ test('power demo: "Ask about this" on selected text branches at once, ready to t
   await expect(page.locator('.msg-user').last()).toContainText('Why a hamster?');
   await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
 
-  // Its gear: "Branch from here" with the quote filled in.
+  // Its gear: "Tangent from here" with the quote filled in.
   await page.goto(url);
   await expect(body).toBeVisible();
   await selectText(body, 'patient lemon');
-  await bar.getByRole('button', { name: /^More: Branch from here/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await bar.getByRole('button', { name: /^More: Tangent from here/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('patient lemon');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
@@ -521,7 +538,7 @@ test('power demo: the newest reply’s "Ask your own" is open, without taking fo
   const newest = page.locator(`#${await replies.last().getAttribute('id')}`);
   const older = page.locator(`#${await replies.first().getAttribute('id')}`);
   const ask = newest.locator('.tangent-ask');
-  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new branch' });
+  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
   const composer = page.locator('#composer-input');
 
   // Open from the start (three lines), marked as the newest, and nothing focused.
@@ -557,7 +574,7 @@ test('power demo: the newest reply’s "Ask your own" is open, without taking fo
   await expect(page).toHaveURL(/[?&]m=/);
   await expect(ask).not.toHaveClass(/is-expanded/);
 
-  // Into a branch and back: the newest reply's item is open again.
+  // Into a tangent and back: the newest reply's item is open again.
   const here = page.url();
   await page.locator('.fork-toggle').first().click();
   await page.locator('.fork-list .fork-link').first().click();
@@ -581,7 +598,7 @@ test('power demo: the newest reply’s "Ask your own" is open, without taking fo
   expect(errors).toEqual([]);
 });
 
-test('Canvas demo: ask your own question in a new lane, inline or through the branch dialog', async ({
+test('Canvas demo: ask your own question in a new lane, inline or through the tangent dialog', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -610,7 +627,7 @@ test('Canvas demo: ask your own question in a new lane, inline or through the br
   await field.click();
   await field.fill('And owls?');
   await ask.getByRole('button', { name: /^Lane settings/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('Starting message')).toHaveCount(0);
   await expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
@@ -621,7 +638,7 @@ test('Canvas demo: ask your own question in a new lane, inline or through the br
   await expect(page.locator('.card-user', { hasText: 'And owls?' })).toBeVisible();
   await expect(field).toHaveValue('');
 
-  // From the branch button: a starting message, still no title.
+  // From the tangent button: a starting message, still no title.
   await page.goBack();
   await card.locator('.card-branch').click();
   await expect(dialog.getByRole('textbox', { name: /Starting message/ })).toBeVisible();
@@ -753,7 +770,7 @@ test('Canvas demo: "Ask about this" opens a lane to type in; only the selected l
   // Select words in the first reply: "Ask about this" opens a path lane quoting them, its box focused.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'a careful hamster');
   const bar = page.locator('app-selection-ask');
-  await expect(bar.getByRole('button', { name: /^More: Branch from here/ })).toBeVisible();
+  await expect(bar.getByRole('button', { name: /^More: Tangent from here/ })).toBeVisible();
   await bar.getByRole('button', { name: 'Ask about this' }).click();
   await expect(lanes).toHaveCount(4);
   const lane = page.locator('.lane.is-selected');
@@ -763,10 +780,10 @@ test('Canvas demo: "Ask about this" opens a lane to type in; only the selected l
   // The trunk is no longer selected: its open ask folds.
   await expect(page.locator('.tangent-ask.is-expanded')).toHaveCount(0);
 
-  // The gear: the branch dialog with the quote filled in.
+  // The gear: the tangent dialog with the quote filled in.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'patient lemon');
-  await bar.getByRole('button', { name: /^More: Branch from here/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await bar.getByRole('button', { name: /^More: Tangent from here/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('patient lemon');
   await dialog.getByRole('button', { name: 'Cancel' }).click();

@@ -68,7 +68,7 @@ test('Learn: a new lesson streams its first reply on credit, and charges for it'
   expect(errors).toEqual([]);
 });
 
-test('Learn: the message box asks a side question, or continues the lesson', async ({
+test('Learn: Tangent ↳ (Enter) goes on a tangent, Next ➜ (Ctrl+Enter) continues the thread', async ({
   page,
   context,
   baseURL,
@@ -76,7 +76,10 @@ test('Learn: the message box asks a side question, or continues the lesson', asy
   const errors = collectErrors(page);
   await page.goto(`/learn/t/${await withExampleLesson(context, baseURL!, 'learn')}`);
   const composer = page.locator('#composer-input');
-  await expect(composer).toHaveAttribute('placeholder', 'Ask a side question…');
+  await expect(composer).toHaveAttribute('placeholder', 'Ask anything…');
+  const tangent = page.getByRole('button', { name: 'Tangent ↳' }).last();
+  const next = page.getByRole('button', { name: 'Next ➜' });
+  await expect(next).toBeDisabled();
   const url = page.url();
   await composer.fill('Do owls ever whistle back?');
   await composer.press('Enter');
@@ -87,17 +90,26 @@ test('Learn: the message box asks a side question, or continues the lesson', asy
     'Scripted reply (normal): "Do owls ever whistle back?"',
   );
 
-  // Switched to continue, the next message goes on in this side question.
-  const sideUrl = page.url();
-  await page.getByRole('button', { name: 'Send as: Side question' }).click();
-  await expect(composer).toBeFocused();
-  await expect(composer).toHaveAttribute('placeholder', 'Continue this side question…');
+  // Inside the tangent, Next ➜ goes on in it.
+  const tangentUrl = page.url();
+  await expect(composer).toHaveAttribute('placeholder', 'Ask anything in this tangent…');
   await composer.fill('And owlets?');
-  await composer.press('Enter');
+  await next.click();
   await expect(page.locator('.msg-assistant').last()).toContainText(
     'Scripted reply (normal): "And owlets?"',
   );
-  expect(page.url()).toBe(sideUrl);
+  expect(page.url()).toBe(tangentUrl);
+
+  // Back on the main thread, Ctrl+Enter is Next ➜ there.
+  await page.locator('.crumbs').getByRole('button', { name: 'Main thread', exact: true }).click();
+  await expect(page).not.toHaveURL(/\/b\//);
+  await expect(tangent).toBeVisible();
+  await composer.fill('What comes next?');
+  await composer.press('Control+Enter');
+  await expect(page.locator('.msg-assistant').last()).toContainText(
+    'Scripted reply (normal): "What comes next?"',
+  );
+  await expect(page).not.toHaveURL(/\/b\//);
   expect(errors).toEqual([]);
 });
 
