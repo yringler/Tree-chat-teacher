@@ -1,5 +1,5 @@
 // The public pages (http/landing.tsx, pricing-page.tsx, pool-page.tsx,
-// legal.tsx) as a visitor gets them from the deployment wrangler.jsonc ships,
+// legal.tsx, delete-account-page.tsx) as a visitor gets them from the deployment wrangler.jsonc ships,
 // and from the configs a self-hoster can choose: with or without the pool,
 // credit for sale and the membership. The tests hold invariants (the CSP,
 // no script, consistent notes, no forbidden claim) and the facts each config
@@ -19,6 +19,7 @@ import { createApp } from '../src/app.js';
 import { ownKeyProviders } from '../src/availability.js';
 import { appConfig, DEFAULT_BACKGROUND_MODEL } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
+import { POOL_IDENTITY_RETENTION_DAYS } from '../src/pool/identity.js';
 import { POOL_SESSION_ESTIMATE_MICROS } from '../src/pool/params.js';
 import { poolModelInfo } from '../src/pool/status.js';
 import { envWithFailingDb, uniq } from './mocks/billing-helpers.js';
@@ -26,7 +27,7 @@ import { shippedEnv } from './mocks/wrangler-vars.js';
 import { fundPool } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
-const PAGES = ['/welcome', '/pricing', '/pool', '/privacy', '/terms'] as const;
+const PAGES = ['/welcome', '/pricing', '/pool', '/privacy', '/terms', '/delete-account'] as const;
 
 const NO_POOL: Partial<AppEnv> = { POOL_ENABLED: 'false' };
 /** Polar sells no top-ups without a credits product. */
@@ -219,6 +220,26 @@ describe('every public page, in every config', () => {
       expect(/buy credit/.test(pool), name).toBe(credit);
       expect(/with a membership/.test(pool), name).toBe(membership);
     }
+  });
+});
+
+describe('/delete-account', () => {
+  it('answers anyone, signed out included, with how to delete an account and what is kept', async () => {
+    const { res, html } = await get(
+      deployment({ LEGAL_CONTACT_EMAIL: 'privacy@example.com' }),
+      '/delete-account',
+    );
+    expect(res.status).toBe(200);
+    expect(html).toContain('href="/learn/login?returnTo=%2Flearn%2Fdelete-account"');
+    const page = text(html);
+    expect(page).toContain('Delete your Tangent account');
+    expect(page).toContain('Sign in to delete your account');
+    // What goes, what stays and for how long, and a way in without signing in.
+    expect(page).toMatch(/every conversation/i);
+    expect(page).toMatch(/payment records/i);
+    expect(page).toContain(`${POOL_IDENTITY_RETENTION_DAYS} days`);
+    expect(page).toContain('30 days');
+    expect(page).toContain('privacy@example.com');
   });
 });
 

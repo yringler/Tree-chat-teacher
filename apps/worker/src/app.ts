@@ -15,6 +15,7 @@ import { appConfig } from './config.js';
 import type { AppBindings } from './env.js';
 import { apiError, notFound, onError } from './http/errors.js';
 import { appCaptchaRoutes } from './http/app-captcha-page.js';
+import { deleteAccountPageRoutes } from './http/delete-account-page.js';
 import { landingRoutes } from './http/landing.js';
 import {
   adminAppRoutes,
@@ -58,15 +59,15 @@ export interface AppOptions {
  *   (admins only, routes/admin.ts).
  * - `/s/*` is public and read-only, but for each link's report form,
  *   `/s/:token/report` (http/report-page.tsx).
- * - `/learn`, `/learn/*` serve the simple app (and `/delete-account`
- *   redirects to its account deletion page), `/canvas`, `/canvas/*` the
+ * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
  *   canvas app, `/app`, `/app/*` the Flutter app and `/admin`, `/admin/*`
  *   the admin app, to admins only (http/learn-app.ts), but for
  *   `/admin/review/:shareId`, the reported conversation an admin decides on
  *   (http/review-page.ts).
  * - `/privacy` and `/terms` are the public legal pages (http/legal.tsx), and
  *   `/pool` explains the open pool (http/pool-page.tsx) and `/pricing`
- *   what each plan gets you (http/pricing-page.tsx).
+ *   what each plan gets you (http/pricing-page.tsx), and `/delete-account`
+ *   how to delete an account (http/delete-account-page.tsx).
  * - `/verify` is the Turnstile interstitial after a first OAuth sign-in
  *   (http/verify-page.tsx), and `/app-captcha` the Turnstile widget the
  *   phone app shows in a web view to sign in (http/app-captcha-page.tsx).
@@ -125,6 +126,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.route('/', legalRoutes());
   app.route('/', poolPageRoutes());
   app.route('/', pricingPageRoutes());
+  app.route('/', deleteAccountPageRoutes());
   app.route('/', verifyPageRoutes(options.auth));
   app.route('/', appCaptchaRoutes());
   app.route('/', landingRoutes());

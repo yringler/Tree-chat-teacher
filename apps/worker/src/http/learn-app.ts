@@ -147,15 +147,9 @@ export function spaAppRoutes(base: string, options: SpaAppOptions = {}): Hono<Ap
   return app;
 }
 
-/**
- * The simple app under `/learn/`, and `/delete-account`, the short link to
- * its account deletion page that app stores ask for. That page signs a
- * signed-out visitor in first and comes back to it.
- */
+/** The simple app under `/learn/`. */
 export function learnAppRoutes(): Hono<AppBindings> {
-  const app = spaAppRoutes(LEARN_BASE);
-  app.on(['GET', 'HEAD'], '/delete-account', (c) => c.redirect(`${LEARN_BASE}delete-account`, 302));
-  return app;
+  return spaAppRoutes(LEARN_BASE);
 }
 
 /** The experimental canvas app under `/canvas/`. */

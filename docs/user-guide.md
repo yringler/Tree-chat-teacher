@@ -83,7 +83,7 @@ Learn keeps only the essentials:
 - **Your instructions** (the pencil in a lesson's header, while replies are paid with your own key or credit): instructions of your own for that lesson, such as "Answer in French", added after the tutor's. The open pool ignores them, and so does power;
 - **How replies are paid for** (account menu): your own OpenRouter key, **Tangent credit** (prepaid; the header shows the balance), or the **open pool** (free within daily limits, while it has credit). Where the membership is required, your own key needs it; credit and the pool never do. A message refused for want of a key, credit or membership is kept and sent once you pick a way on;
 - **Billing** (`/learn/billing`): the membership, and with credit the balance, top-ups and recent usage.
-- **Delete account** (account menu, or `/delete-account`, which opens it as a page at `/learn/delete-account` after signing you in): deletes the account all three apps share, once you retype your email.
+- **Delete account** (account menu, or `/learn/delete-account` as a page of its own): deletes the account all three apps share, once you retype your email. The public `/delete-account` page says what is deleted and kept, and its button signs you in and opens that page.
 
 An import into Learn is adapted so it can be continued there: branches on a provider or model Learn doesn't offer move to Normal, every side question gets the whole path as context, and the lesson gets Learn's tutor prompt. Nothing is charged by an import.
 

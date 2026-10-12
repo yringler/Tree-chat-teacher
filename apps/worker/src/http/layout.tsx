@@ -3,7 +3,7 @@ import { copyrightNotice } from './legal-info.js';
 import { LEARN_COMMON_HEADERS } from './learn-app.js';
 
 /**
- * The document every public page (landing, pricing, `/pool`, the legal
+ * The document every public page (landing, pricing, `/pool`, `/delete-account`, the legal
  * pages, `/verify`, the report form, `/app-captcha`) is rendered into: the
  * head, the header with the brand mark, and the footer with the copyright
  * line. Hono's JSX escapes every string; the one raw insertion is the page's
