@@ -737,22 +737,46 @@ export function describeRepositories(name: string, factory: () => Repositories):
         const b = uid('acct');
         expect(await repos.settings.getSettings(a)).toBeNull();
         const first = { systemPrompt: 'First', walkthroughDoneAt: null };
-        await repos.settings.putSettings(a, first, '2026-01-01T00:00:00.000Z');
+        expect(await repos.settings.updateSettings(a, first, '2026-01-01T00:00:00.000Z')).toEqual(
+          first,
+        );
         expect(await repos.settings.getSettings(a)).toEqual(first);
         const second = { systemPrompt: null, walkthroughDoneAt: null };
-        await repos.settings.putSettings(a, second, '2026-01-03T00:00:00.000Z');
+        await repos.settings.updateSettings(a, second, '2026-01-03T00:00:00.000Z');
         expect(await repos.settings.getSettings(a)).toEqual(second);
         expect(await repos.settings.getSettings(b)).toBeNull();
       });
 
-      it('round-trips the walkthrough flag', async () => {
+      it('changes only the fields it names, and returns them all', async () => {
         const a = uid('acct');
-        const done = { systemPrompt: 'Mine', walkthroughDoneAt: '2026-01-02T00:00:00.000Z' };
-        await repos.settings.putSettings(a, done, '2026-01-02T00:00:00.000Z');
-        expect(await repos.settings.getSettings(a)).toEqual(done);
-        const reset = { systemPrompt: 'Mine', walkthroughDoneAt: null };
-        await repos.settings.putSettings(a, reset, '2026-01-03T00:00:00.000Z');
-        expect(await repos.settings.getSettings(a)).toEqual(reset);
+        const done = '2026-01-02T00:00:00.000Z';
+        expect(await repos.settings.updateSettings(a, { walkthroughDoneAt: done }, done)).toEqual({
+          systemPrompt: null,
+          walkthroughDoneAt: done,
+        });
+        const t = '2026-01-03T00:00:00.000Z';
+        expect(await repos.settings.updateSettings(a, { systemPrompt: 'Mine' }, t)).toEqual({
+          systemPrompt: 'Mine',
+          walkthroughDoneAt: done,
+        });
+        await repos.settings.updateSettings(a, { walkthroughDoneAt: null }, t);
+        expect(await repos.settings.getSettings(a)).toEqual({
+          systemPrompt: 'Mine',
+          walkthroughDoneAt: null,
+        });
+      });
+
+      it('two changes at once, of different fields, both stick', async () => {
+        const a = uid('acct');
+        const t = '2026-01-02T00:00:00.000Z';
+        await Promise.all([
+          repos.settings.updateSettings(a, { systemPrompt: 'Mine' }, t),
+          repos.settings.updateSettings(a, { walkthroughDoneAt: t }, t),
+        ]);
+        expect(await repos.settings.getSettings(a)).toEqual({
+          systemPrompt: 'Mine',
+          walkthroughDoneAt: t,
+        });
       });
     });
   });

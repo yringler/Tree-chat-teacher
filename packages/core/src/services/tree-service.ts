@@ -163,14 +163,12 @@ export class TreeService {
   async updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
     const req = updateSettingsRequestSchema.parse(request);
     const now = this.ctx.now();
-    const next: AccountSettings = (await this.ctx.repos.settings.getSettings(
-      this.ctx.accountId,
-    )) ?? { systemPrompt: null, walkthroughDoneAt: null };
-    if (req.systemPrompt !== undefined) next.systemPrompt = emptyToNull(req.systemPrompt);
+    const patch: Partial<AccountSettings> = {};
+    if (req.systemPrompt !== undefined) patch.systemPrompt = emptyToNull(req.systemPrompt);
     if (req.walkthroughDone !== undefined)
-      next.walkthroughDoneAt = req.walkthroughDone ? now : null;
-    await this.ctx.repos.settings.putSettings(this.ctx.accountId, next, now);
-    return this.settingsResponse(next);
+      patch.walkthroughDoneAt = req.walkthroughDone ? now : null;
+    const saved = await this.ctx.repos.settings.updateSettings(this.ctx.accountId, patch, now);
+    return this.settingsResponse(saved);
   }
 
   private settingsResponse(settings: AccountSettings): SettingsResponse {

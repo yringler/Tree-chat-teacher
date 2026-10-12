@@ -285,8 +285,13 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         const s = state.settings.get(accountId);
         return s ? clone(s) : null;
       },
-      async putSettings(accountId, settings) {
-        state.settings.set(accountId, clone(settings));
+      async updateSettings(accountId, patch) {
+        const next: AccountSettings = {
+          ...(state.settings.get(accountId) ?? { systemPrompt: null, walkthroughDoneAt: null }),
+          ...patch,
+        };
+        state.settings.set(accountId, next);
+        return clone(next);
       },
     },
   };

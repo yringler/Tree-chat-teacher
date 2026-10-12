@@ -817,16 +817,19 @@ export function createD1Repositories(d1: D1Database): Repositories {
         : null;
     },
 
-    async putSettings(accountId, settings, updatedAt) {
-      const values = {
-        systemPrompt: settings.systemPrompt,
-        walkthroughDoneAt: settings.walkthroughDoneAt,
-        updatedAt,
-      };
-      await db
+    async updateSettings(accountId, patch, updatedAt) {
+      // Only the named columns in the update, so a concurrent change of another one stays.
+      const set = { ...definedOnly(patch), updatedAt };
+      const row = await db
         .insert(accountSettings)
-        .values({ accountId, ...values })
-        .onConflictDoUpdate({ target: accountSettings.accountId, set: values });
+        .values({ accountId, ...set })
+        .onConflictDoUpdate({ target: accountSettings.accountId, set })
+        .returning({
+          systemPrompt: accountSettings.systemPrompt,
+          walkthroughDoneAt: accountSettings.walkthroughDoneAt,
+        })
+        .get();
+      return { systemPrompt: row.systemPrompt, walkthroughDoneAt: row.walkthroughDoneAt };
     },
   };
 

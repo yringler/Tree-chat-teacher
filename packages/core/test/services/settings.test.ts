@@ -57,6 +57,17 @@ describe('account settings: the walkthrough flag', () => {
     expect((await chat.updateSettings({ walkthroughDone: false })).walkthroughDoneAt).toBeNull();
   });
 
+  it('two changes at once, of different fields, both stick', async () => {
+    const { chat } = setup({ autoTitle: false });
+    await Promise.all([
+      chat.updateSettings({ systemPrompt: 'MINE' }),
+      chat.updateSettings({ walkthroughDone: true }),
+    ]);
+    const saved = await chat.getSettings();
+    expect(saved.systemPrompt).toBe('MINE');
+    expect(saved.walkthroughDoneAt).not.toBeNull();
+  });
+
   it('rejects an update that changes nothing', async () => {
     const { chat } = setup({ autoTitle: false });
     await expect(chat.updateSettings({})).rejects.toThrow();
