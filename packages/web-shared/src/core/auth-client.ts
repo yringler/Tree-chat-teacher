@@ -1,19 +1,20 @@
 import { InjectionToken } from '@angular/core';
 import { passkeyClient } from '@better-auth/passkey/client';
 import { createAuthClient } from 'better-auth/client';
-import { magicLinkClient } from 'better-auth/client/plugins';
+import { emailOTPClient, magicLinkClient } from 'better-auth/client/plugins';
 import { AUTH_BASE_PATH, SIGNUPS_CLOSED } from '@tangent/shared';
 
 /**
  * Better Auth's browser client for `/api/auth/*`, with the plugins the
- * Worker registers: magic links and passkeys. Payments don't go through
+ * Worker registers: magic links, the code in the same email, and passkeys.
+ * Payments don't go through
  * Better Auth (BillingClient calls `/api/billing/*`).
  */
 export function createTangentAuthClient(baseURL: string = location.origin) {
   return createAuthClient({
     baseURL,
     basePath: AUTH_BASE_PATH,
-    plugins: [magicLinkClient(), passkeyClient()],
+    plugins: [magicLinkClient(), emailOTPClient(), passkeyClient()],
   });
 }
 

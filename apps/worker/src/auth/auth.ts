@@ -8,7 +8,12 @@ import { bearer } from 'better-auth/plugins/bearer';
 import { emailOTP } from 'better-auth/plugins/email-otp';
 import { magicLink } from 'better-auth/plugins/magic-link';
 import { drizzle } from 'drizzle-orm/d1';
-import { AUTH_BASE_PATH, REMEMBER_COOKIE, SIGNUPS_CLOSED } from '@tangent/shared';
+import {
+  AUTH_BASE_PATH,
+  REMEMBER_COOKIE,
+  SIGN_IN_CODE_LENGTH,
+  SIGNUPS_CLOSED,
+} from '@tangent/shared';
 import {
   authAccounts,
   authPasskeys,
@@ -424,7 +429,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       // with BETTER_AUTH_SECRET: a hash of a 6-digit number is reversed by
       // trying them all.
       emailOTP({
-        otpLength: 6,
+        otpLength: SIGN_IN_CODE_LENGTH,
         expiresIn: MAGIC_LINK_MINUTES * 60,
         allowedAttempts: 3,
         storeOTP: 'encrypted',
