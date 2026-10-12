@@ -5,6 +5,7 @@ import '../api/models.dart';
 import '../api/tangents.dart';
 import 'links.dart';
 import 'math_markdown.dart';
+import 'mermaid_markdown.dart';
 import 'theme.dart';
 
 /// One message of the thread: the learner's, or the tutor's reply rendered
@@ -99,7 +100,7 @@ class MessageView extends StatelessWidget {
           if (split.body.isNotEmpty)
             _SelectableReply(
               onAskAbout: complete ? onAskAbout : null,
-              child: _Markdown(split.body),
+              child: _Markdown(split.body, streaming: streaming),
             ),
           if (streaming) const BlinkingCursor(),
           if (node.status == NodeStatus.error) _ErrorBox(node),
@@ -166,39 +167,51 @@ class _SelectableReplyState extends State<_SelectableReply> {
 }
 
 class _Markdown extends StatelessWidget {
-  const _Markdown(this.data);
+  const _Markdown(this.data, {required this.streaming});
   final String data;
+
+  /// While the reply streams, a diagram's source is incomplete, so it shows
+  /// as code like any other.
+  final bool streaming;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = TangentColors.of(context);
     final base = MarkdownStyleSheet.fromTheme(theme);
+    final styleSheet = base.copyWith(
+      p: theme.textTheme.bodyLarge,
+      code: base.code?.copyWith(
+        backgroundColor: tokens.sunken,
+        fontSize: 15,
+        fontFamily: codeFont,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: tokens.sunken,
+        borderRadius: BorderRadius.circular(radiusSmall),
+      ),
+      codeblockPadding: const EdgeInsets.all(12),
+      blockquoteDecoration: BoxDecoration(
+        border: Border(left: BorderSide(color: tokens.border, width: 3)),
+      ),
+    );
     return MarkdownBody(
+      // The widget parses again only when its text or style changes, and a
+      // reply can finish without new text, so the end of streaming makes a
+      // new one that draws its diagrams.
+      key: ValueKey(streaming),
       data: data,
-      blockSyntaxes: mathBlockSyntaxes,
+      blockSyntaxes: [
+        ...mathBlockSyntaxes,
+        if (!streaming) const MermaidFenceSyntax(),
+      ],
       inlineSyntaxes: mathInlineSyntaxes,
-      builders: mathBuilders,
+      builders: {...mathBuilders, ...mermaidBuilders(styleSheet)},
       onTapLink: (text, href, title) {
         if (href != null) openLink(context, href, newTab: true);
       },
-      styleSheet: base.copyWith(
-        p: theme.textTheme.bodyLarge,
-        code: base.code?.copyWith(
-          backgroundColor: tokens.sunken,
-          fontSize: 15,
-          fontFamily: codeFont,
-          fontFamilyFallback: fallbackFonts,
-        ),
-        codeblockDecoration: BoxDecoration(
-          color: tokens.sunken,
-          borderRadius: BorderRadius.circular(radiusSmall),
-        ),
-        codeblockPadding: const EdgeInsets.all(12),
-        blockquoteDecoration: BoxDecoration(
-          border: Border(left: BorderSide(color: tokens.border, width: 3)),
-        ),
-      ),
+      styleSheet: styleSheet,
     );
   }
 }
