@@ -38,3 +38,15 @@ String tangentsLabel(int branchCount) {
   if (count < 1) return '';
   return ' · $count ${count == 1 ? 'tangent' : 'tangents'}';
 }
+
+/// `1234567` → `$1.23`, rounded to the nearest cent, negative balances keep
+/// their sign (`formatMicros` in packages/shared/src/money.ts).
+String formatMicros(int micros) {
+  final cents = (micros.abs() / 10000).round();
+  final sign = micros < 0 && cents > 0 ? '-' : '';
+  final whole = (cents ~/ 100).toString().replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (_) => ',',
+  );
+  return '$sign\$$whole.${(cents % 100).toString().padLeft(2, '0')}';
+}

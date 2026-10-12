@@ -873,16 +873,15 @@ app-related-links.connections {
   box-shadow: none;
 }
 
-/* The words asked about, before the text: on a narrow screen only its icon
-   until the box has the focus, then a row of its own. The box grows to three
-   lines once something is typed, not on focus: shrinking on blur would move
-   whatever was clicked (Start lesson, a suggestion above the dock) out from
-   under the pointer, and the click would be lost. */
+/* The words asked about, before the text: beside it while the box is closed,
+   on a row of their own once it opens, when the box also grows to three
+   lines. Size changes follow `is-open`, not :focus-within, so a click
+   elsewhere lands before the box shrinks. */
 .composer-host .composer {
   flex-wrap: wrap;
 }
 
-.composer-host .composer:has(textarea:not(:placeholder-shown)) textarea {
+.composer-host .composer.is-open textarea {
   min-height: calc(4.5em * var(--chat-font-scale, 1));
 }
 
@@ -893,7 +892,7 @@ app-related-links.connections {
   max-width: 60%;
 }
 
-.composer:focus-within .composer-lead {
+.composer.is-open .composer-lead {
   flex-basis: 100%;
   max-width: 100%;
 }

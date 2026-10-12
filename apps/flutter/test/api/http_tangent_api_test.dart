@@ -46,6 +46,7 @@ class MemoryTokens implements TokenStore {
   Reply reply, {
   String base = 'https://tangent.test',
   TokenStore? tokens,
+  TokenStore? keyCookie,
 }) {
   final seen = <Seen>[];
   final delays = <Duration>[];
@@ -63,6 +64,7 @@ class MemoryTokens implements TokenStore {
     baseUri: Uri.parse(base),
     client: client,
     tokens: tokens,
+    keyCookie: keyCookie,
     delay: (duration) async => delays.add(duration),
   );
   return (api: api, seen: seen, delays: delays);
@@ -325,6 +327,149 @@ void main() {
       expect(f.seen.single.method, 'PATCH');
       expect(f.seen.single.url.path, '/api/settings');
       expect(f.seen.single.json, {'walkthroughDone': true});
+    });
+  });
+
+  group('own key', () {
+    const sealed = 'v1.c2VhbGVk-_x';
+    const setKey =
+        '__Host-llmkey=$sealed; Max-Age=604800; Path=/; HttpOnly; Secure; '
+        'SameSite=Strict';
+    const clearKey =
+        '__Host-llmkey=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 '
+        '00:00:00 GMT; HttpOnly; Secure; SameSite=Strict';
+
+    http.StreamedResponse setting(String cookie, [int status = 204]) =>
+        http.StreamedResponse(
+          const Stream.empty(),
+          status,
+          headers: {'set-cookie': cookie},
+        );
+
+    test('status, save and forget name the OpenRouter key', () async {
+      final f = fake(
+        (request) => request.url.path == '/api/key/status'
+            ? json({
+                'enabled': true,
+                'hasKey': true,
+                'providers': ['anthropic', 'openrouter'],
+              })
+            : empty(),
+      );
+      final status = await f.api.keyStatus();
+      expect(status.enabled, isTrue);
+      expect(status.hasOpenRouterKey, isTrue);
+      await f.api.saveKey('sk-or-1');
+      await f.api.forgetKey();
+      final [_, save, forget] = f.seen;
+      expect((save.method, save.url.path), ('POST', '/api/key'));
+      expect(save.json, {'provider': 'openrouter', 'apiKey': 'sk-or-1'});
+      expect((forget.method, forget.url.path), ('DELETE', '/api/key'));
+      expect(forget.json, {'provider': 'openrouter'});
+    });
+
+    test('a native build keeps the key cookie and sends it back', () async {
+      final kept = MemoryTokens();
+      final f = fake(
+        (request) => request.url.path == '/api/key'
+            ? setting(
+                // Joined with the other cookies a response sets.
+                'tangent-x=1; Expires=Thu, 01 Jan 2099 00:00:00 GMT, $setKey',
+              )
+            : json({'enabled': true, 'model': null}),
+        keyCookie: kept,
+      );
+      await f.api.poolStatus();
+      expect(f.seen.last.headers.containsKey('cookie'), isFalse);
+      await f.api.saveKey('sk-or-1');
+      expect(kept.token, sealed);
+      await f.api.poolStatus();
+      expect(f.seen.last.headers['cookie'], '__Host-llmkey=$sealed');
+    });
+
+    test('loads a kept key cookie before the first call', () async {
+      final f = fake(
+        (_) => json({'enabled': true, 'model': null}),
+        keyCookie: MemoryTokens(sealed),
+      );
+      await f.api.poolStatus();
+      expect(f.seen.single.headers['cookie'], '__Host-llmkey=$sealed');
+    });
+
+    test('is not sent to sign-in', () async {
+      final f = fake(
+        (_) => json({'success': true}),
+        keyCookie: MemoryTokens(sealed),
+      );
+      await f.api.signInWithCode(email: 'a@b.test', code: '123456');
+      expect(f.seen.single.headers.containsKey('cookie'), isFalse);
+    });
+
+    test('a cleared cookie is forgotten, on a refusal too', () async {
+      final kept = MemoryTokens(sealed);
+      final f = fake(
+        (_) => http.StreamedResponse(
+          Stream.value(
+            utf8.encode(
+              jsonEncode({
+                'error': {'code': 'key_required', 'message': 'Enter it again'},
+              }),
+            ),
+          ),
+          401,
+          headers: {'set-cookie': clearKey},
+        ),
+        keyCookie: kept,
+      );
+      await expectLater(f.api.poolStatus(), throwsA(isA<ApiException>()));
+      expect(kept.token, isNull);
+      await expectLater(f.api.poolStatus(), throwsA(isA<ApiException>()));
+      expect(f.seen.last.headers.containsKey('cookie'), isFalse);
+    });
+
+    test('signing out forgets the key cookie', () async {
+      final kept = MemoryTokens(sealed);
+      final f = fake((_) => json({'success': true}), keyCookie: kept);
+      await f.api.signOut();
+      expect(kept.token, isNull);
+    });
+
+    test('the web build leaves the cookie to the browser', () async {
+      final f = fake((_) => setting(setKey));
+      await f.api.saveKey('sk-or-1');
+      await f.api.forgetKey();
+      expect(f.seen.last.headers.containsKey('cookie'), isFalse);
+    });
+
+    test('reads whether the membership the own key needs is missing', () {
+      Me me(Object? membership) => Me.fromJson({
+        'userId': 'u',
+        'email': 'a@b.test',
+        'devMode': false,
+        'builtInCredit': true,
+        'membership': membership,
+      });
+      expect(
+        me({'required': true, 'status': 'inactive'}).membershipMissing,
+        isTrue,
+      );
+      expect(
+        me({'required': true, 'status': 'waived'}).membershipMissing,
+        isFalse,
+      );
+      expect(
+        me({'required': false, 'status': 'inactive'}).membershipMissing,
+        isFalse,
+      );
+      expect(me(null).membershipMissing, isFalse);
+    });
+
+    test('reads the key cookie out of Set-Cookie', () {
+      expect(HttpTangentApi.keyCookieIn(null), isNull);
+      expect(HttpTangentApi.keyCookieIn('other=1; Path=/'), isNull);
+      expect(HttpTangentApi.keyCookieIn(setKey), sealed);
+      expect(HttpTangentApi.keyCookieIn(clearKey), '');
+      expect(HttpTangentApi.keyCookieIn('x__Host-llmkey=nope'), isNull);
     });
   });
 

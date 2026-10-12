@@ -53,6 +53,17 @@ abstract interface class TangentApi {
   Future<PoolStatus> poolStatus();
   Future<BillingSummary> billing();
 
+  // The learner's own OpenRouter key. The server seals it into the
+  // `__Host-llmkey` cookie and never returns any part of it.
+
+  Future<KeyStatus> keyStatus();
+
+  /// Saves [apiKey] as the learner's OpenRouter key, once the server has
+  /// checked it with OpenRouter; a rejected key throws `bad_request`.
+  Future<void> saveKey(String apiKey);
+
+  Future<void> forgetKey();
+
   // Lessons.
 
   Future<List<ProviderInfo>> providers();

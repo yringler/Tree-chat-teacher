@@ -153,14 +153,26 @@ export interface ComposerAction {
  * stays until the message is in the tree (`ComposerController.sent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed. An element marked `composerLead`
- * goes in the box before the text (where the message goes, say).
+ * goes in the box before the text (the words a message asks about, say).
+ *
+ * `is-open` on the form marks it focused, for styles that change its size
+ * then. A press elsewhere takes the focus on pointerdown, but the box keeps
+ * `is-open` until that press ends: shrinking at once would move what is under
+ * the pointer, and the click would land on something else.
  */
 @Component({
   selector: 'app-composer',
   imports: [Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <form class="composer" (submit)="$event.preventDefault(); submit()">
+    <form
+      #form
+      class="composer"
+      [class.is-open]="open()"
+      (focusin)="open.set(true)"
+      (focusout)="onFocusOut($event, form)"
+      (submit)="$event.preventDefault(); submit()"
+    >
       <ng-content select="[composerLead]" />
       <label class="sr-only" [attr.for]="inputId()">{{ label() }}</label>
       <textarea
@@ -285,6 +297,10 @@ export class Composer {
   readonly draft = output<string>();
 
   protected readonly text = signal('');
+  /** Focused, or a press that took the focus away hasn't ended yet (`is-open`). */
+  protected readonly open = signal(false);
+  /** A pointer is down somewhere on the page. */
+  private pressing = false;
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
 
   constructor() {
@@ -307,6 +323,17 @@ export class Composer {
     afterNextRender(() => {
       if (this.autofocus() && hovers()) this.box().nativeElement.focus();
     });
+    // Captured, so a handler that stops the event can't hide the press.
+    const press = (down: boolean) => () => (this.pressing = down);
+    const listeners: [string, () => void][] = [
+      ['pointerdown', press(true)],
+      ['pointerup', press(false)],
+      ['pointercancel', press(false)],
+    ];
+    for (const [type, fn] of listeners) window.addEventListener(type, fn, true);
+    destroyRef.onDestroy(() => {
+      for (const [type, fn] of listeners) window.removeEventListener(type, fn, true);
+    });
     // A message handed back (it couldn't be sent) fills an empty box.
     effect(() => {
       const initial = this.initial();
@@ -326,6 +353,26 @@ export class Composer {
         queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true }));
       }
     });
+  }
+
+  /** Closes once the focus has left the form and any press that moved it has ended (and clicked). */
+  protected onFocusOut(e: FocusEvent, form: HTMLFormElement): void {
+    if (e.relatedTarget instanceof Node && form.contains(e.relatedTarget)) return;
+    const close = () => {
+      if (!form.contains(document.activeElement)) this.open.set(false);
+    };
+    if (!this.pressing) {
+      close();
+      return;
+    }
+    // After the click the press ends in: it comes in the same task as pointerup.
+    const ended = () => {
+      window.removeEventListener('pointerup', ended, true);
+      window.removeEventListener('pointercancel', ended, true);
+      setTimeout(close);
+    };
+    window.addEventListener('pointerup', ended, true);
+    window.addEventListener('pointercancel', ended, true);
   }
 
   protected iconSize(): number {

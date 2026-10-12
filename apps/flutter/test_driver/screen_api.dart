@@ -191,6 +191,17 @@ class ScreenApi implements TangentApi {
     availableMicros: 5000000,
   );
 
+  // The learner pays with credit: no key of their own.
+  @override
+  Future<KeyStatus> keyStatus() async =>
+      const KeyStatus(enabled: true, providers: []);
+
+  @override
+  Future<void> saveKey(String apiKey) async {}
+
+  @override
+  Future<void> forgetKey() async {}
+
   @override
   Future<List<ProviderInfo>> providers() async => const [
     ProviderInfo(

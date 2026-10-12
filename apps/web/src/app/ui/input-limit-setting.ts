@@ -2,11 +2,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
   model,
-  type OnInit,
   signal,
+  untracked,
 } from '@angular/core';
 import {
   describeTokenSize,
@@ -232,7 +233,7 @@ export function inputLimitNotes(
     }
   `,
 })
-export class InputLimitSetting implements OnInit {
+export class InputLimitSetting {
   private readonly api = inject(ApiClient);
   private readonly store = inject(TreeStore);
 
@@ -279,18 +280,28 @@ export class InputLimitSetting implements OnInit {
     }),
   );
 
-  ngOnInit(): void {
-    const branch = this.store.selectedBranch();
-    if (branch) void this.load(branch.id);
+  constructor() {
+    // The dialog can open before the conversation has loaded: load its numbers once it has, and
+    // again when another branch is selected.
+    effect(() => {
+      const branchId = this.store.selectedBranchId();
+      untracked(() => {
+        this.info.set(null);
+        if (branchId) void this.load(branchId);
+      });
+    });
   }
 
   private async load(branchId: string): Promise<void> {
+    let info: InputBudgetResponse | null;
     try {
-      this.info.set(await this.api.inputBudget(branchId));
+      info = await this.api.inputBudget(branchId);
     } catch {
       // The hints fall back to the size of the number alone.
-      this.info.set(null);
+      info = null;
     }
+    // A slower answer for a branch no longer selected doesn't overwrite the current one.
+    if (this.store.selectedBranchId() === branchId) this.info.set(info);
   }
 
   protected setEnabled(on: boolean): void {

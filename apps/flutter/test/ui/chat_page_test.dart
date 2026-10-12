@@ -973,6 +973,27 @@ void main() {
     );
   });
 
+  testWidgets('a send refused for want of a key offers to save one', (
+    tester,
+  ) async {
+    api.refuseSend = const ApiException(
+      status: 401,
+      code: 'key_required',
+      message: 'Add your OpenRouter API key to continue this conversation.',
+    );
+    await pumpApp(tester, api, location: '/t/t1');
+    await sendTyped(tester, 'Why tides?');
+    await settle(tester);
+    expect(find.textContaining('save your OpenRouter key'), findsOneWidget);
+    await tester.tap(find.text('How you pay'));
+    await settle(tester);
+    expect(find.text('How replies are paid for'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller?.text,
+      'Why tides?',
+    );
+  });
+
   testWidgets('Stop cancels the reply being written', (tester) async {
     await pumpApp(tester, api, location: '/t/t1');
     await sendTyped(tester, 'Why tides?');

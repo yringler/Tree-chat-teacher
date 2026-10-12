@@ -41,6 +41,7 @@ class Me {
     required this.email,
     required this.devMode,
     required this.builtInCredit,
+    this.membershipMissing = false,
   });
 
   factory Me.fromJson(Json json) => Me(
@@ -48,6 +49,12 @@ class Me {
     email: json.strOrNull('email'),
     devMode: json.boolean('devMode'),
     builtInCredit: json.boolOrNull('builtInCredit') ?? false,
+    membershipMissing: switch (json.objOrNull('membership')) {
+      final membership? =>
+        (membership.boolOrNull('required') ?? false) &&
+            membership.strOrNull('status') == 'inactive',
+      null => false,
+    },
   );
 
   /// Null only under the local no-sign-in bypass (`devMode`).
@@ -57,6 +64,11 @@ class Me {
 
   /// Tangent credit is offered to this user.
   final bool builtInCredit;
+
+  /// The membership is required here and the user has none, so replies on
+  /// their own key are refused (`membershipBlocks` in web-shared). Credit
+  /// and the open pool never need one.
+  final bool membershipMissing;
 }
 
 /// `GET /api/login-options`.
@@ -103,12 +115,14 @@ class BillingSummary {
     required this.enabled,
     required this.builtInCredit,
     required this.availableMicros,
+    this.topUpsEnabled = true,
   });
 
   factory BillingSummary.fromJson(Json json) => BillingSummary(
     enabled: json.boolean('enabled'),
     builtInCredit: json.boolOrNull('builtInCredit') ?? false,
     availableMicros: json.intOrNull('availableMicros') ?? 0,
+    topUpsEnabled: json.boolOrNull('topUpsEnabled') ?? true,
   );
 
   final bool enabled;
@@ -116,7 +130,34 @@ class BillingSummary {
 
   /// Integer micro-dollars.
   final int availableMicros;
+
+  /// More credit can be bought; only an explicit false turns top-ups off.
+  final bool topUpsEnabled;
 }
+
+/// `GET /api/key/status`. Never any part of a key.
+class KeyStatus {
+  const KeyStatus({required this.enabled, required this.providers});
+
+  factory KeyStatus.fromJson(Json json) => KeyStatus(
+    enabled: json.boolean('enabled'),
+    providers: (json['providers'] as List<Object?>? ?? const [])
+        .whereType<String>()
+        .toList(),
+  );
+
+  /// The server can store keys (it has a key encryption secret).
+  final bool enabled;
+
+  /// Provider ids with a saved key.
+  final List<String> providers;
+
+  /// Learn's replies run on the learner's OpenRouter key.
+  bool get hasOpenRouterKey => providers.contains(openRouterProviderId);
+}
+
+/// The provider Learn runs on (`OPENROUTER_PROVIDER_ID` in packages/shared).
+const openRouterProviderId = 'openrouter';
 
 /// The model tiers Learn offers: Normal and Max.
 enum Tier { normal, max }

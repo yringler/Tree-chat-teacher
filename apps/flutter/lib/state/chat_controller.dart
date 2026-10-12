@@ -391,6 +391,7 @@ class ChatController extends ChangeNotifier {
       session.signedOut();
     } else {
       _notice = noticeFor(error);
+      session.refused(error);
     }
   }
 

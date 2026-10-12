@@ -347,10 +347,17 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final lessons = AppScope.of(context).lessons;
+    final scope = AppScope.of(context);
+    final lessons = scope.lessons;
     final wide = MediaQuery.sizeOf(context).width >= _wideFrom;
     return ListenableBuilder(
-      listenable: Listenable.merge([_chat, lessons, _walkthrough]),
+      // The session: who pays decides whether the tier can be switched.
+      listenable: Listenable.merge([
+        _chat,
+        lessons,
+        _walkthrough,
+        scope.session,
+      ]),
       builder: (context, _) {
         _reportToWalkthrough();
         // The main thread alone needs no outline.

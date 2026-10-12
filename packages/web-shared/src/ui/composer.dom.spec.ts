@@ -189,4 +189,34 @@ describe('Composer', () => {
       expect(c.act).not.toHaveBeenCalled();
     });
   });
+
+  it('is open while focused, and stays open through a press elsewhere until it ends', async () => {
+    const c = await composer();
+    const form = c.box.closest('form')!;
+    const outside = document.body.appendChild(document.createElement('button'));
+    outside.textContent = 'Elsewhere';
+    const clicked = vi.fn();
+    outside.addEventListener('click', clicked);
+    try {
+      await c.user.click(c.box);
+      expect(form.classList).toContain('is-open');
+
+      // The press takes the focus at once, but a box that shrank now would move
+      // what is under the pointer before the click lands.
+      await c.user.pointer({ keys: '[MouseLeft>]', target: outside });
+      expect(document.activeElement).toBe(outside);
+      expect(form.classList).toContain('is-open');
+      await c.user.pointer({ keys: '[/MouseLeft]', target: outside });
+      expect(clicked).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(form.classList).not.toContain('is-open'));
+
+      // Leaving by keyboard closes it at once.
+      await c.user.click(c.box);
+      expect(form.classList).toContain('is-open');
+      await c.user.tab();
+      expect(form.classList).not.toContain('is-open');
+    } finally {
+      outside.remove();
+    }
+  });
 });

@@ -21,15 +21,15 @@ class TierSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = AppScope.of(context);
-    if (scope.session.payer == Payer.pool) {
-      return Text(
-        'The open pool uses one model',
-        style: Theme.of(context).textTheme.bodySmall,
-      );
-    }
     return ListenableBuilder(
-      listenable: scope.lessons,
+      listenable: Listenable.merge([scope.session, scope.lessons]),
       builder: (context, _) {
+        if (scope.session.payer == Payer.pool) {
+          return Text(
+            'The open pool uses one model',
+            style: Theme.of(context).textTheme.bodySmall,
+          );
+        }
         if (!scope.lessons.hasTiers) return const SizedBox.shrink();
         final current = tier;
         return SegmentedButton<Tier>(
