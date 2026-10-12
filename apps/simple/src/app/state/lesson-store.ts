@@ -266,7 +266,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
   /**
    * Import: reads a JSON backup (from either app), imports it into this Learn
    * account and opens it. The server adapts a power conversation to Learn
-   * (its provider and models, the tutor prompt, side questions in context).
+   * (its provider and models, the tutor prompt, tangents in context).
    * A file that isn't a usable backup is refused before anything is sent.
    */
   async importLesson(file: BackupFile): Promise<boolean> {
@@ -292,15 +292,15 @@ export class LessonStore extends ConversationStore<ApiClient> {
     this.composer.focus();
   }
 
-  /** Side questions keep the model of the branch they come from (Normal or Max). */
+  /** Tangents keep the model of the thread they come from (Normal or Max). */
   protected override newBranchRoute(from: Branch | null): Partial<CreateBranchRequest> {
     return from ? { providerId: from.providerId, model: from.model } : {};
   }
 
   /**
-   * Deletes a side question with every side question below it; the caller
-   * confirms first. Replies still generating there are stopped. When the
-   * open side question goes, the lesson moves to the message it started from.
+   * Deletes a tangent with every tangent below it; the caller confirms
+   * first. Replies still generating there are stopped. When the open
+   * tangent goes, the lesson moves to the message it started from.
    */
   deleteSideQuestion(branchId: string): Promise<boolean> {
     if (!this.index()?.branches.get(branchId)?.parentBranchId) return Promise.resolve(false);
@@ -522,7 +522,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
     if (draft && branchIds.has(draft.branchId)) this.setUnsent(null);
     const block = this.poolBlock();
     if (block && branchIds.has(block.branchId)) this.poolBlock.set(null);
-    // Connecting from a message that is gone, or back to a side question that is.
+    // Connecting from a message that is gone, or back to a tangent that is.
     const from = this.ui.dialogs.get('connect')?.sourceNodeId;
     if (from !== undefined && nodeIds.has(from)) this.ui.dialogs.close('connect');
     const back = this.linkReturn();

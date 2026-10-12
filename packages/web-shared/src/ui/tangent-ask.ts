@@ -16,7 +16,7 @@ import {
 import { Icon } from './icon';
 
 /**
- * "Ask your own": the last item of a reply's "Where next?" list, styled like
+ * "Ask your own": the last item of a reply's "Tangents" group, styled like
  * the suggested tangents but with a field for the user's own question, sent
  * as the first message of a new branch. The parent owns the text (`text`,
  * cleared once the branch is created) and the branching (`ask`).

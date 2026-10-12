@@ -61,7 +61,7 @@ export function learner(
 }
 
 /**
- * "Light" with side questions: `side` from a1 (u2 a2), `deep` from a2 (u3 a3),
+ * "Light" with tangents: `side` from a1 (u2 a2), `deep` from a2 (u3 a3),
  * and `other` from a1 (u4).
  */
 export function branchyLesson(): TreeDetail {

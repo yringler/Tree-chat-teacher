@@ -54,7 +54,7 @@ const noLinks: LinksByNode = new Map();
  * - `placeholder`, `noteLabel`, `notePlaceholder`, `submitLabel`: copy
  *   (Learn: "This connects to…", "Why? (a note for yourself)", "Connect").
  * - `tangentLabel` ('Tangent'): what a branch heading is called, before its
- *   title ("Tangent: ‹title›"; Learn: 'Side question').
+ *   title ("Tangent: ‹title›").
  *
  * Outputs:
  * - `picked`: `{ nodeId, note }`; the app creates the link and closes.

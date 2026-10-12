@@ -5,7 +5,7 @@ import { DEMO_NORMAL_MODEL } from './lorem';
 
 /*
  * The example lesson the demo starts with: a few turns on the main thread,
- * one side question ("Ask about this" on a quoted phrase), one followed
+ * one tangent from a quoted phrase ("Ask about this"), one followed
  * tangent and a link from the main thread to that tangent, so the first
  * screen shows what a lesson looks like. Hand-written
  * in the same playful nonsense the demo's tutor speaks, with the same

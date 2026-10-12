@@ -306,7 +306,7 @@ const TITLE_CHARS = 48;
  * so that a lesson on "Why is the sky blue?" is called that and not
  * "Cheetahs versus flies". The ChatService's title prompt wraps the first
  * messages as "User: …" / "Assistant: …" lines (core/context/render.ts);
- * a side question's quote comes first as "User: Focus: …" and is skipped.
+ * a tangent's quote comes first as "User: Focus: …" and is skipped.
  * Falls back to a random title when no learner message can be found.
  */
 export function titleFor(messages: readonly { content: string }[], random: Random): string {

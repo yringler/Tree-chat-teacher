@@ -35,8 +35,8 @@ export function sourcesMarkdown(sources: readonly ShareSource[] | undefined): st
 
 /**
  * A message as shared or exported: an assistant reply's `<tangents>` block
- * becomes a plain "Where next?" list (there are no buttons to follow it),
- * and a grounded reply ends with its "Sources".
+ * becomes plain "Keep going" and "Tangents" lists (there are no buttons to
+ * follow them), and a grounded reply ends with its "Sources".
  */
 export function messageMarkdown(m: ShareMessage): string {
   if (m.role !== 'assistant') return m.content;
@@ -60,7 +60,8 @@ function oneLine(text: string): string {
  * breadcrumb (e.g. "Trunk › Side topic"), a "Tangent from: …" line quoting the
  * fork message excerpt, an optional anchor-quote blockquote, then messages as
  * "**User:**" / "**AI:**" blocks. Message content is emitted verbatim,
- * except that a reply's `<tangents>` block becomes a "Where next?" list.
+ * except that a reply's `<tangents>` block becomes "Keep going" and
+ * "Tangents" lists.
  */
 export function payloadToMarkdown(payload: SharePayload): string {
   const byKey = new Map<string, ShareBranch>(payload.branches.map((b) => [b.key, b]));
