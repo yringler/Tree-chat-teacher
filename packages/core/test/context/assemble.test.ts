@@ -148,6 +148,7 @@ suite('each mode directly under the trunk', () => {
       branchPointNodeId: 'T.1',
     });
     expect(seg(plan, 'anc:T.0').explanation).toBe('Inherited from ‘Trunk’ via path mode');
+    expect(seg(plan, 'br:B1.0').explanation).toBe('Message in this thread ‘Child’');
     checkProvenance(f, plan);
   });
 
@@ -163,6 +164,10 @@ suite('each mode directly under the trunk', () => {
       sourceHash: expectedHash(transcript, 'quote'),
     });
     expect(sum!.text).toBeNull();
+    expect(sum!.explanation).toBe(
+      'Summary of what ‘Trunk’ sent up to where ‘Child’ starts, because ‘Child’ uses summary ' +
+        'mode (focused on the anchor quote)',
+    );
     expect(sum!.tokens).toBe(0);
     expect(sum!.viaBranchId).toBe('B1');
     expect(sum!.sourceNodeIds).toEqual(['T.0', 'T.1']);
@@ -204,7 +209,7 @@ suite('each mode directly under the trunk', () => {
     expect(point.reason).toBe('branch-point-message');
     expect(point.viaBranchId).toBe('T');
     expect(point.explanation).toBe(
-      'The message in ‘Trunk’ that ‘Child’ branched from, because it uses parent-message mode',
+      'The message in ‘Trunk’ that ‘Child’ starts from, because it uses parent-message mode',
     );
     checkProvenance(f, plan);
   });
@@ -943,6 +948,9 @@ suite('validation', () => {
     const f = base();
     f.branch('B').branchPointNodeId = null;
     expect(() => f.plan('B')).toThrow(ValidationError);
+    expect(() => f.plan('B')).toThrow(
+      expect.objectContaining({ problem: 'a tangent has no message it starts from' }),
+    );
   });
 
   it('rejects a cyclic chain and branches of other trees', () => {

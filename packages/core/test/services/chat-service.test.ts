@@ -471,7 +471,7 @@ describe('ChatService backup', () => {
     const rejected = chat.importBackup(broken);
     await expect(rejected).rejects.toBeInstanceOf(ValidationError);
     await expect(rejected).rejects.toThrow(
-      "This backup can't be restored: a branch is missing some of its messages",
+      "This backup can't be restored: a thread is missing some of its messages",
     );
     expect(repos.dump().trees.size).toBe(trees);
   });
