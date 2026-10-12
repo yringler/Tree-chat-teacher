@@ -13,6 +13,7 @@ import {
   MarkdownService,
   RelatedLinks,
   relatedLinks,
+  RenderDiagrams,
   TangentAsk,
   TypesetMath,
   type LinkNoteEdit,
@@ -45,7 +46,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
  */
 @Component({
   selector: 'app-card',
-  imports: [Icon, RelatedLinks, TangentAsk, TypesetMath],
+  imports: [Icon, RelatedLinks, RenderDiagrams, TangentAsk, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -94,7 +95,13 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
       @if (streaming() && liveStatus()) {
         <p class="card-status muted small">{{ liveStatus() }}</p>
       }
-      <div class="card-body md" [innerHTML]="html()" [appTypesetMath]="html()"></div>
+      <div
+        class="card-body md"
+        [innerHTML]="html()"
+        [appTypesetMath]="html()"
+        [appRenderDiagrams]="html()"
+        [diagramsPaused]="streaming()"
+      ></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Writing…</span>

@@ -23,7 +23,9 @@
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",
     "better-auth": "1.7.7",
+    "dompurify": "^3.4.17",
     "katex": "^0.16.47",
+    "mermaid": "^12.1.0",
     "txtgen": "^3.0.7"
   },
   "peerDependencies": {
@@ -41,6 +43,7 @@
     "@angular/router": "^22.2.0",
     "@testing-library/dom": "10.4.2",
     "@testing-library/user-event": "14.6.7",
+    "@types/trusted-types": "^2.0.7",
     "@vitest/coverage-v8": "~4.1.11",
     "happy-dom": "20.14.5",
     "rxjs": "~7.8.0",

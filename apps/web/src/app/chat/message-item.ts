@@ -4,6 +4,7 @@ import {
   MarkdownService,
   RelatedLinks,
   relatedLinks,
+  RenderDiagrams,
   SourcesList,
   TypesetMath,
   type LinkNoteEdit,
@@ -29,6 +30,7 @@ import { TangentNav } from './tangent-nav';
     MessageActions,
     MessageStatus,
     RelatedLinks,
+    RenderDiagrams,
     ReviewChip,
     SourcesList,
     TangentNav,
@@ -66,6 +68,8 @@ import { TangentNav } from './tangent-nav';
         [attr.data-node-id]="n.id"
         [innerHTML]="html()"
         [appTypesetMath]="html()"
+        [appRenderDiagrams]="html()"
+        [diagramsPaused]="streaming()"
       ></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>

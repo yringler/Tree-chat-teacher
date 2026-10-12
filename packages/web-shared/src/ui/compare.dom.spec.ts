@@ -20,7 +20,10 @@ const max: CompareCandidate = {
 
 /** The screen is `wide` (at least 900px: side by side) or not (tabs). */
 async function compare(inputs: Record<string, unknown> = {}, wide = false) {
-  vi.stubGlobal('matchMedia', (q: string) => ({ matches: wide && q === '(min-width: 900px)' }));
+  vi.stubGlobal('matchMedia', (q: string) => ({
+    matches: wide && q === '(min-width: 900px)',
+    addEventListener: () => undefined,
+  }));
   const r = await render(Compare, {
     inputs: { candidates: [normal, max], question: 'Why is the sky blue?', ...inputs },
   });
@@ -64,7 +67,7 @@ describe('Compare', () => {
 
   it('goes back to tabs when the window narrows', async () => {
     const c = await compare({}, true);
-    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => undefined }));
     window.dispatchEvent(new Event('resize'));
     await c.fixture.whenStable();
     expect(screen.queryAllByRole('region')).toEqual([]);

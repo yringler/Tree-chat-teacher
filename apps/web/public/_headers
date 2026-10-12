@@ -9,9 +9,11 @@
 # inline or remote script runs (the build turns off critical-CSS inlining, which
 # needs an inline script), and images are same-origin only so injected markup in
 # model output can't exfiltrate data through an <img> URL. Trusted Types limits
-# DOM HTML sinks to Angular's sanitizing policies.
+# DOM HTML sinks to Angular's sanitizing policies, DOMPurify's, and the
+# `default` policy the diagram renderer creates once mermaid loads, which
+# refuses HTML strings outside a diagram render and sanitizes those inside one.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types angular angular#bundler
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types angular angular#bundler dompurify default
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin
 

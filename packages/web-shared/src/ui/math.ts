@@ -64,10 +64,12 @@ export class TypesetMath {
   }
 }
 
-function mathAround(node: Node | null | undefined): Element | null {
-  let el = node?.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
-  for (; el; el = el.parentElement) if (el.classList?.contains('katex')) return el;
-  return null;
+/** A typeset formula or a drawn diagram (`RenderDiagrams`), which a selection takes whole. */
+const WHOLE = '.katex, .diagram.is-drawn';
+
+function wholeAround(node: Node | null | undefined): Element | null {
+  const el = node?.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
+  return el?.closest(WHOLE) ?? null;
 }
 
 const BLOCK_TAGS = new Set([
@@ -97,22 +99,34 @@ function plainText(node: Node, out: string[], pre: boolean): void {
 
 /**
  * The text of a selection, with each typeset formula as its TeX source in
- * `\(…\)` / `\[…\]`. `Selection.toString()` alone would return KaTeX's
- * visual glyphs followed by its hidden MathML text, run together. A
- * selection that starts or ends inside a formula takes the whole formula.
+ * `\(…\)` / `\[…\]` and each drawn diagram as its mermaid source in a
+ * fence. `Selection.toString()` alone would return KaTeX's visual glyphs
+ * followed by its hidden MathML text, run together, and a diagram's labels
+ * without their structure. A selection that starts or ends inside a formula
+ * or a diagram takes the whole of it.
  */
 export function selectionText(selection: Selection): string {
   const range = selection.getRangeAt(0);
-  const startMath = mathAround(range.startContainer);
-  const endMath = mathAround(range.endContainer);
+  const start = wholeAround(range.startContainer);
+  const end = wholeAround(range.endContainer);
   const common = range.commonAncestorContainer;
   const commonEl = common.nodeType === 1 ? (common as Element) : common.parentElement;
-  if (!startMath && !endMath && !commonEl?.querySelector?.('.katex')) return selection.toString();
+  if (!start && !end && !commonEl?.querySelector?.(WHOLE)) return selection.toString();
 
   const whole = range.cloneRange();
-  if (startMath) whole.setStartBefore(startMath);
-  if (endMath) whole.setEndAfter(endMath);
+  if (start) whole.setStartBefore(start);
+  if (end) whole.setEndAfter(end);
   const fragment = whole.cloneContents();
+  // A diagram's source goes in after the whitespace clean-up below, which
+  // would flatten its indentation; until then a private-use mark holds its place.
+  const diagrams: string[] = [];
+  for (const d of Array.from(fragment.querySelectorAll('.diagram.is-drawn'))) {
+    const source = (d.querySelector(':scope > pre')?.textContent ?? '').replace(/\n$/, '');
+    const block = d.ownerDocument.createElement('div');
+    block.textContent = `\uE000${diagrams.length}\uE000`;
+    diagrams.push('```mermaid\n' + source + '\n```');
+    d.replaceWith(block);
+  }
   for (const k of Array.from(fragment.querySelectorAll('.katex'))) {
     const tex = k.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
     if (tex == null) continue;
@@ -124,5 +138,6 @@ export function selectionText(selection: Selection): string {
     .join('')
     .replace(/[ \t]*\n[ \t]*/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
+    .replace(/\uE000(\d+)\uE000/g, (_, i: string) => diagrams[Number(i)] ?? '')
     .trim();
 }

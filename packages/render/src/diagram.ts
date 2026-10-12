@@ -27,3 +27,9 @@ export function diagramPlugin(md: MarkdownIt): void {
     return fence ? fence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
   };
 }
+
+/**
+ * The longest diagram source that is drawn; a longer one is shown as code.
+ * Mermaid's own limit is set to it too, and the Flutter app uses the same.
+ */
+export const MAX_DIAGRAM_SOURCE = 20_000;
