@@ -25,7 +25,7 @@ import { ScopePicker } from '../ui/scope-picker';
       @if (created(); as s) {
         <div class="form">
           <p>
-            Anyone with this link can read {{ scopeLabel() }}. Private branches are never included.
+            Anyone with this link can read {{ scopeLabel() }}. Private tangents are never included.
           </p>
           <div class="copy-row">
             <input

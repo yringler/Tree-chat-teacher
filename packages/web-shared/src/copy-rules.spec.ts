@@ -37,6 +37,30 @@ function templates(): Map<string, string> {
 
 const all = templates();
 
+/** Each TypeScript file's source without its comments, by its path from the repository root. */
+function scripts(): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const dir of SOURCES) {
+    for (const name of readdirSync(new URL(dir, ROOT), { recursive: true, encoding: 'utf8' })) {
+      const path = `${dir}/${name}`;
+      if (!path.endsWith('.ts') || path.endsWith('.spec.ts') || path.includes('/testing/'))
+        continue;
+      const source = readFileSync(new URL(path, ROOT), 'utf8');
+      out.set(path, source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, ''));
+    }
+  }
+  return out;
+}
+
+/** A template's visible text: no tags, bindings, interpolations or control flow. */
+function visibleText(template: string): string {
+  return template
+    .replace(/\{\{[\s\S]*?\}\}/g, ' ')
+    .replace(/@let[^;]*;/g, ' ')
+    .replace(/@(for|if|else if|switch|case)\b[^{]*\{/g, ' ')
+    .replace(/<[^>]*>/g, ' ');
+}
+
 function only(...paths: string[]): [string, string][] {
   return paths.map((p) => {
     const text = all.get(p);
@@ -55,6 +79,18 @@ describe('copy rules', () => {
   // 'Tangent' is the product word, so a learner never meets "side question".
   it('a tangent is never called a side question', () => {
     for (const [path, text] of all) expect(text, path).not.toMatch(/side question/i);
+  });
+
+  // Messages and labels built in code reach the learner too (toasts, titles, aria labels).
+  it('no string in code calls a tangent a side question', () => {
+    const code = scripts();
+    expect(code.size).toBeGreaterThan(150);
+    for (const [path, text] of code) expect(text, path).not.toMatch(/side question/i);
+  });
+
+  // 'Tangent' is the product word: a page says tangent or thread, never branch.
+  it('no page text says branch', () => {
+    for (const [path, text] of all) expect(visibleText(text), path).not.toMatch(/\bbranch(es)?\b/i);
   });
 
   // 'Tangent' is the product word, so no button or heading offers to branch.

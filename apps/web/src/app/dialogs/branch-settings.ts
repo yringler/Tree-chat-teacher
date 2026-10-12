@@ -106,7 +106,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
             <span class="muted small">
               The model decides whether to search, at most once per reply. A search costs about
               $0.007 at OpenRouter, or $0.01 plus the results as input tokens at Anthropic. New
-              branches inherit this setting.
+              tangents inherit this setting.
             </span>
           </label>
         } @else {
