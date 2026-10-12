@@ -3,7 +3,7 @@ import { Overlays } from '@tangent/web-shared';
 import type { Point } from '../layout/layout-store';
 
 /** A link shown in a toast; `href` is a full page load (e.g. the power app's `/billing`). */
-/** The "Branch from here" dialog: one or many variants off one message. */
+/** The "Tangent from here" dialog: one or many variants off one message. */
 export interface BranchDialogState {
   fromNodeId: string;
   /** Text selected in the message, offered as the anchor quote. */

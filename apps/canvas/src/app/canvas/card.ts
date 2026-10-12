@@ -7,7 +7,16 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { isCutOffReply, isStoppedReply, splitTangents, type ChatNode } from '@tangent/shared';
+import {
+  groupTangents,
+  isCutOffReply,
+  isStoppedReply,
+  KEEP_GOING_LABEL,
+  REPLY_ACTION,
+  splitTangents,
+  TANGENTS_LABEL,
+  type ChatNode,
+} from '@tangent/shared';
 import {
   Icon,
   MarkdownService,
@@ -24,6 +33,8 @@ import { laneTitle } from './titles';
 
 /** A press on the link port becomes a drag once it moves this far; until then it is a click. */
 const DRAG_SLOP = 5;
+
+let uid = 0;
 
 /** What pick mode offers on this card: link here, or why not. */
 type PickState = 'open' | 'source' | 'linked';
@@ -82,11 +93,11 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
           <button
             type="button"
             class="icon-btn card-branch"
-            title="Branch from here (one lane, or several variants at once)"
-            aria-label="Branch from this message"
+            title="Tangent from here (one lane, or several variants at once)"
+            aria-label="Tangent from this message"
             (click)="branch($event)"
           >
-            <app-icon name="branch" [size]="15" />
+            <app-icon name="tangent" [size]="15" />
           </button>
         }
       </header>
@@ -111,48 +122,79 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
       }
 
       @if (complete()) {
-        <nav class="tangents" aria-label="Tangents worth following">
-          <span class="tangents-label muted small">Where next?</span>
-          @for (t of tangents(); track t.title) {
-            <button
-              type="button"
-              class="tangent"
-              [class.is-followed]="followed().has(t.title)"
-              [disabled]="opening() !== null || (locked() && !followed().has(t.title))"
-              [title]="
-                followed().has(t.title)
-                  ? 'Open this lane'
-                  : locked()
-                    ? 'Following it needs a membership (this lane is on your own key)'
-                    : (t.why ?? t.title)
-              "
-              (click)="follow(t.title, $event)"
-            >
-              <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'branch'" [size]="14" />
-              <span class="tangent-title">{{ t.title }}</span>
-              @if (t.why) {
-                <span class="tangent-why muted">{{ t.why }}</span>
+        <div class="tangents">
+          @if (keepGoing().length > 0) {
+            <nav class="tangents-group" [attr.aria-labelledby]="ids.next">
+              <span class="tangents-group-label muted small" [id]="ids.next">{{
+                labels.next
+              }}</span>
+              @for (t of keepGoing(); track t.title) {
+                <button
+                  type="button"
+                  class="tangent"
+                  [disabled]="continuing() || locked()"
+                  [title]="
+                    locked()
+                      ? 'Continuing needs a membership (this lane is on your own key)'
+                      : (t.why ?? nextHint())
+                  "
+                  (click)="continueWith(t.title, $event)"
+                >
+                  <app-icon name="next" [size]="14" />
+                  <span class="tangent-title">{{ t.title }}</span>
+                  @if (t.why) {
+                    <span class="tangent-why muted">{{ t.why }}</span>
+                  }
+                </button>
               }
-            </button>
+            </nav>
           }
-          <!-- The user's own question, in a new lane like a tangent. -->
-          <app-tangent-ask
-            [(text)]="askText"
-            label="Ask your own question in a new lane"
-            settingsLabel="Lane settings: context, model, variants…"
-            [expandable]="true"
-            [busy]="asking()"
-            [latest]="latest()"
-            [disabled]="locked()"
-            disabledTitle="Asking needs a membership (this lane is on your own key)"
-            (ask)="ask($event)"
-            (settings)="askWithSettings($event)"
-          />
-        </nav>
+          <nav class="tangents-group" [attr.aria-labelledby]="ids.side">
+            <span class="tangents-group-label muted small" [id]="ids.side">{{ labels.side }}</span>
+            @for (t of sideTrips(); track t.title) {
+              <button
+                type="button"
+                class="tangent"
+                [class.is-followed]="followed().has(t.title)"
+                [disabled]="opening() !== null || (locked() && !followed().has(t.title))"
+                [title]="
+                  followed().has(t.title)
+                    ? 'Open this tangent'
+                    : locked()
+                      ? 'Starting a tangent needs a membership (this lane is on your own key)'
+                      : (t.why ?? t.title)
+                "
+                (click)="follow(t.title, $event)"
+              >
+                <app-icon
+                  [name]="followed().has(t.title) ? 'chevronRight' : 'tangent'"
+                  [size]="14"
+                />
+                <span class="tangent-title">{{ t.title }}</span>
+                @if (t.why) {
+                  <span class="tangent-why muted">{{ t.why }}</span>
+                }
+              </button>
+            }
+            <!-- The user's own question, in a new lane like a tangent. -->
+            <app-tangent-ask
+              [(text)]="askText"
+              label="Ask your own question in a new lane"
+              settingsLabel="Lane settings: context, model, variants…"
+              [expandable]="true"
+              [busy]="asking()"
+              [latest]="latest()"
+              [disabled]="locked()"
+              disabledTitle="Asking needs a membership (this lane is on your own key)"
+              (ask)="ask($event)"
+              (settings)="askWithSettings($event)"
+            />
+          </nav>
+        </div>
       }
 
       @if (children().length > 0) {
-        <nav class="card-forks" aria-label="Lanes branching from this message">
+        <nav class="card-forks" aria-label="Tangents from this message">
           @for (b of children(); track b.id) {
             <button
               type="button"
@@ -253,11 +295,29 @@ export class Card {
   /** A reply cut off at its length limit (it keeps its text, but isn't a whole answer). */
   protected readonly cutOff = computed(() => isCutOffReply(this.node()));
   protected readonly stopped = computed(() => isStoppedReply(this.node()));
-  /** A finished reply: offers its tangents and "Ask your own". */
+  /** A finished reply: offers its suggestions and "Ask your own". */
   protected readonly complete = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
   protected readonly tangents = computed(() => (this.complete() ? this.split().tangents : []));
+  protected readonly labels = { next: KEEP_GOING_LABEL, side: TANGENTS_LABEL };
+  protected readonly ids = { next: `card-next-${++uid}`, side: `card-tangents-${uid}` };
+  private readonly groups = computed(() => groupTangents(this.tangents()));
+  /**
+   * Next steps, sent as the lane's next message: only the selected lane's
+   * last card offers them (`latest`), where sending one continues the thread
+   * on screen.
+   */
+  protected readonly keepGoing = computed(() => (this.latest() ? this.groups().continue : []));
+  protected readonly sideTrips = computed(() => this.groups().tangent);
+  /** Inside a tangent, the next step continues that tangent rather than the main thread. */
+  protected readonly nextHint = computed(() =>
+    this.store.index()?.branches.get(this.node().branchId)?.parentBranchId
+      ? REPLY_ACTION.hintInTangent
+      : REPLY_ACTION.hint,
+  );
+  /** A next step is being sent. */
+  protected readonly continuing = signal(false);
   /** The card's lane can't generate (its funding needs the membership the user lacks). */
   protected readonly locked = computed(() => {
     const b = this.store.index()?.branches.get(this.node().branchId);
@@ -429,6 +489,17 @@ export class Card {
   private toWorld(clientX: number, clientY: number): Point {
     const rect = this.host.nativeElement.closest('.viewport')?.getBoundingClientRect();
     return this.geo.toWorld({ x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) });
+  }
+
+  protected async continueWith(title: string, e: Event): Promise<void> {
+    e.stopPropagation();
+    if (this.continuing() || this.locked()) return;
+    this.continuing.set(true);
+    try {
+      await this.store.continueWith(this.node().id, title);
+    } finally {
+      this.continuing.set(false);
+    }
   }
 
   protected async follow(title: string, e: Event): Promise<void> {

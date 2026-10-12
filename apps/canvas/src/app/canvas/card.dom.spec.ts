@@ -18,14 +18,26 @@ import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { Card } from './card';
 
-const REPLY = 'A wave.\n\n<tangents>\n- Interference — why waves add up\n- Photons\n</tangents>';
+const REPLY = [
+  'A wave.',
+  '',
+  '<tangents>',
+  '- [continue] Diffraction — what a slit does to it next',
+  '- [tangent] Interference — why waves add up',
+  '- Photons',
+  '</tangents>',
+].join('\n');
 
-/** The trunk (own key): u1 → a1, which suggests two tangents; lane "Photons" off a1, on credit. */
-function tree(reply: Partial<ChatNode> = {}): TreeDetail {
+/**
+ * The trunk (own key): u1 → a1, which suggests a next step and two tangents
+ * (one untagged); lane "Photons" off a1, on credit. `more`: messages after a1.
+ */
+function tree(reply: Partial<ChatNode> = {}, more: ChatNode[] = []): TreeDetail {
   return detail(
     [
       node('u1', { role: 'user', content: 'What is light?' }),
       node('a1', { parentId: 'u1', seq: 1, content: REPLY, ...reply }),
+      ...more,
     ],
     [
       branch('trunk', { title: 'Main thread' }),
@@ -67,7 +79,8 @@ async function card(nodeId: string, opts: { lapsed?: boolean; d?: TreeDetail } =
   };
 }
 
-const tangents = () => screen.getByRole('navigation', { name: 'Tangents worth following' });
+const tangents = () => screen.getByRole('navigation', { name: 'Tangents' });
+const keepGoing = () => screen.getByRole('navigation', { name: 'Keep going' });
 
 describe('Card', () => {
   it('a finished reply: its text, its tangents, and the lanes off it', async () => {
@@ -77,18 +90,45 @@ describe('Card', () => {
     const follow = vi.spyOn(c.store, 'followTangent').mockResolvedValue(null);
     await c.user.click(within(tangents()).getByRole('button', { name: /^Interference/ }));
     expect(follow).toHaveBeenCalledWith('a1', 'Interference');
-    const lanes = screen.getByRole('navigation', { name: 'Lanes branching from this message' });
+    const lanes = screen.getByRole('navigation', { name: 'Tangents from this message' });
     const go = vi.spyOn(c.store, 'go').mockImplementation(() => undefined);
     await c.user.click(within(lanes).getByRole('button', { name: 'Photons' }));
     expect(go).toHaveBeenCalledWith('photons');
   });
 
-  it('Branch opens the branch dialog on it; the port starts linking from it', async () => {
+  it('Tangent opens the tangent dialog on it; the port starts linking from it', async () => {
     const c = await card('a1');
-    await c.user.click(screen.getByRole('button', { name: 'Branch from this message' }));
+    await c.user.click(screen.getByRole('button', { name: 'Tangent from this message' }));
     expect(c.ui.dialogs.get('branch')).toEqual({ kind: 'branch', fromNodeId: 'a1', quote: null });
     await c.user.click(screen.getByRole('button', { name: 'Link this message to another' }));
     expect(c.ui.linkPick()?.fromNodeId).toBe('a1');
+  });
+
+  it('splits the suggestions: Keep going and Tangents, an untagged one under Tangents', async () => {
+    await card('a1');
+    expect(within(keepGoing()).getAllByRole('button')).toHaveLength(1);
+    within(keepGoing()).getByRole('button', { name: /^Diffraction/ });
+    within(tangents()).getByRole('button', { name: /^Interference/ });
+    within(tangents()).getByRole('button', { name: 'Photons' });
+    within(tangents()).getByRole('textbox', { name: 'Ask your own question in a new lane' });
+  });
+
+  it('a Keep going step is sent as the next message of the lane', async () => {
+    const c = await card('a1');
+    const continueWith = vi.spyOn(c.store, 'continueWith').mockResolvedValue(true);
+    await c.user.click(within(keepGoing()).getByRole('button', { name: /^Diffraction/ }));
+    expect(continueWith).toHaveBeenCalledWith('a1', 'Diffraction');
+  });
+
+  it('only the latest card of the lane offers Keep going', async () => {
+    await card('a1', {
+      d: tree({}, [
+        node('u2', { role: 'user', parentId: 'a1', seq: 2, content: 'And then?' }),
+        node('a2', { parentId: 'u2', seq: 3, content: 'It spreads.' }),
+      ]),
+    });
+    expect(screen.queryByRole('navigation', { name: 'Keep going' })).toBeNull();
+    within(tangents()).getByRole('button', { name: /^Interference/ });
   });
 
   it('asks your own question in a new lane', async () => {
@@ -100,19 +140,24 @@ describe('Card', () => {
     expect(askFrom).toHaveBeenCalledWith('a1', 'Why does it bend?');
   });
 
-  it('on a lane the membership locks: new tangents and questions are disabled and say why', async () => {
+  it('on a lane the membership locks: suggestions and questions are disabled and say why', async () => {
     await card('a1', { lapsed: true });
+    const step = within(keepGoing()).getByRole<HTMLButtonElement>('button', {
+      name: /^Diffraction/,
+    });
+    expect(step.disabled).toBe(true);
+    expect(step.title).toBe('Continuing needs a membership (this lane is on your own key)');
     const interference = within(tangents()).getByRole<HTMLButtonElement>('button', {
       name: /^Interference/,
     });
     expect(interference.disabled).toBe(true);
     expect(interference.title).toBe(
-      'Following it needs a membership (this lane is on your own key)',
+      'Starting a tangent needs a membership (this lane is on your own key)',
     );
     // The lane already following one still opens.
     const photons = within(tangents()).getByRole<HTMLButtonElement>('button', { name: 'Photons' });
     expect(photons.disabled).toBe(false);
-    expect(photons.title).toBe('Open this lane');
+    expect(photons.title).toBe('Open this tangent');
     expect(
       screen.getByRole<HTMLTextAreaElement>('textbox', { name: /Ask your own/ }).disabled,
     ).toBe(true);
@@ -123,8 +168,9 @@ describe('Card', () => {
       d: tree({ status: 'error', errorKind: 'cut_off', error: 'It hit the limit.' }),
     });
     expect(screen.getByRole('alert').textContent).toContain('Cut off.');
-    expect(screen.queryByRole('navigation', { name: 'Tangents worth following' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Branch from this message' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Tangents' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Keep going' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Tangent from this message' })).toBeNull();
   });
 
   it('in pick mode, "Link here" links this card; the source card cannot be picked', async () => {
