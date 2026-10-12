@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/api/tangent_api.dart';
 import 'package:tangent/app.dart';
+import 'package:tangent/ui/login_page.dart';
 
 const unauthorized = ApiException(
   status: 401,
@@ -283,9 +284,10 @@ Future<void> pumpApp(
   WidgetTester tester,
   FakeTangentApi api, {
   String location = '/',
+  CaptchaBuilder captcha = fakeCaptcha,
 }) async {
   await tester.pumpWidget(
-    TangentApp(api: api, initialLocation: location, captcha: fakeCaptcha),
+    TangentApp(api: api, initialLocation: location, captcha: captcha),
   );
   await settle(tester);
 }
