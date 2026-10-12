@@ -99,10 +99,16 @@ class ChatController extends ChangeNotifier {
       !_switching &&
       streamingNode == null;
 
+  /// The side branches that fork from [node], in the server's order.
+  List<Branch> sideQuestionsAt(ChatNode node) => [
+    for (final b in _branches.values)
+      if (b.branchPointNodeId == node.id) b,
+  ];
+
   /// The side branch from [node] titled [title], if one was opened before.
   Branch? branchFor(ChatNode node, String title) {
-    for (final b in _branches.values) {
-      if (b.branchPointNodeId == node.id && b.title == title) return b;
+    for (final b in sideQuestionsAt(node)) {
+      if (b.title == title) return b;
     }
     return null;
   }

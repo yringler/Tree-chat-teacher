@@ -16,7 +16,7 @@ When Tangent is full (a deployment can cap its number of users), the login page 
 
 ## How Tangent answers
 
-New conversations in both apps start with the same built-in system prompt: it answers the question asked, directly and in depth, and never quizzes you. Whatever you don't follow, you branch into. Every substantive reply ends with two to four suggested **tangents** (shown as buttons under the reply, **Where next?**); clicking one opens a branch titled after it and asks it.
+New conversations in both apps start with the same built-in system prompt: it answers the question asked, directly and in depth, and never quizzes you. Whatever you don't follow, you branch into. Every substantive reply ends with two to four suggested **tangents** (shown as buttons under the reply, **Where next?**); clicking one opens a branch titled after it and asks it. The Flutter and phone apps show the first tangent and any you followed before, with **N more** for the rest, and list the reply's other side questions (such as ones asked in your own words) under it.
 
 **Checking facts.** On Tangent credit, and on OpenRouter or Anthropic with your own key, a reply can search the web when it likely needs to: deep in a tangent, a specific fact, something recent, or when you ask for sources. A grounded reply cites its claims as links and lists its sources ("Checked against 3 sources"). An unchecked one says "From the tutor's own knowledge", with a **Check sources** button that searches and adds a corrected, cited answer. The open pool never searches.
 

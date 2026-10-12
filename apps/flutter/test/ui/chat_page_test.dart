@@ -156,6 +156,150 @@ void main() {
     expect(find.text('Main thread'), findsNothing);
   });
 
+  testWidgets('a side question asked in its own words is listed and opens', (
+    tester,
+  ) async {
+    api.details['t1'] = treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+      ],
+      nodes: [
+        userNode,
+        node(
+          'a1',
+          branch: 'trunk',
+          seq: 1,
+          role: Role.assistant,
+          content: reply,
+        ),
+        node('s1', branch: 'side-9', seq: 0, content: 'Why does it pull?'),
+      ],
+    );
+    await pumpApp(tester, api, location: '/t/t1');
+    expect(find.text('1 side question'), findsOneWidget);
+
+    await tester.tap(find.text('Moon gravity'));
+    await settle(tester);
+    expect(api.createdBranches, isEmpty);
+    expect(find.text('Side question · Moon gravity'), findsOneWidget);
+    expect(find.text('Why does it pull?'), findsOneWidget);
+  });
+
+  testWidgets('opening a side question shows it from its start', (
+    tester,
+  ) async {
+    final long = List.filled(60, 'The moon pulls the sea.').join('\n\n');
+    api.details['t1'] = treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+      ],
+      nodes: [
+        userNode,
+        node(
+          'a1',
+          branch: 'trunk',
+          seq: 1,
+          role: Role.assistant,
+          content: long,
+        ),
+        node('u2', branch: 'trunk', seq: 2, content: 'And the sun?'),
+        node(
+          'a2',
+          branch: 'trunk',
+          seq: 3,
+          role: Role.assistant,
+          content: long,
+        ),
+        node('s1', branch: 'side-9', seq: 0, content: 'Why does it pull?'),
+        node(
+          's2',
+          branch: 'side-9',
+          seq: 1,
+          role: Role.assistant,
+          content: long,
+        ),
+      ],
+    );
+    await pumpApp(tester, api, location: '/t/t1');
+    // The chip low on the screen, as after reading down to it.
+    final list = find.byType(Scrollable).first;
+    await tester.scrollUntilVisible(
+      find.text('Moon gravity'),
+      -300,
+      scrollable: list,
+    );
+    await tester.ensureVisible(find.text('Moon gravity'));
+    final position = tester.state<ScrollableState>(list).position;
+    position.jumpTo(position.pixels - 300);
+    await tester.pump();
+    await tester.tap(find.text('Moon gravity'));
+    await settle(tester);
+
+    final top = tester.getRect(list).top;
+    expect(
+      tester.getTopLeft(find.text('Side question · Moon gravity')).dy,
+      inInclusiveRange(top, top + 64),
+    );
+    expect(find.text('Why does it pull?'), findsOneWidget);
+  });
+
+  testWidgets('one tangent shows until the learner asks for more', (
+    tester,
+  ) async {
+    api.details['t1'] = treeDetail(
+      title: 'Tides',
+      nodes: [
+        userNode,
+        node(
+          'a1',
+          branch: 'trunk',
+          seq: 1,
+          role: Role.assistant,
+          content: reply,
+        ),
+      ],
+    );
+    await pumpApp(tester, api, location: '/t/t1');
+    expect(find.text('Spring tides'), findsOneWidget);
+    expect(find.text('Tidal locking'), findsNothing);
+
+    await tester.tap(find.text('1 more'));
+    await settle(tester);
+    expect(find.text('Tidal locking'), findsOneWidget);
+    expect(find.text('1 more'), findsNothing);
+  });
+
+  testWidgets('a followed tangent stays in view when the rest are hidden', (
+    tester,
+  ) async {
+    api.details['t1'] = treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        branch('side-9', parent: 'trunk', fork: 'a1', title: 'Tidal locking'),
+      ],
+      nodes: [
+        userNode,
+        node(
+          'a1',
+          branch: 'trunk',
+          seq: 1,
+          role: Role.assistant,
+          content: reply,
+        ),
+      ],
+    );
+    await pumpApp(tester, api, location: '/t/t1');
+    expect(find.text('Spring tides'), findsOneWidget);
+    expect(find.text('Tidal locking'), findsOneWidget);
+    expect(find.textContaining('more'), findsNothing);
+    expect(find.textContaining('side question'), findsNothing);
+  });
+
   testWidgets('a side question’s divider centres its title in the thread', (
     tester,
   ) async {
@@ -179,7 +323,7 @@ void main() {
     );
     await pumpApp(tester, api, location: '/t/t1/b/side-9');
     final title = find.text('Side question · Spring tides');
-    final thread = tester.getRect(find.byType(ListView));
+    final thread = tester.getRect(find.byType(Scrollable).first);
     expect(tester.getCenter(title).dx, closeTo(thread.center.dx, 1));
   });
 

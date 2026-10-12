@@ -55,6 +55,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _load() async {
     final lessons = AppScope.of(context).lessons;
     await _chat.load();
+    if (mounted) _showBranch();
     final first = lessons.takeFirstMessage(widget.treeId);
     if (first != null && mounted && _chat.thread.isEmpty) await _send(first);
   }
@@ -64,7 +65,7 @@ class _ChatPageState extends State<ChatPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.branchId != widget.branchId) {
       _chat.selectBranch(widget.branchId);
-      _stickToBottom = true;
+      _showBranch();
     }
   }
 
@@ -74,6 +75,16 @@ class _ChatPageState extends State<ChatPage> {
     _composer.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// The main thread opens at its end, a side question at its start.
+  void _showBranch() {
+    _stickToBottom = !_chat.isSideBranch;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final position = _scroll.position;
+      _scroll.jumpTo(_stickToBottom ? position.maxScrollExtent : 0);
+    });
   }
 
   void _onScroll() {
@@ -168,32 +179,8 @@ class _ChatPageState extends State<ChatPage> {
           child: thread.isEmpty
               ? const _EmptyThread()
               : LayoutBuilder(
-                  builder: (context, constraints) => ListView.builder(
-                    controller: _scroll,
-                    padding: columnPadding(constraints.maxWidth),
-                    itemCount: thread.length,
-                    itemBuilder: (context, i) {
-                      final node = thread[i];
-                      final message = MessageView(
-                        key: ValueKey(node.id),
-                        node: node,
-                        status: _chat.statusOf(node.id),
-                        followed: (t) => _chat.branchFor(node, t.title) != null,
-                        onFollow: busy
-                            ? null
-                            : (t) => unawaited(_follow(node, t)),
-                      );
-                      final forked =
-                          i > 0 && thread[i - 1].branchId != node.branchId;
-                      if (!forked) return message;
-                      return Column(
-                        children: [
-                          _ForkDivider(title: _branchTitle(node.branchId)),
-                          message,
-                        ],
-                      );
-                    },
-                  ),
+                  builder: (context, constraints) =>
+                      _threadView(thread, columnPadding(constraints.maxWidth)),
                 ),
         ),
         ContentColumn(
@@ -218,6 +205,57 @@ class _ChatPageState extends State<ChatPage> {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  /// The thread, scrolled around the start of the branch on screen: offset
+  /// zero is its first message (on a side question, the fork divider), and
+  /// the messages it follows from grow upwards from there. Opening a side
+  /// question so shows it from its start.
+  Widget _threadView(List<ChatNode> thread, EdgeInsets padding) {
+    final id = _chat.branchId;
+    final start = max(0, thread.indexWhere((n) => n.branchId == id));
+    final center = ValueKey('start-$id');
+    return CustomScrollView(
+      controller: _scroll,
+      center: center,
+      slivers: [
+        SliverPadding(
+          padding: start == 0 ? EdgeInsets.zero : padding.copyWith(bottom: 0),
+          sliver: SliverList.builder(
+            itemCount: start,
+            itemBuilder: (context, i) => _message(thread, start - 1 - i),
+          ),
+        ),
+        SliverPadding(
+          key: center,
+          padding: padding.copyWith(top: start == 0 ? padding.top : 0),
+          sliver: SliverList.builder(
+            itemCount: thread.length - start,
+            itemBuilder: (context, i) => _message(thread, start + i),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _message(List<ChatNode> thread, int i) {
+    final node = thread[i];
+    final message = MessageView(
+      key: ValueKey(node.id),
+      node: node,
+      status: _chat.statusOf(node.id),
+      sideQuestions: _chat.sideQuestionsAt(node),
+      onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),
+      onOpenSideQuestion: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),
+    );
+    final forked = i > 0 && thread[i - 1].branchId != node.branchId;
+    if (!forked) return message;
+    return Column(
+      children: [
+        _ForkDivider(title: _branchTitle(node.branchId)),
+        message,
       ],
     );
   }
