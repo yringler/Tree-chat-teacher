@@ -3,6 +3,7 @@
 // `POST /api/pool/verify`. Magic-link sign-ins are checked by Better Auth's
 // captcha plugin instead (auth/auth.ts). Fails closed: no secret, a network
 // error or an unexpected answer all mean "not verified".
+import { safeReturnPath } from '@tangent/shared';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { logEvent } from '../log.js';
@@ -74,7 +75,7 @@ export const TURNSTILE_ACTION = 'pool-verify';
 /**
  * A same-origin path to continue to after the interstitial: `raw` when it is
  * a path on this origin (an absolute URL is reduced to its path when its
- * origin is `origin`), else `/`. Never a protocol-relative `//host`.
+ * origin is `origin`) that `safeReturnPath` accepts, else `/`.
  */
 export function safeNextPath(raw: string | null | undefined, origin: string): string {
   if (!raw) return '/';
@@ -85,8 +86,7 @@ export function safeNextPath(raw: string | null | undefined, origin: string): st
     return '/';
   }
   if (url.origin !== origin) return '/';
-  const path = `${url.pathname}${url.search}${url.hash}`;
-  return path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\') ? path : '/';
+  return safeReturnPath(`${url.pathname}${url.search}${url.hash}`) ?? '/';
 }
 
 /** The interstitial's URL, continuing to `next` (a same-origin path). */

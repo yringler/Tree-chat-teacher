@@ -2,8 +2,11 @@ import { inject, Injectable } from '@angular/core';
 import {
   API_ROUTES,
   AUTH_BASE_PATH,
+  loginUrl,
   REMEMBER_COOKIE,
+  RETURN_TO_PARAM,
   routeUrl,
+  safeReturnPath,
   SIGNUPS_CLOSED,
   type LoginOptionsResponse,
   type MeResponse,
@@ -36,7 +39,12 @@ const REMEMBER_COOKIE_SECONDS = 15 * 60;
  * with its own CSP that allows Cloudflare Turnstile, which the app's CSP
  * doesn't (see public/_headers).
  *
- * Where "home" and "login" are comes from the app's APP_PATHS.
+ * Where "home" and "login" are comes from the app's APP_PATHS. A signed-out
+ * visit is sent to login with the page it asked for as `returnTo`
+ * (`requireUser`), and every sign-in started on that login page lands there
+ * instead of home (`signInDestination`). The target rides in each method's
+ * callback URL, so it survives the round trip to an OAuth provider (Better
+ * Auth keeps it in the OAuth state) and the magic link (it is in the link).
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -74,16 +82,40 @@ export class AuthService {
       return me;
     } catch (err) {
       if (hasCode(err, 'unauthorized')) {
-        location.replace(this.paths.login);
+        location.replace(loginUrl(this.paths.login, { returnTo: this.currentPage() }));
         return null;
       }
       if (err instanceof ApiError && err.status === 403) {
         await this.client.signOut().catch(() => undefined);
-        location.replace(`${this.paths.login}?error=not_allowed`);
+        location.replace(
+          loginUrl(this.paths.login, { returnTo: this.currentPage(), error: 'not_allowed' }),
+        );
         return null;
       }
       throw err;
     }
+  }
+
+  /** This page as a return target; null on home, where a sign-in lands anyway. */
+  private currentPage(): string | null {
+    const here = `${location.pathname}${location.search}${location.hash}`;
+    return here === this.paths.home ? null : here;
+  }
+
+  /**
+   * Where a sign-in started on this login page lands: its `returnTo` when that
+   * is a path on this site (`safeReturnPath`), else home.
+   */
+  signInDestination(): string {
+    const requested = new URLSearchParams(location.search).get(RETURN_TO_PARAM);
+    return safeReturnPath(requested) ?? this.paths.home;
+  }
+
+  /** This login page again, keeping its return target, for a sign-in that fails. */
+  private loginAgain(): string {
+    const destination = this.signInDestination();
+    const returnTo = destination === this.paths.home ? null : destination;
+    return loginUrl(this.paths.login, { returnTo });
   }
 
   /** True when a session exists. Also rolls a remembered session's expiry forward (and re-issues its cookie). */
@@ -125,8 +157,8 @@ export class AuthService {
     // On success the client follows the provider's redirect itself.
     const { error } = await this.client.signIn.social({
       provider,
-      callbackURL: this.paths.home,
-      errorCallbackURL: this.paths.login,
+      callbackURL: this.signInDestination(),
+      errorCallbackURL: this.loginAgain(),
     });
     return error ? messageFor(error) : null;
   }
@@ -137,8 +169,15 @@ export class AuthService {
     remember: boolean,
   ): Promise<string | null> {
     this.setRemember(remember);
+    // Better Auth's link verify decodes its callback URLs once more than the
+    // link encoded them; escaping each `%` here cancels that, so a target
+    // whose query holds `%26` or `%23` arrives unchanged.
     const { error } = await this.client.signIn.magicLink(
-      { email, callbackURL: this.paths.home, errorCallbackURL: this.paths.login },
+      {
+        email,
+        callbackURL: this.signInDestination().replaceAll('%', '%25'),
+        errorCallbackURL: this.loginAgain().replaceAll('%', '%25'),
+      },
       { headers: { 'x-captcha-response': captchaToken } },
     );
     return error ? messageFor(error) : null;
@@ -149,7 +188,7 @@ export class AuthService {
     this.setRemember(remember);
     const res = await this.client.signIn.passkey({ autoFill });
     if (res?.error) return autoFill ? null : messageFor(res.error);
-    location.assign(this.paths.home);
+    location.assign(this.signInDestination());
     return null;
   }
 

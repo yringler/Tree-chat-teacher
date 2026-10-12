@@ -18,9 +18,10 @@ import { Turnstile } from '../ui/turnstile';
 /**
  * The login page (APP_PATHS.login), always loaded as its own document (see
  * AuthService). No passwords: Google, GitHub, a magic link by email, or a
- * passkey. A completed sign-in lands on APP_PATHS.home. While sign-ups are
- * closed (`MAX_USERS`), existing users still sign in here and the email form
- * also offers the waitlist.
+ * passkey. A completed sign-in lands on the page that sent the visitor here
+ * (`?returnTo=`, AuthService.signInDestination), else APP_PATHS.home. While
+ * sign-ups are closed (`MAX_USERS`), existing users still sign in here and
+ * the email form also offers the waitlist.
  *
  * Copy is configurable through inputs (e.g. route `data` with
  * `withComponentInputBinding()`, or a wrapper component).
@@ -206,11 +207,11 @@ export class LoginPage implements OnInit {
     try {
       const options = await this.auth.loginOptions();
       if (options.devMode) {
-        location.replace(this.paths.home);
+        location.replace(this.auth.signInDestination());
         return;
       }
       if (options.configured && (await this.auth.hasSession())) {
-        location.replace(this.paths.home);
+        location.replace(this.auth.signInDestination());
         return;
       }
       this.options.set(options);
