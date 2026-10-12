@@ -49,7 +49,7 @@ import { branchTitle } from './titles';
               store.createBranch({ fromNodeId: n.id, contextMode: 'path', anchorQuote: null })
             "
           >
-            <app-icon name="tangent" [size]="14" /> Tangent ↳
+            Tangent ↳
           </button>
           <button
             type="button"

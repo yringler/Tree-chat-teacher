@@ -14,7 +14,14 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
-import { maxUsageNote, tierModel, tierOf, type ChatNode } from '@tangent/shared';
+import {
+  MAIN_THREAD_BACK,
+  MAIN_THREAD_LABEL,
+  maxUsageNote,
+  tierModel,
+  tierOf,
+  type ChatNode,
+} from '@tangent/shared';
 import {
   Composer,
   ComposerController,
@@ -74,8 +81,8 @@ export class ChatPage implements OnDestroy {
   private readonly pinned = signal(true);
   protected readonly switching = signal(false);
   /** The first crumb: the lesson's trunk, the way back from any tangent. */
-  protected readonly mainThreadLabel = 'Main thread';
-  protected readonly mainThreadBack = 'Back to main thread';
+  protected readonly mainThreadLabel = MAIN_THREAD_LABEL;
+  protected readonly mainThreadBack = MAIN_THREAD_BACK;
   /** Text selected inside one finished message: offers "Ask about this". */
   protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
   /** Words "Ask about this" put on the composer: the next message asks about them. */
