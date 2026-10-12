@@ -68,25 +68,40 @@ test('Learn: a new lesson streams its first reply on credit, and charges for it'
   expect(errors).toEqual([]);
 });
 
-test('Learn: ask your own side question under a reply', async ({ page, context, baseURL }) => {
+test('Learn: the message box asks a side question, or continues the lesson', async ({
+  page,
+  context,
+  baseURL,
+}) => {
   const errors = collectErrors(page);
   await page.goto(`/learn/t/${await withExampleLesson(context, baseURL!, 'learn')}`);
-  const ask = page.locator('.msg-assistant').last().locator('.tangent-ask');
-  const field = ask.getByRole('textbox', { name: 'Ask your own question as a side question' });
-  await expect(field).toHaveAttribute('placeholder', 'Ask your own question…');
+  const composer = page.locator('#composer-input');
+  await expect(composer).toHaveAttribute('placeholder', 'Ask a side question…');
   const url = page.url();
-  await field.fill('Do owls ever whistle back?');
-  await field.press('Enter');
+  await composer.fill('Do owls ever whistle back?');
+  await composer.press('Enter');
   await expect.poll(() => page.url()).not.toBe(url);
   await expect(page).toHaveURL(/\/b\//);
   await expect(page.locator('.msg-user').last()).toContainText('Do owls ever whistle back?');
   await expect(page.locator('.msg-assistant').last()).toContainText(
     'Scripted reply (normal): "Do owls ever whistle back?"',
   );
+
+  // Switched to continue, the next message goes on in this side question.
+  const sideUrl = page.url();
+  await page.getByRole('button', { name: 'Send as: Side question' }).click();
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveAttribute('placeholder', 'Continue this side question…');
+  await composer.fill('And owlets?');
+  await composer.press('Enter');
+  await expect(page.locator('.msg-assistant').last()).toContainText(
+    'Scripted reply (normal): "And owlets?"',
+  );
+  expect(page.url()).toBe(sideUrl);
   expect(errors).toEqual([]);
 });
 
-test('Learn: "Ask about this", the newest reply stands out, and the box continues the lesson', async ({
+test('Learn: "Ask about this" quotes the selection on the message box, asked when sent', async ({
   page,
   context,
   baseURL,
@@ -96,24 +111,22 @@ test('Learn: "Ask about this", the newest reply stands out, and the box continue
   const replies = page.locator('.msg-assistant');
   await expect(replies.first()).toBeVisible();
   const composer = page.locator('#composer-input');
-  await expect(composer).toHaveAttribute('placeholder', 'Continue this lesson…');
-  // The newest reply's "Ask your own" stands out (a one-line field: nothing grows).
-  await expect(replies.last().locator('.tangent-ask')).toHaveClass(/is-latest/);
-  await expect(replies.first().locator('.tangent-ask')).not.toHaveClass(/is-latest/);
 
   const url = page.url();
   await selectText(replies.first().locator('.msg-body'), 'a careful hamster in disguise');
   await page.getByRole('button', { name: 'Ask about this' }).click();
-  await expect.poll(() => page.url()).not.toBe(url);
-  await expect(page.locator('.anchor-quote').last()).toHaveText('a careful hamster in disguise');
   await expect(composer).toBeFocused();
-  await expect(composer).toHaveAttribute('placeholder', 'Ask your side question…');
+  await expect(composer).toHaveAttribute('placeholder', 'Ask about this…');
+  await expect(page.locator('.composer-quote')).toContainText('a careful hamster in disguise');
+  expect(page.url()).toBe(url);
   await composer.fill('Why a hamster?');
   await composer.press('Enter');
+  await expect.poll(() => page.url()).not.toBe(url);
+  await expect(page.locator('.anchor-quote').last()).toHaveText('a careful hamster in disguise');
   await expect(page.locator('.msg-user').last()).toContainText('Why a hamster?');
   await expect(page.locator('.msg-assistant').last()).toContainText(
     'Scripted reply (normal): "Why a hamster?"',
   );
-  await expect(composer).toHaveAttribute('placeholder', 'Continue this side question…');
+  await expect(page.locator('.composer-quote')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

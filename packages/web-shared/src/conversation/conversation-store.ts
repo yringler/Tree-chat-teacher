@@ -609,11 +609,16 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   }
 
   /**
-   * "Ask your own" under a reply: the user's question, asked like a followed
-   * tangent. Untitled: it reads "Branch: …" until the first reply names it.
+   * The user's own question in a new branch from `fromNodeId`, asked like a
+   * followed tangent, about `anchorQuote` when they selected words in it.
+   * Untitled: it reads "Branch: …" until the first reply names it.
    */
-  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
+  askFrom(
+    fromNodeId: string,
+    content: string,
+    anchorQuote: string | null = null,
+  ): Promise<Branch | null> {
+    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote }, content);
   }
 
   /**

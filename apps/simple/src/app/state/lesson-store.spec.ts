@@ -598,7 +598,7 @@ describe('LessonStore', () => {
     expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], { queryParams: { m: 'a1' } });
   });
 
-  it('"Ask your own" opens an untitled side question on the current model and asks it', async () => {
+  it('a question in the learner’s words opens an untitled side question on the current model and asks it', async () => {
     const s = setup();
     const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
     await open(s, detail([userNode, done], [branch('trunk', { model: 'max-model' })]));
@@ -622,6 +622,23 @@ describe('LessonStore', () => {
     );
   });
 
+  it('a question about a quote opens a side question quoting it, and asks it', async () => {
+    const s = setup();
+    const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
+    await open(s, detail([userNode, done]));
+    await s.store.askFrom('a1', 'Of what?', 'a wave');
+    expect(s.api.createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ fromNodeId: 'a1', contextMode: 'path', anchorQuote: 'a wave' }),
+    );
+    await vi.waitFor(() =>
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'side',
+        { content: 'Of what?' },
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
   it('a tangent is followed under its title, asked as the first message; again, it just opens', async () => {
     const s = setup();
     const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
@@ -639,7 +656,7 @@ describe('LessonStore', () => {
     );
   });
 
-  it('"Ask your own" that cannot branch sends nothing', async () => {
+  it('a question in the learner’s words that cannot branch sends nothing', async () => {
     const s = setup();
     const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
     await open(s, detail([userNode, done]));

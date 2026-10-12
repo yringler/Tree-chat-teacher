@@ -134,7 +134,8 @@ function hovers(): boolean {
  * Send asks Normal and Max (the host opens its dialog). The text stays until
  * the message is in the tree (`ComposerController.sent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
- * failure…) leaves it where it was typed.
+ * failure…) leaves it where it was typed. An element marked `composerLead`
+ * goes in the box before the text (where the message goes, say).
  */
 @Component({
   selector: 'app-composer',
@@ -142,6 +143,7 @@ function hovers(): boolean {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <form class="composer" (submit)="$event.preventDefault(); submit()">
+      <ng-content select="[composerLead]" />
       <label class="sr-only" [attr.for]="inputId()">{{ label() }}</label>
       <textarea
         #box

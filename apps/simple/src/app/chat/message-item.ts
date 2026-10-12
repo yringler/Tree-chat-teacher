@@ -12,7 +12,6 @@ import {
   RelatedLinks,
   relatedLinks,
   SourcesList,
-  TangentAsk,
   TypesetMath,
   type LinkNoteEdit,
 } from '@tangent/web-shared';
@@ -25,7 +24,7 @@ import { branchTitle } from './titles';
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, RelatedLinks, SourcesList, TangentAsk, TypesetMath],
+  imports: [Icon, RelatedLinks, SourcesList, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -122,13 +121,6 @@ import { branchTitle } from './titles';
               }
             </button>
           }
-          <app-tangent-ask
-            [(text)]="askText"
-            label="Ask your own question as a side question"
-            [busy]="asking()"
-            [latest]="latest()"
-            (ask)="ask($event)"
-          />
         </nav>
       }
 
@@ -301,30 +293,6 @@ export class MessageItem {
 
   /** Title of the tangent whose branch is being created. */
   protected readonly opening = signal<string | null>(null);
-  /** "Ask your own": the learner's question, sent in a new side question. */
-  protected readonly askText = signal('');
-  protected readonly asking = signal(false);
-  /** The newest reply of what is open: its "Ask your own" stands out (TangentAsk `latest`). */
-  protected readonly latest = computed(() => {
-    const n = this.node();
-    return (
-      this.askable() &&
-      n.branchId === this.store.selectedBranchId() &&
-      this.store.path().at(-1)?.id === n.id
-    );
-  });
-
-  protected async ask(text: string): Promise<void> {
-    if (this.asking()) return;
-    this.asking.set(true);
-    try {
-      // Kept on failure, to try again.
-      if (await this.store.askFrom(this.node().id, text)) this.askText.set('');
-    } finally {
-      this.asking.set(false);
-    }
-  }
-
   protected async remove(branchId: string): Promise<void> {
     await confirmDeleteSideQuestion(this.store, branchId);
   }

@@ -60,6 +60,16 @@ async function page(
 }
 
 const composer = () => screen.queryByRole<HTMLTextAreaElement>('textbox', { name: 'Message' });
+/** Selects "wave" in the reply "Light is a wave of fields.", as dragging over it would. */
+function selectWave(): void {
+  const text = screen.getByText('Light is a wave of fields.').firstChild!;
+  const range = document.createRange();
+  range.setStart(text, 11);
+  range.setEnd(text, 15);
+  window.getSelection()!.addRange(range);
+  document.dispatchEvent(new Event('selectionchange'));
+}
+
 const dock = () => composer()?.closest<HTMLElement>('.composer-dock') ?? document.body;
 
 describe('Learn: the lesson page', () => {
@@ -73,14 +83,78 @@ describe('Learn: the lesson page', () => {
     expect(button !== null).toBe(shown);
   });
 
-  it('shows the lesson and continues it from the composer', async () => {
+  it('shows the lesson, and the composer asks a side question from its last reply', async () => {
     const p = await page();
     screen.getByRole('heading', { name: 'Light' });
     expect(screen.getByText('A wave.')).toBeTruthy();
-    expect(composer()?.placeholder).toBe('Continue this lesson…');
+    expect(composer()?.placeholder).toBe('Ask a side question…');
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'And a particle?', null);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('the composer’s destination switches to continuing the lesson, and back', async () => {
+    const p = await page();
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.click(within(dock()).getByRole('button', { name: 'Send as: Side question' }));
+    expect(composer()?.placeholder).toBe('Continue this lesson…');
+    expect(document.activeElement).toBe(composer());
+    await p.user.type(composer()!, 'And a particle?{Enter}');
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
+    await p.user.click(within(dock()).getByRole('button', { name: 'Send as: Continue' }));
+    expect(composer()?.placeholder).toBe('Ask a side question…');
+  });
+
+  it('a reply that failed is continued: the composer offers no side question', async () => {
+    const p = await page(lesson('normal-model', { status: 'error', error: 'It broke.' }));
+    expect(within(dock()).queryByRole('button', { name: /Send as/ })).toBeNull();
+    expect(composer()?.placeholder).toBe('Continue this lesson…');
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'Again?{Enter}');
+    expect(send).toHaveBeenCalledWith('trunk', 'Again?');
+  });
+
+  it('"Ask about this" puts the selected words on the composer and asks about them', async () => {
+    const p = await page(lesson('normal-model', { content: 'Light is a wave of fields.' }));
+    selectWave();
+    await p.fixture.whenStable();
+    const createBranch = vi.spyOn(p.store, 'createBranch');
+    await p.user.click(screen.getByRole('button', { name: 'Ask about this' }));
+    // Nothing is made until the question is sent.
+    expect(createBranch).not.toHaveBeenCalled();
+    within(dock()).getByText('“wave”');
+    expect(composer()?.placeholder).toBe('Ask about this…');
+    expect(document.activeElement).toBe(composer());
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
+    await p.user.type(composer()!, 'Of what?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'Of what?', 'wave');
+    await p.fixture.whenStable();
+    expect(within(dock()).queryByText('“wave”')).toBeNull();
+  });
+
+  it('a quote on the composer can be taken off again', async () => {
+    const p = await page(lesson('normal-model', { content: 'Light is a wave of fields.' }));
+    selectWave();
+    await p.fixture.whenStable();
+    await p.user.click(screen.getByRole('button', { name: 'Ask about this' }));
+    await p.user.click(within(dock()).getByRole('button', { name: 'Don’t ask about “wave”' }));
+    expect(within(dock()).queryByText('“wave”')).toBeNull();
+    expect(composer()?.placeholder).toBe('Ask a side question…');
+  });
+
+  it('inside an empty side question the composer asks it, with nothing to choose', async () => {
+    const d = lesson();
+    d.branches.push(
+      branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1', title: 'Why' }),
+    );
+    const p = await page(d, {}, 'side');
+    expect(within(dock()).queryByRole('button', { name: /Send as/ })).toBeNull();
+    expect(composer()?.placeholder).toBe('Ask your side question…');
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'Why?{Enter}');
+    expect(send).toHaveBeenCalledWith('side', 'Why?');
   });
 
   it('the tutor switch: Normal or Max, and on Max how much more it uses', async () => {
@@ -223,7 +297,7 @@ describe('Learn: finding your way around a lesson', () => {
     expect(focus).toHaveBeenCalledWith('a1');
     focus.mockClear();
     vi.spyOn(p.store, 'createBranch').mockResolvedValue(null);
-    await p.user.click(screen.getByRole('button', { name: /Side question/ }));
+    await p.user.click(screen.getByRole('button', { name: 'Side question' }));
     expect(focus).not.toHaveBeenCalled();
   });
 });

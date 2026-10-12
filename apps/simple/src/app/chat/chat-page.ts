@@ -14,9 +14,10 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
-import { maxUsageNote, tierModel, tierOf } from '@tangent/shared';
+import { maxUsageNote, tierModel, tierOf, type ChatNode } from '@tangent/shared';
 import {
   Composer,
+  ComposerController,
   Icon,
   PendingQuote,
   PoolBlockNotice,
@@ -66,6 +67,7 @@ export class ChatPage implements OnDestroy {
   protected readonly funding = inject(LearnFunding);
   protected readonly textSize = inject(TextSizeStore);
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly title = inject(Title);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
@@ -73,6 +75,13 @@ export class ChatPage implements OnDestroy {
   protected readonly switching = signal(false);
   /** Text selected inside one finished message: offers "Ask about this". */
   protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
+  /** Words "Ask about this" put on the composer: the next message asks about them. */
+  protected readonly quote = signal<MessageQuote | null>(null);
+  /**
+   * The composer asks a side question, the point of a lesson, unless the
+   * learner switched it to continue what is open (kept for the lesson).
+   */
+  protected readonly asksAside = signal(true);
 
   protected readonly branchTitle = branchTitle;
   /** The lesson's title in the learner's words ("New lesson" until the first reply names it). */
@@ -95,14 +104,34 @@ export class ChatPage implements OnDestroy {
   });
 
   /**
-   * The message box continues what is open; a new question is a side question
-   * ("Ask your own question…" under the reply, "Ask about this" on a selection).
+   * The reply a side question from the composer starts at: the last message
+   * on screen, once it is a reply that didn't fail. Otherwise (a new lesson,
+   * an empty side question, a failed reply) the message continues what is
+   * open, with nothing to choose.
    */
+  protected readonly asideFrom = computed<ChatNode | null>(() => {
+    const last = this.store.emptyBranch() ? undefined : this.store.path().at(-1);
+    return last?.role === 'assistant' && last.status !== 'error' ? last : null;
+  });
+
+  /** Where the composer's message goes: a side question (about a quote, or the last reply) or on. */
+  protected readonly destination = computed<'quote' | 'aside' | 'continue'>(() => {
+    if (this.quote()) return 'quote';
+    return this.asideFrom() && this.asksAside() ? 'aside' : 'continue';
+  });
+
   protected readonly placeholder = computed(() => {
     const b = this.store.selectedBranch();
     if (!b || this.store.path().length === 0) return 'What do you want to learn?';
     if (b.parentBranchId && this.store.emptyBranch()) return 'Ask your side question…';
-    return b.parentBranchId ? 'Continue this side question…' : 'Continue this lesson…';
+    switch (this.destination()) {
+      case 'quote':
+        return 'Ask about this…';
+      case 'aside':
+        return 'Ask a side question…';
+      case 'continue':
+        return b.parentBranchId ? 'Continue this side question…' : 'Continue this lesson…';
+    }
   });
 
   /** The pool's refusal of a message in this branch (empty or a cap), shown above the composer. */
@@ -151,6 +180,12 @@ export class ChatPage implements OnDestroy {
       this.title.setTitle(t ? `${t} · ${BRAND}` : BRAND);
     });
 
+    // Another lesson asks side questions again.
+    const treeId = computed(() => this.store.detail()?.tree.id);
+    effect(() => {
+      if (treeId()) this.asksAside.set(true);
+    });
+
     // Scroll to the focused message, or to the bottom when switching branches;
     // new messages only scroll when the view is pinned to the bottom.
     let lastBranch: string | null = null;
@@ -163,7 +198,10 @@ export class ChatPage implements OnDestroy {
       const moved = branchId !== lastBranch || focus !== lastFocus;
       lastBranch = branchId;
       lastFocus = focus;
-      if (moved) this.pendingAsk.clear();
+      if (moved) {
+        this.pendingAsk.clear();
+        this.quote.set(null);
+      }
       if (moved || untracked(this.pinned)) {
         if (moved && !focus) this.pinned.set(true);
         requestAnimationFrame(() => this.scrollTo(moved ? focus : null));
@@ -187,14 +225,22 @@ export class ChatPage implements OnDestroy {
     this.pinned.set(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
   }
 
-  protected async askAbout(q: MessageQuote): Promise<void> {
+  /** Puts the selected words on the composer; the side question is made when it is sent. */
+  protected askAbout(q: MessageQuote): void {
     this.pendingAsk.clear();
     window.getSelection()?.removeAllRanges();
-    await this.store.createBranch({
-      fromNodeId: q.nodeId,
-      contextMode: 'path',
-      anchorQuote: q.quote,
-    });
+    this.quote.set(q);
+    this.composer.focus();
+  }
+
+  protected switchDestination(): void {
+    this.asksAside.update((aside) => !aside);
+    this.composer.focus();
+  }
+
+  protected dropQuote(): void {
+    this.quote.set(null);
+    this.composer.focus();
   }
 
   protected async setModel(branchId: string, model: string): Promise<void> {
@@ -236,10 +282,17 @@ export class ChatPage implements OnDestroy {
     void this.store.deleteTree(d.tree.id);
   }
 
-  protected send(content: string): void {
+  protected async send(content: string): Promise<void> {
     const id = this.store.selectedBranchId();
     if (!id) return;
     this.pinned.set(true);
+    const from = this.sideQuestionFrom();
+    if (from) {
+      // Kept on failure, to try again.
+      if (await this.store.askFrom(from, content, this.quote()?.quote ?? null))
+        this.quote.set(null);
+      return;
+    }
     if (this.store.focusedNodeId()) this.store.go(id, null, true);
     void this.store.send(id, content);
   }
@@ -249,13 +302,41 @@ export class ChatPage implements OnDestroy {
     this.ui.dialogs.open({ kind: 'instructions' });
   }
 
-  /** Opens the Compare sheet for `content`; the composer keeps it until a pick is kept. */
-  protected compare(content: string): void {
-    const id = this.store.selectedBranchId();
+  /**
+   * Opens the Compare sheet for `content` where the composer sends it (a
+   * side question is made for it first); the composer keeps the text until a
+   * pick is kept.
+   */
+  protected async compare(content: string): Promise<void> {
+    let id = this.store.selectedBranchId();
     if (!id || !this.canCompare()) return;
     this.pinned.set(true);
-    if (this.store.focusedNodeId()) this.store.go(id, null, true);
+    const from = this.sideQuestionFrom();
+    if (from) {
+      const b = await this.store.createBranch({
+        fromNodeId: from,
+        contextMode: 'path',
+        anchorQuote: this.quote()?.quote ?? null,
+      });
+      if (!b) return;
+      this.quote.set(null);
+      id = b.id;
+    } else if (this.store.focusedNodeId()) {
+      this.store.go(id, null, true);
+    }
     this.ui.dialogs.open({ kind: 'compare', branchId: id, content });
+  }
+
+  /** The message a side question for the composer's message starts from; null: it continues. */
+  private sideQuestionFrom(): string | null {
+    switch (this.destination()) {
+      case 'quote':
+        return this.quote()?.nodeId ?? null;
+      case 'aside':
+        return this.asideFrom()?.id ?? null;
+      case 'continue':
+        return null;
+    }
   }
 
   protected stop(): void {

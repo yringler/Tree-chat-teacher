@@ -133,7 +133,7 @@
   @if (pendingAsk.value(); as ask) {
     <div class="ask-bar">
       <app-selection-ask
-        title="A side question about the selected words, keeping the lesson so far"
+        title="Ask a side question about the selected words, keeping the lesson so far"
         (ask)="askAbout(ask)"
       />
     </div>
@@ -182,7 +182,48 @@
         (send)="send($event)"
         (compare)="compare($event)"
         (stop)="stop()"
-      />
+      >
+        <!-- Where the message goes; pressing it leaves the focus in the box. -->
+        @if (quote() || asideFrom()) {
+          <div composerLead class="composer-lead">
+            @if (quote(); as q) {
+              <span class="composer-pill composer-quote">
+                <app-icon name="branch" [size]="14" />
+                <span class="composer-quote-text" [attr.title]="q.quote">“{{ q.quote }}”</span>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  [attr.aria-label]="'Don’t ask about “' + q.quote + '”'"
+                  title="Don’t ask about these words"
+                  (mousedown)="$event.preventDefault()"
+                  (click)="dropQuote()"
+                >
+                  <app-icon name="x" [size]="13" />
+                </button>
+              </span>
+            } @else {
+              <button
+                type="button"
+                class="composer-pill composer-dest"
+                [class.is-aside]="asksAside()"
+                [title]="
+                  asksAside()
+                    ? 'Your message starts a side question from the last reply. Click to continue here instead.'
+                    : 'Your message continues here. Click to ask a side question instead.'
+                "
+                (mousedown)="$event.preventDefault()"
+                (click)="switchDestination()"
+              >
+                <span class="sr-only">Send as: </span>
+                <app-icon [name]="asksAside() ? 'branch' : 'chevronRight'" [size]="14" />
+                <span class="composer-dest-label">{{
+                  asksAside() ? 'Side question' : 'Continue'
+                }}</span>
+              </button>
+            }
+          </div>
+        }
+      </app-composer>
     }
   </div>
 }
