@@ -62,11 +62,20 @@ body {
   padding: 2px 5px;
 }
 
-/* A phone's header holds the mode switch, the pill, How tangents work and the account. */
+/*
+ * A phone's header holds the sidebar's button, the mode switch, the pill, How
+ * tangents work and the account. The switch and the pill are text, whose width
+ * depends on the fonts a device has, so the icon buttons and gaps give up a few
+ * pixels to leave room for a wider font.
+ */
 @media (max-width: 479px) {
   .app-head {
-    gap: 4px;
+    gap: 2px;
     padding-inline: 8px;
+  }
+
+  .app-head .icon-btn {
+    width: 28px;
   }
 }
 
