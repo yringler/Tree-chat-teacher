@@ -154,3 +154,24 @@ test('power: a streamed reply draws its diagram once it ends', async ({
   );
   expect(errors).toEqual([]);
 });
+
+test('flutter: a finished reply loads the diagram library and draws its diagram', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const errors = await collectErrors(page);
+  // The library is a deferred part of the app, loaded through a Trusted Types
+  // policy of its own (FLUTTER_APP_CSP).
+  const part = page.waitForResponse((r) => /\/app\/main\.dart\.js_\d+\.part\.js$/.test(r.url()));
+  const treeId = await withExampleLesson(context, baseURL!, 'learn', REPLY);
+  await page.goto(`/app/t/${treeId}`);
+  expect((await part).status()).toBe(200);
+
+  // Flutter draws to a canvas; its semantics tree carries the diagram's label
+  // and the reply's text, with the note on the source mermaid can't parse.
+  await page.locator('flt-semantics-placeholder').dispatchEvent('click');
+  await expect(page.getByLabel('Diagram: Request, Cached?, Return it')).toBeAttached();
+  await expect(page.getByLabel(/This diagram could not be drawn\./)).toBeAttached();
+  expect(errors).toEqual([]);
+});
