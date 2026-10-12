@@ -102,6 +102,37 @@ describe('CoachMark', () => {
     await vi.waitFor(() => expect(callout()?.classList).not.toContain('is-open'));
   });
 
+  it('comes back with its control however long it was gone', async () => {
+    const c = await coachMark();
+    const { tangent } = controls();
+    c.walkthrough.onTrunkReplyReady();
+    await c.shown();
+    expect(callout()?.classList).toContain('is-open');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      // Stop stands in for the composer's actions while a long reply streams.
+      tangent.remove();
+      await vi.waitFor(() => expect(callout()?.classList).not.toContain('is-open'));
+      vi.advanceTimersByTime(60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    document.body.append(tangent);
+    await vi.waitFor(() => expect(callout()?.classList).toContain('is-open'));
+    expect(tangent.classList).toContain(COACH_TARGET_CLASS);
+  });
+
+  it('Escape leaves a step alone while its control is gone', async () => {
+    const c = await coachMark();
+    const { tangent } = controls();
+    c.walkthrough.onTrunkReplyReady();
+    await c.shown();
+    tangent.remove();
+    await vi.waitFor(() => expect(callout()?.classList).not.toContain('is-open'));
+    await c.user.keyboard('{Escape}');
+    expect(c.walkthrough.current()?.step).toBe(1);
+  });
+
   it('takes itself down when the tour ends, and Escape skips it', async () => {
     const c = await coachMark();
     const { tangent } = controls();

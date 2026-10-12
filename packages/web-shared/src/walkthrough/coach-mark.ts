@@ -12,9 +12,6 @@ import { Walkthrough, type CoachStep } from './walkthrough';
 /** The ring around the control a coach mark points at (styles/coach-mark.css). */
 export const COACH_TARGET_CLASS = 'coach-mark-target';
 
-/** How long a step waits for its control to appear before it gives up on showing. */
-export const TARGET_WAIT_MS = 10_000;
-
 /**
  * The walkthrough's coach marks: a callout beside the control the current
  * step points at, with "Got it" (or Done) and "Skip tour". Mounted once per
@@ -22,9 +19,10 @@ export const TARGET_WAIT_MS = 10_000;
  * learner goes on by clicking the control itself, and the app's own tests
  * click through it. It sits in the top layer (`popover="manual"`), placed by
  * floating-ui, and is written with text bindings only (the Trusted Types
- * CSP allows no innerHTML). A control not on screen yet (the reply still
- * streaming) is waited for, for a while; one that goes away hides it until
- * it is back. Escape skips the tour unless a dialog is open.
+ * CSP allows no innerHTML). While the control is off the page (the reply
+ * still streaming, or Stop in place of the composer's actions) it is
+ * hidden, however long that takes, and comes back with it. Escape skips the
+ * tour while the callout shows and no dialog is open.
  */
 @Component({
   selector: 'app-coach-mark',
@@ -59,6 +57,8 @@ export class CoachMark {
   protected readonly walkthrough = inject(Walkthrough);
   private readonly callout = viewChild.required<ElementRef<HTMLElement>>('callout');
   private readonly arrowEl = viewChild.required<ElementRef<HTMLElement>>('arrow');
+  /** The callout is on screen, at its control. */
+  private attached = false;
 
   constructor() {
     // Re-run on every step change; the cleanup (also on destroy) takes the last one down.
@@ -69,7 +69,7 @@ export class CoachMark {
   }
 
   protected onEscape(e: Event): void {
-    if (e.defaultPrevented || !this.walkthrough.current()) return;
+    if (e.defaultPrevented || !this.attached) return;
     if (document.querySelector('[aria-modal="true"]')) return;
     this.walkthrough.skip();
   }
@@ -82,18 +82,19 @@ export class CoachMark {
     const callout = this.callout().nativeElement;
     let target: HTMLElement | null = null;
     let unplace: (() => void) | null = null;
-    let waitTimer: ReturnType<typeof setTimeout> | null = null;
 
     const detach = () => {
       unplace?.();
       unplace = null;
       target?.classList.remove(COACH_TARGET_CLASS);
       target = null;
+      this.attached = false;
       setOpen(callout, false);
     };
     const attach = (el: HTMLElement) => {
       target = el;
       el.classList.add(COACH_TARGET_CLASS);
+      this.attached = true;
       setOpen(callout, true);
       unplace = autoUpdate(el, callout, () => void this.place(el, callout, step.placement));
     };
@@ -101,22 +102,16 @@ export class CoachMark {
       if (target?.isConnected) return;
       if (target) detach();
       const found = document.querySelector<HTMLElement>(step.target);
-      if (found) {
-        if (waitTimer !== null) clearTimeout(waitTimer);
-        waitTimer = null;
-        attach(found);
-      } else if (waitTimer === null) {
-        // Gives up waiting after a while: the page has moved on without it.
-        waitTimer = setTimeout(() => observer.disconnect(), TARGET_WAIT_MS);
-      }
+      if (found) attach(found);
     };
 
+    // Watches for as long as the step lasts, since the control can go and come
+    // back any number of times; while it is there, a check costs one lookup.
     const observer = new MutationObserver(check);
     observer.observe(document.body, { childList: true, subtree: true });
     check();
     return () => {
       observer.disconnect();
-      if (waitTimer !== null) clearTimeout(waitTimer);
       detach();
     };
   }
