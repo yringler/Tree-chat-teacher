@@ -1,3 +1,4 @@
+import { HELP_TITLE } from '@tangent/shared';
 import type { Child, PropsWithChildren } from 'hono/jsx';
 import { copyrightNotice } from './legal-info.js';
 import { LEARN_COMMON_HEADERS } from './learn-app.js';
@@ -20,6 +21,7 @@ const LINKS = {
   learn: ['/learn/login', 'Sign in to Learn'],
   power: ['/login', 'Power sign in'],
   about: ['/welcome', 'About Tangent'],
+  help: ['/welcome#how-tangents', HELP_TITLE],
   pricing: ['/pricing', 'Pricing'],
   pool: ['/pool', 'Open pool'],
   privacy: ['/privacy', 'Privacy'],

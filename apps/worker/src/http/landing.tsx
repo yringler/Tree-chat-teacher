@@ -2,6 +2,7 @@ import {
   formatBps,
   formatCents,
   formatMicros,
+  HELP_TITLE,
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
   POOL_MOTTO,
@@ -21,6 +22,7 @@ import { pageResponse } from './layout.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
 import { legalInfo } from './legal-info.js';
 import { LANDING_STYLE } from './page-styles.js';
+import { TangentHelpCard } from './tangent-help.js';
 
 /**
  * Better Auth's session cookie (`cookiePrefix: 'tangent'` in auth/auth.ts),
@@ -165,7 +167,7 @@ function MoreWays(props: { page: Landing }) {
           <article class="card">
             <h3>Feeling brave?</h3>
             <p>
-              Canvas lays out a whole conversation as a map, every branch at once. It’s
+              Canvas lays out a whole conversation as a map, every tangent at once. It’s
               experimental. <a href="/canvas/demo">Try Canvas</a>
             </p>
           </article>
@@ -195,7 +197,10 @@ function Pair(props: { problem: string; fix: string }) {
   );
 }
 
-/** The landing page's body: the hero and its demo, the problem and fix, the pool and the other ways in. */
+/**
+ * The landing page's body: the hero and its demo, the problem and fix, how
+ * tangents work, the pool and the other ways in.
+ */
 function LandingBody(props: { page: Landing }) {
   const { page } = props;
   const free = poolOpen(page.pool);
@@ -204,7 +209,7 @@ function LandingBody(props: { page: Landing }) {
       <div class="wrap hero">
         <div>
           <h1>Go off on a tangent. Without losing your place.</h1>
-          <p class="lede">An AI tutor where every follow-up question gets its own branch.</p>
+          <p class="lede">An AI tutor where any follow-up question can go on its own tangent.</p>
           <div class="ctas">
             <a class="btn primary" href="/learn/demo">
               Try the demo
@@ -213,6 +218,9 @@ function LandingBody(props: { page: Landing }) {
               {free ? 'Start learning free' : 'Start learning'}
             </a>
           </div>
+          <a class="help-link" href="#how-tangents">
+            {HELP_TITLE}
+          </a>
           {free && (
             <p class="free">
               <strong>No credit card needed.</strong> Learn free on the open pool, within daily
@@ -221,7 +229,7 @@ function LandingBody(props: { page: Landing }) {
           )}
           <p class="note">
             The demo needs no sign-up and no AI: its replies are playful nonsense that show how
-            branching works.
+            tangents work.
           </p>
         </div>
         <LandingDemo />
@@ -237,7 +245,7 @@ function LandingBody(props: { page: Landing }) {
           <dl class="pairs">
             <Pair
               problem="The answer raises three more questions."
-              fix="Each one opens in its own branch."
+              fix="Each one opens as its own tangent."
             />
             <Pair
               problem="You chase one, then another. Your first answer is now 40 messages up."
@@ -245,15 +253,16 @@ function LandingBody(props: { page: Landing }) {
             />
             <Pair
               problem="You scroll back past what you already know and what you don’t care about."
-              fix="You see only the branch you’re on. The rest waits until you want it."
+              fix="You see only the thread you’re on. Your tangents wait until you want them."
             />
           </dl>
           <p class="after">
-            Not sure what to ask next? Full answers end with a few tangents worth following, one tap
-            away.
+            Not sure what to ask next? Full answers end with a way to keep going and a few tangents
+            worth following, one tap away.
           </p>
         </div>
       </section>
+      <TangentHelpCard />
       {page.pool && <PoolSection pool={page.pool} page={page} />}
       <MoreWays page={page} />
     </main>
@@ -287,10 +296,10 @@ async function landingResponse(
       origin: info.origin,
       title: 'Tangent: go off on a tangent without losing your place',
       description:
-        'An AI tutor where every follow-up question gets its own branch, so your first answer stays right where you left it.',
+        'An AI tutor where every side trip is a tangent, so your main lesson stays right where you left it.',
       social: true,
       style: LANDING_STYLE,
-      nav: { label: 'Site', links: ['learn', 'power', 'pricing'] },
+      nav: { label: 'Site', links: ['learn', 'help', 'power', 'pricing'] },
       footer: {
         operator: info.operator,
         links: ['demo', 'learn', 'power', 'about', 'pricing', 'pool', 'privacy', 'terms'],
