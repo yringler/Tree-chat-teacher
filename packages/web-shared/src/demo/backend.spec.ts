@@ -577,10 +577,12 @@ describe('power demo backend', () => {
     await expect(api.settings()).resolves.toEqual({
       systemPrompt: null,
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+      walkthroughDoneAt: null,
     });
     await expect(api.updateSettings({ systemPrompt: 'Be terse.' })).resolves.toEqual({
       systemPrompt: 'Be terse.',
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+      walkthroughDoneAt: null,
     });
     expect((await api.createTree({})).tree.systemPrompt).toBe('Be terse.');
     expect((await api.createTree({ systemPrompt: 'Mine.' })).tree.systemPrompt).toBe('Mine.');
@@ -594,6 +596,20 @@ describe('power demo backend', () => {
     await expect(next.updateSettings({ systemPrompt: 'x'.repeat(20_001) })).rejects.toMatchObject({
       status: 400,
     });
+  });
+
+  it('shows a new session the walkthrough and remembers it is done across a reload', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage });
+    expect((await api.settings()).walkthroughDoneAt).toBeNull();
+    const done = await api.updateSettings({ walkthroughDone: true });
+    expect(done.walkthroughDoneAt).toEqual(expect.any(String));
+    await until(() => storage.data.get('tangent.demo')?.includes(done.walkthroughDoneAt!) ?? false);
+
+    const { api: next } = setup({ storage });
+    expect((await next.settings()).walkthroughDoneAt).toBe(done.walkthroughDoneAt);
+    // A different browser (no saved session) starts over.
+    expect((await setup().api.settings()).walkthroughDoneAt).toBeNull();
   });
 
   it('plans the Context preview with the input limit, and reports the input budget', async () => {

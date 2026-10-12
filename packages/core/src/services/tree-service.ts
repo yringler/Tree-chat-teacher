@@ -32,7 +32,7 @@ import {
 } from '@tangent/shared';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import { pairKey } from '../links.js';
-import type { Repositories, TreePatch } from '../repository.js';
+import type { AccountSettings, Repositories, TreePatch } from '../repository.js';
 import { descendantBranches, indexTree } from '../tree.js';
 import { emptyToNull, type ServiceContext } from './context.js';
 
@@ -152,19 +152,33 @@ export class TreeService {
   /** The account's settings, with the built-in default prompt a client can show ("Use default"). */
   async getSettings(): Promise<SettingsResponse> {
     const saved = await this.ctx.repos.settings.getSettings(this.ctx.accountId);
-    return this.settingsResponse(saved?.systemPrompt ?? null);
+    return this.settingsResponse(saved ?? { systemPrompt: null, walkthroughDoneAt: null });
   }
 
-  /** Saves the account's default system prompt; a blank one means the built-in default (null). */
+  /**
+   * Saves the fields the request names and keeps the rest: the default
+   * system prompt (a blank one means the built-in default, null) and whether
+   * the first-run walkthrough is done (stamped with the current time).
+   */
   async updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
     const req = updateSettingsRequestSchema.parse(request);
-    const systemPrompt = emptyToNull(req.systemPrompt);
-    await this.ctx.repos.settings.putSettings(this.ctx.accountId, { systemPrompt }, this.ctx.now());
-    return this.settingsResponse(systemPrompt);
+    const now = this.ctx.now();
+    const next: AccountSettings = (await this.ctx.repos.settings.getSettings(
+      this.ctx.accountId,
+    )) ?? { systemPrompt: null, walkthroughDoneAt: null };
+    if (req.systemPrompt !== undefined) next.systemPrompt = emptyToNull(req.systemPrompt);
+    if (req.walkthroughDone !== undefined)
+      next.walkthroughDoneAt = req.walkthroughDone ? now : null;
+    await this.ctx.repos.settings.putSettings(this.ctx.accountId, next, now);
+    return this.settingsResponse(next);
   }
 
-  private settingsResponse(systemPrompt: string | null): SettingsResponse {
-    return { systemPrompt, defaultSystemPrompt: this.ctx.defaultSystemPrompt ?? '' };
+  private settingsResponse(settings: AccountSettings): SettingsResponse {
+    return {
+      systemPrompt: settings.systemPrompt,
+      defaultSystemPrompt: this.ctx.defaultSystemPrompt ?? '',
+      walkthroughDoneAt: settings.walkthroughDoneAt,
+    };
   }
 
   /** The account's saved default prompt (power only), else the built-in one. */

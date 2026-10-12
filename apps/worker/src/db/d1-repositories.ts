@@ -805,21 +805,28 @@ export function createD1Repositories(d1: D1Database): Repositories {
   const settingsRepo: SettingsRepository = {
     async getSettings(accountId) {
       const row = await db
-        .select({ systemPrompt: accountSettings.systemPrompt })
+        .select({
+          systemPrompt: accountSettings.systemPrompt,
+          walkthroughDoneAt: accountSettings.walkthroughDoneAt,
+        })
         .from(accountSettings)
         .where(eq(accountSettings.accountId, accountId))
         .get();
-      return row ? { systemPrompt: row.systemPrompt } : null;
+      return row
+        ? { systemPrompt: row.systemPrompt, walkthroughDoneAt: row.walkthroughDoneAt }
+        : null;
     },
 
     async putSettings(accountId, settings, updatedAt) {
+      const values = {
+        systemPrompt: settings.systemPrompt,
+        walkthroughDoneAt: settings.walkthroughDoneAt,
+        updatedAt,
+      };
       await db
         .insert(accountSettings)
-        .values({ accountId, systemPrompt: settings.systemPrompt, updatedAt })
-        .onConflictDoUpdate({
-          target: accountSettings.accountId,
-          set: { systemPrompt: settings.systemPrompt, updatedAt },
-        });
+        .values({ accountId, ...values })
+        .onConflictDoUpdate({ target: accountSettings.accountId, set: values });
     },
   };
 

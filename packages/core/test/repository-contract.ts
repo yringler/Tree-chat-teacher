@@ -736,11 +736,23 @@ export function describeRepositories(name: string, factory: () => Repositories):
         const a = uid('acct');
         const b = uid('acct');
         expect(await repos.settings.getSettings(a)).toBeNull();
-        await repos.settings.putSettings(a, { systemPrompt: 'First' }, '2026-01-01T00:00:00.000Z');
-        expect(await repos.settings.getSettings(a)).toEqual({ systemPrompt: 'First' });
-        await repos.settings.putSettings(a, { systemPrompt: null }, '2026-01-03T00:00:00.000Z');
-        expect(await repos.settings.getSettings(a)).toEqual({ systemPrompt: null });
+        const first = { systemPrompt: 'First', walkthroughDoneAt: null };
+        await repos.settings.putSettings(a, first, '2026-01-01T00:00:00.000Z');
+        expect(await repos.settings.getSettings(a)).toEqual(first);
+        const second = { systemPrompt: null, walkthroughDoneAt: null };
+        await repos.settings.putSettings(a, second, '2026-01-03T00:00:00.000Z');
+        expect(await repos.settings.getSettings(a)).toEqual(second);
         expect(await repos.settings.getSettings(b)).toBeNull();
+      });
+
+      it('round-trips the walkthrough flag', async () => {
+        const a = uid('acct');
+        const done = { systemPrompt: 'Mine', walkthroughDoneAt: '2026-01-02T00:00:00.000Z' };
+        await repos.settings.putSettings(a, done, '2026-01-02T00:00:00.000Z');
+        expect(await repos.settings.getSettings(a)).toEqual(done);
+        const reset = { systemPrompt: 'Mine', walkthroughDoneAt: null };
+        await repos.settings.putSettings(a, reset, '2026-01-03T00:00:00.000Z');
+        expect(await repos.settings.getSettings(a)).toEqual(reset);
       });
     });
   });

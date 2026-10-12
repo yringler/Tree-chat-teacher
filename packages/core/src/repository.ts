@@ -171,6 +171,8 @@ export interface ShareRepository {
 export interface AccountSettings {
   /** System prompt of new trees; null = the built-in default. */
   systemPrompt: string | null;
+  /** When the first-run tangent walkthrough was finished or skipped; null = not yet. */
+  walkthroughDoneAt: string | null;
 }
 
 export interface SettingsRepository {
