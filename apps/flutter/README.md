@@ -52,6 +52,10 @@ Sign-in needs no browser on a phone:
   (`lib/api/token_store.dart`), sends it as `Authorization: Bearer` on every
   call, and forgets it on sign-out. The web build keeps the HttpOnly cookie.
 
+`flutter run --target test_driver/app.dart` runs the app with Flutter
+Driver's extension, for a driver or an agent's flutter_driver tool to tap,
+type and take screenshots.
+
 The icons on every platform come from `assets/icon/` (the brand mark at
 1024px); `dart run flutter_launcher_icons` regenerates them after a change.
 
