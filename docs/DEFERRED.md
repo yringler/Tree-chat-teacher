@@ -66,6 +66,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 
 ## Sharing
 
+- **Share links and the HTML export don't draw diagrams.** A mermaid block shows as its source, labelled "Diagram (Mermaid source)" (`VIEWER_STYLE`). Drawing it in the page would add mermaid (about a megabyte of script) to a viewer that is one offline file with one hashed inline script; drawing it in the Worker needs a DOM that measures text, which Workers lack. One way: have the publishing browser draw each diagram and store the sanitized SVG with the snapshot.
 - **`shares.mode` is still in the schema.** Every share is a snapshot and the code writes `snapshot`; migrations are expand-only, so the column is dropped in a release after the one that stopped reading it.
 - **Alerts are email only.** A chat webhook (Zulip) for the high-severity alerts would reach the operator faster; it needs a secret for the webhook URL and a second sender behind `sendAlert`.
 - **Screening thresholds are a first guess.** They are constants in `packages/core/src/moderation/moderation.ts`; tune them from the scores `share_screened` rows record once there are a few weeks of them.

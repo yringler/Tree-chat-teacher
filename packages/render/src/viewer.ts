@@ -116,6 +116,8 @@ code,pre,kbd{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"L
 .msg-body math{font-family:"STIX Two Math","Cambria Math","Latin Modern Math",math}
 .msg-body .math-display{display:block;margin:.7em 0;overflow-x:auto;overflow-y:hidden}
 .msg-body .math-error{white-space:pre-wrap}
+.msg-body .diagram::before{content:"Diagram (Mermaid source)";display:block;margin-top:.7em;font-size:.75rem;color:var(--muted)}
+.msg-body .diagram>pre{margin-top:.25em}
 .msg-body :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--code-bg);border:1px solid var(--border);font-size:.87em}
 .msg-body blockquote{padding:0 1em;border-left:3px solid var(--border);color:var(--muted)}
 .msg-body img{max-width:100%;height:auto;border-radius:6px}

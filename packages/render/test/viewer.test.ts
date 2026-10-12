@@ -81,6 +81,33 @@ describe('renderViewerPage', () => {
     expect(page).not.toMatch(/<[^>]*\sstyle=/);
   });
 
+  it('shows a mermaid diagram as its labelled source, drawing nothing', () => {
+    const page = renderViewerPage(
+      samplePayload({
+        context: null,
+        branches: [
+          {
+            key: 'b0',
+            parentKey: null,
+            forkMessageKey: null,
+            title: 'Trunk',
+            anchorQuote: null,
+            messages: [
+              { key: 'm0', role: 'assistant', content: '```mermaid\nflowchart LR\n  A --> B\n```' },
+            ],
+          },
+        ],
+      }),
+      { variant: 'export' },
+    );
+    expect(page).toContain(
+      '<div class="diagram"><pre><code class="hljs">flowchart LR\n  A --&gt; B\n</code></pre></div>',
+    );
+    expect(VIEWER_STYLE).toContain('.msg-body .diagram::before{content:"Diagram (Mermaid source)"');
+    expect(page).not.toMatch(/<svg/i);
+    expect(page).not.toMatch(/<script[^>]*\ssrc=/);
+  });
+
   it("shows a reply's tangents as a plain list, never as raw tags", () => {
     const page = renderViewerPage(
       samplePayload({
