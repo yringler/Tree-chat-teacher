@@ -873,14 +873,16 @@ app-related-links.connections {
   box-shadow: none;
 }
 
-/* Where the message goes, before the text: on a narrow screen only its icon
-   until the box has the focus. With the focus it takes a row of its own, and
-   the box grows to three lines. */
+/* The words asked about, before the text: on a narrow screen only its icon
+   until the box has the focus, then a row of its own. The box grows to three
+   lines once something is typed, not on focus: shrinking on blur would move
+   whatever was clicked (Start lesson, a suggestion above the dock) out from
+   under the pointer, and the click would be lost. */
 .composer-host .composer {
   flex-wrap: wrap;
 }
 
-.composer-host .composer:focus-within textarea {
+.composer-host .composer:has(textarea:not(:placeholder-shown)) textarea {
   min-height: calc(4.5em * var(--chat-font-scale, 1));
 }
 
