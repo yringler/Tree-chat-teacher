@@ -73,6 +73,9 @@ describe('ChatPage', () => {
     expect(within(chat).getByText('What is light?')).toBeTruthy();
     expect(within(chat).getByText('A wave.')).toBeTruthy();
     expect(composer()?.placeholder).toBe('Continue this thread…');
+    expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
+      'Next ➜: Got it, what’s next? Keeps the main lesson moving.',
+    );
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?{Enter}');
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
@@ -83,6 +86,9 @@ describe('ChatPage', () => {
     expect(screen.getByText('New tangent. Your next message starts it.')).toBeTruthy();
     expect(screen.getByText('A wave', { selector: 'blockquote' })).toBeTruthy();
     expect(composer()?.placeholder).toBe('Ask your question…');
+    expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
+      'Next ➜: Got it, what’s next? Keeps this tangent moving.',
+    );
   });
 
   it('while a reply streams, the box is disabled and Stop stops it', async () => {

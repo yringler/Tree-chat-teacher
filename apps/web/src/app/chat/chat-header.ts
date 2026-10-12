@@ -68,7 +68,7 @@ import { ExportMenu } from './export-menu';
             title="Keyboard shortcuts (?)"
             (click)="ui.dialogs.open({ kind: 'shortcuts' })"
           >
-            <app-icon name="help" />
+            <app-icon name="keyboard" />
           </button>
         </div>
       </div>

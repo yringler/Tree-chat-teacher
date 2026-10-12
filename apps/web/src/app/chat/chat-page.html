@@ -116,6 +116,7 @@
         } @else {
           <app-composer
             sendLabel="Send message"
+            [sendTitle]="sendTitle()"
             stopLabel="Stop generating"
             [placeholder]="placeholder()"
             [initial]="initialDraft()"

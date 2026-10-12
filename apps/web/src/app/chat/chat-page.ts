@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import { clip, type MembershipInfo } from '@tangent/shared';
+import { clip, REPLY_ACTION, type MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
   Composer,
@@ -86,6 +86,17 @@ export class ChatPage implements OnDestroy {
     // A new branch without messages: the next one starts it.
     if (this.store.emptyBranch()) return 'Ask your question…';
     return 'Continue this thread…';
+  });
+
+  /**
+   * Send's hint once there is a thread: sending is its next step (power
+   * starts tangents from a message's Tangent ↳ instead).
+   */
+  protected readonly sendTitle = computed(() => {
+    const b = this.store.selectedBranch();
+    if (!b || this.store.path().length === 0) return null;
+    const hint = b.parentBranchId ? REPLY_ACTION.hintInTangent : REPLY_ACTION.hint;
+    return `${REPLY_ACTION.label}: ${hint}`;
   });
 
   /**

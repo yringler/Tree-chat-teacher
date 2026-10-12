@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { TreeStore } from '../state/tree-store';
-import { KeysDialog } from '@tangent/web-shared';
+import { HELP_TITLE } from '@tangent/shared';
+import { KeysDialog, Modal, TangentHelp } from '@tangent/web-shared';
 import { UiStore } from '../state/ui-store';
 import { AccountDialog } from './account-dialog';
 import { BranchDialog } from './branch-dialog';
@@ -28,6 +29,8 @@ import { TreeSettings } from './tree-settings';
     ShortcutsHelp,
     SettingsDialog,
     ReviewDialog,
+    Modal,
+    TangentHelp,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -76,6 +79,11 @@ import { TreeSettings } from './tree-settings';
         @case ('shortcuts') {
           <app-shortcuts-help />
         }
+        @case ('help') {
+          <app-modal [heading]="helpTitle" (closed)="ui.dialogs.close('help')">
+            <app-tangent-help (shortcuts)="shortcutsFromHelp()" />
+          </app-modal>
+        }
         @case ('keys') {
           <app-keys-dialog [initialProvider]="d.provider" (closed)="ui.dialogs.close('keys')" />
         }
@@ -86,4 +94,11 @@ import { TreeSettings } from './tree-settings';
 export class DialogHost {
   protected readonly ui = inject(UiStore);
   protected readonly store = inject(TreeStore);
+  protected readonly helpTitle = HELP_TITLE;
+
+  /** The help's "Keyboard shortcuts": the shortcuts take its place, one dialog deep. */
+  protected shortcutsFromHelp(): void {
+    this.ui.dialogs.close('help');
+    this.ui.dialogs.open({ kind: 'shortcuts' });
+  }
 }

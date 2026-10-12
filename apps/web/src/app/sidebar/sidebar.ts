@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, forwardRef, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import type { OutlineItem } from '@tangent/core/tree';
-import type { TreeSummary } from '@tangent/shared';
+import { HELP_TITLE, type TreeSummary } from '@tangent/shared';
 import {
   ConversationSidebar,
   DEMO_MODE,
@@ -114,6 +114,13 @@ import { ModeBadge } from '../ui/mode-badge';
         >
           <app-icon name="gear" /> Settings
         </button>
+        <button
+          type="button"
+          class="btn btn-ghost"
+          (click)="ui.dialogs.open({ kind: 'help' }); close()"
+        >
+          <app-icon name="help" /> {{ helpTitle }}
+        </button>
         @if (demo) {
           <a class="btn btn-ghost" [href]="exitUrl"><app-icon name="user" /> Leave the demo</a>
         } @else {
@@ -138,6 +145,7 @@ export class Sidebar extends SidebarHost {
   protected readonly demo = inject(DEMO_MODE);
   /** The public landing page. */
   protected readonly exitUrl = '/welcome';
+  protected readonly helpTitle = HELP_TITLE;
   protected readonly keyTitle = computed(() => {
     const ids = this.store.account.keyStatus()?.providers ?? [];
     if (ids.length === 0) return 'API keys: none of your own stored';

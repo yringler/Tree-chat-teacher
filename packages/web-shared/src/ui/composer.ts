@@ -225,6 +225,8 @@ export interface ComposerAction {
           [class.btn-sm]="compact()"
           [disabled]="disabled() || !text().trim()"
           [attr.aria-label]="sendLabel()"
+          [attr.title]="sendTitle()"
+          [attr.aria-description]="sendTitle()"
         >
           <app-icon name="send" [size]="iconSize()" />
           @if (!compact()) {
@@ -242,6 +244,8 @@ export class Composer {
   readonly label = input('Message');
   readonly inputId = input('composer-input');
   readonly sendLabel = input('Send');
+  /** What sending does, as Send's tooltip and description (none by default). */
+  readonly sendTitle = input<string | null>(null);
   readonly stopLabel = input('Stop the reply');
   /** The branch this box writes in, where a page has one box per branch (the canvas's lanes). */
   readonly branchId = input<string | null>(null);
