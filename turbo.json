@@ -54,6 +54,7 @@
       "inputs": [
         "lib/**",
         "test/**",
+        "test_driver/**",
         "web/**",
         "assets/**",
         "pubspec.yaml",
