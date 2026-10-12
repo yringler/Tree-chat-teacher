@@ -268,6 +268,8 @@ function dropSetCookie(headers: Headers | undefined, name: string): void {
 export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
   const base = new URL(baseUrl);
   const turnstilePin = pinnedTurnstileHostname(env, base.hostname);
+  const reviewer = appConfig(env).auth.reviewer;
+  const isReviewer = (email: string) => email.toLowerCase() === reviewer?.email;
 
   const auth = betterAuth({
     appName: 'Tangent',
@@ -407,6 +409,8 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
           // The code goes in the same email, so this captcha-gated request is
           // the only way to get one.
           const code = await auth.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
+          // The reviewer's code is fixed and their inbox unread: no email.
+          if (isReviewer(email)) return;
           const sender = deps.emailSender ?? createEmailSender(env, base.origin);
           await sender.send(magicLinkEmail(email, url, code, MAGIC_LINK_MINUTES));
         },
@@ -424,6 +428,11 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         expiresIn: MAGIC_LINK_MINUTES * 60,
         allowedAttempts: 3,
         storeOTP: 'encrypted',
+        // The app-store reviewer (REVIEWER_SIGN_IN) always gets the same
+        // code, so their credentials can be written down and reused; undefined
+        // keeps the random code for everyone else. Guessing it still takes a
+        // captcha per 3 tries, and the email is a secret too.
+        generateOTP: ({ email }) => (isReviewer(email) ? reviewer?.code : undefined),
         // Never called: the endpoints that would send a code on their own are
         // disabled (UNUSED_EMAIL_OTP_PATHS) and codes go out in the magic-link
         // email. It fails closed should that ever change.

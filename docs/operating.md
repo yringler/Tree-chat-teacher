@@ -104,6 +104,7 @@ Only `master` reaches the sandbox: a branch's migrations would stay in its datab
   ```
   An OAuth identity joins an existing user only when the provider reports the email verified.
 - **Passkeys** need no setup: users add them under **Account** once signed in. The relying party is the `PUBLIC_BASE_URL` host, so passkeys stop working if the domain changes.
+- **App-store review** (Google Play's _App content → App access_): set `REVIEWER_SIGN_IN` to an unguessable email and a code, `npx wrangler secret put REVIEWER_SIGN_IN` with `play-review-<random>@<your domain>:<6 digits>`, and give the reviewer both: "Enter the email, tap Send, complete the checkbox if it appears, then enter the code. The code can be reused; no inbox is needed." Sign in with it once yourself first, so the account exists and is old enough for the pool (`POOL_MIN_ACCOUNT_AGE_MS`). Replies come from the pool's daily allowance; for paid features, give it credit by hand ([manual credit](#manual-credit-and-waivers)). Delete the secret, or change it, once the review is done.
 - **Remember me** keeps a session 30 days, extended by use; unchecked, it ends with the browser session, after a day at most.
 - **Check it:**
   ```bash

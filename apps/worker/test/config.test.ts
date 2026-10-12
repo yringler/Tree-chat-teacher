@@ -9,6 +9,7 @@ import {
   enumVar,
   intVar,
   POOL_ACCOUNT_ID,
+  reviewerSignInVar,
   strictFlagVar,
 } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
@@ -37,6 +38,19 @@ afterEach(() => {
 });
 
 describe('config parsers', () => {
+  it('reviewerSignInVar: <email>:<6 digits>, email lowercased; empty is null; the error hides the value', () => {
+    expect(reviewerSignInVar(undefined)).toBeNull();
+    expect(reviewerSignInVar(' ')).toBeNull();
+    expect(reviewerSignInVar(' Rev@Example.com:012345 ')).toEqual({
+      email: 'rev@example.com',
+      code: '012345',
+    });
+    for (const bad of ['rev@example.com', 'rev@example.com:12345', 'rev:123456', 'a@b:1234567'])
+      expect(() => reviewerSignInVar(bad)).toThrow(
+        /^Invalid REVIEWER_SIGN_IN: expected <email>:<6 digits>$/,
+      );
+  });
+
   it('intVar: empty is the default; anything but an integer in range throws', () => {
     expect(intVar('N', '42', 7)).toBe(42);
     expect(intVar('N', ' 0 ', 7)).toBe(0);
