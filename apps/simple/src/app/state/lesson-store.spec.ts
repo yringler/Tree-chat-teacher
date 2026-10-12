@@ -958,13 +958,13 @@ describe('LessonStore', () => {
   it("the server's refusal of an import is a toast", async () => {
     const s = setup();
     s.api.importBackup.mockRejectedValue(
-      new ApiError(400, 'bad_request', 'Backup must contain exactly one trunk branch'),
+      new ApiError(400, 'bad_request', 'Backup must contain exactly one main thread'),
     );
     const file = new File([JSON.stringify(backupOf(detail()))], 'lesson.json');
     await expect(s.store.importLesson(file)).resolves.toBe(false);
     expect(s.toasts.toasts().at(-1)).toMatchObject({
       kind: 'error',
-      text: 'Backup must contain exactly one trunk branch',
+      text: 'Backup must contain exactly one main thread',
     });
     expect(s.store.trees()).toEqual([]);
   });

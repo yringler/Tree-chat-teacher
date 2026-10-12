@@ -61,7 +61,7 @@ export function exportRoutes(): Hono<AppBindings> {
       if (result.reason === 'target_not_found') throw new NotFoundError('Node');
       throw new ValidationError(
         result.reason === 'target_private'
-          ? 'That message is inside a private branch (pass includePrivate=true)'
+          ? 'That message is inside a private tangent (pass includePrivate=true)'
           : 'Nothing to export',
       );
     }

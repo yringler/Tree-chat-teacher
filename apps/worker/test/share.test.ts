@@ -277,4 +277,17 @@ describe('export', () => {
     expect(html).toContain('Content-Security-Policy');
     expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+stylesheet/);
   });
+
+  it('refuses a message inside a private tangent unless asked to include it', async () => {
+    const { detail, secret } = await seed();
+    const all = await ok<TreeDetail>(call(`/api/trees/${detail.tree.id}`));
+    const hidden = all.nodes.find((n) => n.branchId === secret.id)!;
+    const res = await call(
+      `/api/export?treeId=${detail.tree.id}&format=md&scope=path&nodeId=${hidden.id}`,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toBe(
+      'That message is inside a private tangent (pass includePrivate=true)',
+    );
+  });
 });

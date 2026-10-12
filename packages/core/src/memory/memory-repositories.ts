@@ -171,7 +171,8 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         const taken = new Set([...state.nodes.values()].map((n) => `${n.branchId}:${n.seq}`));
         for (const n of nodes) {
           const k = `${n.branchId}:${n.seq}`;
-          if (taken.has(k)) throw new ConflictError('Branch was modified concurrently');
+          if (taken.has(k))
+            throw new ConflictError('This thread changed in the meantime; reload and try again');
           taken.add(k);
         }
         for (const n of nodes) state.nodes.set(n.id, clone(n));

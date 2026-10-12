@@ -60,7 +60,7 @@ export class BackupService {
     const nodeIds = new Map(data.nodes.map((n) => [n.id, newId()] as const));
     const mapBranch = (id: string): string => {
       const mapped = branchIds.get(id);
-      if (!mapped) throw new ValidationError(`Backup references unknown branch ${id}`);
+      if (!mapped) throw new ValidationError(`Backup references unknown thread ${id}`);
       return mapped;
     };
     const mapNode = (id: string): string => {
@@ -70,7 +70,7 @@ export class BackupService {
     };
     const trunks = data.branches.filter((b) => b.parentBranchId === null);
     if (trunks.length !== 1 || trunks[0]?.id !== data.tree.trunkBranchId) {
-      throw new ValidationError('Backup must contain exactly one trunk branch');
+      throw new ValidationError('Backup must contain exactly one main thread');
     }
     // A broken branch would import, then fail every send on it.
     try {

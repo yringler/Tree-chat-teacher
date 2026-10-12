@@ -553,7 +553,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         await runBatch(db, items);
       } catch (err) {
         if (isUniqueViolation(err)) {
-          throw new ConflictError('The branch changed concurrently; reload and try again');
+          throw new ConflictError('This thread changed in the meantime; reload and try again');
         }
         throw err;
       }

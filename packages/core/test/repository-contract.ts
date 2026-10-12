@@ -440,6 +440,10 @@ export function describeRepositories(name: string, factory: () => Repositories):
           .appendNodes([ok, dup], '2026-09-09T00:00:00.000Z')
           .catch((e: unknown) => e);
         expect(err).toBeInstanceOf(ConflictError);
+        expect(err).toHaveProperty(
+          'message',
+          'This thread changed in the meantime; reload and try again',
+        );
         expect(await repos.trees.getNode(ok.id)).toBeNull();
         expect(await repos.trees.getNode(dup.id)).toBeNull();
         expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-01-01T00:00:10.000Z');

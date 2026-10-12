@@ -194,7 +194,7 @@ export class TreeService {
     const req = createBranchRequestSchema.parse(request);
     const node = await this.ctx.owned.node(req.fromNodeId);
     const parent = await this.repo.getBranch(node.branchId);
-    if (!parent) throw new NotFoundError('Branch');
+    if (!parent) throw new NotFoundError('Thread');
 
     const requested = this.ctx.routes.requestedRoute(req, parent);
     const provider = this.ctx.routes.requireProvider(requested);
@@ -261,7 +261,7 @@ export class TreeService {
       patch.model = runnable.model;
     }
     const updated = await this.repo.updateBranch(branchId, patch);
-    if (!updated) throw new NotFoundError('Branch');
+    if (!updated) throw new NotFoundError('Thread');
     return updated;
   }
 
@@ -295,7 +295,7 @@ export class TreeService {
     } else {
       const streaming = await this.repo.listStreamingNodes(tree.id);
       if (streaming.some((n) => doomed.has(n.branchId))) {
-        throw new ConflictError('A reply is still being generated in this branch; stop it first');
+        throw new ConflictError('A reply is still being generated in this thread; stop it first');
       }
     }
     const nodeIds = (await this.repo.listNodes(tree.id))
@@ -391,7 +391,7 @@ export class TreeService {
 function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string {
   // A quote is plain text already; a message is Markdown ("**a confident kitten**").
   const source = anchorQuote ? anchorQuote.replace(/\s+/g, ' ').trim() : plainText(node.content);
-  if (!source) return 'New branch';
+  if (!source) return 'New tangent';
   const clipped = clip(source.split(' ').slice(0, 6).join(' '), 48);
   return anchorQuote ? clipped : `${DEFAULT_BRANCH_TITLE_PREFIX}${clipped}`;
 }

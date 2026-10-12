@@ -49,7 +49,7 @@ export class SendService {
     const own = await this.ctx.repos.trees.listBranchNodes(branchId);
     const leaf = own.at(-1);
     if (leaf?.status === 'streaming') {
-      throw new ConflictError('A reply is still being generated in this branch');
+      throw new ConflictError('A reply is still being generated in this thread');
     }
     const now = this.ctx.now();
     const seq = leaf ? leaf.seq + 1 : 0;
