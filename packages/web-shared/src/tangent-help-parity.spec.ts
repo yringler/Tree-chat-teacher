@@ -9,10 +9,12 @@ import {
   HELP_SHORTCUTS,
   HELP_TEST,
   HELP_TITLE,
+  KEEP_GOING_LABEL,
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
   REPLY_ACTION,
   TANGENT_ACTION,
+  TANGENTS_LABEL,
   WALKTHROUGH_BUTTONS,
   WALKTHROUGH_STEPS,
 } from '@tangent/shared';
@@ -20,9 +22,9 @@ import { describe, expect, it } from 'vitest';
 
 /*
  * The Flutter app can't import @tangent/shared, so it keeps a copy of the
- * tangent help words (packages/shared/src/tangent-help.ts). This checks the
- * copy has every string verbatim. A new export of tangent-help.ts goes in
- * COPY too. It also checks the default tangent title prefix, which Flutter
+ * tangent help words (packages/shared/src/tangent-help.ts) and the labels of
+ * a reply's two suggestion groups (tangents.ts). This checks the copy has
+ * every string verbatim. A new export of tangent-help.ts goes in COPY too. It also checks the default tangent title prefix, which Flutter
  * strips from titles as Learn web does.
  */
 
@@ -39,10 +41,12 @@ const COPY = {
   HELP_SHORTCUTS,
   HELP_TEST,
   HELP_TITLE,
+  KEEP_GOING_LABEL,
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
   REPLY_ACTION,
   TANGENT_ACTION,
+  TANGENTS_LABEL,
   WALKTHROUGH_BUTTONS,
   WALKTHROUGH_STEPS,
 };

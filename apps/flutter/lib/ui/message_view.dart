@@ -6,6 +6,7 @@ import '../api/tangents.dart';
 import 'lesson_outline.dart';
 import 'links.dart';
 import 'math_markdown.dart';
+import 'tangent_help_copy.dart';
 import 'theme.dart';
 
 /// One message of the thread: the learner's, or the tutor's reply rendered
@@ -274,7 +275,7 @@ class _KeepGoing extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Keep going', style: Theme.of(context).textTheme.bodySmall),
+          Text(keepGoingLabel, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 6),
           for (final step in steps)
             _TangentButton(
@@ -328,7 +329,7 @@ class _TangentsState extends State<_Tangents> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Tangents', style: theme.textTheme.bodySmall),
+          Text(tangentsLabel, style: theme.textTheme.bodySmall),
           const SizedBox(height: 6),
           for (final tangent in shown)
             _TangentButton(

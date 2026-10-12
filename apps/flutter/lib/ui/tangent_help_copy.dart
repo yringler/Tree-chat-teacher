@@ -1,10 +1,11 @@
 // The words that teach when to reply and when to go on a tangent: the two
-// send actions, the "How tangents work" help and the first-run walkthrough.
+// send actions, the "How tangents work" help, the first-run walkthrough and
+// the headings of a reply's two suggestion groups.
 //
-// This mirrors packages/shared/src/tangent-help.ts, which the landing page
-// and the web apps use; packages/web-shared/src/tangent-help-parity.spec.ts
-// checks that every string there appears here verbatim, so the two change
-// together.
+// This mirrors packages/shared/src/tangent-help.ts and the group labels of
+// packages/shared/src/tangents.ts, which the landing page and the web apps
+// use; packages/web-shared/src/tangent-help-parity.spec.ts checks that
+// every string there appears here verbatim, so the two change together.
 
 /// Sends the message as a new tangent: the recommended default.
 const tangentAction = (
@@ -66,3 +67,9 @@ const walkthroughButtons = (next: 'Got it', skip: 'Skip tour', done: 'Done');
 const mainThreadLabel = 'Main thread';
 
 const mainThreadBack = 'Back to main thread';
+
+/// The heading over a reply's suggestions that continue the thread.
+const keepGoingLabel = 'Keep going';
+
+/// The heading over a reply's suggested tangents.
+const tangentsLabel = 'Tangents';
