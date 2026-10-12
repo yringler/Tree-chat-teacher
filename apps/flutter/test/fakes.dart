@@ -110,6 +110,13 @@ class FakeTangentApi implements TangentApi {
     enabled: false,
     modelLabel: null,
   );
+  KeyStatus keyStatusAnswer = const KeyStatus(enabled: true, providers: []);
+
+  /// Thrown by `saveKey`, when set; otherwise the key is saved.
+  ApiException? refuseKey;
+
+  /// The keys `saveKey` was given.
+  final savedKeys = <String>[];
   List<ProviderInfo> providersAnswer = const [
     ProviderInfo(
       id: 'other',
@@ -202,6 +209,24 @@ class FakeTangentApi implements TangentApi {
 
   @override
   Future<BillingSummary> billing() async => billingAnswer;
+
+  @override
+  Future<KeyStatus> keyStatus() async => keyStatusAnswer;
+
+  @override
+  Future<void> saveKey(String apiKey) async {
+    final refusal = refuseKey;
+    if (refusal != null) throw refusal;
+    savedKeys.add(apiKey);
+    keyStatusAnswer = const KeyStatus(
+      enabled: true,
+      providers: [openRouterProviderId],
+    );
+  }
+
+  @override
+  Future<void> forgetKey() async =>
+      keyStatusAnswer = const KeyStatus(enabled: true, providers: []);
 
   @override
   Future<List<ProviderInfo>> providers() async => providersAnswer;

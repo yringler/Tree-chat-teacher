@@ -20,4 +20,12 @@ void main() {
     expect(sideQuestionsLabel(2), ' · 1 side question');
     expect(sideQuestionsLabel(3), ' · 2 side questions');
   });
+
+  test('money, as packages/shared formats it', () {
+    expect(formatMicros(1234567), r'$1.23');
+    expect(formatMicros(0), r'$0.00');
+    expect(formatMicros(-400000), r'-$0.40');
+    expect(formatMicros(-4000), r'$0.00');
+    expect(formatMicros(1234567890000), r'$1,234,567.89');
+  });
 }

@@ -11,9 +11,12 @@ class NoticeLink {
 
 /// An inline message about a request that failed, shown where it happened.
 class Notice {
-  const Notice(this.text, {this.link});
+  const Notice(this.text, {this.link, this.choosePayment = false});
   final String text;
   final NoticeLink? link;
+
+  /// Offers the payment dialog: the way replies are paid for couldn't pay.
+  final bool choosePayment;
 }
 
 const genericErrorText = 'Something went wrong. Please try again.';
@@ -39,10 +42,23 @@ Notice noticeFor(Object error) {
         'Confirm you are human once to use the open pool.',
         link: NoticeLink(label: 'Verify', path: '/verify?next=/app/'),
       );
-    case 'key_required' || 'payment_required' || 'membership_required':
+    case 'key_required':
       return const Notice(
-        'Add a key or credit in Tangent Learn on the web.',
-        link: NoticeLink(label: 'Open Tangent Learn', path: '/learn/'),
+        'Your message wasn’t sent: save your OpenRouter key, or pick another '
+        'way to pay.',
+        choosePayment: true,
+      );
+    case 'membership_required':
+      return const Notice(
+        'Your message wasn’t sent: replies on your own key need a '
+        'membership. Pick another way to pay.',
+        choosePayment: true,
+      );
+    case 'payment_required':
+      return const Notice(
+        'Your message wasn’t sent: your credit is used up. Add credit, or '
+        'pick another way to pay.',
+        choosePayment: true,
       );
     case 'conflict':
       return const Notice('A reply is still being written.');

@@ -8,6 +8,7 @@ import '../state/app_scope.dart';
 import '../state/lessons_controller.dart';
 import 'delete_account_dialog.dart';
 import 'format.dart';
+import 'payment_dialog.dart';
 import 'tier_switch.dart';
 import 'widgets.dart';
 
@@ -104,6 +105,10 @@ class _AccountMenu extends StatelessWidget {
           child: Text(session.me?.email ?? 'Signed in'),
         ),
         const PopupMenuDivider(),
+        PopupMenuItem<void>(
+          onTap: () => unawaited(showPaymentDialog(context)),
+          child: const Text('How replies are paid for'),
+        ),
         PopupMenuItem<void>(
           onTap: () => unawaited(session.signOut()),
           child: const Text('Sign out'),

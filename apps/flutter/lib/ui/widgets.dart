@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../state/notice.dart';
 import 'links.dart';
+import 'payment_dialog.dart';
 import 'theme.dart';
 
 const brandName = 'Tangent Learn';
@@ -98,6 +101,12 @@ class NoticeBanner extends StatelessWidget {
             TextButton(
               onPressed: () => openLink(context, link.path),
               child: Text(link.label),
+            ),
+          if (notice.choosePayment)
+            TextButton(
+              onPressed: () =>
+                  unawaited(showPaymentDialog(context, refused: true)),
+              child: const Text('How you pay'),
             ),
           if (onDismiss != null)
             IconButton(
