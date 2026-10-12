@@ -3,6 +3,7 @@ import { BillingPage, LoginPage } from '@tangent/web-shared';
 import { BRAND } from './brand';
 import { ChatPage } from './chat/chat-page';
 import { HomePage } from './home/home-page';
+import { DeleteAccountPage } from './shell/delete-account-page';
 
 /**
  * Routes are relative to the base href `/learn/`.
@@ -40,5 +41,6 @@ export const routes: Routes = [
     title: `Billing · ${BRAND}`,
     data: { homePath: '/', homeLabel: 'Lessons', billingPath: '/learn/billing' },
   },
+  { path: 'delete-account', component: DeleteAccountPage, title: `Delete account · ${BRAND}` },
   { path: '**', redirectTo: '' },
 ];

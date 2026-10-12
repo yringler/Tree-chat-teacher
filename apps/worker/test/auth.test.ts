@@ -4,9 +4,12 @@ import {
   type LoginOptionsResponse,
   type MeResponse,
 } from '@tangent/shared';
+import { Hono } from 'hono';
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
+import { signedInPage } from '../src/auth/session.js';
+import type { AppBindings } from '../src/env.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 import { BASE } from './http.js';
@@ -1069,5 +1072,125 @@ describe('sign out', () => {
     });
     expect(out.status).toBe(200);
     expect((await s.call('/api/me', { headers: { cookie } })).status).toBe(401);
+  });
+});
+
+describe('back to the page that asked for a sign-in', () => {
+  /** A deep link into Learn, with a query and a hash. */
+  const TARGET = '/learn/t/abc/b/b1?q=a%26b#n_2';
+  const LOGIN_WITH_TARGET = `/learn/login?returnTo=${encodeURIComponent(TARGET)}`;
+  /**
+   * The magic-link verify decodes its callback URLs once more than the link
+   * encoded them, so the web client sends each with its `%` escaped
+   * (AuthService); the link then lands on the target exactly.
+   */
+  const escapePercent = (url: string) => url.replaceAll('%', '%25');
+
+  function requestLinkTo(s: ReturnType<typeof setup>, email: string) {
+    return s.call('/api/auth/sign-in/magic-link', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: BASE, 'x-captcha-response': 'pass' },
+      body: JSON.stringify({
+        email,
+        callbackURL: escapePercent(TARGET),
+        errorCallbackURL: escapePercent(LOGIN_WITH_TARGET),
+      }),
+    });
+  }
+
+  it('a magic link lands on the target, and a spent one back on the login page with it', async () => {
+    const s = setup();
+    expect((await requestLinkTo(s, 'deep-link@example.org')).status).toBe(200);
+    const link = new URL(linkFrom(s.mail.sent.at(-1)!));
+    const res = await s.call(link.pathname + link.search, { redirect: 'manual' });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(`${BASE}${TARGET}`);
+    expect(findSetCookie(res, SESSION_COOKIE)).toBeDefined();
+
+    const again = await s.call(link.pathname + link.search, { redirect: 'manual' });
+    const to = new URL(again.headers.get('location') ?? '', BASE);
+    expect(to.pathname).toBe('/learn/login');
+    expect(to.searchParams.get('returnTo')).toBe(TARGET);
+    expect(to.searchParams.get('error')).toBe('INVALID_TOKEN');
+  });
+
+  async function googleTo(s: ReturnType<typeof setup>, email: string) {
+    const start = await s.call('/api/auth/sign-in/social', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: BASE },
+      body: JSON.stringify({
+        provider: 'google',
+        callbackURL: TARGET,
+        errorCallbackURL: LOGIN_WITH_TARGET,
+      }),
+    });
+    expect(start.status).toBe(200);
+    const state = new URL(((await start.json()) as { url: string }).url).searchParams.get('state')!;
+    return s.call(
+      `/api/auth/callback/google?code=${encodeURIComponent(email)}&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: `${cookieHeader(start)}; ${REMEMBER_COOKIE}=1` }, redirect: 'manual' },
+    );
+  }
+  const google = (pool: boolean) =>
+    authEnv({
+      GOOGLE_CLIENT_ID: 'gid',
+      GOOGLE_CLIENT_SECRET: 'gsecret',
+      POOL_ENABLED: String(pool),
+    });
+
+  it('the OAuth state carries the target through the provider and back', async () => {
+    const res = await googleTo(setup(google(false)), 'deep-google@example.org');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(TARGET);
+
+    const refused = await googleTo(setup(google(false)), 'unverified-deep@example.org');
+    const to = new URL(refused.headers.get('location') ?? '', BASE);
+    expect(to.pathname).toBe('/learn/login');
+    expect(to.searchParams.get('returnTo')).toBe(TARGET);
+    expect(to.searchParams.get('error')).toBe('unable_to_create_user');
+  });
+
+  it('the first-sign-in interstitial continues to the target, query and hash included', async () => {
+    const s = setup(google(true));
+    const res = await googleTo(s, 'deep-first@example.org');
+    expect(res.headers.get('location')).toBe(`/verify?next=${encodeURIComponent(TARGET)}`);
+    const page = await s.call(`/verify?next=${encodeURIComponent(TARGET)}`, {
+      headers: { cookie: cookieHeader(res) },
+    });
+    expect(await page.text()).toContain(`name="next" value="${TARGET.replace('&', '&amp;')}"`);
+  });
+
+  describe('a Worker page behind signedInPage', () => {
+    function pages(loginPath?: string) {
+      const app = new Hono<AppBindings>();
+      app.get('/delete-account', signedInPage(loginPath ? { loginPath } : {}), (c) =>
+        c.text(`hello ${c.var.identity.email ?? ''}`),
+      );
+      return app;
+    }
+
+    it('sends a signed-out visitor to the login page with the page as returnTo', async () => {
+      const res = await pages().request(`${BASE}/delete-account?from=email`, {}, authEnv());
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toBe(
+        `/login?returnTo=${encodeURIComponent('/delete-account?from=email')}`,
+      );
+      expect(res.headers.get('cache-control')).toBe('no-store');
+
+      const learn = await pages('/learn/login').request(`${BASE}/delete-account`, {}, authEnv());
+      expect(learn.headers.get('location')).toBe('/learn/login?returnTo=%2Fdelete-account');
+    });
+
+    it('serves a signed-in user, who reaches it straight from the sign-in', async () => {
+      const s = setup();
+      const cookie = cookieHeader(await signIn(s, 'leaving@example.org'));
+      const res = await pages().request(
+        `${BASE}/delete-account`,
+        { headers: { cookie } },
+        authEnv(),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe('hello leaving@example.org');
+    });
   });
 });

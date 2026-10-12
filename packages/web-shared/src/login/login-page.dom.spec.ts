@@ -77,3 +77,24 @@ describe('LoginPage while sign-ups are closed', () => {
     expect(screen.getByText('Sign in or create an account')).toBeTruthy();
   });
 });
+
+describe('LoginPage with a return target', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    history.replaceState(null, '', '/');
+  });
+
+  it('sends a visitor who is already signed in straight to it', async () => {
+    const target = '/learn/t/abc?q=1#n_2';
+    history.replaceState(null, '', `/learn/login?returnTo=${encodeURIComponent(target)}`);
+    const replace = vi.spyOn(location, 'replace').mockImplementation(() => undefined);
+    await render(LoginPage, {
+      providers: [
+        { provide: API_FETCH, useValue: async () => Response.json(OPTIONS) },
+        { provide: APP_PATHS, useValue: { home: '/learn/', login: '/learn/login' } },
+        { provide: AUTH_CLIENT, useValue: { getSession: async () => ({ data: {}, error: null }) } },
+      ],
+    });
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(target));
+  });
+});

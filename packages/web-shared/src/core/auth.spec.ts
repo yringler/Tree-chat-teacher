@@ -62,7 +62,14 @@ describe('AuthService with APP_PATHS', () => {
 
   beforeEach(() => {
     location = { replace: vi.fn(), assign: vi.fn() };
-    vi.stubGlobal('location', { ...location, origin: 'https://tangent.test', protocol: 'https:' });
+    vi.stubGlobal('location', {
+      ...location,
+      origin: 'https://tangent.test',
+      protocol: 'https:',
+      pathname: '/learn/',
+      search: '',
+      hash: '',
+    });
     vi.stubGlobal('document', { cookie: '' });
   });
 
@@ -143,13 +150,13 @@ describe('AuthService with APP_PATHS', () => {
         json({ error: { code: 'unauthorized', message: 'Sign in required' } }, 401),
       );
       await expect(auth.requireUser()).resolves.toBeNull();
-      expect(location.replace).toHaveBeenCalledWith('/login');
+      expect(location.replace).toHaveBeenCalledWith('/login?returnTo=%2Flearn%2F');
     });
 
     it('a 401 without our error body (a proxy) counts as a lost session', async () => {
       const { auth } = withResponse(() => new Response('Unauthorized', { status: 401 }));
       await expect(auth.requireUser()).resolves.toBeNull();
-      expect(location.replace).toHaveBeenCalledWith('/login');
+      expect(location.replace).toHaveBeenCalledWith('/login?returnTo=%2Flearn%2F');
     });
   });
 
@@ -193,6 +200,96 @@ describe('AuthService with APP_PATHS', () => {
     await auth.signOut();
     expect(client.signOut).toHaveBeenCalledTimes(2);
     expect(location.assign).toHaveBeenLastCalledWith('/learn/login');
+  });
+});
+
+describe('AuthService returns a sign-in to the page that asked for it', () => {
+  const TARGET = '/learn/t/abc/b/b1?q=a%26b#n_2';
+  let location: { replace: ReturnType<typeof vi.fn>; assign: ReturnType<typeof vi.fn> };
+
+  /** The browser at `pathname`, `search` and `hash`. */
+  function at(pathname: string, search = '', hash = '') {
+    location = { replace: vi.fn(), assign: vi.fn() };
+    vi.stubGlobal('location', {
+      ...location,
+      origin: 'https://tangent.test',
+      protocol: 'https:',
+      pathname,
+      search,
+      hash,
+    });
+    vi.stubGlobal('document', { cookie: '' });
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('a lost session on a deep link goes to login carrying the whole URL', async () => {
+    at('/learn/t/abc/b/b1', '?q=a%26b', '#n_2');
+    const { auth } = setup(SIMPLE_PATHS, async () => {
+      throw new ApiError(401, 'unauthorized', 'expired');
+    });
+    await expect(auth.requireUser()).resolves.toBeNull();
+    expect(location.replace).toHaveBeenCalledWith(
+      `/learn/login?returnTo=${encodeURIComponent(TARGET)}`,
+    );
+  });
+
+  it('a forbidden caller keeps the target next to the error', async () => {
+    at('/admin/users');
+    const { auth } = setup({ home: '/admin/', login: '/login' }, async () => {
+      throw new ApiError(403, 'forbidden', 'nope');
+    });
+    await auth.requireUser();
+    expect(location.replace).toHaveBeenCalledWith(
+      '/login?error=not_allowed&returnTo=%2Fadmin%2Fusers',
+    );
+  });
+
+  it('every sign-in method on a login page with returnTo lands on the target', async () => {
+    at('/learn/login', `?returnTo=${encodeURIComponent(TARGET)}`);
+    const { auth, client } = setup(SIMPLE_PATHS, async () => ME);
+    expect(auth.signInDestination()).toBe(TARGET);
+    const loginAgain = `/learn/login?returnTo=${encodeURIComponent(TARGET)}`;
+
+    await auth.signInSocial('google', true);
+    expect(client.signIn.social).toHaveBeenCalledWith({
+      provider: 'google',
+      callbackURL: TARGET,
+      errorCallbackURL: loginAgain,
+    });
+
+    // The magic-link verify decodes its callback URLs once more than the link
+    // encodes them, so their `%` go escaped.
+    await auth.sendMagicLink('a@b.c', 'captcha', true);
+    expect(client.signIn.magicLink).toHaveBeenCalledWith(
+      {
+        email: 'a@b.c',
+        callbackURL: TARGET.replaceAll('%', '%25'),
+        errorCallbackURL: loginAgain.replaceAll('%', '%25'),
+      },
+      { headers: { 'x-captcha-response': 'captcha' } },
+    );
+
+    await auth.signInPasskey(true);
+    expect(location.assign).toHaveBeenLastCalledWith(TARGET);
+  });
+
+  it('ignores a returnTo that could leave the site', async () => {
+    for (const evil of ['//evil.example/', 'https://evil.example/', '/\\evil.example']) {
+      at('/login', `?returnTo=${encodeURIComponent(evil)}`);
+      const { auth, client } = setup({ home: '/', login: '/login' }, async () => ME);
+      expect(auth.signInDestination()).toBe('/');
+      await auth.signInSocial('github', true);
+      expect(client.signIn.social).toHaveBeenCalledWith({
+        provider: 'github',
+        callbackURL: '/',
+        errorCallbackURL: '/login',
+      });
+      await auth.signInPasskey(true);
+      expect(location.assign).toHaveBeenLastCalledWith('/');
+    }
   });
 });
 

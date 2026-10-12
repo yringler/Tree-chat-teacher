@@ -1,6 +1,7 @@
+import { loginUrl } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
 import { appConfig } from '../config.js';
-import type { AppBindings, AppEnv, Identity } from '../env.js';
+import type { AppBindings, AppContext, AppEnv, Identity } from '../env.js';
 import { apiError } from '../http/errors.js';
 import { authConfigured, getAuth, type AuthDeps } from './auth.js';
 
@@ -60,4 +61,39 @@ export async function optionalIdentity(
   });
   if (!result?.user.emailVerified) return null;
   return { userId: result.user.id, email: result.user.email, devMode: false };
+}
+
+/** The power app's login page; it signs in to every app (one account each). */
+export const LOGIN_PATH = '/login';
+
+/**
+ * Sends the browser to the login page at `loginPath`, which returns it here
+ * (path and query; a hash never reaches the server) once signed in. `303` so
+ * a form post continues as a GET; never stored, since a signed-in visit of the
+ * same URL answers differently.
+ */
+export function loginRedirect(c: AppContext, loginPath: string = LOGIN_PATH): Response {
+  const url = new URL(c.req.url);
+  c.header('Cache-Control', 'no-store');
+  return c.redirect(loginUrl(loginPath, { returnTo: `${url.pathname}${url.search}` }), 303);
+}
+
+export interface SignedInPageOptions {
+  /** The login page to send a signed-out visitor to. Default `LOGIN_PATH`. */
+  loginPath?: string;
+  deps?: AuthDeps;
+}
+
+/**
+ * For a page the Worker serves outside `/api/*` that needs a signed-in user:
+ * sets `identity` (by `optionalIdentity`'s rules) or sends the visitor to sign
+ * in and come back (`loginRedirect`). `app.get('/page', signedInPage(), handler)`.
+ */
+export function signedInPage(options: SignedInPageOptions = {}) {
+  return createMiddleware<AppBindings>(async (c, next) => {
+    const identity = await optionalIdentity(c.env, c.req.raw, options.deps);
+    if (!identity) return loginRedirect(c, options.loginPath);
+    c.set('identity', identity);
+    return next();
+  });
 }
