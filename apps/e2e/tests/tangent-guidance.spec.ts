@@ -98,6 +98,7 @@ test('Learn demo: replying with Next ➜ on the last step finishes the walkthrou
   const coach = page.locator('.coach-mark');
   const composer = page.locator('#composer-input');
   const users = page.locator('.msg-user');
+  const replies = page.locator('.msg-assistant');
 
   await expect(coach).toContainText('Anything confusing or interesting? Go on a tangent.');
   await composer.fill('What is a whistle, really?');
@@ -110,17 +111,21 @@ test('Learn demo: replying with Next ➜ on the last step finishes the walkthrou
 
   // Doing what step 3 asks ends the tour, as Done does.
   const before = await users.count();
+  const repliesBefore = await replies.count();
   await composer.fill('And what comes next?');
   await page.locator('[data-action="next"]').click();
   await expect(users).toHaveCount(before + 1);
   await expect(coach).toBeHidden();
-  await expect(page.locator('.msg-assistant').last()).not.toHaveClass(/streaming/, {
-    timeout: 30_000,
-  });
+  await expect(replies).toHaveCount(repliesBefore + 1);
+  await expect(replies.last()).not.toHaveClass(/streaming/, { timeout: 30_000 });
   await expect(coach).toBeHidden();
 
-  // Saved: it stays away after a reload.
+  // Saved: after a reload it stays away, even inside a tangent, where it
+  // would otherwise start at step 2.
   await page.reload();
+  const tangents = page.getByRole('tree', { name: 'Tangents' });
+  await tangents.getByRole('treeitem', { level: 2 }).first().getByRole('button').first().click();
+  await expect(page).toHaveURL(/\/b\//);
   await expect(page.locator('[data-action="next"]')).toBeVisible();
   await expect(coach).toBeHidden();
   expect(errors).toEqual([]);
