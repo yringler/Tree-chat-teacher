@@ -115,8 +115,8 @@ describe('magicLinkEmail', () => {
 
   it('includes the code in both bodies, for typing into the app', () => {
     const m = magicLinkEmail('a@example.com', 'https://t.example/x', '042917', 15);
-    expect(m.text).toContain('Or enter this code in the app: 042917');
+    expect(m.text).toContain('Or enter this code where you asked to sign in: 042917');
     expect(m.html).toContain('042917');
-    expect(m.html).toMatch(/enter this code in the app/);
+    expect(m.html).toMatch(/enter this code where you asked to sign in/);
   });
 });

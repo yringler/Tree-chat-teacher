@@ -17,7 +17,7 @@ const OPTIONS: LoginOptionsResponse = {
 };
 
 /** The login page against a server answering login-options with `options`; returns its requests. */
-async function loginPage(options: LoginOptionsResponse) {
+async function loginPage(options: LoginOptionsResponse, authClient: object = {}) {
   const requests: { url: string; body: unknown }[] = [];
   const fetchFake = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -31,7 +31,7 @@ async function loginPage(options: LoginOptionsResponse) {
       { provide: APP_PATHS, useValue: { home: '/', login: '/login' } },
       {
         provide: AUTH_CLIENT,
-        useValue: { getSession: async () => ({ data: null, error: null }) },
+        useValue: { getSession: async () => ({ data: null, error: null }), ...authClient },
       },
     ],
   });
@@ -96,5 +96,56 @@ describe('LoginPage with a return target', () => {
       ],
     });
     await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(target));
+  });
+});
+
+describe('LoginPage after the email went out', () => {
+  beforeEach(() => {
+    window.turnstile = {
+      render: (_el, opts) => {
+        opts.callback('pass');
+        return 'widget';
+      },
+      reset: () => undefined,
+      remove: () => undefined,
+    };
+  });
+
+  afterEach(() => {
+    delete window.turnstile;
+    vi.restoreAllMocks();
+  });
+
+  async function checkEmail(emailOtp: (body: unknown) => Promise<unknown>) {
+    const magicLink = async () => ({ data: { status: true }, error: null });
+    const page = await loginPage(
+      { ...OPTIONS, signupsOpen: true },
+      { signIn: { magicLink, emailOtp: vi.fn(emailOtp) } },
+    );
+    await page.user.type(screen.getByLabelText('Email'), 'a@b.c');
+    await page.user.click(screen.getByRole('button', { name: 'Email me a sign-in link' }));
+    await screen.findByText('Check your email');
+    return page;
+  }
+
+  it('signs in with a pasted code, keeping only its digits', async () => {
+    const assign = vi.spyOn(location, 'assign').mockImplementation(() => undefined);
+    const emailOtp = vi.fn(async (_body: unknown) => ({ data: {}, error: null }));
+    const { user } = await checkEmail(emailOtp);
+    await user.click(screen.getByLabelText('Code from the email'));
+    await user.paste('Your code: 123 456');
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/'));
+    expect(emailOtp).toHaveBeenCalledWith({ email: 'a@b.c', otp: '123456' });
+  });
+
+  it('offers a new email once the code is spent', async () => {
+    const { user } = await checkEmail(async () => ({
+      data: null,
+      error: { code: 'TOO_MANY_ATTEMPTS', status: 403 },
+    }));
+    await user.type(screen.getByLabelText('Code from the email'), '999999');
+    expect((await screen.findByRole('alert')).textContent).toContain('Too many wrong tries');
+    await user.click(screen.getByRole('button', { name: 'Send a new code' }));
+    expect(await screen.findByRole('button', { name: 'Email me a sign-in link' })).toBeTruthy();
   });
 });

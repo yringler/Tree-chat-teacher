@@ -22,7 +22,7 @@ export function magicLinkEmail(
       '',
       url,
       '',
-      `Or enter this code in the app: ${code}`,
+      `Or enter this code where you asked to sign in: ${code}`,
       '',
       `Each works once and expires in ${expiresInMinutes} minutes.`,
       "If you didn't ask to sign in, ignore this email.",
@@ -31,7 +31,7 @@ export function magicLinkEmail(
 <html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#1f2328">
 <p>Open this link to sign in to Tangent:</p>
 <p><a href="${href}" style="display:inline-block;padding:10px 16px;background:#2f6feb;color:#fff;border-radius:6px;text-decoration:none">Sign in</a></p>
-<p>Or enter this code in the app:</p>
+<p>Or enter this code where you asked to sign in:</p>
 <p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,monospace">${escapeHtml(code)}</p>
 <p style="font-size:13px;color:#59636e">Each works once and expires in ${expiresInMinutes} minutes. If you didn't ask to sign in, ignore this email.</p>
 <p style="font-size:12px;color:#59636e;word-break:break-all">${href}</p>

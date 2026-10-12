@@ -8,7 +8,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import type { LoginOptionsResponse } from '@tangent/shared';
+import { SIGN_IN_CODE_LENGTH, type LoginOptionsResponse } from '@tangent/shared';
 import { APP_PATHS } from '../core/app-paths';
 import { AuthService, loginErrorMessage, type SocialProvider } from '../core/auth';
 import { Icon } from '../ui/icon';
@@ -17,8 +17,9 @@ import { Turnstile } from '../ui/turnstile';
 
 /**
  * The login page (APP_PATHS.login), always loaded as its own document (see
- * AuthService). No passwords: Google, GitHub, a magic link by email, or a
- * passkey. A completed sign-in lands on the page that sent the visitor here
+ * AuthService). No passwords: Google, GitHub, a magic link by email (or
+ * the 6-digit code in the same email, for when it is open on another
+ * device), or a passkey. A completed sign-in lands on the page that sent the visitor here
  * (`?returnTo=`, AuthService.signInDestination), else APP_PATHS.home. While
  * sign-ups are closed (`MAX_USERS`), existing users still sign in here and
  * the email form also offers the waitlist.
@@ -62,10 +63,38 @@ import { Turnstile } from '../ui/turnstile';
           } @else if (sentTo(); as email) {
             <p class="lead">Check your email</p>
             <p>
-              We sent a sign-in link to <strong>{{ email }}</strong
-              >. It works once and expires in 15 minutes.
+              We sent a sign-in link and code to <strong>{{ email }}</strong
+              >. Open the link, or enter the code here. Each works once and expires in 15 minutes.
             </p>
-            <button type="button" class="btn btn-ghost" (click)="sentTo.set(null)">
+            <form class="form" (submit)="$event.preventDefault(); submitCode()">
+              <label class="field">
+                <span class="field-label">Code from the email</span>
+                <input
+                  #codeInput
+                  name="code"
+                  class="login-code"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  autofocus
+                  [disabled]="busy() || codeSpent()"
+                  [value]="code()"
+                  (input)="codeInput.value = onCodeInput(codeInput.value)"
+                />
+              </label>
+              @if (codeError(); as e) {
+                <p class="notice notice-error" role="alert">{{ e }}</p>
+              }
+              @if (codeSpent()) {
+                <button type="button" class="btn btn-primary" (click)="startOver()">
+                  Send a new code
+                </button>
+              } @else {
+                <button type="submit" class="btn btn-primary" [disabled]="!canSubmitCode()">
+                  Sign in
+                </button>
+              }
+            </form>
+            <button type="button" class="btn btn-ghost" [disabled]="busy()" (click)="startOver()">
               Use a different method
             </button>
           } @else {
@@ -192,6 +221,14 @@ export class LoginPage implements OnInit {
   protected readonly email = signal('');
   protected readonly remember = signal(this.auth.rememberPreference);
 
+  protected readonly code = signal('');
+  /** Why the last code didn't sign in; `codeSpent` when it no longer can. */
+  protected readonly codeError = signal<string | null>(null);
+  protected readonly codeSpent = signal(false);
+  protected readonly canSubmitCode = computed(
+    () => !this.busy() && !this.codeSpent() && this.code().length === SIGN_IN_CODE_LENGTH,
+  );
+
   protected readonly canSendLink = computed(
     () => !this.busy() && !!this.captchaToken() && this.email().includes('@'),
   );
@@ -244,6 +281,44 @@ export class LoginPage implements OnInit {
     const ok = await this.run(() => this.auth.sendMagicLink(email, token, this.remember()));
     this.captcha()?.reset();
     if (ok) this.sentTo.set(email);
+  }
+
+  /**
+   * Keeps the digits (a pasted line from the email included) and returns
+   * them for the field; six submit at once.
+   */
+  protected onCodeInput(raw: string): string {
+    const digits = raw.replace(/\D/g, '').slice(0, SIGN_IN_CODE_LENGTH);
+    this.code.set(digits);
+    if (digits.length === SIGN_IN_CODE_LENGTH) void this.submitCode();
+    return digits;
+  }
+
+  protected async submitCode(): Promise<void> {
+    const email = this.sentTo();
+    if (!email || !this.canSubmitCode()) return;
+    this.busy.set(true);
+    this.codeError.set(null);
+    try {
+      const failure = await this.auth.signInWithCode(email, this.code(), this.remember());
+      if (failure) {
+        this.codeError.set(failure.text);
+        this.codeSpent.set(failure.spent);
+        this.code.set('');
+      }
+    } catch (err) {
+      this.codeError.set(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Back to the sign-in methods, the address kept, for a new email or another way in. */
+  protected startOver(): void {
+    this.sentTo.set(null);
+    this.code.set('');
+    this.codeError.set(null);
+    this.codeSpent.set(false);
   }
 
   protected async joinWaitlist(): Promise<void> {

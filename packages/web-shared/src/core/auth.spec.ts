@@ -6,7 +6,7 @@ import { ApiClient, ApiError } from './api-client';
 import { API_FETCH } from './api-fetch';
 import { APP_PATHS, type AppPaths } from './app-paths';
 import { AUTH_CLIENT, authErrorMessage, type TangentAuthClient } from './auth-client';
-import { AuthService, loginErrorMessage } from './auth';
+import { AuthService, codeErrorMessage, loginErrorMessage } from './auth';
 
 const SIMPLE_PATHS: AppPaths = { home: '/learn/', login: '/learn/login' };
 
@@ -18,6 +18,14 @@ function fakeAuthClient() {
       social: vi.fn(async (_body: unknown) => ({ data: null, error: null })),
       magicLink: vi.fn(async (_body: unknown, _opts?: unknown) => ({ data: null, error: null })),
       passkey: vi.fn(async (_body: unknown) => ({ data: {}, error: null })),
+      emailOtp: vi.fn(
+        async (
+          _body: unknown,
+        ): Promise<{ data: unknown; error: { code?: string; status?: number } | null }> => ({
+          data: {},
+          error: null,
+        }),
+      ),
     },
   };
 }
@@ -274,6 +282,10 @@ describe('AuthService returns a sign-in to the page that asked for it', () => {
 
     await auth.signInPasskey(true);
     expect(location.assign).toHaveBeenLastCalledWith(TARGET);
+
+    await auth.signInWithCode('a@b.c', '123456', true);
+    expect(client.signIn.emailOtp).toHaveBeenCalledWith({ email: 'a@b.c', otp: '123456' });
+    expect(location.assign).toHaveBeenLastCalledWith(TARGET);
   });
 
   it('ignores a returnTo that could leave the site', async () => {
@@ -290,6 +302,40 @@ describe('AuthService returns a sign-in to the page that asked for it', () => {
       await auth.signInPasskey(true);
       expect(location.assign).toHaveBeenLastCalledWith('/');
     }
+  });
+});
+
+describe('signing in with the emailed code', () => {
+  beforeEach(() => {
+    vi.stubGlobal('location', { assign: vi.fn(), pathname: '/login', search: '', hash: '' });
+    vi.stubGlobal('document', { cookie: '' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('carries the remember-me choice and stays on the page when the code is refused', async () => {
+    const { auth, client } = setup({ home: '/', login: '/login' }, async () => ME);
+    client.signIn.emailOtp.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'INVALID_OTP', status: 400 },
+    });
+    await expect(auth.signInWithCode('a@b.c', '000000', false)).resolves.toEqual({
+      text: "That code isn't right. Check the email and try again.",
+      spent: false,
+    });
+    expect(document.cookie).toContain('tangent-remember=0');
+    expect(location.assign).not.toHaveBeenCalled();
+  });
+
+  it('marks an expired or exhausted code spent, so only a new email helps', () => {
+    expect(codeErrorMessage({ code: 'OTP_EXPIRED', status: 400 }).spent).toBe(true);
+    expect(codeErrorMessage({ code: 'TOO_MANY_ATTEMPTS', status: 403 }).spent).toBe(true);
+    expect(codeErrorMessage({ status: 429 })).toEqual({
+      text: 'Too many attempts. Wait a minute and try again.',
+      spent: false,
+    });
   });
 });
 

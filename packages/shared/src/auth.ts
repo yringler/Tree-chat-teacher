@@ -10,6 +10,9 @@ export const AUTH_BASE_PATH = '/api/auth';
  */
 export const REMEMBER_COOKIE = 'tangent-remember';
 
+/** Digits in the sign-in code that comes in the magic-link email. */
+export const SIGN_IN_CODE_LENGTH = 6;
+
 /**
  * The error code of a sign-up refused because the deployment has as many
  * users as `MAX_USERS` allows: the magic-link request answers with it, and

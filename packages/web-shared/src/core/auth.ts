@@ -183,6 +183,19 @@ export class AuthService {
     return error ? messageFor(error) : null;
   }
 
+  /**
+   * Signs in with the 6-digit code from the magic-link email, for when the
+   * email is open on another device. Resolves with why it failed, or
+   * navigates away on success.
+   */
+  async signInWithCode(email: string, code: string, remember: boolean): Promise<CodeError | null> {
+    this.setRemember(remember);
+    const { error } = await this.client.signIn.emailOtp({ email, otp: code });
+    if (error) return codeErrorMessage(error);
+    location.assign(this.signInDestination());
+    return null;
+  }
+
   /** `autoFill`: conditional UI, i.e. offer passkeys in the email field's autofill. */
   async signInPasskey(remember: boolean, autoFill = false): Promise<string | null> {
     this.setRemember(remember);
@@ -225,6 +238,30 @@ export class AuthService {
   async deletePasskey(id: string): Promise<string | null> {
     const { error } = await this.client.passkey.deletePasskey({ id });
     return error ? messageFor(error) : null;
+  }
+}
+
+/** Why a code didn't sign in; `spent` when only a new email brings one that works. */
+export interface CodeError {
+  text: string;
+  spent: boolean;
+}
+
+/** A code sign-in's error (Better Auth's email-OTP codes) for the login page. */
+export function codeErrorMessage(error: {
+  message?: string | undefined;
+  status?: number;
+  code?: string | undefined;
+}): CodeError {
+  switch (error.code) {
+    case 'INVALID_OTP':
+      return { text: "That code isn't right. Check the email and try again.", spent: false };
+    case 'OTP_EXPIRED':
+      return { text: 'That code has expired.', spent: true };
+    case 'TOO_MANY_ATTEMPTS':
+      return { text: 'Too many wrong tries for that code.', spent: true };
+    default:
+      return { text: messageFor(error), spent: false };
   }
 }
 

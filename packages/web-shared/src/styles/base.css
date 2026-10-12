@@ -1055,6 +1055,12 @@ app-beta-banner {
   margin: 0;
 }
 
+.login-code {
+  font-size: 1.4rem;
+  letter-spacing: 0.4em;
+  font-variant-numeric: tabular-nums;
+}
+
 .turnstile {
   min-height: 65px;
 }
