@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'api/tangent_api.dart';
+import 'api/token_store.dart';
 import 'state/app_scope.dart';
 import 'state/lessons_controller.dart';
 import 'state/session_controller.dart';
@@ -20,11 +21,15 @@ class TangentApp extends StatefulWidget {
   const TangentApp({
     super.key,
     required this.api,
+    this.choiceStore,
     this.initialLocation,
     this.captcha = TurnstileWidget.new,
   });
 
   final TangentApi api;
+
+  /// Where the learner's pick of who pays is kept between launches.
+  final TokenStore? choiceStore;
 
   /// The sign-in page's human check; tests pass a stand-in.
   final CaptchaBuilder captcha;
@@ -37,7 +42,10 @@ class TangentApp extends StatefulWidget {
 }
 
 class _TangentAppState extends State<TangentApp> {
-  late final _session = SessionController(widget.api);
+  late final _session = SessionController(
+    widget.api,
+    choiceStore: widget.choiceStore,
+  );
   late final _lessons = LessonsController(api: widget.api, session: _session);
   late final _router = GoRouter(
     initialLocation: widget.initialLocation,

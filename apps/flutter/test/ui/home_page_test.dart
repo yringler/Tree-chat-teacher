@@ -93,6 +93,83 @@ void main() {
     expect(find.text('Why the sky is blue'), findsNothing);
   });
 
+  group('how replies are paid for', () {
+    Future<void> open(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('Account'));
+      await settle(tester);
+      await tester.tap(find.text('How replies are paid for'));
+      await settle(tester);
+    }
+
+    testWidgets('saves an OpenRouter key and replies run on it', (
+      tester,
+    ) async {
+      api.poolStatusAnswer = const PoolStatus(enabled: true, modelLabel: 'M');
+      await pumpApp(tester, api);
+      expect(api.payerSet, Payer.pool);
+      await open(tester);
+      await tester.tap(find.text('Use my own OpenRouter key'));
+      await settle(tester);
+      expect(find.text('No key saved.'), findsOneWidget);
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Your OpenRouter API key'),
+        ' sk-or-1 ',
+      );
+      await tester.ensureVisible(find.text('Save key'));
+      await tester.tap(find.text('Save key'));
+      await settle(tester);
+      expect(api.savedKeys, ['sk-or-1']);
+      expect(find.text('Your OpenRouter key is saved.'), findsOneWidget);
+      expect(api.payerSet, Payer.ownKey);
+
+      await tester.ensureVisible(find.text('Forget'));
+      await tester.tap(find.text('Forget'));
+      await settle(tester);
+      expect(find.text('No key saved.'), findsOneWidget);
+    });
+
+    testWidgets('a rejected key says why', (tester) async {
+      api.refuseKey = const ApiException(
+        status: 400,
+        code: 'bad_request',
+        message: 'OpenRouter rejected this API key',
+      );
+      await pumpApp(tester, api);
+      await open(tester);
+      await tester.tap(find.text('Use my own OpenRouter key'));
+      await settle(tester);
+      await tester.enterText(find.byType(TextField).last, 'sk-or-bad');
+      await tester.ensureVisible(find.text('Save key'));
+      await tester.tap(find.text('Save key'));
+      await settle(tester);
+      expect(find.text('OpenRouter rejected this API key'), findsOneWidget);
+    });
+
+    testWidgets('without the membership it needs, the own key is locked', (
+      tester,
+    ) async {
+      api.meAnswers = [
+        const Me(
+          userId: 'u1',
+          email: 'ada@example.com',
+          devMode: false,
+          builtInCredit: true,
+          membershipMissing: true,
+        ),
+      ];
+      await pumpApp(tester, api);
+      await open(tester);
+      final own = find.widgetWithText(
+        RadioListTile<Payer>,
+        'Use my own OpenRouter key',
+      );
+      expect(tester.widget<RadioListTile<Payer>>(own).enabled, isFalse);
+      expect(find.textContaining('Needs a membership'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget, reason: 'topic only');
+    });
+  });
+
   testWidgets('signs out from the account menu', (tester) async {
     await pumpApp(tester, api);
     await tester.tap(find.byTooltip('Account'));
