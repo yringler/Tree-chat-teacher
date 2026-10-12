@@ -211,11 +211,18 @@ describe('renderViewerPage', () => {
   });
 
   it('shows fork indicators linking to child branches', () => {
-    expect(html).toContain('<summary>2 branches</summary>');
-    expect(html).toContain('<summary>1 branch</summary>');
+    expect(html).toContain('<summary>2 tangents</summary>');
+    expect(html).toContain('<summary>1 tangent</summary>');
     expect(html).toContain('href="#b1" data-branch="b1"');
     expect(html).toContain('href="#b3" data-branch="b3"');
-    expect(html).toContain('↩ back to parent message');
+    expect(html).toContain('↩ Back to where this tangent started');
+  });
+
+  it('calls branches tangents in the outline, the kicker and the path', () => {
+    expect(html).toContain('<nav class="outline" id="outline" aria-label="Tangents">');
+    expect(html).toContain('<span>Tangents</span>');
+    expect(html).toContain('aria-label="Thread path"');
+    expect(VIEWER_SCRIPT).toContain("isCurrent ? 'Tangent' : 'Via tangent'");
   });
 
   it('renders the outline with message counts in depth-first order', () => {
@@ -289,7 +296,7 @@ describe('renderViewerPage', () => {
   });
 
   it('shows an empty branch placeholder', () => {
-    expect(html).toContain('No messages in this branch.');
+    expect(html).toContain('<p class="empty">No messages in this tangent.</p>');
   });
 });
 

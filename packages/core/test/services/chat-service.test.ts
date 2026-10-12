@@ -58,7 +58,7 @@ describe('ChatService trees and branches', () => {
       '## Heading\n\n**Bold** _idea_ about `code` and more words than fit in a title',
     );
     const branch = await chat.createBranch({ fromNodeId: begin.userNode.id });
-    expect(branch.title).toBe('Branch: Heading Bold idea about code and');
+    expect(branch.title).toBe('Tangent: Heading Bold idea about code and');
     expect(branch.titleSource).toBe('default');
   });
 

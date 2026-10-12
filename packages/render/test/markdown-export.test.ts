@@ -33,11 +33,11 @@ describe('payloadToMarkdown', () => {
       md.indexOf('## Trunk › Side'),
       md.indexOf('## Trunk › Side <b>topic</b> › Deep'),
     );
-    expect(side).toContain('Forked from: “CONTENTA1 Like this: const x: number = 1;”');
+    expect(side).toContain('Tangent from: “CONTENTA1 Like this: const x: number = 1;”');
     expect(side).toContain('> ANCHORQ the "quote" <i>');
-    expect(side.indexOf('Forked from')).toBeLessThan(side.indexOf('> ANCHORQ'));
+    expect(side.indexOf('Tangent from')).toBeLessThan(side.indexOf('> ANCHORQ'));
     expect(side.indexOf('> ANCHORQ')).toBeLessThan(side.indexOf('**User:**'));
-    expect(md).not.toMatch(/## Trunk\n\nForked from/);
+    expect(md).not.toMatch(/## Trunk\n\nTangent from/);
   });
 
   it('emits message content verbatim', () => {
@@ -48,7 +48,7 @@ describe('payloadToMarkdown', () => {
 
   it('marks empty branches and ends with a newline', () => {
     expect(md).toContain(
-      '## Trunk › Other\n\nForked from: “CONTENTA1 Like this: const x: number = 1;”\n\n_(no messages)_',
+      '## Trunk › Other\n\nTangent from: “CONTENTA1 Like this: const x: number = 1;”\n\n_(no messages)_',
     );
     expect(md.endsWith('\n')).toBe(true);
     expect(md.endsWith('\n\n')).toBe(false);
@@ -60,9 +60,9 @@ describe('payloadToMarkdown', () => {
     const m3 = trunk?.messages[1];
     if (m3) m3.content = 'word '.repeat(50);
     const out = payloadToMarkdown(p);
-    const line = out.split('\n').find((l) => l.startsWith('Forked from:')) ?? '';
+    const line = out.split('\n').find((l) => l.startsWith('Tangent from:')) ?? '';
     expect(line.endsWith('…”')).toBe(true);
-    expect(Array.from(line).length).toBeLessThanOrEqual('Forked from: “”'.length + 80);
+    expect(Array.from(line).length).toBeLessThanOrEqual('Tangent from: “”'.length + 80);
   });
 
   it('prefixes every line of a multi-line anchor quote', () => {
@@ -107,7 +107,7 @@ describe('tangents in shared replies', () => {
       '**AI:**\n\nThe answer.\n\n**Keep going**\n\n- **Heavy water**\n\n**Tangents**\n\n- **Why ice floats** — density again',
     );
     expect(md).not.toContain('<tangents>\n- Why');
-    expect(md).toContain('Forked from: “The answer.”');
+    expect(md).toContain('Tangent from: “The answer.”');
     // Only assistant replies carry tangents; user text stays verbatim.
     expect(md).toContain('Q <tangents>\n- kept\n</tangents>');
   });

@@ -189,8 +189,8 @@ export class KeysDialog implements OnInit, OnDestroy {
   private readonly toast = inject(ToastStore);
   /** Provider to preselect (e.g. the one a refused request needed). */
   readonly initialProvider = input<string | null>(null);
-  /** What the app calls a branch ("branch", "lane"). */
-  readonly noun = input('branch');
+  /** What the app calls a branch ("tangent", "lane"). */
+  readonly noun = input('tangent');
   /** A branch's title as the app shows it (the refused send's notice). */
   readonly titleOf = input<(branch: Branch) => string>((b) => b.title);
   /**

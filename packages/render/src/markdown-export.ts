@@ -10,7 +10,7 @@ import {
   type ShareSource,
 } from '@tangent/shared';
 
-/** Longest "Forked from" excerpt. */
+/** Longest "Tangent from" excerpt. */
 const EXCERPT_MAX = 80;
 
 /** Text of a Markdown link: no brackets or newlines that would break it. */
@@ -57,7 +57,7 @@ function oneLine(text: string): string {
 /**
  * Markdown export of a payload: title, optional collapsed ancestor context
  * (<details>), then branches depth-first. Each branch gets a heading with its
- * breadcrumb (e.g. "Trunk › Side topic"), a "Forked from: …" line quoting the
+ * breadcrumb (e.g. "Trunk › Side topic"), a "Tangent from: …" line quoting the
  * fork message excerpt, an optional anchor-quote blockquote, then messages as
  * "**User:**" / "**AI:**" blocks. Message content is emitted verbatim,
  * except that a reply's `<tangents>` block becomes a "Where next?" list.
@@ -100,7 +100,7 @@ export function payloadToMarkdown(payload: SharePayload): string {
     const fork = branch.forkMessageKey === null ? undefined : messages.get(branch.forkMessageKey);
     if (fork !== undefined) {
       blocks.push(
-        `Forked from: “${plainText(splitTangents(fork.content).body, { max: EXCERPT_MAX })}”`,
+        `Tangent from: “${plainText(splitTangents(fork.content).body, { max: EXCERPT_MAX })}”`,
       );
     }
     if (branch.anchorQuote !== null && branch.anchorQuote.trim() !== '') {

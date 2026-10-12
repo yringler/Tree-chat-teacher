@@ -38,7 +38,7 @@ describe('keyMissingText', () => {
       body:
         '“Primes” replies on OpenRouter with your own API key, and none is saved in this browser.' +
         ' To send it, continue it on Tangent credit, or enter your OpenRouter key below;' +
-        ' any other provider or model is in the branch’s settings.',
+        ' any other provider or model is in the tangent’s settings.',
     });
   });
 
@@ -50,7 +50,7 @@ describe('keyMissingText', () => {
       'To send it, continue it on Tangent credit;',
     );
     expect(keyMissingText('Primes', 'OpenRouter', false, false).body).toContain(
-      'To send it, pick another provider or model in the branch’s settings.',
+      'To send it, pick another provider or model in the tangent’s settings.',
     );
   });
 });
