@@ -52,6 +52,25 @@ describe('copy rules', () => {
     expect(all.has('packages/web-shared/src/pool/pool-section.ts')).toBe(true);
   });
 
+  // 'Tangent' is the product word, so a learner never meets "side question".
+  it('a tangent is never called a side question', () => {
+    for (const [path, text] of all) expect(text, path).not.toMatch(/side question/i);
+  });
+
+  // 'Tangent' is the product word, so no button or heading offers to branch.
+  it('no copy offers to create, open or manage a branch', () => {
+    for (const [path, text] of all)
+      expect(text, path).not.toMatch(
+        /\b(Branch from|New branch|Create branch|Delete branch|Branch settings)\b/,
+      );
+  });
+
+  // 'Tangent' is the product word, so Learn shows the tangent arrow, never a git branch.
+  it('Learn never shows the branch icon', () => {
+    for (const [path, text] of all)
+      if (path.startsWith('apps/simple/')) expect(text, path).not.toMatch(/name="branch"/);
+  });
+
   it('the pool is free credit Tangent provides: never a donation, a sponsorship or a cause', () => {
     for (const [path, text] of all) expect(text, path).not.toMatch(FORBIDDEN_POOL_COPY);
   });
