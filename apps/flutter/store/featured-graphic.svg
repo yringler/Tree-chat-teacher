@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <defs>
+    <style>
+      @font-face { font-family: "Roboto"; font-weight: 700; src: url("../assets/fonts/Roboto-Bold.ttf"); }
+      @font-face { font-family: "Roboto"; font-weight: 400; src: url("../assets/fonts/Roboto-Regular.ttf"); }
+      text { font-family: "Roboto", "Segoe UI", sans-serif; }
+    </style>
+    <radialGradient id="glow" cx="760" cy="315" r="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6a5cff" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#6a5cff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="warm" cx="830" cy="100" r="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffb347" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ffb347" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="orb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f8dff"/>
+      <stop offset="1" stop-color="#8b4dff"/>
+    </linearGradient>
+    <linearGradient id="ray" gradientUnits="userSpaceOnUse" x1="595.5" y1="313.6" x2="868" y2="85">
+      <stop offset="0" stop-color="#ff4f9a"/>
+      <stop offset=".65" stop-color="#ff8a3d"/>
+      <stop offset="1" stop-color="#ffd23f"/>
+    </linearGradient>
+    <linearGradient id="b1" gradientUnits="userSpaceOnUse" x1="767" y1="170" x2="965" y2="207">
+      <stop offset="0" stop-color="#ff8a3d"/>
+      <stop offset="1" stop-color="#ff4f9a"/>
+    </linearGradient>
+    <linearGradient id="b2" gradientUnits="userSpaceOnUse" x1="818" y1="127" x2="985" y2="125">
+      <stop offset="0" stop-color="#ffa53e"/>
+      <stop offset="1" stop-color="#ff7a4a"/>
+    </linearGradient>
+    <linearGradient id="b3" gradientUnits="userSpaceOnUse" x1="868" y1="85" x2="990" y2="43">
+      <stop offset="0" stop-color="#ffd23f"/>
+      <stop offset="1" stop-color="#ffd23f"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="500" fill="#141033"/>
+  <rect width="1024" height="500" fill="url(#glow)"/>
+  <rect width="1024" height="500" fill="url(#warm)"/>
+
+  <g transform="translate(-45 18)">
+  <!-- Branches leave the tangent line past the point where it touches the orb. -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M767 170 Q 870 145 965 207" stroke="url(#b1)" stroke-width="13"/>
+    <path d="M818 127 Q 900 103 985 125" stroke="url(#b2)" stroke-width="13"/>
+    <path d="M868 85 Q 920 47 990 43" stroke="url(#b3)" stroke-width="11"/>
+  </g>
+  <circle cx="965" cy="207" r="15" fill="#ff4f9a"/>
+  <circle cx="985" cy="125" r="15" fill="#ff7a4a"/>
+  <circle cx="990" cy="43" r="13" fill="#ffd23f"/>
+
+  <circle cx="800" cy="320" r="120" fill="url(#orb)"/>
+  <path d="M595.5 313.6 L868 85" stroke="url(#ray)" stroke-width="33" stroke-linecap="round"/>
+  <circle cx="868" cy="85" r="31.5" fill="#ffd23f"/>
+  </g>
+
+  <text x="96" y="240" fill="#ffffff" font-size="96" font-weight="700" letter-spacing="-1.5">Tangent</text>
+  <text x="100" y="296" fill="#c3bff0" font-size="31" font-weight="400">Follow every tangent.</text>
+  <text x="100" y="338" fill="#8f8ac4" font-size="24" font-weight="400">A branching chat for learning.</text>
+</svg>
