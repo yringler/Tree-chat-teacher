@@ -56,6 +56,12 @@ export interface CoachStep {
   readonly text: string;
   /** CSS selector of the control it points at. */
   readonly target: string;
+  /**
+   * Which side of the control it prefers (it flips when there is no room):
+   * below the path at the top of the lesson, so it covers the messages
+   * rather than the header; above the composer's buttons at the bottom.
+   */
+  readonly placement: 'top' | 'bottom';
   readonly buttonText: string;
   readonly skipText: string;
 }
@@ -64,16 +70,19 @@ const STEPS: Readonly<Record<1 | 2 | 3, Omit<CoachStep, 'step' | 'skipText'>>> =
   1: {
     text: WALKTHROUGH_STEPS.tangent,
     target: '[data-action="tangent"]',
+    placement: 'top',
     buttonText: WALKTHROUGH_BUTTONS.next,
   },
   2: {
     text: WALKTHROUGH_STEPS.back,
     target: '[data-coach="main-thread"]',
+    placement: 'bottom',
     buttonText: WALKTHROUGH_BUTTONS.next,
   },
   3: {
     text: WALKTHROUGH_STEPS.next,
     target: '[data-action="next"]',
+    placement: 'top',
     buttonText: WALKTHROUGH_BUTTONS.done,
   },
 };

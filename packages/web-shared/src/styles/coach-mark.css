@@ -5,6 +5,14 @@
  * the control itself to go on. Imported by the apps that run the walkthrough,
  * after base.css (whose tokens it uses).
  */
+
+/* Out of the page's flow: inline after the app's shell, the host and its
+   live region would add a line below a full-height layout, and the page
+   would scroll by that much. */
+app-coach-mark {
+  position: fixed;
+}
+
 .coach-mark {
   /* Undo the browser's centred popover: floating-ui sets left and top. */
   position: fixed;

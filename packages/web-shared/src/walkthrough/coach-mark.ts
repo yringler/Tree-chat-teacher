@@ -95,7 +95,7 @@ export class CoachMark {
       target = el;
       el.classList.add(COACH_TARGET_CLASS);
       setOpen(callout, true);
-      unplace = autoUpdate(el, callout, () => void this.place(el, callout));
+      unplace = autoUpdate(el, callout, () => void this.place(el, callout, step.placement));
     };
     const check = () => {
       if (target?.isConnected) return;
@@ -121,10 +121,14 @@ export class CoachMark {
     };
   }
 
-  private async place(target: HTMLElement, callout: HTMLElement): Promise<void> {
+  private async place(
+    target: HTMLElement,
+    callout: HTMLElement,
+    side: CoachStep['placement'],
+  ): Promise<void> {
     const arrowEl = this.arrowEl().nativeElement;
     const { x, y, placement, middlewareData } = await computePosition(target, callout, {
-      placement: 'top',
+      placement: side,
       strategy: 'fixed',
       middleware: [offset(10), flip(), shift({ padding: 8 }), arrow({ element: arrowEl })],
     });

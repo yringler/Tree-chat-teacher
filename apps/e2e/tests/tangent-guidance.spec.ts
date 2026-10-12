@@ -43,6 +43,8 @@ test('Learn demo: the first-run walkthrough goes round the loop once, then stays
   await expect(tangent).toHaveAttribute('title', /^Wait, what’s that\?/);
   await expect(next).toHaveAttribute('title', /^Got it, what’s next\? Keeps the main lesson/);
   await expect(coach).not.toBeFocused();
+  // The coach mark adds nothing to the page's height: the page itself never scrolls.
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBe(0);
 
   // Going on a tangent: step 2 points at the way back.
   const trunkUrl = page.url();
@@ -54,6 +56,9 @@ test('Learn demo: the first-run walkthrough goes round the loop once, then stays
   const mainThread = page.locator('[data-coach="main-thread"]');
   await expect(mainThread).toHaveText('Main thread');
   await expect(mainThread).toHaveAttribute('title', 'Back to main thread');
+  // Below the path, so it covers the messages rather than the header.
+  const crumb = (await mainThread.boundingBox())!;
+  expect((await coach.boundingBox())!.y).toBeGreaterThan(crumb.y + crumb.height);
   // Inside the tangent, Next ➜ keeps the tangent moving.
   await expect(next).toHaveAttribute('title', /Keeps this tangent moving/);
 

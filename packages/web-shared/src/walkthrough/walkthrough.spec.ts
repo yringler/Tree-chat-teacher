@@ -89,6 +89,7 @@ describe('Walkthrough', () => {
       step: 1,
       text: WALKTHROUGH_STEPS.tangent,
       target: '[data-action="tangent"]',
+      placement: 'top',
       buttonText: WALKTHROUGH_BUTTONS.next,
       skipText: WALKTHROUGH_BUTTONS.skip,
     });
@@ -118,6 +119,8 @@ describe('Walkthrough', () => {
     w.onTrunkReplyReady();
     w.onEnteredTangent();
     expect(w.current()?.target).toBe('[data-coach="main-thread"]');
+    // Below the path at the top of the lesson, off the header.
+    expect(w.current()?.placement).toBe('bottom');
     expect(w.current()?.text).toBe(WALKTHROUGH_STEPS.back);
     w.onBackOnTrunk();
     expect(w.current()?.target).toBe('[data-action="next"]');
