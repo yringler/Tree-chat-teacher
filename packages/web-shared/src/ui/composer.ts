@@ -147,10 +147,10 @@ export interface ComposerAction {
 /**
  * Message box of every app. Enter sends, Shift+Enter inserts a newline;
  * Stop replaces Send while a reply streams; with `canCompare`, Compare beside
- * Send asks Normal and Max (the host opens its dialog). With `actions`, their
- * buttons replace Send and emit `act`: Enter fires the first, Ctrl or
- * Cmd+Enter the second (the first when there is only one). The text stays until
- * the message is in the tree (`ComposerController.sent`, on the reply's
+ * Send (or the actions) asks Normal and Max (the host opens its dialog). With
+ * `actions`, their buttons replace Send and emit `act`: Enter fires the first,
+ * Ctrl or Cmd+Enter the second (the first when there is only one). The text
+ * stays until the message is in the tree (`ComposerController.sent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed. An element marked `composerLead`
  * goes in the box before the text (where the message goes, say).
@@ -184,29 +184,7 @@ export interface ComposerAction {
         >
           <app-icon name="stop" [size]="iconSize()" /> Stop
         </button>
-      } @else if (actions().length) {
-        <div class="composer-actions">
-          @for (a of actions(); track a.id) {
-            <button
-              type="button"
-              class="btn composer-action"
-              [class.is-primary]="a.primary"
-              [class.btn-primary]="a.primary"
-              [class.btn-sm]="compact()"
-              [attr.data-action]="a.id"
-              [title]="a.title"
-              [attr.aria-description]="a.title"
-              [disabled]="disabled() || !text().trim()"
-              (click)="fire(a)"
-            >
-              @if (a.icon) {
-                <app-icon [name]="a.icon" [size]="iconSize()" />
-              }
-              {{ a.label }}
-            </button>
-          }
-        </div>
-      } @else if (!hideSend()) {
+      } @else if (actions().length || !hideSend()) {
         @if (canCompare()) {
           <button
             type="button"
@@ -219,20 +197,44 @@ export interface ComposerAction {
             <app-icon name="compare" /><span class="hide-narrow"> Compare</span>
           </button>
         }
-        <button
-          type="submit"
-          class="btn btn-primary"
-          [class.btn-sm]="compact()"
-          [disabled]="disabled() || !text().trim()"
-          [attr.aria-label]="sendLabel()"
-          [attr.title]="sendTitle()"
-          [attr.aria-description]="sendTitle()"
-        >
-          <app-icon name="send" [size]="iconSize()" />
-          @if (!compact()) {
-            <span class="hide-narrow"> Send</span>
-          }
-        </button>
+        @if (actions().length) {
+          <div class="composer-actions">
+            @for (a of actions(); track a.id) {
+              <button
+                type="button"
+                class="btn composer-action"
+                [class.is-primary]="a.primary"
+                [class.btn-primary]="a.primary"
+                [class.btn-sm]="compact()"
+                [attr.data-action]="a.id"
+                [title]="a.title"
+                [attr.aria-description]="a.title"
+                [disabled]="disabled() || !text().trim()"
+                (click)="fire(a)"
+              >
+                @if (a.icon) {
+                  <app-icon [name]="a.icon" [size]="iconSize()" />
+                }
+                {{ a.label }}
+              </button>
+            }
+          </div>
+        } @else {
+          <button
+            type="submit"
+            class="btn btn-primary"
+            [class.btn-sm]="compact()"
+            [disabled]="disabled() || !text().trim()"
+            [attr.aria-label]="sendLabel()"
+            [attr.title]="sendTitle()"
+            [attr.aria-description]="sendTitle()"
+          >
+            <app-icon name="send" [size]="iconSize()" />
+            @if (!compact()) {
+              <span class="hide-narrow"> Send</span>
+            }
+          </button>
+        }
       }
     </form>
   `,
@@ -269,7 +271,7 @@ export class Composer {
   readonly clearOnSend = input(true);
   /** Draft to start from when the box is empty (a message that couldn't be sent). */
   readonly initial = input('');
-  /** Offer Compare beside Send (Normal and Max both answer; one is kept). */
+  /** Offer Compare beside Send or the actions (Normal and Max both answer; one is kept). */
   readonly canCompare = input(false);
   /** Buttons in place of Send, each sending the text its own way (`act`). */
   readonly actions = input<readonly ComposerAction[]>([]);

@@ -169,6 +169,18 @@ describe('Composer', () => {
       expect(c.act).not.toHaveBeenCalled();
     });
 
+    it('offers Compare beside them when asked, and Enter still fires an action', async () => {
+      const c = await composer({ actions, canCompare: true });
+      expect(button('Compare Normal and Max').disabled).toBe(true);
+      await c.user.type(c.box, 'Which is bigger?');
+      await c.user.click(button('Compare Normal and Max'));
+      expect(c.compare).toHaveBeenCalledExactlyOnceWith('Which is bigger?');
+      expect(c.act).not.toHaveBeenCalled();
+      await c.user.type(c.box, '{Enter}');
+      expect(c.act).toHaveBeenCalledExactlyOnceWith({ id: 'tangent', text: 'Which is bigger?' });
+      expect(c.compare).toHaveBeenCalledTimes(1);
+    });
+
     it('without actions, Enter and Ctrl+Enter still send', async () => {
       const c = await composer();
       await c.user.type(c.box, 'Plain{Enter}');

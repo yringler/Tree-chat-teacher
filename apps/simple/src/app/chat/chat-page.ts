@@ -166,8 +166,9 @@ export class ChatPage implements OnDestroy {
   );
 
   /**
-   * Compare (Normal and Max answer, one is kept) beside Send: both tiers are
-   * listed and the reply isn't on the open pool, which refuses it.
+   * Compare (Normal and Max answer, one is kept) beside Send or Tangent ↳ and
+   * Next ➜: both tiers are listed and the reply isn't on the open pool, which
+   * refuses it.
    */
   protected readonly canCompare = computed(() => {
     const models = this.store.models();

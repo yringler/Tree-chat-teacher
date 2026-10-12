@@ -130,6 +130,24 @@ describe('Learn: the lesson page', () => {
     expect(askFrom).toHaveBeenCalledTimes(1);
   });
 
+  it('Compare stands beside Tangent ↳ and Next ➜, and compares in a tangent from the last reply', async () => {
+    const p = await page();
+    const createBranch = vi.spyOn(p.store, 'createBranch').mockResolvedValue(branch('side'));
+    const open = vi.spyOn(TestBed.inject(UiStore).dialogs, 'open');
+    await p.user.type(composer()!, 'And a particle?');
+    await p.user.click(within(dock()).getByRole('button', { name: 'Compare Normal and Max' }));
+    expect(createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+    });
+    expect(open).toHaveBeenCalledWith({
+      kind: 'compare',
+      branchId: 'side',
+      content: 'And a particle?',
+    });
+  });
+
   it('Enter sends as a tangent, Ctrl+Enter as Next', async () => {
     const p = await page();
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
