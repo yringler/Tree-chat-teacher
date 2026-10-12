@@ -8,6 +8,7 @@ import '../state/app_scope.dart';
 import '../state/lessons_controller.dart';
 import 'delete_account_dialog.dart';
 import 'format.dart';
+import 'help.dart';
 import 'tier_switch.dart';
 import 'widgets.dart';
 
@@ -32,7 +33,7 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Logo(),
-        actions: const [_AccountMenu(), SizedBox(width: 8)],
+        actions: const [HelpButton(), _AccountMenu(), SizedBox(width: 8)],
       ),
       body: ListenableBuilder(
         listenable: lessons,

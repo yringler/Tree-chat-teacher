@@ -610,6 +610,84 @@ void main() {
     });
   });
 
+  group('the walkthrough', () {
+    final answered = node(
+      'a1',
+      branch: 'trunk',
+      seq: 1,
+      role: Role.assistant,
+      content: reply,
+    );
+
+    setUp(() {
+      api.settingsAnswer = const Settings(walkthroughDoneAt: null);
+    });
+
+    testWidgets('points at Tangent once the first reply is in', (tester) async {
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text(walkthroughSteps.tangent), findsNothing);
+
+      await sendTyped(tester, 'Why tides?');
+      await start(tester);
+      expect(find.text(walkthroughSteps.tangent), findsNothing, reason: 'yet');
+      await emit(tester, DoneEvent(node: answered, branch: trunk));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.tangent), findsOneWidget);
+      // The message box stays clear, to type what to ask.
+      expect(
+        tester.getRect(find.byKey(const ValueKey('coach-mark'))).bottom,
+        lessThanOrEqualTo(tester.getRect(find.byType(TextField)).top),
+      );
+    });
+
+    testWidgets('never shows for an account that has had it', (tester) async {
+      api.settingsAnswer = const Settings(walkthroughDoneAt: '2026-01-01');
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text(walkthroughSteps.tangent), findsNothing);
+    });
+
+    testWidgets('leaves the control it points at usable, and walks the loop', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text(walkthroughSteps.tangent), findsOneWidget);
+
+      await sendAs(tester, tangentAction.label, 'Why the moon?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 'a1');
+      expect(find.text(walkthroughSteps.back), findsOneWidget);
+
+      await tester.tap(find.text('Main thread'));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.next), findsOneWidget);
+
+      await tester.tap(find.text(walkthroughButtons.done));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.next), findsNothing);
+      expect(api.walkthroughDoneMarks, 1);
+    });
+
+    testWidgets('Skip tour ends it and says so to the server', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(find.text(walkthroughButtons.skip));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.tangent), findsNothing);
+      expect(api.walkthroughDoneMarks, 1);
+    });
+  });
+
   testWidgets('a tangent’s divider centres its title in the thread', (
     tester,
   ) async {

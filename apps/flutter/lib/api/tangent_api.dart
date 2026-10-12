@@ -41,6 +41,13 @@ abstract interface class TangentApi {
   /// server checks; afterwards there is no session.
   Future<void> deleteAccount(String confirmEmail);
 
+  /// The account's settings (`GET /api/settings`).
+  Future<Settings> settings();
+
+  /// Records that the account finished or skipped the first-run walkthrough
+  /// (`PATCH /api/settings`), so it doesn't show again on any device.
+  Future<void> markWalkthroughDone();
+
   // Paying for replies.
 
   Future<PoolStatus> poolStatus();

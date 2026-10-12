@@ -12,7 +12,21 @@ const screenLocations = {
   'in-tangent': '/t/tides/b/bulge',
   // Back on the main thread, the tangent listed under the reply.
   'back-on-trunk': '/t/tides',
+  // The walkthrough's three steps, for an account that hasn't had it: the
+  // first on the main thread's reply, the second in a tangent. For the
+  // third, open coach3 and tap the breadcrumb's Main thread.
+  'coach1': '/t/tides',
+  'coach2': '/t/tides/b/bulge',
+  'coach3': '/t/tides/b/bulge',
+  // The lessons, for the "?" in the app bar and the help it opens.
+  'help': '/',
 };
+
+/// The screens shot for an account that hasn't had the walkthrough.
+const _firstRun = {'coach1', 'coach2', 'coach3'};
+
+/// The screens with a tangent from the first reply.
+const _withTangent = {'in-tangent', 'back-on-trunk', 'coach2', 'coach3'};
 
 const _normal = ModelInfo(id: 'normal', label: 'Normal', tier: Tier.normal);
 const _max = ModelInfo(id: 'max', label: 'Max', tier: Tier.max);
@@ -55,7 +69,7 @@ class ScreenApi implements TangentApi {
     _nodes
       ..add(_node('u1', 'trunk', 0, Role.user, 'Why are there tides?'))
       ..add(_node('a1', 'trunk', 1, Role.assistant, _trunkReply));
-    if (screen == 'in-tangent' || screen == 'back-on-trunk') {
+    if (_withTangent.contains(screen)) {
       _branches['bulge'] = _branch(
         'bulge',
         parent: 'trunk',
@@ -153,6 +167,18 @@ class ScreenApi implements TangentApi {
 
   @override
   Future<void> deleteAccount(String confirmEmail) async {}
+
+  @override
+  Future<Settings> settings() async => Settings(
+    walkthroughDoneAt: _firstRun.contains(screen) && !_walkthroughDone
+        ? null
+        : '2026-01-01T00:00:00.000Z',
+  );
+
+  var _walkthroughDone = false;
+
+  @override
+  Future<void> markWalkthroughDone() async => _walkthroughDone = true;
 
   @override
   Future<PoolStatus> poolStatus() async =>

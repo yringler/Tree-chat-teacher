@@ -299,6 +299,35 @@ void main() {
     });
   });
 
+  group('settings', () {
+    test('reads the walkthrough flag', () async {
+      final f = fake(
+        (_) => json({
+          'systemPrompt': null,
+          'defaultSystemPrompt': 'Be brief.',
+          'walkthroughDoneAt': null,
+        }),
+      );
+      expect((await f.api.settings()).walkthroughDoneAt, isNull);
+      expect(f.seen.single.method, 'GET');
+      expect(f.seen.single.url.path, '/api/settings');
+    });
+
+    test('marks the walkthrough done, and only that', () async {
+      final f = fake(
+        (_) => json({
+          'systemPrompt': 'Mine',
+          'defaultSystemPrompt': 'Be brief.',
+          'walkthroughDoneAt': '2026-10-12T00:00:00.000Z',
+        }),
+      );
+      await f.api.markWalkthroughDone();
+      expect(f.seen.single.method, 'PATCH');
+      expect(f.seen.single.url.path, '/api/settings');
+      expect(f.seen.single.json, {'walkthroughDone': true});
+    });
+  });
+
   group('sign-in by code', () {
     const meJson = {
       'userId': 'u1',

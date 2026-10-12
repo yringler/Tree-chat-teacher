@@ -123,6 +123,14 @@ class FakeTangentApi implements TangentApi {
     ),
   ];
   List<TreeSummary> treesAnswer = const [];
+
+  /// Done by default, so only the tests of the walkthrough see it.
+  Settings settingsAnswer = const Settings(
+    walkthroughDoneAt: '2026-01-01T00:00:00.000Z',
+  );
+
+  /// How often `markWalkthroughDone` was called.
+  var walkthroughDoneMarks = 0;
   final details = <String, TreeDetail>{};
 
   /// Thrown by `sendMessage`'s stream before any event, when set.
@@ -196,6 +204,12 @@ class FakeTangentApi implements TangentApi {
     deletedAccounts.add(confirmEmail);
     meAnswers = [unauthorized];
   }
+
+  @override
+  Future<Settings> settings() async => settingsAnswer;
+
+  @override
+  Future<void> markWalkthroughDone() async => walkthroughDoneMarks++;
 
   @override
   Future<PoolStatus> poolStatus() async => poolStatusAnswer;

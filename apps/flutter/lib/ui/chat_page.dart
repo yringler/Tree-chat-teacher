@@ -11,6 +11,9 @@ import '../api/models.dart';
 import '../api/tangents.dart';
 import '../state/app_scope.dart';
 import '../state/chat_controller.dart';
+import '../state/walkthrough_controller.dart';
+import 'coach_mark.dart';
+import 'help.dart';
 import 'lesson_outline.dart';
 import 'message_view.dart';
 import 'tangent_help_copy.dart';
@@ -33,6 +36,14 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   late final ChatController _chat;
+  late final WalkthroughController _walkthrough;
+
+  /// Holds the walkthrough's coach mark above the page (and below any
+  /// dialog or sheet opened over it).
+  final _coach = OverlayPortalController();
+
+  /// A report to the walkthrough is waiting for the frame to end.
+  bool _reportPending = false;
   final _composer = TextEditingController();
   final _composerFocus = FocusNode();
   final _scroll = ScrollController();
@@ -52,6 +63,10 @@ class _ChatPageState extends State<ChatPage> {
   final _tangentKey = GlobalKey(debugLabel: 'tangent-action');
   final _nextKey = GlobalKey(debugLabel: 'next-action');
   final _mainThreadKey = GlobalKey(debugLabel: 'main-thread');
+
+  /// The message box with its actions, which a coach mark pointing at one
+  /// of them leaves clear.
+  final _composerKey = GlobalKey(debugLabel: 'composer');
 
   /// The header is in view. On a narrow screen it slides away while the
   /// learner reads down, to give the thread the room, and back on the way up.
@@ -75,6 +90,11 @@ class _ChatPageState extends State<ChatPage> {
       branchId: widget.branchId,
     )..addListener(_followEnd);
     _scroll.addListener(_onScroll);
+    _walkthrough = scope.walkthrough;
+    unawaited(_walkthrough.start());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _coach.show();
+    });
     unawaited(scope.lessons.ensureLoaded());
     unawaited(_load());
   }
@@ -255,6 +275,56 @@ class _ChatPageState extends State<ChatPage> {
     if (opened.created) await _send(tangent.title);
   }
 
+  /// Tells the walkthrough what the frame just drawn shows: a tangent, or
+  /// the main thread with the send actions under its reply.
+  void _reportToWalkthrough() {
+    if (_reportPending) return;
+    _reportPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _reportPending = false;
+      if (!mounted || _chat.loading) return;
+      if (_chat.isSideBranch) {
+        _walkthrough.onEnteredTangent();
+        return;
+      }
+      if (_tangentKey.currentContext != null) {
+        _walkthrough.onTrunkReplyReady();
+      }
+      if (_nextKey.currentContext != null) _walkthrough.onBackOnTrunk();
+    });
+  }
+
+  /// The walkthrough's coach mark for the step on screen, if any.
+  Widget _coachMark(BuildContext context) => ListenableBuilder(
+    listenable: _walkthrough,
+    builder: (context, _) {
+      final step = _walkthrough.showing;
+      if (step == null) return const SizedBox.shrink();
+      final (target, text, button) = switch (step) {
+        WalkthroughPhase.back => (
+          _mainThreadKey,
+          walkthroughSteps.back,
+          walkthroughButtons.next,
+        ),
+        WalkthroughPhase.next => (
+          _nextKey,
+          walkthroughSteps.next,
+          walkthroughButtons.done,
+        ),
+        _ => (_tangentKey, walkthroughSteps.tangent, walkthroughButtons.next),
+      };
+      return CoachMark(
+        key: ValueKey(step),
+        target: target,
+        clear: step == WalkthroughPhase.back ? null : _composerKey,
+        text: text,
+        buttonText: button,
+        onNext: _walkthrough.next,
+        onSkip: _walkthrough.skip,
+      );
+    },
+  );
+
   void _open(Branch branch) => context.go(
     branch.parentBranchId == null
         ? '/t/${widget.treeId}'
@@ -266,11 +336,12 @@ class _ChatPageState extends State<ChatPage> {
     final lessons = AppScope.of(context).lessons;
     final wide = MediaQuery.sizeOf(context).width >= _wideFrom;
     return ListenableBuilder(
-      listenable: Listenable.merge([_chat, lessons]),
+      listenable: Listenable.merge([_chat, lessons, _walkthrough]),
       builder: (context, _) {
+        _reportToWalkthrough();
         // The main thread alone needs no outline.
         final hasOutline = _chat.outline.length > 1;
-        return Scaffold(
+        final scaffold = Scaffold(
           endDrawer: hasOutline && !wide
               ? Drawer(
                   child: SafeArea(
@@ -288,6 +359,13 @@ class _ChatPageState extends State<ChatPage> {
           body: SafeArea(
             child: Row(
               children: [
+                // Where it sits doesn't matter: the coach mark is drawn
+                // over the whole page. Without a child of its own, it leaves
+                // the page's semantics as they are.
+                OverlayPortal(
+                  controller: _coach,
+                  overlayChildBuilder: _coachMark,
+                ),
                 if (hasOutline && wide)
                   Container(
                     key: const ValueKey('outline'),
@@ -318,6 +396,16 @@ class _ChatPageState extends State<ChatPage> {
             ),
           ),
         );
+        // Always there, so the page under it stays put as coach marks come
+        // and go.
+        return CallbackShortcuts(
+          bindings: {
+            if (_walkthrough.showing != null)
+              const SingleActivator(LogicalKeyboardKey.escape):
+                  _walkthrough.skip,
+          },
+          child: scaffold,
+        );
       },
     );
   }
@@ -328,10 +416,13 @@ class _ChatPageState extends State<ChatPage> {
   /// The app bar and, on a tangent, the path down to it.
   Widget _header({required bool wide, required bool hasOutline}) {
     final drawer = hasOutline && !wide;
+    // The way back stays in view while the walkthrough points at it.
+    final shown =
+        wide || _headerShown || _walkthrough.showing == WalkthroughPhase.back;
     return ClipRect(
       child: AnimatedAlign(
         alignment: Alignment.bottomCenter,
-        heightFactor: wide || _headerShown ? 1 : 0,
+        heightFactor: shown ? 1 : 0,
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
         child: Column(
@@ -356,6 +447,7 @@ class _ChatPageState extends State<ChatPage> {
                     enabled: _chat.canSwitchTier,
                     onChanged: (tier) => unawaited(_chat.setTier(tier)),
                   ),
+                const HelpButton(),
                 if (drawer)
                   Builder(
                     builder: (context) => IconButton(
@@ -413,6 +505,7 @@ class _ChatPageState extends State<ChatPage> {
                 const SizedBox(height: 8),
               ],
               _Composer(
+                key: _composerKey,
                 controller: _composer,
                 focusNode: _composerFocus,
                 enabled: !busy,
@@ -554,9 +647,13 @@ class _Breadcrumb extends StatelessWidget {
                 key: mainThreadKey,
                 message: mainThreadBack,
                 excludeFromSemantics: true,
+                // A node of its own that taps through, since the button
+                // under it is left out.
                 child: Semantics(
+                  container: true,
                   label: mainThreadBack,
                   button: true,
+                  onTap: () => onOpen(chain.first),
                   excludeSemantics: true,
                   child: step(chain.first),
                 ),
@@ -750,6 +847,7 @@ class _SendAction {
 /// under the box.
 class _Composer extends StatelessWidget {
   const _Composer({
+    super.key,
     required this.controller,
     required this.focusNode,
     required this.enabled,

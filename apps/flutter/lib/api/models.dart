@@ -189,6 +189,18 @@ class TreeSummary {
   final int branchCount;
 }
 
+/// `GET /api/settings`: the account's settings this app reads.
+class Settings {
+  const Settings({required this.walkthroughDoneAt});
+
+  factory Settings.fromJson(Json json) =>
+      Settings(walkthroughDoneAt: json.strOrNull('walkthroughDoneAt'));
+
+  /// When the account finished or skipped the first-run walkthrough (ISO
+  /// time); null while it hasn't, so the walkthrough shows.
+  final String? walkthroughDoneAt;
+}
+
 class Tree {
   const Tree({
     required this.id,
