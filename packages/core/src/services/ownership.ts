@@ -22,9 +22,9 @@ export class Ownership {
   /** A branch with its (already loaded) tree. */
   async branch(branchId: string): Promise<{ branch: Branch; tree: Tree }> {
     const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
+    if (!branch) throw new NotFoundError('Thread');
     const tree = await this.repo.getTree(branch.treeId);
-    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Branch');
+    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Thread');
     return { branch, tree };
   }
 

@@ -100,6 +100,7 @@ describe('account settings', () => {
     expect(await chat.getSettings()).toEqual({
       systemPrompt: null,
       defaultSystemPrompt: 'BUILT-IN',
+      walkthroughDoneAt: null,
     });
     expect((await chat.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
     expect((await chat.createTree({ systemPrompt: '  ' })).tree.systemPrompt).toBe('BUILT-IN');
@@ -107,6 +108,7 @@ describe('account settings', () => {
     expect(await chat.updateSettings({ systemPrompt: 'MINE' })).toEqual({
       systemPrompt: 'MINE',
       defaultSystemPrompt: 'BUILT-IN',
+      walkthroughDoneAt: null,
     });
     expect((await chat.createTree({})).tree.systemPrompt).toBe('MINE');
     expect((await chat.createTree({ systemPrompt: 'THIS ONE' })).tree.systemPrompt).toBe(
@@ -124,6 +126,10 @@ describe('account settings', () => {
   it('has no default prompt without a built-in one', async () => {
     const { chat } = setup({ autoTitle: false });
     expect((await chat.createTree({})).tree.systemPrompt).toBeNull();
-    expect(await chat.getSettings()).toEqual({ systemPrompt: null, defaultSystemPrompt: '' });
+    expect(await chat.getSettings()).toEqual({
+      systemPrompt: null,
+      defaultSystemPrompt: '',
+      walkthroughDoneAt: null,
+    });
   });
 });

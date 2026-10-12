@@ -54,14 +54,14 @@ const link = (
 
 /**
  * trunk "Main thread": q0 "How do owls hum?" r0 "Owls **hum** softly."
- *   r0 ─ "Branch: Why first" : s0 "Why first?" s1 "Owls are polite."
+ *   r0 ─ "Tangent: Why first" : s0 "Why first?" s1 "Owls are polite."
  *   r0 ─ "Empty tangent"     : (no messages)
  */
 function fixture() {
   const trunk = branch('trunk', 'Main thread', null, null);
   const q0 = node('q0', trunk, 0, 'user', 'How do owls hum?');
   const r0 = node('r0', trunk, 1, 'assistant', 'Owls **hum** softly.');
-  const side = branch('side', 'Branch: Why first', trunk, r0.id);
+  const side = branch('side', 'Tangent: Why first', trunk, r0.id);
   const s0 = node('s0', side, 0, 'user', 'Why first?');
   const s1 = node('s1', side, 1, 'assistant', 'Owls are polite.');
   const empty = branch('empty', 'Empty tangent', trunk, r0.id);
@@ -69,8 +69,8 @@ function fixture() {
   return { index, trunk, side };
 }
 
-/** Learn's naming: no "Branch: " prefix. */
-const learnTitle = (b: Branch) => b.title.replace(/^Branch: /, '');
+/** Learn's naming: no "Tangent: " prefix. */
+const learnTitle = (b: Branch) => b.title.replace(/^Tangent: /, '');
 
 const summary = (rows: PickerRow[]) =>
   rows.map((r) => `${r.kind}:${r.nodeId ?? '-'}:${r.depth}:${r.title}`);
@@ -137,7 +137,7 @@ describe('the picker rows', () => {
     expect(summary(browseRows(index, { exclude: new Set(['q0', 's0']) }))).toEqual([
       'branch:-:0:Main thread',
       'message:r0:0:Owls hum softly.',
-      'branch:-:1:Branch: Why first',
+      'branch:-:1:Tangent: Why first',
       'message:s1:1:Owls are polite.',
     ]);
     // Nothing left to pick under a heading: no heading.
@@ -192,7 +192,7 @@ describe('moving through the picker rows', () => {
     expect(movePick(rows, -1, 1)).toBe(1);
     expect(movePick([], -1, 1)).toBe(-1);
     const headed = browseRows(index, { exclude: new Set(['s0']) });
-    // r0, then the "Branch: Why first" heading (not pickable), then s1.
+    // r0, then the "Tangent: Why first" heading (not pickable), then s1.
     expect(headed[movePick(headed, 2, 1)]?.nodeId).toBe('s1');
     expect(headed[movePick(headed, 4, -1)]?.nodeId).toBe('r0');
   });

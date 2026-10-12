@@ -18,7 +18,7 @@ import { branchChain, type NavTarget, type TreeIndex } from './tree.js';
 /** Longest snippet `describeEndpoint` returns, in characters. */
 export const LINK_SNIPPET_CHARS = 90;
 
-/** How an app names a branch (Learn strips the "Branch: " prefix, for example). */
+/** How an app names a branch (Learn strips the "Tangent: " prefix, for example). */
 export type BranchTitleOf = (branch: Branch) => string;
 
 const ownTitle: BranchTitleOf = (b) => b.title;

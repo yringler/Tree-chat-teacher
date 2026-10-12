@@ -17,7 +17,7 @@ const MODES = [
   {
     app: 'canvas',
     label: 'Canvas',
-    title: 'Canvas (experimental): your conversations as a map, every branch side by side',
+    title: 'Canvas (experimental): your conversations as a map, every tangent side by side',
     experimental: true,
   },
 ] as const;

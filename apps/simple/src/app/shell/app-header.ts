@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { HELP_TITLE } from '@tangent/shared';
 import {
   AccountId,
   AuthService,
@@ -19,9 +20,11 @@ import { PaidBy } from './paid-by';
 import { LearnFunding } from '../state/learn-funding';
 
 /**
- * The sidebar's button (narrow screens), brand, the Power / Learn switch, what replies are paid by (own key, credit
- * or the open pool: a button that opens "How replies are paid for") and
- * the account menu.
+ * The sidebar's button (narrow screens), brand, the Power / Learn switch,
+ * what replies are paid by (own key, credit or the open pool: a button that
+ * opens "How replies are paid for"), the ? that opens "How tangents work"
+ * and the account menu. The ? key stays the keyboard shortcuts, which the
+ * help links to.
  */
 @Component({
   selector: 'app-header',
@@ -43,6 +46,15 @@ import { LearnFunding } from '../state/learn-funding';
       />
       <span class="spacer"></span>
       <app-paid-by variant="header" />
+      <button
+        type="button"
+        class="icon-btn"
+        [attr.aria-label]="helpTitle"
+        [title]="helpTitle"
+        (click)="openHelp()"
+      >
+        <app-icon name="help" [size]="18" />
+      </button>
       <div class="menu-anchor">
         <button
           type="button"
@@ -119,6 +131,7 @@ export class AppHeader {
     ? BRAND.slice(BRAND_SHORT.length)
     : '';
   protected readonly demo = inject(DEMO_MODE);
+  protected readonly helpTitle = HELP_TITLE;
 
   protected onDocumentClick(e: MouseEvent): void {
     if (this.ui.menuOpen() && !this.host.nativeElement.contains(e.target as Node | null)) {
@@ -128,6 +141,11 @@ export class AppHeader {
 
   protected close(): void {
     this.ui.menuOpen.set(false);
+  }
+
+  protected openHelp(): void {
+    this.close();
+    this.ui.dialogs.open({ kind: 'help' });
   }
 
   protected openAccess(): void {

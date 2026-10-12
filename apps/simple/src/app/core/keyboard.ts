@@ -9,11 +9,13 @@ import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 
 export const SHORTCUTS: readonly ShortcutHelp[] = [
-  { keys: ['Alt+↑', '['], label: 'Back to where this side question started' },
-  { keys: ['Alt+←', 'Alt+→'], label: 'Previous / next side question beside this one' },
-  { keys: ['Alt+↓', ']'], label: 'Into the first side question from here' },
+  { keys: ['Alt+↑', '['], label: 'Back to where this tangent started' },
+  { keys: ['Alt+←', 'Alt+→'], label: 'Previous / next tangent beside this one' },
+  { keys: ['Alt+↓', ']'], label: 'Into the first tangent from here' },
   { keys: ['j', 'k'], label: 'Next / previous message' },
   { keys: ['/'], label: 'Focus the message box' },
+  { keys: ['Enter'], label: 'Send as a tangent' },
+  { keys: ['Ctrl+Enter'], label: 'Send as Next' },
   { keys: ['?'], label: 'Show this help' },
   { keys: ['Esc'], label: 'Close dialogs and menus' },
 ];

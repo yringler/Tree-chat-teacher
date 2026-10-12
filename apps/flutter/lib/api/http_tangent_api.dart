@@ -135,6 +135,15 @@ class HttpTangentApi implements TangentApi {
     await _keepKeyCookie('');
   }
 
+  @override
+  Future<Settings> settings() async =>
+      Settings.fromJson(await _object('GET', ['settings']));
+
+  @override
+  Future<void> markWalkthroughDone() async {
+    await _send('PATCH', ['settings'], body: {'walkthroughDone': true});
+  }
+
   // Paying for replies.
 
   @override

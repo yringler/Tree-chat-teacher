@@ -23,12 +23,16 @@ const REPLY = [
   'Light is a wave.',
   '',
   '<tangents>',
-  '- Interference — why two waves add up',
+  '- [continue] Diffraction — what a slit does to it next',
+  '- [tangent] Interference — why two waves add up',
   '- Photons',
   '</tangents>',
 ].join('\n');
 
-/** "What is light?" (u1) and its reply (a1), which suggests two tangents, on `trunk`. */
+/**
+ * "What is light?" (u1) and its reply (a1) on `trunk`, which suggests one
+ * next step and two tangents (one of them untagged).
+ */
 function tree(reply: Partial<ChatNode> = {}, extra: Partial<TreeDetail> = {}): TreeDetail {
   return detail(
     [
@@ -89,14 +93,14 @@ describe('MessageItem: a finished reply', () => {
     expect(article.textContent).not.toContain('<tangents>');
   });
 
-  it('offers Branch from here, Review, Link and Copy', async () => {
+  it('offers Tangent ↳, Review, Link and Copy', async () => {
     await message('a1');
-    for (const name of ['Branch from here', 'Review', 'Link…', 'Copy message']) button(name);
+    for (const name of ['Tangent ↳', 'Review', 'Link…', 'Copy message']) button(name);
   });
 
-  it('Branch from here opens the branch dialog on it', async () => {
+  it('Tangent ↳ opens the tangent dialog on it', async () => {
     const m = await message('a1');
-    await m.user.click(button('Branch from here'));
+    await m.user.click(button('Tangent ↳'));
     expect(m.ui.dialogs.get('branch')).toEqual({ kind: 'branch', fromNodeId: 'a1', quote: null });
   });
 
@@ -113,12 +117,12 @@ describe('MessageItem: a finished reply', () => {
     await message('u1');
     expect(screen.getByRole('article').textContent).toContain('You');
     expect(screen.queryByRole('button', { name: 'Review' })).toBeNull();
-    button('Branch from here');
+    button('Tangent ↳');
   });
 
   it('with nothing left to generate on, offers no new branch, review or question; links stay', async () => {
     await message('a1', { lapsed: true });
-    expect(names()).not.toContain('Branch from here');
+    expect(names()).not.toContain('Tangent ↳');
     expect(names()).not.toContain('Review');
     expect(screen.queryByRole('textbox', { name: /Ask your own/ })).toBeNull();
     button('Link…');
@@ -126,20 +130,59 @@ describe('MessageItem: a finished reply', () => {
   });
 });
 
-describe('TangentNav: where next', () => {
-  it('each tangent is a branch to follow', async () => {
+const group = (name: string) => screen.getByRole('navigation', { name });
+
+describe('TangentNav: Keep going and Tangents', () => {
+  it('splits the suggestions into Keep going and Tangents; an untagged one is a tangent', async () => {
+    await message('a1');
+    const next = within(group('Keep going'));
+    expect(next.getAllByRole('button')).toHaveLength(1);
+    next.getByRole('button', { name: /^Diffraction/ });
+    const side = within(group('Tangents'));
+    side.getByRole('button', { name: /^Interference/ });
+    side.getByRole('button', { name: 'Photons' });
+    // "Ask your own" stays last, among the tangents.
+    side.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
+  });
+
+  it('a Keep going step is sent as the next message here', async () => {
     const m = await message('a1');
-    const nav = screen.getByRole('navigation', { name: 'Tangents worth following' });
+    const continueWith = vi.spyOn(m.store, 'continueWith').mockResolvedValue(true);
+    const step = within(group('Keep going')).getByRole<HTMLButtonElement>('button', {
+      name: /^Diffraction/,
+    });
+    expect(step.title).toBe('Got it, what’s next? Keeps the main lesson moving.');
+    await m.user.click(step);
+    expect(continueWith).toHaveBeenCalledWith('a1', 'Diffraction');
+  });
+
+  it('Keep going shows only on the latest reply; older ones keep their tangents', async () => {
+    const d = tree(
+      {},
+      {
+        nodes: [
+          node('u2', { role: 'user', parentId: 'a1', seq: 2, content: 'And then?' }),
+          node('a2', { parentId: 'u2', seq: 3, content: 'Then it spreads.' }),
+        ],
+      },
+    );
+    await message('a1', { d });
+    expect(screen.queryByRole('navigation', { name: 'Keep going' })).toBeNull();
+    within(group('Tangents')).getByRole('button', { name: /^Interference/ });
+  });
+
+  it('each tangent is a tangent to follow', async () => {
+    const m = await message('a1');
     const follow = vi.spyOn(m.store, 'followTangent').mockResolvedValue(null);
-    await m.user.click(within(nav).getByRole('button', { name: /^Interference/ }));
+    await m.user.click(within(group('Tangents')).getByRole('button', { name: /^Interference/ }));
     expect(follow).toHaveBeenCalledWith('a1', 'Interference');
   });
 
-  it('asks your own question in a new branch, emptying the field once asked', async () => {
+  it('asks your own question in a new tangent, emptying the field once asked', async () => {
     const m = await message('a1');
     const askFrom = vi.spyOn(m.store, 'askFrom').mockResolvedValue(branch('new'));
     const field = screen.getByRole<HTMLTextAreaElement>('textbox', {
-      name: 'Ask your own question in a new branch',
+      name: 'Ask your own question in a new tangent',
     });
     await m.user.type(field, 'Why does it bend?');
     await m.user.click(button('Ask'));
@@ -147,7 +190,7 @@ describe('TangentNav: where next', () => {
     await vi.waitFor(() => expect(field.value).toBe(''));
   });
 
-  it('on a branch the membership locks, tangents are disabled and say why; one followed still opens', async () => {
+  it('on a thread the membership locks, suggestions are disabled and say why; one followed still opens', async () => {
     const d = tree(
       {},
       {
@@ -162,24 +205,28 @@ describe('TangentNav: where next', () => {
       },
     );
     await message('a1', { d, lapsed: true, credit: true });
+    const step = button(/^Diffraction/);
+    expect(step.disabled).toBe(true);
+    expect(step.title).toBe('Continuing needs a membership (this thread is on your own key)');
     const interference = button(/^Interference/);
     expect(interference.disabled).toBe(true);
     expect(interference.title).toBe(
-      'Following it needs a membership (this branch is on your own key)',
+      'Starting a tangent needs a membership (this thread is on your own key)',
     );
-    const photons = within(
-      screen.getByRole('navigation', { name: 'Tangents worth following' }),
-    ).getByRole<HTMLButtonElement>('button', { name: 'Photons' });
+    const photons = within(group('Tangents')).getByRole<HTMLButtonElement>('button', {
+      name: 'Photons',
+    });
     expect(photons.disabled).toBe(false);
-    expect(photons.title).toBe('Open the branch that follows this');
+    expect(photons.title).toBe('Open tangent');
     expect(
       screen.getByRole<HTMLTextAreaElement>('textbox', { name: /Ask your own/ }).disabled,
     ).toBe(true);
   });
 
-  it('a reply still being written offers no tangents yet', async () => {
+  it('a reply still being written offers no suggestions yet', async () => {
     await message('a1', { d: tree({ status: 'streaming', content: 'Light is' }) });
-    expect(screen.queryByRole('navigation', { name: 'Tangents worth following' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Keep going' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Tangents' })).toBeNull();
     expect(screen.getByText('Generating…')).toBeTruthy();
   });
 });
@@ -236,7 +283,7 @@ describe('MessageActions in pick mode', () => {
     const createLink = vi.spyOn(m.store, 'createLink').mockResolvedValue(null);
     m.ui.linkPick.set({ fromNodeId: 'u1' });
     await m.fixture.whenStable();
-    expect(screen.queryByRole('button', { name: 'Branch from here' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Tangent ↳' })).toBeNull();
     await m.user.click(button('Link here'));
     expect(createLink).toHaveBeenCalledWith('u1', 'a1');
     expect(m.ui.linkPick()).toBeNull();

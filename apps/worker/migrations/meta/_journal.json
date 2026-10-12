@@ -43,6 +43,13 @@
       "when": 1791720901253,
       "tag": "0005_waitlist",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791822063015,
+      "tag": "0006_walkthrough_done_at",
+      "breakpoints": true
     }
   ]
 }

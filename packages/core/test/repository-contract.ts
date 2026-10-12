@@ -440,6 +440,10 @@ export function describeRepositories(name: string, factory: () => Repositories):
           .appendNodes([ok, dup], '2026-09-09T00:00:00.000Z')
           .catch((e: unknown) => e);
         expect(err).toBeInstanceOf(ConflictError);
+        expect(err).toHaveProperty(
+          'message',
+          'This thread changed in the meantime; reload and try again',
+        );
         expect(await repos.trees.getNode(ok.id)).toBeNull();
         expect(await repos.trees.getNode(dup.id)).toBeNull();
         expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-01-01T00:00:10.000Z');
@@ -736,11 +740,47 @@ export function describeRepositories(name: string, factory: () => Repositories):
         const a = uid('acct');
         const b = uid('acct');
         expect(await repos.settings.getSettings(a)).toBeNull();
-        await repos.settings.putSettings(a, { systemPrompt: 'First' }, '2026-01-01T00:00:00.000Z');
-        expect(await repos.settings.getSettings(a)).toEqual({ systemPrompt: 'First' });
-        await repos.settings.putSettings(a, { systemPrompt: null }, '2026-01-03T00:00:00.000Z');
-        expect(await repos.settings.getSettings(a)).toEqual({ systemPrompt: null });
+        const first = { systemPrompt: 'First', walkthroughDoneAt: null };
+        expect(await repos.settings.updateSettings(a, first, '2026-01-01T00:00:00.000Z')).toEqual(
+          first,
+        );
+        expect(await repos.settings.getSettings(a)).toEqual(first);
+        const second = { systemPrompt: null, walkthroughDoneAt: null };
+        await repos.settings.updateSettings(a, second, '2026-01-03T00:00:00.000Z');
+        expect(await repos.settings.getSettings(a)).toEqual(second);
         expect(await repos.settings.getSettings(b)).toBeNull();
+      });
+
+      it('changes only the fields it names, and returns them all', async () => {
+        const a = uid('acct');
+        const done = '2026-01-02T00:00:00.000Z';
+        expect(await repos.settings.updateSettings(a, { walkthroughDoneAt: done }, done)).toEqual({
+          systemPrompt: null,
+          walkthroughDoneAt: done,
+        });
+        const t = '2026-01-03T00:00:00.000Z';
+        expect(await repos.settings.updateSettings(a, { systemPrompt: 'Mine' }, t)).toEqual({
+          systemPrompt: 'Mine',
+          walkthroughDoneAt: done,
+        });
+        await repos.settings.updateSettings(a, { walkthroughDoneAt: null }, t);
+        expect(await repos.settings.getSettings(a)).toEqual({
+          systemPrompt: 'Mine',
+          walkthroughDoneAt: null,
+        });
+      });
+
+      it('two changes at once, of different fields, both stick', async () => {
+        const a = uid('acct');
+        const t = '2026-01-02T00:00:00.000Z';
+        await Promise.all([
+          repos.settings.updateSettings(a, { systemPrompt: 'Mine' }, t),
+          repos.settings.updateSettings(a, { walkthroughDoneAt: t }, t),
+        ]);
+        expect(await repos.settings.getSettings(a)).toEqual({
+          systemPrompt: 'Mine',
+          walkthroughDoneAt: t,
+        });
       });
     });
   });

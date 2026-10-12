@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, forwardRef, inject } from '@angular/core';
 import type { OutlineItem } from '@tangent/core/tree';
-import type { TreeSummary } from '@tangent/shared';
+import { MAIN_THREAD_LABEL, type TreeSummary } from '@tangent/shared';
 import { ConversationSidebar, SidebarHost } from '@tangent/web-shared';
 import { confirmDeleteSideQuestion } from '../chat/delete-side-question';
 import { branchTitle, lessonTitle } from '../chat/titles';
@@ -9,8 +9,8 @@ import { confirmDeleteLesson } from './delete-lesson';
 
 /**
  * Learn's sidebar: the shared conversation sidebar over the learner's
- * lessons, the open one's side questions nested under the one each came
- * from. A side question opens at its first message, as from its chip; the
+ * lessons, the open one's tangents nested under the one each came
+ * from. A tangent opens at its first message, as from its chip; the
  * lesson where it continues.
  */
 @Component({
@@ -28,8 +28,8 @@ export class LessonSidebar extends SidebarHost {
     trees: 'Lessons',
     noTrees: 'No lessons yet.',
     tree: 'lesson',
-    branch: 'side question',
-    branches: 'Side questions',
+    branch: 'tangent',
+    branches: 'Tangents',
   };
   readonly canRename = false;
 
@@ -38,7 +38,7 @@ export class LessonSidebar extends SidebarHost {
   }
 
   branchTitle(item: OutlineItem): string {
-    return item.depth === 0 ? 'Lesson' : branchTitle(item.branch);
+    return item.depth === 0 ? MAIN_THREAD_LABEL : branchTitle(item.branch);
   }
 
   treeCount(t: TreeSummary): { text: string; title: string } {
@@ -46,10 +46,7 @@ export class LessonSidebar extends SidebarHost {
     const messages = `${t.messageCount} ${t.messageCount === 1 ? 'message' : 'messages'}`;
     return {
       text: String(t.messageCount),
-      title:
-        side > 0
-          ? `${side} ${side === 1 ? 'side question' : 'side questions'}, ${messages}`
-          : messages,
+      title: side > 0 ? `${side} ${side === 1 ? 'tangent' : 'tangents'}, ${messages}` : messages,
     };
   }
 

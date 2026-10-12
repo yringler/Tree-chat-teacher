@@ -104,7 +104,7 @@ const EXCERPT_CHARS = 280;
                   [disabled]="acting()"
                   (click)="switchBranch()"
                 >
-                  <app-icon name="refresh" /> Continue this branch with
+                  <app-icon name="refresh" /> Continue this thread with
                   {{ labelOf(r, r.model) }}
                 </button>
               }
@@ -114,7 +114,7 @@ const EXCERPT_CHARS = 280;
                 [disabled]="acting()"
                 (click)="branchWithReviewer()"
               >
-                <app-icon name="branch" /> Branch here with {{ labelOf(r, r.model) }}
+                <app-icon name="tangent" /> Tangent here with {{ labelOf(r, r.model) }}
               </button>
               <button type="button" class="icon-btn" aria-label="Copy review" (click)="copy()">
                 <app-icon name="copy" [size]="14" />

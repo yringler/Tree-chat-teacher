@@ -13,7 +13,7 @@ import { UiStore } from '../state/ui-store';
       <dl class="legend">
         <dt><span class="legend-line legend-path"></span></dt>
         <dd>
-          <strong>Full path.</strong> The lane inherits everything its parent had at the fork.
+          <strong>Full path.</strong> The lane inherits everything its parent had where it starts.
         </dd>
         <dt><span class="legend-line legend-summary"></span></dt>
         <dd>
@@ -21,7 +21,7 @@ import { UiStore } from '../state/ui-store';
         </dd>
         <dt><span class="legend-line legend-message"></span></dt>
         <dd>
-          <strong>Parent message.</strong> Only the message it forks from and the quote come along.
+          <strong>Parent message.</strong> Only the message it starts from and the quote come along.
         </dd>
         <dt><span class="legend-line legend-independent"></span></dt>
         <dd>
@@ -44,10 +44,11 @@ import { UiStore } from '../state/ui-store';
         <dd><strong>Dimmed.</strong> Not sent for the selected lane at all.</dd>
       </dl>
       <p class="muted small">
-        Every lane has its own message box and can stream at the same time as the others. The branch
-        button on a card opens one lane, or several variants at once: the same question on different
-        models or with different context, answered side by side. To link two messages, drag the port
-        on a card's right edge onto the other card, or click it (or press R) and pick one.
+        Every lane has its own message box and can stream at the same time as the others. The
+        Tangent ↳ button on a card opens one lane, or several variants at once: the same question on
+        different models or with different context, answered side by side. To link two messages,
+        drag the port on a card's right edge onto the other card, or click it (or press R) and pick
+        one.
       </p>
       <h3 class="help-heading">Keyboard</h3>
       <table class="shortcuts">

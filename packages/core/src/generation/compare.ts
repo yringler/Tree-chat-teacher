@@ -83,7 +83,7 @@ export class CompareService {
     if (!request.content.trim()) throw new ValidationError('Message is empty');
     const leaf = (await this.ctx.repos.trees.listBranchNodes(branchId)).at(-1);
     if (leaf?.status === 'streaming') {
-      throw new ConflictError('A reply is still being generated in this branch');
+      throw new ConflictError('A reply is still being generated in this thread');
     }
     const route = this.ctx.routes.requestedRoute(request, branch);
     this.ctx.routes.requireProvider(route);
@@ -206,11 +206,11 @@ export class CompareService {
    */
   async appendCandidate(held: HeldCandidate): Promise<CommitCandidateResponse> {
     const { branch } = await this.ctx.owned.branch(held.branchId);
-    if (branch.treeId !== held.treeId) throw new NotFoundError('Branch');
+    if (branch.treeId !== held.treeId) throw new NotFoundError('Thread');
     const repo = this.ctx.repos.trees;
     const leaf = (await repo.listBranchNodes(branch.id)).at(-1);
     if (leaf?.status === 'streaming') {
-      throw new ConflictError('A reply is still being generated in this branch');
+      throw new ConflictError('A reply is still being generated in this thread');
     }
     if ((leaf?.id ?? branch.branchPointNodeId) !== held.parentId) {
       throw new ConflictError('The conversation moved on since you compared; ask again');

@@ -10,7 +10,8 @@
     ".": "./src/index.ts",
     "./demo": "./src/demo/index.ts",
     "./testing": "./src/testing/index.ts",
-    "./styles/base.css": "./src/styles/base.css"
+    "./styles/base.css": "./src/styles/base.css",
+    "./styles/coach-mark.css": "./src/styles/coach-mark.css"
   },
   "scripts": {
     "typecheck": "ngc -p tsconfig.json --noEmit",
@@ -19,6 +20,7 @@
   },
   "dependencies": {
     "@better-auth/passkey": "1.7.7",
+    "@floating-ui/dom": "1.8.0",
     "@tangent/core": "workspace:*",
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",

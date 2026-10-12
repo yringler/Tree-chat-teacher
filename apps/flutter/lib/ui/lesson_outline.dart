@@ -4,15 +4,35 @@ import 'package:flutter/material.dart';
 
 import '../api/models.dart';
 import '../state/thread.dart';
+import 'tangent_help_copy.dart';
 import 'theme.dart';
+
+/// The server's placeholder title for a tangent started from a whole
+/// message, before its first reply names it. Mirrors
+/// DEFAULT_BRANCH_TITLE_PREFIX in packages/shared/src/domain.ts, which
+/// packages/web-shared/src/tangent-help-parity.spec.ts checks.
+const defaultBranchTitlePrefix = 'Tangent: ';
+
+/// A tangent's own title, as Learn web shows it: the placeholder's prefix
+/// goes, since the app already labels it a tangent. A title the learner
+/// gave is kept whole, even one that starts the same way.
+String tangentTitle(Branch branch) {
+  final title = branch.title;
+  if (branch.titleSource == 'default' &&
+      title.startsWith(defaultBranchTitlePrefix)) {
+    return title.substring(defaultBranchTitlePrefix.length);
+  }
+  return title;
+}
 
 /// A branch's name in the breadcrumbs and the outline.
 String outlineTitle(Branch branch) {
-  if (branch.parentBranchId == null) return 'Main thread';
-  return branch.title.isEmpty ? 'Side question' : branch.title;
+  if (branch.parentBranchId == null) return mainThreadLabel;
+  final title = tangentTitle(branch);
+  return title.isEmpty ? 'Tangent' : title;
 }
 
-/// The lesson's main thread and every side question in it, each nested under
+/// The lesson's main thread and every tangent in it, each nested under
 /// the one it came from, as the web app's sidebar lists them.
 class LessonOutline extends StatelessWidget {
   const LessonOutline({
@@ -28,7 +48,7 @@ class LessonOutline extends StatelessWidget {
   final List<Branch> chain;
   final ValueChanged<Branch> onOpen;
 
-  /// Deeper side questions stop indenting, so their titles keep some room.
+  /// Deeper tangents stop indenting, so their titles keep some room.
   static const _maxIndent = 6;
 
   @override
@@ -42,7 +62,7 @@ class LessonOutline extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: Text(
-            'Side questions',
+            'Tangents',
             style: Theme.of(context).textTheme.labelLarge
                 ?.copyWith(color: tokens.fgMuted),
           ),

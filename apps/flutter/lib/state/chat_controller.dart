@@ -67,7 +67,7 @@ class ChatController extends ChangeNotifier {
 
   bool get isSideBranch => branch?.parentBranchId != null;
 
-  String branchTitle(String branchId) => _branches[branchId]?.title ?? '';
+  Branch? branchById(String branchId) => _branches[branchId];
 
   String? anchorQuoteOf(String branchId) => _branches[branchId]?.anchorQuote;
 
@@ -77,7 +77,7 @@ class ChatController extends ChangeNotifier {
     return id == null ? const [] : branchChain(id, _branches);
   }
 
-  /// Every branch of the lesson, side questions nested under their parents.
+  /// Every branch of the lesson, tangents nested under their parents.
   List<OutlineEntry> get outline {
     final trunkId = _tree?.trunkBranchId;
     return trunkId == null ? const [] : branchOutline(trunkId, _branches);
@@ -95,9 +95,9 @@ class ChatController extends ChangeNotifier {
     return last != null && last.branchId != branchId;
   }
 
-  /// The reply a side question asked from the composer starts at: the last
+  /// The reply a tangent asked from the composer starts at: the last
   /// message on screen, once it is a reply that didn't fail. Null (the
-  /// message continues the branch): an empty lesson or side question, or a
+  /// message continues the thread): an empty lesson or tangent, or a
   /// failed reply.
   ChatNode? get asideFrom {
     final last = thread.lastOrNull;
@@ -131,13 +131,13 @@ class ChatController extends ChangeNotifier {
       !_switching &&
       streamingNode == null;
 
-  /// The side branches that fork from [node], in the server's order.
+  /// The tangents that start from [node], in the server's order.
   List<Branch> sideQuestionsAt(ChatNode node) => [
     for (final b in _branches.values)
       if (b.branchPointNodeId == node.id) b,
   ];
 
-  /// The side branch from [node] titled [title], if one was opened before.
+  /// The tangent from [node] titled [title], if one was opened before.
   Branch? branchFor(ChatNode node, String title) {
     for (final b in sideQuestionsAt(node)) {
       if (b.title == title) return b;
@@ -230,7 +230,7 @@ class ChatController extends ChangeNotifier {
     return created == null ? null : (branchId: created, created: true);
   }
 
-  /// Creates a side question from [node] and puts it on screen, about
+  /// Creates a tangent from [node] and puts it on screen, about
   /// [anchorQuote] when the learner selected words in it. Returns its id
   /// (its first message is still to send), or null on error (see [notice]).
   Future<String?> openSideQuestion(

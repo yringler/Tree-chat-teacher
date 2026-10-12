@@ -32,7 +32,7 @@ import {
 } from '@tangent/shared';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import { pairKey } from '../links.js';
-import type { Repositories, TreePatch } from '../repository.js';
+import type { AccountSettings, Repositories, TreePatch } from '../repository.js';
 import { descendantBranches, indexTree } from '../tree.js';
 import { emptyToNull, type ServiceContext } from './context.js';
 
@@ -152,19 +152,31 @@ export class TreeService {
   /** The account's settings, with the built-in default prompt a client can show ("Use default"). */
   async getSettings(): Promise<SettingsResponse> {
     const saved = await this.ctx.repos.settings.getSettings(this.ctx.accountId);
-    return this.settingsResponse(saved?.systemPrompt ?? null);
+    return this.settingsResponse(saved ?? { systemPrompt: null, walkthroughDoneAt: null });
   }
 
-  /** Saves the account's default system prompt; a blank one means the built-in default (null). */
+  /**
+   * Saves the fields the request names and keeps the rest: the default
+   * system prompt (a blank one means the built-in default, null) and whether
+   * the first-run walkthrough is done (stamped with the current time).
+   */
   async updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
     const req = updateSettingsRequestSchema.parse(request);
-    const systemPrompt = emptyToNull(req.systemPrompt);
-    await this.ctx.repos.settings.putSettings(this.ctx.accountId, { systemPrompt }, this.ctx.now());
-    return this.settingsResponse(systemPrompt);
+    const now = this.ctx.now();
+    const patch: Partial<AccountSettings> = {};
+    if (req.systemPrompt !== undefined) patch.systemPrompt = emptyToNull(req.systemPrompt);
+    if (req.walkthroughDone !== undefined)
+      patch.walkthroughDoneAt = req.walkthroughDone ? now : null;
+    const saved = await this.ctx.repos.settings.updateSettings(this.ctx.accountId, patch, now);
+    return this.settingsResponse(saved);
   }
 
-  private settingsResponse(systemPrompt: string | null): SettingsResponse {
-    return { systemPrompt, defaultSystemPrompt: this.ctx.defaultSystemPrompt ?? '' };
+  private settingsResponse(settings: AccountSettings): SettingsResponse {
+    return {
+      systemPrompt: settings.systemPrompt,
+      defaultSystemPrompt: this.ctx.defaultSystemPrompt ?? '',
+      walkthroughDoneAt: settings.walkthroughDoneAt,
+    };
   }
 
   /** The account's saved default prompt (power only), else the built-in one. */
@@ -182,7 +194,7 @@ export class TreeService {
     const req = createBranchRequestSchema.parse(request);
     const node = await this.ctx.owned.node(req.fromNodeId);
     const parent = await this.repo.getBranch(node.branchId);
-    if (!parent) throw new NotFoundError('Branch');
+    if (!parent) throw new NotFoundError('Thread');
 
     const requested = this.ctx.routes.requestedRoute(req, parent);
     const provider = this.ctx.routes.requireProvider(requested);
@@ -249,7 +261,7 @@ export class TreeService {
       patch.model = runnable.model;
     }
     const updated = await this.repo.updateBranch(branchId, patch);
-    if (!updated) throw new NotFoundError('Branch');
+    if (!updated) throw new NotFoundError('Thread');
     return updated;
   }
 
@@ -283,7 +295,7 @@ export class TreeService {
     } else {
       const streaming = await this.repo.listStreamingNodes(tree.id);
       if (streaming.some((n) => doomed.has(n.branchId))) {
-        throw new ConflictError('A reply is still being generated in this branch; stop it first');
+        throw new ConflictError('A reply is still being generated in this thread; stop it first');
       }
     }
     const nodeIds = (await this.repo.listNodes(tree.id))
@@ -379,7 +391,7 @@ export class TreeService {
 function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string {
   // A quote is plain text already; a message is Markdown ("**a confident kitten**").
   const source = anchorQuote ? anchorQuote.replace(/\s+/g, ' ').trim() : plainText(node.content);
-  if (!source) return 'New branch';
+  if (!source) return 'New tangent';
   const clipped = clip(source.split(' ').slice(0, 6).join(' '), 48);
   return anchorQuote ? clipped : `${DEFAULT_BRANCH_TITLE_PREFIX}${clipped}`;
 }

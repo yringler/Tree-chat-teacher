@@ -7,6 +7,7 @@
 @import 'highlight.js/styles/github.css' (prefers-color-scheme: light);
 @import 'highlight.js/styles/github-dark.css' (prefers-color-scheme: dark);
 @import '@tangent/web-shared/styles/base.css';
+@import '@tangent/web-shared/styles/coach-mark.css';
 
 :root {
   --col: 760px;
@@ -58,7 +59,24 @@ body {
 }
 
 .app-head .mode-switch-opt {
-  padding: 2px 6px;
+  padding: 2px 5px;
+}
+
+/*
+ * A phone's header holds the sidebar's button, the mode switch, the pill, How
+ * tangents work and the account. The switch and the pill are text, whose width
+ * depends on the fonts a device has, so the icon buttons and gaps give up a few
+ * pixels to leave room for a wider font.
+ */
+@media (max-width: 479px) {
+  .app-head {
+    gap: 2px;
+    padding-inline: 8px;
+  }
+
+  .app-head .icon-btn {
+    width: 28px;
+  }
 }
 
 @media (min-width: 480px) {
@@ -87,6 +105,7 @@ body {
   font-size: 0.88rem;
   font-variant-numeric: tabular-nums;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .balance-pill:hover {
@@ -790,7 +809,7 @@ app-related-links.connections {
   font-size: calc(0.8 * var(--chat-rem));
 }
 
-/* Buttons in a message (Side question, Check sources) go with its text. */
+/* Buttons in a message (Tangent ↳, Check sources) go with its text. */
 .messages-inner .btn-sm {
   font-size: calc(0.85 * var(--chat-rem));
 }
@@ -863,10 +882,10 @@ app-related-links.connections {
   box-shadow: none;
 }
 
-/* Where the message goes, before the text: on a narrow screen only its icon
-   until the box has the focus. With the focus it takes a row of its own, and
-   the box grows to three lines. Size changes follow `is-open`, not
-   :focus-within, so a click elsewhere lands before the box shrinks. */
+/* The words asked about, before the text: beside it while the box is closed,
+   on a row of their own once it opens, when the box also grows to three
+   lines. Size changes follow `is-open`, not :focus-within, so a click
+   elsewhere lands before the box shrinks. */
 .composer-host .composer {
   flex-wrap: wrap;
 }
@@ -901,11 +920,6 @@ app-related-links.connections {
   font-size: 0.85rem;
 }
 
-.composer-dest {
-  cursor: pointer;
-}
-
-.composer-dest.is-aside,
 .composer-quote {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -925,12 +939,6 @@ app-related-links.connections {
 .composer-quote .icon-btn {
   width: 26px;
   height: 26px;
-}
-
-@media (max-width: 559px) {
-  .composer:not(.is-open) .composer-dest-label {
-    display: none;
-  }
 }
 
 .composer textarea:disabled {

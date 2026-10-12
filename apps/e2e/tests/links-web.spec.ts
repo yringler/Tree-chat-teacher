@@ -4,8 +4,8 @@ import { withExampleLesson } from './example-lesson';
 /*
  * Links between messages in power, against the Worker: the demos' example
  * lesson ("How do kittens learn to whistle?"), imported on Tangent credit,
- * has a main thread, a side question ("Why the owl hums first"), a followed
- * tangent ("Why practice works better in the evening") and one link (the
+ * has a main thread, a tangent ("Why the owl hums first"), a followed
+ * suggested tangent ("Why practice works better in the evening") and one link (the
  * main thread's second reply to that tangent). Each test is a new user.
  */
 
@@ -34,7 +34,7 @@ async function openBranch(page: Page, title: string): Promise<void> {
   await expect(page.locator('.crumb-current', { hasText: title })).toBeVisible();
 }
 
-test('power: link a nested branch message to the main thread through the search dialog', async ({
+test('power: link a nested tangent message to the main thread through the search dialog', async ({
   page,
   context,
   baseURL,
@@ -42,13 +42,13 @@ test('power: link a nested branch message to the main thread through the search 
   const errors = collectErrors(page);
   await openSeededLesson(page, context, baseURL!);
 
-  // A nested branch: follow one of the tangent's own suggested tangents.
+  // A nested tangent: follow one of the tangent's own suggested tangents.
   await openBranch(page, 'Why practice works better in the evening');
   await page.locator('.tangent', { hasText: 'Why rewards must arrive quickly' }).click();
   await expect(
     page.locator('.crumb-current', { hasText: 'Why rewards must arrive quickly' }),
   ).toBeVisible();
-  // Main thread ×2, tangent ×2, the new branch's question and its (streamed) reply.
+  // Main thread ×2, tangent ×2, the new tangent's question and its (streamed) reply.
   await expect(page.locator('article.msg')).toHaveCount(6);
   await expect(page.locator('.msg .cursor')).toHaveCount(0, { timeout: 30_000 });
   const nestedUrl = page.url();
@@ -60,7 +60,7 @@ test('power: link a nested branch message to the main thread through the search 
   await source.hover();
   await source.getByRole('button', { name: 'Link…', exact: true }).click();
 
-  // The dialog: search the main thread's second reply (not on this branch's path).
+  // The dialog: search the main thread's second reply (not on this tangent's path).
   const dialog = page.getByRole('dialog', { name: 'Link to another message' });
   await expect(dialog).toBeVisible();
   const search = dialog.getByRole('combobox');
@@ -148,7 +148,7 @@ test('power: pick the other end on the page, across branches', async ({
   await expect(banner).toContainText('Because the lemon is louder');
   await expect(source.getByRole('button', { name: 'Linking from here' })).toBeDisabled();
 
-  // Pick mode stays on while moving to another branch.
+  // Pick mode stays on while moving to another tangent.
   await openBranch(page, 'Why the owl hums first');
   await expect(banner).toBeVisible();
   const target = message(page, 'Owls are courteous creatures');

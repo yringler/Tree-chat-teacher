@@ -10,9 +10,19 @@ const root = path.join(import.meta.dirname, '..');
 
 /** Files outside each task's package that must be in its hash, from the repository root. */
 const READS = {
-  // copy-rules.spec.ts reads every app's templates.
-  '@tangent/web-shared#test': ['apps/simple/src/app/app.ts', 'apps/admin/src/app/app.ts'],
-  '@tangent/web-shared#coverage': ['apps/simple/src/app/app.ts', 'apps/admin/src/app/app.ts'],
+  // copy-rules.spec.ts reads every app's templates; tangent-help-parity.spec.ts the Dart copy and title prefix.
+  '@tangent/web-shared#test': [
+    'apps/simple/src/app/app.ts',
+    'apps/admin/src/app/app.ts',
+    'apps/flutter/lib/ui/tangent_help_copy.dart',
+    'apps/flutter/lib/ui/lesson_outline.dart',
+  ],
+  '@tangent/web-shared#coverage': [
+    'apps/simple/src/app/app.ts',
+    'apps/admin/src/app/app.ts',
+    'apps/flutter/lib/ui/tangent_help_copy.dart',
+    'apps/flutter/lib/ui/lesson_outline.dart',
+  ],
   // learn-app.test.ts imports the power app's _headers; config-surface.test.ts the config doc.
   '@tangent/worker#test': ['apps/web/public/_headers', 'docs/configuration.md'],
   '@tangent/worker#coverage': ['apps/web/public/_headers', 'docs/configuration.md'],

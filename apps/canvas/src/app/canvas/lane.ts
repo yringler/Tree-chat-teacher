@@ -48,7 +48,7 @@ import { laneTitle } from './titles';
           <button
             type="button"
             class="icon-btn lane-up"
-            title="Back to the message this lane branches from"
+            title="Back to the message this tangent starts from"
             aria-label="Parent lane"
             (click)="toParent($event)"
           >
@@ -142,7 +142,7 @@ import { laneTitle } from './titles';
 
     @if (place().collapsed) {
       <button type="button" class="capsule" (click)="toggleFold($event)">
-        <app-icon name="branch" [size]="14" />
+        <app-icon name="tangent" [size]="14" />
         {{ nodes().length }} {{ nodes().length === 1 ? 'message' : 'messages' }} ·
         {{ place().hiddenBranches }} {{ place().hiddenBranches === 1 ? 'lane' : 'lanes' }} folded
       </button>

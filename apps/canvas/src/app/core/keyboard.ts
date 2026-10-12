@@ -6,10 +6,10 @@ import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 
 export const SHORTCUTS: readonly ShortcutHelp[] = [
-  { keys: ['Alt+↑', '['], label: 'Parent lane (at the fork)' },
+  { keys: ['Alt+↑', '['], label: 'Parent lane (where this tangent started)' },
   { keys: ['Alt+←', 'Alt+→'], label: 'Previous / next sibling lane' },
   { keys: ['Alt+↓', ']'], label: 'First child lane' },
-  { keys: ['b'], label: 'Branch from the latest message of the selected lane' },
+  { keys: ['b'], label: 'Tangent from the latest message of the selected lane' },
   { keys: ['c'], label: 'Fold / unfold the lanes below the selected one' },
   {
     keys: ['r'],

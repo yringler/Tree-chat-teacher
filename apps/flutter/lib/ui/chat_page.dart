@@ -11,14 +11,18 @@ import '../api/models.dart';
 import '../api/tangents.dart';
 import '../state/app_scope.dart';
 import '../state/chat_controller.dart';
+import '../state/walkthrough_controller.dart';
+import 'coach_mark.dart';
+import 'help.dart';
 import 'lesson_outline.dart';
 import 'message_view.dart';
+import 'tangent_help_copy.dart';
 import 'theme.dart';
 import 'tier_switch.dart';
 import 'widgets.dart';
 
 /// `/t/:treeId` and `/t/:treeId/b/:branchId`: a lesson's thread, the trunk or
-/// a side question. Both routes share one page per lesson, so moving between
+/// a tangent. Both routes share one page per lesson, so moving between
 /// its branches keeps the replies streaming.
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key, required this.treeId, this.branchId});
@@ -32,13 +36,17 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   late final ChatController _chat;
+  late final WalkthroughController _walkthrough;
+
+  /// Holds the walkthrough's coach mark above the page (and below any
+  /// dialog or sheet opened over it).
+  final _coach = OverlayPortalController();
+
+  /// A report to the walkthrough is waiting for the frame to end.
+  bool _reportPending = false;
   final _composer = TextEditingController();
   final _composerFocus = FocusNode();
   final _scroll = ScrollController();
-
-  /// The composer asks a side question, the point of a lesson, unless the
-  /// learner switched it to continue the branch on screen.
-  bool _asksAside = true;
 
   /// Words "Ask about this" put on the composer, in the reply they are from:
   /// the next message asks about them.
@@ -49,6 +57,16 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Each message's key, to find where a reply starts on screen.
   final _messageKeys = <String, GlobalKey>{};
+
+  /// The send actions and the way back to the main thread, for the
+  /// walkthrough to point at.
+  final _tangentKey = GlobalKey(debugLabel: 'tangent-action');
+  final _nextKey = GlobalKey(debugLabel: 'next-action');
+  final _mainThreadKey = GlobalKey(debugLabel: 'main-thread');
+
+  /// The message box with its actions, which a coach mark pointing at one
+  /// of them leaves clear.
+  final _composerKey = GlobalKey(debugLabel: 'composer');
 
   /// The header is in view. On a narrow screen it slides away while the
   /// learner reads down, to give the thread the room, and back on the way up.
@@ -72,6 +90,11 @@ class _ChatPageState extends State<ChatPage> {
       branchId: widget.branchId,
     )..addListener(_followEnd);
     _scroll.addListener(_onScroll);
+    _walkthrough = scope.walkthrough;
+    unawaited(_walkthrough.start());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _coach.show();
+    });
     unawaited(scope.lessons.ensureLoaded());
     unawaited(_load());
   }
@@ -103,7 +126,7 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
-  /// The main thread opens at its end, a side question at its start.
+  /// The main thread opens at its end, a tangent at its start.
   void _showBranch() {
     _stickToBottom = !_chat.isSideBranch;
     _headerShown = true;
@@ -175,15 +198,30 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  void _sendComposer() {
+  /// Sends the composer's text: on a tangent from the reply on screen (or
+  /// the one quoted), or as the next step of the branch on screen. False
+  /// when there is nothing to send yet.
+  bool _sendComposer({required bool tangent}) {
     final text = _composer.text.trim();
-    if (text.isEmpty || _chat.sending || _chat.streamingNode != null) return;
+    if (text.isEmpty || _chat.sending || _chat.streamingNode != null) {
+      return false;
+    }
     final quote = _quote;
-    final from = quote?.node ?? (_asksAside ? _chat.asideFrom : null);
+    final from = quote?.node ?? (tangent ? _chat.asideFrom : null);
     unawaited(from == null ? _send(text) : _ask(from, text, quote?.text));
+    return true;
   }
 
-  /// Asks [text] in a new side question from [node], about [quote] if given.
+  /// Next ➜: on the main thread, the reply the walkthrough's last step asks
+  /// for.
+  void _sendNext() {
+    final onTrunk = !_chat.isSideBranch;
+    if (_sendComposer(tangent: false) && onTrunk) {
+      _walkthrough.onRepliedOnTrunk();
+    }
+  }
+
+  /// Asks [text] in a new tangent from [node], about [quote] if given.
   /// The text stays in the composer if it can't be made.
   Future<void> _ask(ChatNode node, String text, String? quote) async {
     final id = await _chat.openSideQuestion(node, anchorQuote: quote);
@@ -197,40 +235,51 @@ class _ChatPageState extends State<ChatPage> {
     _composerFocus.requestFocus();
   }
 
-  void _switchDestination() {
-    setState(() => _asksAside = !_asksAside);
-    _composerFocus.requestFocus();
-  }
-
   void _dropQuote() {
     setState(() => _quote = null);
     _composerFocus.requestFocus();
   }
 
+  /// The composer's placeholder, as Learn web words it: where the message
+  /// goes, not which button sends it.
   String _hint() {
     if (_chat.thread.isEmpty) return 'Ask a question or name a topic';
-    if (_quote != null) return 'Ask about this…';
     if (_chat.isSideBranch && _chat.isEmptyBranch) {
-      return 'Ask your side question…';
+      return 'Ask your tangent…';
     }
-    if (_asksAside && _chat.asideFrom != null) return 'Ask a side question…';
+    if (_quote != null) return 'Ask about this…';
     return _chat.isSideBranch
-        ? 'Continue this side question…'
-        : 'Continue this lesson…';
+        ? 'Ask anything in this tangent…'
+        : 'Ask anything…';
   }
 
-  /// Where the composer's message goes, when there is a choice: the quote
-  /// it asks about, or a side question or not.
-  Widget? _composerLead({required bool compact}) {
-    if (_quote case final quote?) {
-      return _QuoteChip(text: quote.text, onRemove: _dropQuote);
-    }
-    if (_chat.asideFrom == null) return null;
-    return _DestinationChip(
-      aside: _asksAside,
-      compact: compact,
-      onPressed: _switchDestination,
-    );
+  /// Where the composer's message can go, when there is a choice: on a
+  /// tangent from the last reply, the recommended default, or as the next
+  /// step. A quote is always asked about on a tangent. Without a reply to
+  /// start a tangent from, there is no choice, and a plain Send continues.
+  List<_SendAction> _composerActions() {
+    if (_quote == null && _chat.asideFrom == null) return const [];
+    return [
+      _SendAction(
+        key: _tangentKey,
+        label: tangentAction.label,
+        tooltip: tangentAction.hint,
+        semanticsLabel: 'Send as tangent',
+        primary: true,
+        onPressed: () => _sendComposer(tangent: true),
+      ),
+      if (_quote == null)
+        _SendAction(
+          key: _nextKey,
+          label: replyAction.label,
+          tooltip: _chat.isSideBranch
+              ? replyAction.hintInTangent
+              : replyAction.hint,
+          semanticsLabel: 'Send as next step',
+          primary: false,
+          onPressed: _sendNext,
+        ),
+    ];
   }
 
   Future<void> _follow(ChatNode node, Tangent tangent) async {
@@ -239,6 +288,56 @@ class _ChatPageState extends State<ChatPage> {
     context.go('/t/${widget.treeId}/b/${opened.branchId}');
     if (opened.created) await _send(tangent.title);
   }
+
+  /// Tells the walkthrough what the frame just drawn shows: a tangent, or
+  /// the main thread with the send actions under its reply.
+  void _reportToWalkthrough() {
+    if (_reportPending) return;
+    _reportPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _reportPending = false;
+      if (!mounted || _chat.loading) return;
+      if (_chat.isSideBranch) {
+        _walkthrough.onEnteredTangent();
+        return;
+      }
+      if (_tangentKey.currentContext != null) {
+        _walkthrough.onTrunkReplyReady();
+      }
+      if (_nextKey.currentContext != null) _walkthrough.onBackOnTrunk();
+    });
+  }
+
+  /// The walkthrough's coach mark for the step on screen, if any.
+  Widget _coachMark(BuildContext context) => ListenableBuilder(
+    listenable: _walkthrough,
+    builder: (context, _) {
+      final step = _walkthrough.showing;
+      if (step == null) return const SizedBox.shrink();
+      final (target, text, button) = switch (step) {
+        WalkthroughPhase.back => (
+          _mainThreadKey,
+          walkthroughSteps.back,
+          walkthroughButtons.next,
+        ),
+        WalkthroughPhase.next => (
+          _nextKey,
+          walkthroughSteps.next,
+          walkthroughButtons.done,
+        ),
+        _ => (_tangentKey, walkthroughSteps.tangent, walkthroughButtons.next),
+      };
+      return CoachMark(
+        key: ValueKey(step),
+        target: target,
+        clear: step == WalkthroughPhase.back ? null : _composerKey,
+        text: text,
+        buttonText: button,
+        onNext: _walkthrough.next,
+        onSkip: _walkthrough.skip,
+      );
+    },
+  );
 
   void _open(Branch branch) => context.go(
     branch.parentBranchId == null
@@ -253,11 +352,17 @@ class _ChatPageState extends State<ChatPage> {
     final wide = MediaQuery.sizeOf(context).width >= _wideFrom;
     return ListenableBuilder(
       // The session: who pays decides whether the tier can be switched.
-      listenable: Listenable.merge([_chat, lessons, scope.session]),
+      listenable: Listenable.merge([
+        _chat,
+        lessons,
+        _walkthrough,
+        scope.session,
+      ]),
       builder: (context, _) {
+        _reportToWalkthrough();
         // The main thread alone needs no outline.
         final hasOutline = _chat.outline.length > 1;
-        return Scaffold(
+        final scaffold = Scaffold(
           endDrawer: hasOutline && !wide
               ? Drawer(
                   child: SafeArea(
@@ -275,6 +380,13 @@ class _ChatPageState extends State<ChatPage> {
           body: SafeArea(
             child: Row(
               children: [
+                // Where it sits doesn't matter: the coach mark is drawn
+                // over the whole page. Without a child of its own, it leaves
+                // the page's semantics as they are.
+                OverlayPortal(
+                  controller: _coach,
+                  overlayChildBuilder: _coachMark,
+                ),
                 if (hasOutline && wide)
                   Container(
                     key: const ValueKey('outline'),
@@ -305,6 +417,16 @@ class _ChatPageState extends State<ChatPage> {
             ),
           ),
         );
+        // Always there, so the page under it stays put as coach marks come
+        // and go.
+        return CallbackShortcuts(
+          bindings: {
+            if (_walkthrough.showing != null)
+              const SingleActivator(LogicalKeyboardKey.escape):
+                  _walkthrough.skip,
+          },
+          child: scaffold,
+        );
       },
     );
   }
@@ -312,13 +434,16 @@ class _ChatPageState extends State<ChatPage> {
   Widget _outline({required ValueChanged<Branch> onOpen}) =>
       LessonOutline(outline: _chat.outline, chain: _chat.chain, onOpen: onOpen);
 
-  /// The app bar and, on a side question, the path down to it.
+  /// The app bar and, on a tangent, the path down to it.
   Widget _header({required bool wide, required bool hasOutline}) {
     final drawer = hasOutline && !wide;
+    // The way back stays in view while the walkthrough points at it.
+    final shown =
+        wide || _headerShown || _walkthrough.showing == WalkthroughPhase.back;
     return ClipRect(
       child: AnimatedAlign(
         alignment: Alignment.bottomCenter,
-        heightFactor: wide || _headerShown ? 1 : 0,
+        heightFactor: shown ? 1 : 0,
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
         child: Column(
@@ -343,11 +468,12 @@ class _ChatPageState extends State<ChatPage> {
                     enabled: _chat.canSwitchTier,
                     onChanged: (tier) => unawaited(_chat.setTier(tier)),
                   ),
+                const HelpButton(),
                 if (drawer)
                   Builder(
                     builder: (context) => IconButton(
-                      tooltip: 'Side questions',
-                      icon: const Icon(Icons.account_tree_outlined),
+                      tooltip: 'Tangents',
+                      icon: const Icon(Icons.list_alt_outlined),
                       onPressed: Scaffold.of(context).openEndDrawer,
                     ),
                   ),
@@ -357,6 +483,7 @@ class _ChatPageState extends State<ChatPage> {
             if (_chat.isSideBranch)
               Builder(
                 builder: (context) => _Breadcrumb(
+                  mainThreadKey: _mainThreadKey,
                   chain: _chat.chain,
                   onOpen: _open,
                   onMore: drawer ? Scaffold.of(context).openEndDrawer : null,
@@ -399,13 +526,21 @@ class _ChatPageState extends State<ChatPage> {
                 const SizedBox(height: 8),
               ],
               _Composer(
+                key: _composerKey,
                 controller: _composer,
                 focusNode: _composerFocus,
                 enabled: !busy,
                 streaming: streaming != null,
                 hint: _hint(),
-                lead: _composerLead,
-                onSend: _sendComposer,
+                lead: switch (_quote) {
+                  final quote? => _QuoteChip(
+                    text: quote.text,
+                    onRemove: _dropQuote,
+                  ),
+                  null => null,
+                },
+                actions: _composerActions(),
+                onSend: () => _sendComposer(tangent: false),
                 onStop: () => unawaited(_chat.stop()),
               ),
             ],
@@ -416,9 +551,9 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   /// The thread, scrolled around the start of the branch on screen: offset
-  /// zero is its first message (on a side question, the fork divider), and
-  /// the messages it follows from grow upwards from there. Opening a side
-  /// question so shows it from its start.
+  /// zero is its first message (on a tangent, the fork divider), and the
+  /// messages it follows from grow upwards from there. Opening a tangent so
+  /// shows it from its start.
   Widget _threadView(List<ChatNode> thread, EdgeInsets padding) {
     final id = _chat.branchId;
     final start = max(0, thread.indexWhere((n) => n.branchId == id));
@@ -453,6 +588,8 @@ class _ChatPageState extends State<ChatPage> {
       node: node,
       status: _chat.statusOf(node.id),
       sideQuestions: _chat.sideQuestionsAt(node),
+      latest: node.id == _chat.asideFrom?.id,
+      onContinue: _chat.sending ? null : (t) => unawaited(_send(t.title)),
       onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),
       onAskAbout: (text) => _askAbout(node, text),
       onOpenSideQuestion: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),
@@ -470,17 +607,26 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   String _branchTitle(String branchId) {
-    final title = _chat.branchTitle(branchId);
-    return title.isEmpty ? 'Side question' : 'Side question · $title';
+    final branch = _chat.branchById(branchId);
+    final title = branch == null ? '' : tangentTitle(branch);
+    return title.isEmpty ? 'Tangent' : 'Tangent · $title';
   }
 }
 
-/// Main thread › … › the parent › the side question on screen. The steps in
+/// Main thread › … › the parent › the tangent on screen. The steps in
 /// between are left out; the outline lists them.
 class _Breadcrumb extends StatelessWidget {
-  const _Breadcrumb({required this.chain, required this.onOpen, this.onMore});
+  const _Breadcrumb({
+    required this.mainThreadKey,
+    required this.chain,
+    required this.onOpen,
+    this.onMore,
+  });
 
-  /// The main thread down to the side question on screen.
+  /// On the main thread step, the way back.
+  final GlobalKey mainThreadKey;
+
+  /// The main thread down to the tangent on screen.
   final List<Branch> chain;
   final ValueChanged<Branch> onOpen;
 
@@ -518,7 +664,21 @@ class _Breadcrumb extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) => Row(
             children: [
-              step(chain.first),
+              Tooltip(
+                key: mainThreadKey,
+                message: mainThreadBack,
+                excludeFromSemantics: true,
+                // A node of its own that taps through, since the button
+                // under it is left out.
+                child: Semantics(
+                  container: true,
+                  label: mainThreadBack,
+                  button: true,
+                  onTap: () => onOpen(chain.first),
+                  excludeSemantics: true,
+                  child: step(chain.first),
+                ),
+              ),
               chevron,
               if (chain.length > 3) ...[
                 TextButton(
@@ -529,8 +689,8 @@ class _Breadcrumb extends StatelessWidget {
                 chevron,
               ],
               if (parent != null) ...[
-                // The parent takes at most a third, so the side question on
-                // screen keeps the most room.
+                // The parent takes at most a third, so the tangent on screen
+                // keeps the most room.
                 ConstrainedBox(
                   constraints: BoxConstraints(
                     maxWidth: constraints.maxWidth / 3,
@@ -592,7 +752,7 @@ class _ForkDivider extends StatelessWidget {
   );
 }
 
-/// The words of the message before it that a side question asks about.
+/// The words of the message before it that a tangent asks about.
 class _AnchorQuote extends StatelessWidget {
   const _AnchorQuote(this.text);
   final String text;
@@ -638,8 +798,8 @@ class _EmptyThread extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Ask a question or name a topic. You get a straight answer, then '
-              'a few tangents worth following. Each one opens a side question '
-              'of its own.',
+              'a few tangents worth following. Each one opens on the side, so '
+              'your main lesson stays clean.',
               style: theme.textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
@@ -677,18 +837,45 @@ class _CantOpen extends StatelessWidget {
   );
 }
 
-/// The message box. On the web, Enter sends and Shift+Enter starts a new
-/// line, as in the web apps. Where the message goes ([lead]) sits before the
-/// text; with the focus it takes a row of its own, and the box grows to
-/// three lines.
+/// One way to send the composer's message, as a button under the box.
+class _SendAction {
+  const _SendAction({
+    required this.key,
+    required this.label,
+    required this.tooltip,
+    required this.semanticsLabel,
+    required this.primary,
+    required this.onPressed,
+  });
+
+  final GlobalKey key;
+  final String label;
+
+  /// When to pick it; also shown on a long press.
+  final String tooltip;
+  final String semanticsLabel;
+
+  /// Filled, as the recommended default; otherwise outlined.
+  final bool primary;
+  final VoidCallback onPressed;
+}
+
+/// The message box. On the web, Enter sends (as the first of [actions]),
+/// Ctrl or Cmd+Enter sends as the second, and Shift+Enter starts a new line.
+/// The words it asks about ([lead]) sit before the text; with the focus they
+/// take a row of their own, and the box grows to three lines. With
+/// [actions], they replace the Send button with a row of equal buttons
+/// under the box.
 class _Composer extends StatelessWidget {
   const _Composer({
+    super.key,
     required this.controller,
     required this.focusNode,
     required this.enabled,
     required this.streaming,
     required this.hint,
     required this.lead,
+    required this.actions,
     required this.onSend,
     required this.onStop,
   });
@@ -699,28 +886,29 @@ class _Composer extends StatelessWidget {
   final bool streaming;
   final String hint;
 
-  /// Builds where the message goes, if there is a choice; [compact]: just
-  /// its icon.
-  final Widget? Function({required bool compact}) lead;
+  /// What the message asks about, if anything.
+  final Widget? lead;
+  final List<_SendAction> actions;
   final VoidCallback onSend;
   final VoidCallback onStop;
-
-  /// Below this width the lead shows only its icon until the box has the
-  /// focus.
-  static const _narrow = 560.0;
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     final enter =
         event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.numpadEnter;
+    final keyboard = HardwareKeyboard.instance;
     if (!kIsWeb ||
         event is! KeyDownEvent ||
         !enter ||
-        HardwareKeyboard.instance.isShiftPressed ||
+        keyboard.isShiftPressed ||
         controller.value.composing.isValid) {
       return KeyEventResult.ignored;
     }
-    onSend();
+    final modified = keyboard.isControlPressed || keyboard.isMetaPressed;
+    final action = modified && actions.length > 1
+        ? actions[1]
+        : actions.firstOrNull;
+    (action?.onPressed ?? onSend)();
     return KeyEventResult.handled;
   }
 
@@ -730,9 +918,7 @@ class _Composer extends StatelessWidget {
       listenable: focusNode,
       builder: (context, _) {
         final focused = focusNode.hasFocus;
-        final leading = lead(
-          compact: !focused && constraints.maxWidth < _narrow,
-        );
+        final leading = lead;
         // A tap on it keeps the focus in the box.
         final tappable = leading == null
             ? null
@@ -750,6 +936,12 @@ class _Composer extends StatelessWidget {
               leading: focused ? null : tappable,
               maxLeadWidth: constraints.maxWidth / 2,
             ),
+            if (actions.isNotEmpty && !streaming) ...[
+              const SizedBox(height: 8),
+              // Part of the box, so the focus (and its height) stays put
+              // until the tap lands.
+              TextFieldTapRegion(child: _actionRow()),
+            ],
           ],
         );
       },
@@ -790,14 +982,15 @@ class _Composer extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        if (streaming)
+        if (streaming) ...[
+          const SizedBox(width: 8),
           IconButton.filledTonal(
             tooltip: 'Stop',
             onPressed: onStop,
             icon: const Icon(Icons.stop),
-          )
-        else
+          ),
+        ] else if (actions.isEmpty) ...[
+          const SizedBox(width: 8),
           ValueListenableBuilder(
             valueListenable: controller,
             builder: (context, value, _) => IconButton.filled(
@@ -808,75 +1001,44 @@ class _Composer extends StatelessWidget {
               icon: const Icon(Icons.arrow_upward),
             ),
           ),
+        ],
       ],
     );
   }
-}
 
-/// Where the composer's message goes: a new side question from the last
-/// reply, or on in the branch on screen. A tap switches it.
-class _DestinationChip extends StatelessWidget {
-  const _DestinationChip({
-    required this.aside,
-    required this.compact,
-    required this.onPressed,
-  });
-
-  final bool aside;
-  final bool compact;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = TangentColors.of(context);
-    final label = aside ? 'Side question' : 'Continue';
-    final color = aside
-        ? Theme.of(context).colorScheme.primary
-        : tokens.fgMuted;
-    return Semantics(
-      button: true,
-      label: 'Send as: $label',
-      excludeSemantics: true,
-      child: Tooltip(
-        message: aside
-            ? 'Your message starts a side question from the last reply. '
-                  'Tap to continue here instead.'
-            : 'Your message continues here. Tap to ask a side question '
-                  'instead.',
-        child: Material(
-          color: aside ? tokens.accentSoft : Colors.transparent,
-          shape: StadiumBorder(side: BorderSide(color: color)),
-          child: InkWell(
-            customBorder: const StadiumBorder(),
-            onTap: onPressed,
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 8 : 12,
-                vertical: 6,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    aside ? Icons.call_split : Icons.chevron_right,
-                    size: 16,
-                    color: color,
-                  ),
-                  if (!compact) ...[
-                    const SizedBox(width: 4),
-                    Text(
-                      label,
-                      style: Theme.of(context).textTheme.labelMedium
-                          ?.copyWith(color: color),
-                    ),
-                  ],
-                ],
+  /// The actions side by side, equally wide, so the tangent is never the
+  /// smaller choice. The label carries the arrow, so no icon doubles it.
+  Widget _actionRow() => ValueListenableBuilder(
+    valueListenable: controller,
+    builder: (context, value, _) {
+      final ready = enabled && value.text.trim().isNotEmpty;
+      return Row(
+        children: [
+          for (final (i, action) in actions.indexed) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(
+              child: Tooltip(
+                message: action.tooltip,
+                child: _actionButton(action, ready: ready),
               ),
             ),
-          ),
-        ),
-      ),
+          ],
+        ],
+      );
+    },
+  );
+
+  Widget _actionButton(_SendAction action, {required bool ready}) {
+    final label = Text(
+      action.label,
+      semanticsLabel: action.semanticsLabel,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
+    final onPressed = ready ? action.onPressed : null;
+    return action.primary
+        ? FilledButton(key: action.key, onPressed: onPressed, child: label)
+        : OutlinedButton(key: action.key, onPressed: onPressed, child: label);
   }
 }
 
@@ -893,7 +1055,7 @@ class _QuoteChip extends StatelessWidget {
     final accent = Theme.of(context).colorScheme.primary;
     return InputChip(
       key: const ValueKey('composer-quote'),
-      avatar: Icon(Icons.call_split, size: 16, color: accent),
+      avatar: Icon(Icons.subdirectory_arrow_right, size: 16, color: accent),
       label: Text('“$text”', maxLines: 1, overflow: TextOverflow.ellipsis),
       backgroundColor: tokens.accentSoft,
       side: BorderSide(color: accent),

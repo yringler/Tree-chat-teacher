@@ -117,8 +117,8 @@ test('power: a selection inside a diagram quotes its whole source', async ({
     throw new Error('no label');
   });
   const bar = page.locator('app-selection-ask');
-  await bar.getByRole('button', { name: /^More: Branch from here/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await bar.getByRole('button', { name: /^More: Tangent from here/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue(
     '```mermaid\n' + FLOWCHART + '```',
   );

@@ -5,7 +5,7 @@ import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { TreeStore } from '../state/tree-store';
 import { ModeBadge } from '../ui/mode-badge';
 
-/** "N branches" under a message: the branches started from it, to open or delete. */
+/** "N tangents" under a message: the tangents started from it, to open or delete. */
 @Component({
   selector: 'app-fork-list',
   imports: [Icon, ModeBadge],
@@ -20,8 +20,8 @@ import { ModeBadge } from '../ui/mode-badge';
           [attr.aria-expanded]="open()"
           (click)="$event.stopPropagation(); open.set(!open())"
         >
-          <app-icon name="branch" [size]="13" />
-          {{ branches().length }} {{ branches().length === 1 ? 'branch' : 'branches' }}
+          <app-icon name="tangent" [size]="13" />
+          {{ branches().length }} {{ branches().length === 1 ? 'tangent' : 'tangents' }}
           <app-icon [name]="open() ? 'chevronDown' : 'chevronRight'" [size]="13" />
         </button>
         @if (open()) {
@@ -47,7 +47,7 @@ import { ModeBadge } from '../ui/mode-badge';
                     type="button"
                     class="icon-btn icon-btn-danger"
                     [attr.aria-label]="'Delete ' + b.title"
-                    title="Delete branch"
+                    title="Delete tangent"
                     (click)="remove($event, b)"
                   >
                     <app-icon name="trash" [size]="13" />

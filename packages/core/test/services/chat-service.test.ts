@@ -58,8 +58,16 @@ describe('ChatService trees and branches', () => {
       '## Heading\n\n**Bold** _idea_ about `code` and more words than fit in a title',
     );
     const branch = await chat.createBranch({ fromNodeId: begin.userNode.id });
-    expect(branch.title).toBe('Branch: Heading Bold idea about code and');
+    expect(branch.title).toBe('Tangent: Heading Bold idea about code and');
     expect(branch.titleSource).toBe('default');
+  });
+
+  it('titles a tangent off a message with no words "New tangent"', async () => {
+    const { chat } = setup();
+    const { tree } = await chat.createTree({ title: 'T' });
+    const { begin } = await send(chat, tree.trunkBranchId, '![](a.png)');
+    const branch = await chat.createBranch({ fromNodeId: begin.userNode.id });
+    expect(branch.title).toBe('New tangent');
   });
 
   it('refuses to set a mode on the trunk', async () => {
@@ -82,6 +90,7 @@ describe('ChatService trees and branches', () => {
     await expect(chat.getTreeDetail('x')).rejects.toBeInstanceOf(NotFoundError);
     await expect(chat.createBranch({ fromNodeId: 'x' })).rejects.toBeInstanceOf(NotFoundError);
     await expect(chat.beginSend('x', 'hi')).rejects.toBeInstanceOf(NotFoundError);
+    await expect(chat.updateBranch('x', { title: 'Renamed' })).rejects.toThrow('Thread not found');
   });
 });
 
@@ -159,6 +168,9 @@ describe('ChatService.deleteBranch', () => {
     const { chat, a, a1, b } = await fixture();
     const begin = await chat.beginSend(a1.id, 'slow one');
     await expect(chat.deleteBranch(a.id)).rejects.toBeInstanceOf(ConflictError);
+    await expect(chat.deleteBranch(a.id)).rejects.toThrow(
+      'A reply is still being generated in this thread; stop it first',
+    );
 
     // Generating elsewhere does not block.
     await expect(chat.deleteBranch(b.id)).resolves.toMatchObject({ branchIds: [b.id] });
@@ -230,9 +242,9 @@ describe('ChatService sending', () => {
     const { chat } = setup();
     const { tree } = await chat.createTree({});
     await chat.beginSend(tree.trunkBranchId, 'first');
-    await expect(chat.beginSend(tree.trunkBranchId, 'second')).rejects.toBeInstanceOf(
-      ConflictError,
-    );
+    const second = chat.beginSend(tree.trunkBranchId, 'second');
+    await expect(second).rejects.toBeInstanceOf(ConflictError);
+    await expect(second).rejects.toThrow('A reply is still being generated in this thread');
   });
 
   it('sends only the path context: siblings never leak', async () => {
@@ -433,6 +445,16 @@ describe('ChatService backup', () => {
     expect(detail.nodes).toHaveLength(4);
   });
 
+  it('rejects a backup without exactly one main thread', async () => {
+    const { chat } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    const backup = await chat.exportBackup(tree.id);
+    const broken = { ...backup, tree: { ...backup.tree, trunkBranchId: 'elsewhere' } };
+    await expect(chat.importBackup(broken)).rejects.toThrow(
+      'Backup must contain exactly one main thread',
+    );
+  });
+
   it('rejects a backup whose branch is missing a message, before importing anything', async () => {
     const { chat, repos } = setup({ autoTitle: false });
     const { tree } = await chat.createTree({});
@@ -449,7 +471,7 @@ describe('ChatService backup', () => {
     const rejected = chat.importBackup(broken);
     await expect(rejected).rejects.toBeInstanceOf(ValidationError);
     await expect(rejected).rejects.toThrow(
-      "This backup can't be restored: a branch is missing some of its messages",
+      "This backup can't be restored: a thread is missing some of its messages",
     );
     expect(repos.dump().trees.size).toBe(trees);
   });

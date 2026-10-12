@@ -65,8 +65,8 @@ List<Branch> branchChain(String branchId, Map<String, Branch> branches) {
 /// One branch in a lesson's outline, [depth] levels below the trunk.
 typedef OutlineEntry = ({Branch branch, int depth});
 
-/// Every branch reachable from the trunk, depth first: each side question
-/// under the one it came from, siblings in the server's order.
+/// Every branch reachable from the trunk, depth first: each tangent under
+/// the thread it came from, siblings in the server's order.
 List<OutlineEntry> branchOutline(String trunkId, Map<String, Branch> branches) {
   final children = <String, List<Branch>>{};
   for (final b in branches.values) {

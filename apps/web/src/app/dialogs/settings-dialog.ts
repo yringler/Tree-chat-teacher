@@ -64,8 +64,8 @@ interface TierRow {
               @if (!promptLoaded()) {
                 Loading…
               } @else if (usesBuiltIn()) {
-                Now: the built-in prompt. It answers directly, then suggests tangents to branch
-                into.
+                Now: the built-in prompt. It answers directly, then suggests next steps and
+                tangents.
               } @else {
                 Now: your own prompt.
               }
@@ -116,10 +116,10 @@ interface TierRow {
           @if (custom()) {
             <app-model-picker [(route)]="route" [(modelId)]="modelId" />
             <button type="button" class="btn btn-ghost btn-sm" (click)="custom.set(false)">
-              Use the branch's provider default instead
+              Use the tangent's provider default instead
             </button>
           } @else {
-            <p class="small">Now: the default model of the branch's own provider.</p>
+            <p class="small">Now: the default model of the tangent's own provider.</p>
             <button type="button" class="btn btn-ghost btn-sm" (click)="customize()">
               Choose a model
             </button>
@@ -130,7 +130,7 @@ interface TierRow {
           <legend>Normal &amp; Max</legend>
           <p class="muted small">
             The Normal | Max switch under the message box uses these, and Compare asks both. Each
-            tier keeps who pays for the branch where it can.
+            tier keeps who pays for the thread where it can.
             @if (maxSuggested()) {
               {{ maxNote() }}
             }

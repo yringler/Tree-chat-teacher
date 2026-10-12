@@ -238,11 +238,11 @@ export const VIEWER_SCRIPT = `
       if (b.parentKey) {
         var head = make('div', 'branch-start' + (isCurrent ? ' current' : ''));
         var label = make('div', 'bs-label');
-        label.appendChild(make('span', 'bs-kicker', isCurrent ? 'Branch' : 'Via branch'));
+        label.appendChild(make('span', 'bs-kicker', isCurrent ? 'Tangent' : 'Via tangent'));
         label.appendChild(link(b.key, 'bs-title', b.title));
         head.appendChild(label);
         if (isCurrent && b.forkMessageKey) {
-          head.appendChild(link(b.forkMessageKey, 'back', '\\u21A9 back to parent message'));
+          head.appendChild(link(b.forkMessageKey, 'back', '\\u21A9 Back to where this tangent started'));
         }
         var quote = sections[b.key] && sections[b.key].querySelector('.anchor');
         if (quote) head.appendChild(quote.cloneNode(true));
@@ -265,7 +265,7 @@ export const VIEWER_SCRIPT = `
         }
         if (next && mk === next.forkMessageKey) break;
       }
-      if (isCurrent && !b.messages.length) frag.appendChild(make('p', 'empty', 'No messages in this branch.'));
+      if (isCurrent && !b.messages.length) frag.appendChild(make('p', 'empty', 'No messages in this tangent.'));
     });
     thread.textContent = '';
     thread.appendChild(frag);
@@ -401,7 +401,7 @@ function renderMessage(vm: ViewModel, m: ShareMessage): string {
       )
       .join('');
     forksHtml =
-      `<details class="forks"><summary>${escapeHtml(plural(forks.length, 'branch', 'branches'))}</summary>` +
+      `<details class="forks"><summary>${escapeHtml(plural(forks.length, 'tangent', 'tangents'))}</summary>` +
       `<ul>${items}</ul></details>`;
   }
   return (
@@ -429,14 +429,14 @@ function renderStoreBranch(vm: ViewModel, b: ShareBranch): string {
   const back =
     b.forkMessageKey === null
       ? ''
-      : `<p class="sb-fork"><a class="back" href="#${escapeHtml(b.forkMessageKey)}">↩ back to parent message</a></p>`;
+      : `<p class="sb-fork"><a class="back" href="#${escapeHtml(b.forkMessageKey)}">↩ Back to where this tangent started</a></p>`;
   const anchor =
     b.anchorQuote === null
       ? ''
       : `<blockquote class="anchor">${escapeHtml(b.anchorQuote)}</blockquote>`;
   const body =
     b.messages.length === 0
-      ? '<p class="empty">No messages in this branch.</p>'
+      ? '<p class="empty">No messages in this tangent.</p>'
       : b.messages.map((m) => renderMessage(vm, m)).join('');
   return (
     `<section class="sb" id="${key}" data-key="${key}"><h2 class="sb-title">${escapeHtml(breadcrumbText(vm, b))}</h2>` +
@@ -548,6 +548,8 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
   const rootBranch = vm.byKey.get(payload.rootBranchKey) ?? payload.branches[0];
   const seen = new Set<string>();
   let outlineHtml = rootBranch === undefined ? '' : renderOutlineItem(vm, rootBranch, seen);
+  // The head counts tangents: every branch but the shared thread they hang off.
+  const tangentCount = Math.max(0, payload.branches.length - 1);
   // Branches unreachable from the root (malformed payloads) are still listed.
   for (const b of payload.branches) {
     if (!seen.has(b.key)) outlineHtml += renderOutlineItem(vm, b, seen);
@@ -580,12 +582,12 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
     '<span class="nav-toggle-icon" aria-hidden="true"></span>Outline</button>' +
     `<h1>${title}</h1><span class="badge">Read-only</span></header>\n` +
     '<div class="layout">\n' +
-    `<nav class="outline" id="outline" aria-label="Branches"><div class="outline-head"><span>Branches</span>` +
-    `<span class="count">${payload.branches.length}</span></div><ul class="tree">${outlineHtml}</ul></nav>\n` +
+    `<nav class="outline" id="outline" aria-label="Tangents"><div class="outline-head"><span>Tangents</span>` +
+    `<span class="count">${tangentCount}</span></div><ul class="tree">${outlineHtml}</ul></nav>\n` +
     '<div class="scrim" id="scrim"></div>\n' +
     '<main class="main" id="main"><div class="col">\n' +
     disclaimer +
-    '<nav class="crumbs" id="crumbs" aria-label="Branch path"></nav>\n' +
+    '<nav class="crumbs" id="crumbs" aria-label="Thread path"></nav>\n' +
     context +
     '<div class="thread" id="thread"></div>\n' +
     `<div class="store" id="store">\n${payload.branches.map((b) => renderStoreBranch(vm, b)).join('')}</div>\n` +

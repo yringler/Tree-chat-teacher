@@ -8,6 +8,7 @@ import '../state/app_scope.dart';
 import '../state/lessons_controller.dart';
 import 'delete_account_dialog.dart';
 import 'format.dart';
+import 'help.dart';
 import 'payment_dialog.dart';
 import 'tier_switch.dart';
 import 'widgets.dart';
@@ -33,7 +34,7 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Logo(),
-        actions: const [_AccountMenu(), SizedBox(width: 8)],
+        actions: const [HelpButton(), _AccountMenu(), SizedBox(width: 8)],
       ),
       body: ListenableBuilder(
         listenable: lessons,
@@ -172,7 +173,7 @@ class _NewLessonCardState extends State<_NewLessonCard> {
             const SizedBox(height: 4),
             Text(
               'Name a topic or ask a first question. Every answer ends with '
-              'tangents you can follow.',
+              'next steps and tangents you can follow.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
@@ -230,9 +231,7 @@ class _LessonTile extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete lesson?'),
-        content: Text(
-          'Delete the lesson “$title” with all its side questions?',
-        ),
+        content: Text('Delete the lesson “$title” with all its tangents?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -260,7 +259,7 @@ class _LessonTile extends StatelessWidget {
       child: ListTile(
         title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
         subtitle: Text(
-          '${relativeDate(tree.updatedAt)}${sideQuestionsLabel(tree.branchCount)}',
+          '${relativeDate(tree.updatedAt)}${tangentsLabel(tree.branchCount)}',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         onTap: () => context.go('/t/${tree.id}'),

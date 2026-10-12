@@ -8,6 +8,7 @@ import 'api/token_store.dart';
 import 'state/app_scope.dart';
 import 'state/lessons_controller.dart';
 import 'state/session_controller.dart';
+import 'state/walkthrough_controller.dart';
 import 'ui/chat_page.dart';
 import 'ui/home_page.dart';
 import 'ui/login_page.dart';
@@ -47,6 +48,10 @@ class _TangentAppState extends State<TangentApp> {
     choiceStore: widget.choiceStore,
   );
   late final _lessons = LessonsController(api: widget.api, session: _session);
+  late final _walkthrough = WalkthroughController(
+    api: widget.api,
+    session: _session,
+  );
   late final _router = GoRouter(
     initialLocation: widget.initialLocation,
     refreshListenable: _session,
@@ -75,6 +80,7 @@ class _TangentAppState extends State<TangentApp> {
   void dispose() {
     _router.dispose();
     _lessons.dispose();
+    _walkthrough.dispose();
     _session.dispose();
     super.dispose();
   }
@@ -107,6 +113,7 @@ class _TangentAppState extends State<TangentApp> {
       api: widget.api,
       session: _session,
       lessons: _lessons,
+      walkthrough: _walkthrough,
       child: MaterialApp.router(
         title: brandName,
         debugShowCheckedModeBanner: false,

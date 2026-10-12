@@ -863,7 +863,7 @@ describe('TreeStore links between messages', () => {
     expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
     expect(s.ui.linkPick()).toBeNull();
     expect(s.ui.linkReturn()).toBeNull(); // In power's words.
-    expect(s.toasts.toasts().at(-1)?.text).toBe('Deleted the branch and 1 below it');
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Deleted the tangent and 1 below it');
   });
 
   it('says a link is removed, or was already, in power’s words', async () => {

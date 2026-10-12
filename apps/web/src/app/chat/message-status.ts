@@ -32,7 +32,7 @@ import { TreeStore } from '../state/tree-store';
           <span>{{ n.error }}</span>
         }
         <span class="muted small"
-          >To retry, send your message again (or branch from the previous message).</span
+          >To retry, send your message again (or go on a tangent from the previous message).</span
         >
       </div>
     }

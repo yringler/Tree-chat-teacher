@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import {
   CONTINUE_MESSAGE,
+  groupTangents,
   isCutOffReply,
   isStoppedReply,
   splitTangents,
@@ -13,6 +14,7 @@ import {
   relatedLinks,
   RenderDiagrams,
   SourcesList,
+  SuggestionGroups,
   TypesetMath,
   type LinkNoteEdit,
 } from '@tangent/web-shared';
@@ -25,7 +27,7 @@ import { branchTitle } from './titles';
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, RelatedLinks, RenderDiagrams, SourcesList, TypesetMath],
+  imports: [Icon, RelatedLinks, RenderDiagrams, SourcesList, SuggestionGroups, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -45,12 +47,12 @@ import { branchTitle } from './titles';
           <button
             type="button"
             class="btn btn-ghost btn-sm msg-ask"
-            title="Start a side question about this message"
+            title="Go on a tangent about this message"
             (click)="
               store.createBranch({ fromNodeId: n.id, contextMode: 'path', anchorQuote: null })
             "
           >
-            <app-icon name="branch" [size]="14" /> Side question
+            Tangent ↳
           </button>
           <button
             type="button"
@@ -108,35 +110,23 @@ import { branchTitle } from './titles';
         (check)="checkSources()"
       />
 
-      @if (askable()) {
-        <nav class="tangents" aria-label="Tangents worth following">
-          <span class="tangents-label muted small">Where next?</span>
-          @for (t of tangents(); track t.title) {
-            <button
-              type="button"
-              class="tangent"
-              [class.is-followed]="followed().has(t.title)"
-              [class.is-on]="followedOn().has(t.title)"
-              [disabled]="opening() !== null"
-              [title]="followed().has(t.title) ? 'Open this side question' : (t.why ?? t.title)"
-              (click)="follow(t.title)"
-            >
-              <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'branch'" [size]="14" />
-              <span class="tangent-title">{{ t.title }}</span>
-              @if (t.why) {
-                <span class="tangent-why muted">{{ t.why }}</span>
-              }
-            </button>
-          }
-        </nav>
-      }
+      <app-suggestion-groups
+        [tangents]="suggestions()"
+        [latest]="store.isLatest(n.id)"
+        [inTangent]="inTangent()"
+        [children]="children()"
+        [chainIds]="store.chainIds()"
+        [busy]="store.busy()"
+        [send]="keepGoingWith"
+        [open]="openTangent"
+      />
 
       @if (otherChildren().length > 0) {
-        <nav class="side-questions" [attr.aria-label]="'Side questions from this message'">
+        <nav class="side-questions" [attr.aria-label]="'Tangents from this message'">
           <span class="muted small">
-            <app-icon name="branch" [size]="13" />
+            <app-icon name="tangent" [size]="13" />
             {{ otherChildren().length }}
-            {{ otherChildren().length === 1 ? 'side question' : 'side questions' }}
+            {{ otherChildren().length === 1 ? 'tangent' : 'tangents' }}
           </span>
           @for (b of otherChildren(); track b.id) {
             <span class="chip-row">
@@ -153,8 +143,8 @@ import { branchTitle } from './titles';
               <button
                 type="button"
                 class="icon-btn icon-btn-danger chip-delete"
-                [attr.aria-label]="'Delete the side question ' + branchTitle(b)"
-                title="Delete this side question"
+                [attr.aria-label]="'Delete the tangent ' + branchTitle(b)"
+                title="Delete this tangent"
                 (click)="remove(b.id)"
               >
                 <app-icon name="trash" [size]="13" />
@@ -237,31 +227,17 @@ export class MessageItem {
     if (!this.focused()) this.store.focus(this.node().id);
   }
 
-  /** The tutor's suggested tangents, offered once the reply is complete. */
-  protected readonly tangents = computed(() => (this.askable() ? this.split().tangents : []));
+  /** The tutor's suggestions, offered once the reply is complete. */
+  protected readonly suggestions = computed(() => (this.askable() ? this.split().tangents : []));
+  /** Inside a tangent, the next step continues that tangent rather than the main lesson. */
+  protected readonly inTangent = computed(
+    () => !!this.store.branchOf(this.node().id)?.parentBranchId,
+  );
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
-  /** Titles of the tangents the learner already followed (a child branch carries the title). */
-  protected readonly followed = computed<ReadonlySet<string>>(() => {
-    const titles = new Set(this.tangents().map((t) => t.title));
-    return new Set(
-      this.children()
-        .map((b) => b.title)
-        .filter((t) => titles.has(t)),
-    );
-  });
-  /** Followed tangents on the current path. */
-  protected readonly followedOn = computed<ReadonlySet<string>>(() => {
-    const on = this.store.chainIds();
-    return new Set(
-      this.children()
-        .filter((b) => on.has(b.id))
-        .map((b) => b.title),
-    );
-  });
-  /** Side questions that are not followed tangents (those show in the tangents row). */
+  /** Tangents that don't follow a suggestion (those show among the suggestions). */
   protected readonly otherChildren = computed(() => {
-    const followed = this.followed();
-    return this.children().filter((b) => !followed.has(b.title));
+    const suggested = new Set(groupTangents(this.suggestions()).tangent.map((t) => t.title));
+    return this.children().filter((b) => !suggested.has(b.title));
   });
   protected readonly depth = computed(() => this.store.depthOf(this.node().branchId));
   /** A finished reply on a provider that can search, while nothing else is generating. */
@@ -298,19 +274,16 @@ export class MessageItem {
     void this.store.updateLinkNote(edit.linkId, edit.note);
   }
 
-  /** Title of the tangent whose branch is being created. */
-  protected readonly opening = signal<string | null>(null);
   protected async remove(branchId: string): Promise<void> {
     await confirmDeleteSideQuestion(this.store, branchId);
   }
 
-  protected async follow(title: string): Promise<void> {
-    if (this.opening() !== null) return;
-    this.opening.set(title);
-    try {
-      await this.store.followTangent(this.node().id, title);
-    } finally {
-      this.opening.set(null);
-    }
-  }
+  /** Sends a "Keep going" suggestion as the next message of the open thread, unmarking any message first. */
+  protected readonly keepGoingWith = (title: string) => {
+    const n = this.node();
+    if (this.store.focusedNodeId()) this.store.go(n.branchId, null, true);
+    return this.store.continueWith(n.id, title);
+  };
+  protected readonly openTangent = (title: string) =>
+    this.store.followTangent(this.node().id, title);
 }

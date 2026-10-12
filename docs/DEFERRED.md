@@ -60,6 +60,18 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **State names in state diagrams lose their last letter.** `mermaid_flutter` 0.3.x measures them at normal weight but paints them bold; a fix is proposed upstream. Bump the pinned version once a release has it.
 - **A tab open across a deploy can't draw diagrams.** The web build loads the diagram library (about 660 KB gzipped) as a deferred part on first use; a tab still running the previous `main.dart.js` asks for a part the deploy replaced, and shows each diagram as its source under the failure note until it reloads.
 
+## Reply and tangent guidance
+
+- **Suggestions aren't provider-native structured output.** They are a `[continue]`/`[tangent]`-tagged block in the reply's text ([DECISIONS](DECISIONS.md#reply-or-tangent)). JSON mode or tool calls would split the streamed Markdown, need code per provider, and a new SSE event or column to carry them.
+- **No walkthrough in power or Canvas.** It is for a learner's first conversation, and these are surfaces for people past it; power has the help without **Replay the walkthrough**. Adding it means reporting power's screen events to `Walkthrough` and adding the `data-coach` targets.
+- **No help sheet in Canvas.** Its "Reading the canvas" help only says tangent. `TangentHelp` would go in its dialog stack like power's.
+- **Power's Send keeps the label Send,** with the Next hint as its tooltip: power starts tangents from a message's **Tangent ↳** action, and a Tangent and Next pair in its composer would need its own design.
+- **The Flutter help has no keyboard shortcuts link.** The app has no shortcuts list to open; Enter and Ctrl or Cmd+Enter are named in the send buttons' tooltips.
+- **No standalone `/help` page.** `/welcome#how-tangents` is the one public entry point. A page would reuse `TangentHelpCard`.
+- **The Play Store listing text isn't in the repository,** so it still needs the tangent wording by hand in the Play Console; only the feature graphic (`apps/flutter/store/`) changed.
+- **The send buttons' long-press tooltips and the coach marks are checked in widget tests and the browser only,** like the rest of the Flutter app (see [Not yet run on a phone](#the-flutter-app-appsflutter)).
+- **The e2e scripted upstream emits no suggestions.** `apps/e2e/serve.mjs` answers without a `<tangents>` block, so grouped suggestions are covered end to end only through `/learn/demo`, whose generator emits tagged blocks.
+
 ## Links between messages
 
 - **Links across trees.** Only two messages of one tree can be linked. Across trees needs rules for ownership, deleting either tree, and backups that hold one end.

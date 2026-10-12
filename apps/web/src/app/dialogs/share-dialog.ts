@@ -25,7 +25,7 @@ import { ScopePicker } from '../ui/scope-picker';
       @if (created(); as s) {
         <div class="form">
           <p>
-            Anyone with this link can read {{ scopeLabel() }}. Private branches are never included.
+            Anyone with this link can read {{ scopeLabel() }}. Private tangents are never included.
           </p>
           <div class="copy-row">
             <input
@@ -55,7 +55,7 @@ import { ScopePicker } from '../ui/scope-picker';
           <app-scope-picker [(scope)]="scope" [(includeAncestors)]="includeAncestors" />
           @if (missingTarget()) {
             <p class="notice">
-              This branch has no messages yet; share the whole conversation or add a message first.
+              This tangent has no messages yet; share the whole conversation or add a message first.
             </p>
           }
 

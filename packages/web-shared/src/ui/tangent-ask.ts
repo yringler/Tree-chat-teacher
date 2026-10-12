@@ -16,7 +16,7 @@ import {
 import { Icon } from './icon';
 
 /**
- * "Ask your own": the last item of a reply's "Where next?" list, styled like
+ * "Ask your own": the last item of a reply's "Tangents" group, styled like
  * the suggested tangents but with a field for the user's own question, sent
  * as the first message of a new branch. The parent owns the text (`text`,
  * cleared once the branch is created) and the branching (`ask`).
@@ -104,7 +104,7 @@ import { Icon } from './icon';
             class="btn btn-primary btn-sm"
             [disabled]="disabled() || busy() || !text().trim()"
           >
-            <app-icon name="send" [size]="14" /> {{ busy() ? 'Branching…' : 'Ask' }}
+            <app-icon name="send" [size]="14" /> {{ busy() ? 'Starting…' : 'Ask' }}
           </button>
         </div>
       } @else if (!expandable() && text().trim()) {

@@ -17,7 +17,7 @@ import { Icon, Modal } from '@tangent/web-shared';
  */
 export function confirmDeleteTree(title: string): boolean {
   return confirm(
-    `Delete “${title}” with all its branches and messages? Its shares stop working. This cannot be undone.`,
+    `Delete “${title}” with all its tangents and messages? Its shares stop working. This cannot be undone.`,
   );
 }
 
@@ -42,7 +42,7 @@ export function confirmDeleteTree(title: string): boolean {
         </label>
         <label class="field">
           <span class="field-label"
-            >System prompt <span class="muted">(sent with every branch, in every mode)</span></span
+            >System prompt <span class="muted">(sent with every tangent, in every mode)</span></span
           >
           <textarea
             rows="8"

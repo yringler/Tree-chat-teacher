@@ -105,7 +105,7 @@ export {
 // UI
 export { BetaBanner } from './ui/beta-banner';
 export { Compare, type CompareCandidate } from './ui/compare';
-export { Composer, ComposerController } from './ui/composer';
+export { Composer, ComposerController, type ComposerAction } from './ui/composer';
 export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
 export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
@@ -131,7 +131,9 @@ export {
 export { RenderDiagrams } from './ui/diagrams';
 export { selectionText, TypesetMath, typesetMath } from './ui/math';
 export { ShortcutsTable } from './ui/shortcuts-table';
+export { SuggestionGroups } from './ui/suggestion-groups';
 export { TangentAsk } from './ui/tangent-ask';
+export { TangentHelp } from './ui/tangent-help';
 export { TextSizeMenu } from './ui/text-size-menu';
 export {
   MAX_QUOTE,
@@ -146,6 +148,10 @@ export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';
 export { AccountId } from './account/account-id';
 export { DeleteAccount } from './account/delete-account';
+
+// The first-run walkthrough (Learn): its steps and the coach marks that show them
+export { CoachMark } from './walkthrough/coach-mark';
+export { Walkthrough, type WalkthroughApi } from './walkthrough/walkthrough';
 
 // Billing: the shared billing page, the read-only notice and their helpers
 export { BillingPage } from './billing/billing-page';

@@ -2,8 +2,8 @@ import { DEFAULT_BRANCH_TITLE_PREFIX, DEFAULT_TREE_TITLE, type Branch } from '@t
 
 /*
  * The Learn app's words for the core's default titles. The ChatService names
- * things in power-mode terms ("New conversation", "Main thread", "Branch: …");
- * a learner sees lessons and side questions.
+ * things in power-mode terms ("New conversation", "Main thread", "Tangent: …");
+ * a learner sees lessons and tangents.
  */
 
 /** A lesson's title until the tutor's first reply names it. */
@@ -15,10 +15,10 @@ export function lessonTitle(title: string): string {
 }
 
 /**
- * A side question's title as shown to the learner. A side question started
- * from a whole message is named "Branch: <its first words>" until the first
- * reply renames it; here it is already labelled a side question, so the
- * prefix goes.
+ * A tangent's title as shown to the learner. A tangent started from a whole
+ * message is named "Tangent: <its first words>" until the first reply
+ * renames it; Learn already labels it a tangent wherever it shows the title
+ * ("Tangent · …"), so the prefix goes.
  */
 export function branchTitle(branch: Pick<Branch, 'title' | 'titleSource'>): string {
   const { title, titleSource } = branch;

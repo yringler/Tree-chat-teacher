@@ -1,15 +1,15 @@
-# Tangent — branching LLM chat
+# Tangent — an LLM chat for learning, built on tangents
 
 Tangent is a chat app for tree-shaped conversations with LLMs, built for learning. It runs on **Cloudflare Workers, D1 and Durable Objects**, with **Angular** front ends.
 
-In a normal chat, digging into a side topic pollutes the main thread, and starting a new chat loses where the question came from. In Tangent any message can grow any number of **branches**, and each branch has a **context mode** that decides what the model sees:
+In a normal chat, digging into a side topic pollutes the main thread, and starting a new chat loses where the question came from. In Tangent any message can grow any number of **tangents** (branches in the code), and each one has a **context mode** that decides what the model sees:
 
 - `path`: everything its parent saw, plus the branch's own messages;
 - `summary`: a cached summary of the parent's conversation;
 - `message`: only the message the branch forks from, plus the highlighted quote;
 - `independent`: only the highlighted quote or topic.
 
-The **Context Inspector** shows exactly what will be sent and why. Every reply suggests a few **tangents** to explore next, and replies can be grounded in a web search, with sources.
+The **Context Inspector** shows exactly what will be sent and why. Every reply suggests next steps (**Keep going**) and **tangents** to explore, and replies can be grounded in a web search, with sources.
 
 These apps share one Worker and one sign-in:
 
@@ -75,7 +75,8 @@ packages/core        context assembly (pure), ChatService and the generation pip
 packages/providers   Anthropic and OpenAI-compatible (OpenAI, OpenRouter, …) over raw fetch + SSE; a fake for tests
 packages/render      Markdown to safe HTML, the self-contained viewer page, Markdown export
 packages/web-shared  Angular code shared by the apps: the conversation engine, API client, auth, billing,
-                     composer, dialogs, toasts, the in-browser demo backend
+                     composer, dialogs, toasts, tangent help and the first-run walkthrough,
+                     the in-browser demo backend
 apps/worker          Hono API, D1 (Drizzle), the TreeSession and PoolBank Durable Objects, Better Auth,
                      billing and the open pool, public pages, share routes
 apps/web             power app (Angular 22, standalone, signals, zoneless)

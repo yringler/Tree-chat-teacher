@@ -14,6 +14,7 @@ import {
   RelatedLinks,
   relatedLinks,
   RenderDiagrams,
+  SuggestionGroups,
   TangentAsk,
   TypesetMath,
   type LinkNoteEdit,
@@ -46,7 +47,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
  */
 @Component({
   selector: 'app-card',
-  imports: [Icon, RelatedLinks, RenderDiagrams, TangentAsk, TypesetMath],
+  imports: [Icon, RelatedLinks, RenderDiagrams, SuggestionGroups, TangentAsk, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -83,11 +84,11 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
           <button
             type="button"
             class="icon-btn card-branch"
-            title="Branch from here (one lane, or several variants at once)"
-            aria-label="Branch from this message"
+            title="Tangent from here (one lane, or several variants at once)"
+            aria-label="Tangent from this message"
             (click)="branch($event)"
           >
-            <app-icon name="branch" [size]="15" />
+            <app-icon name="tangent" [size]="15" />
           </button>
         }
       </header>
@@ -118,30 +119,17 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
       }
 
       @if (complete()) {
-        <nav class="tangents" aria-label="Tangents worth following">
-          <span class="tangents-label muted small">Where next?</span>
-          @for (t of tangents(); track t.title) {
-            <button
-              type="button"
-              class="tangent"
-              [class.is-followed]="followed().has(t.title)"
-              [disabled]="opening() !== null || (locked() && !followed().has(t.title))"
-              [title]="
-                followed().has(t.title)
-                  ? 'Open this lane'
-                  : locked()
-                    ? 'Following it needs a membership (this lane is on your own key)'
-                    : (t.why ?? t.title)
-              "
-              (click)="follow(t.title, $event)"
-            >
-              <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'branch'" [size]="14" />
-              <span class="tangent-title">{{ t.title }}</span>
-              @if (t.why) {
-                <span class="tangent-why muted">{{ t.why }}</span>
-              }
-            </button>
-          }
+        <app-suggestion-groups
+          [tangents]="tangents()"
+          [latest]="latest()"
+          [inTangent]="inTangent()"
+          [children]="children()"
+          [locked]="locked()"
+          noun="lane"
+          [withAsk]="true"
+          [send]="sendStep"
+          [open]="openTangent"
+        >
           <!-- The user's own question, in a new lane like a tangent. -->
           <app-tangent-ask
             [(text)]="askText"
@@ -155,11 +143,11 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
             (ask)="ask($event)"
             (settings)="askWithSettings($event)"
           />
-        </nav>
+        </app-suggestion-groups>
       }
 
       @if (children().length > 0) {
-        <nav class="card-forks" aria-label="Lanes branching from this message">
+        <nav class="card-forks" aria-label="Tangents from this message">
           @for (b of children(); track b.id) {
             <button
               type="button"
@@ -260,21 +248,24 @@ export class Card {
   /** A reply cut off at its length limit (it keeps its text, but isn't a whole answer). */
   protected readonly cutOff = computed(() => isCutOffReply(this.node()));
   protected readonly stopped = computed(() => isStoppedReply(this.node()));
-  /** A finished reply: offers its tangents and "Ask your own". */
+  /** A finished reply: offers its suggestions and "Ask your own". */
   protected readonly complete = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
   protected readonly tangents = computed(() => (this.complete() ? this.split().tangents : []));
+  /** Inside a tangent, the next step continues that tangent rather than the main thread. */
+  protected readonly inTangent = computed(
+    () => !!this.store.index()?.branches.get(this.node().branchId)?.parentBranchId,
+  );
   /** The card's lane can't generate (its funding needs the membership the user lacks). */
   protected readonly locked = computed(() => {
     const b = this.store.index()?.branches.get(this.node().branchId);
     return !!b && this.store.account.routeLocked(b);
   });
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
-  protected readonly followed = computed<ReadonlySet<string>>(
-    () => new Set(this.children().map((b) => b.title)),
-  );
-  protected readonly opening = signal<string | null>(null);
+  protected readonly sendStep = (title: string) => this.store.continueWith(this.node().id, title);
+  protected readonly openTangent = (title: string) =>
+    this.store.followTangent(this.node().id, title);
 
   /** This message's links, resolved to their other ends (the chips). */
   protected readonly related = computed(() => {
@@ -436,17 +427,6 @@ export class Card {
   private toWorld(clientX: number, clientY: number): Point {
     const rect = this.host.nativeElement.closest('.viewport')?.getBoundingClientRect();
     return this.geo.toWorld({ x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) });
-  }
-
-  protected async follow(title: string, e: Event): Promise<void> {
-    e.stopPropagation();
-    if (this.opening() !== null || (this.locked() && !this.followed().has(title))) return;
-    this.opening.set(title);
-    try {
-      await this.store.followTangent(this.node().id, title);
-    } finally {
-      this.opening.set(null);
-    }
   }
 }
 

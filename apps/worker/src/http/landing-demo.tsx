@@ -1,16 +1,17 @@
+import { MAIN_THREAD_LABEL, REPLY_ACTION } from '@tangent/shared';
 import type { Child } from 'hono/jsx';
 
 /**
  * The landing page's demo: one "Why is the sky blue?" conversation, first in
  * a regular chat that tangles, then, after the visitor presses the gate's
  * button, the same questions asked in Tangent, one step at a time, ending on
- * chips that open any branch. It runs on CSS alone (LANDING_STYLE's `.dm`
+ * chips that open any tangent. It runs on CSS alone (LANDING_STYLE's `.dm`
  * rules): a checkbox switches the halves and radio chips pick a branch.
  * Answers are placeholder bars, so the only words are the questions, the
  * phrase each follow-up came from, and the captions.
  *
- * Tangent shows one branch at a time: the message a side question came from,
- * dimmed, then the side question. That is Learn's and power mode's view, so
+ * Tangent shows one branch at a time: the message a tangent came from,
+ * dimmed, then the tangent. That is Learn's and power mode's view, so
  * the demo never shows Canvas's lanes.
  */
 
@@ -20,7 +21,7 @@ type Width = 30 | 45 | 60 | 75 | 90;
 type Step = 1 | 2 | 3;
 
 const CHIPS: Record<Branch, string> = {
-  1: 'Main',
+  1: MAIN_THREAD_LABEL,
   2: '↳ Rayleigh',
   3: '↳ 1/λ⁴',
   4: '↳ Violet',
@@ -143,14 +144,14 @@ const QUESTIONS: Record<Branch | 5, string> = {
   5: 'And why are sunsets orange?',
 };
 
-/** Where each side question starts: the answer it came from, and the phrase. */
+/** Where each tangent starts: the answer it came from, and the phrase. */
 const FORKS: Record<2 | 3 | 4, { from: Branch; phrase: string }> = {
   2: { from: 1, phrase: 'Rayleigh scattering' },
   3: { from: 2, phrase: '1/λ⁴' },
   4: { from: 1, phrase: 'violet' },
 };
 
-/** A side question's branch: the answer it came from (dimmed), the divider, then its own messages. */
+/** A tangent's branch: the answer it came from (dimmed), the divider, then its own messages. */
 function SideBranch(props: { b: 2 | 3 | 4; animate?: boolean; children?: Child }) {
   const { from, phrase } = FORKS[props.b];
   const step = (n: Step) => (props.animate ? n : undefined);
@@ -159,7 +160,7 @@ function SideBranch(props: { b: 2 | 3 | 4; animate?: boolean; children?: Child }
       <Answer b={from} from>
         {ANSWERS[from]({ tap: props.animate ? props.b : undefined })}
       </Answer>
-      <p class={classes('dm-fork', props.animate && 'n1')}>Side question · {phrase}</p>
+      <p class={classes('dm-fork', props.animate && 'n1')}>Tangent · {phrase}</p>
       <Question b={props.b} n={step(2)}>
         {QUESTIONS[props.b]}
       </Question>
@@ -171,7 +172,7 @@ function SideBranch(props: { b: 2 | 3 | 4; animate?: boolean; children?: Child }
   );
 }
 
-/** The main question's branch: its answer and how many side questions it has, then the follow-up once asked. */
+/** The main question's branch: its answer and how many tangents it has, then the follow-up once asked. */
 function MainBranch(props: { sides: 0 | 1 | 2; sunsets: boolean; animate?: Step[] }) {
   const [q, a] = props.animate ?? [];
   return (
@@ -183,9 +184,7 @@ function MainBranch(props: { sides: 0 | 1 | 2; sunsets: boolean; animate?: Step[
         {ANSWERS[1]({})}
       </Answer>
       {props.sides > 0 && (
-        <p class="dm-forks">
-          {props.sides === 1 ? '1 side question' : `${props.sides} side questions`}
-        </p>
+        <p class="dm-forks">{props.sides === 1 ? '1 tangent' : `${props.sides} tangents`}</p>
       )}
       {props.sunsets && (
         <>
@@ -284,24 +283,29 @@ export function LandingDemo() {
             <Scene n={1} open={1} on={1} caption="Same first question, in Tangent.">
               <MainBranch sides={0} sunsets={false} animate={[1, 2]} />
             </Scene>
-            <Scene n={2} open={2} on={2} pop={2} caption="A side question opens its own branch.">
+            <Scene n={2} open={2} on={2} pop={2} caption="Wait, what’s that? Go on a tangent.">
               <SideBranch b={2} animate />
             </Scene>
-            <Scene n={3} open={3} on={3} pop={3} caption="And a side question of that one.">
+            <Scene n={3} open={3} on={3} pop={3} caption="And a tangent off that one.">
               <SideBranch b={3} animate />
             </Scene>
-            <Scene n={4} open={3} on={1} caption="Back to the lesson. Nothing moved.">
+            <Scene n={4} open={3} on={1} caption="Back to the main thread. Nothing moved.">
               <MainBranch sides={1} sunsets={false} />
             </Scene>
-            <Scene n={5} open={4} on={4} pop={4} caption="Violet gets a branch of its own.">
+            <Scene n={5} open={4} on={4} pop={4} caption="Violet gets a tangent of its own.">
               <SideBranch b={4} animate />
             </Scene>
-            <Scene n={6} open={4} on={1} caption="The lesson goes on, nothing in the way.">
+            <Scene
+              n={6}
+              open={4}
+              on={1}
+              caption={`${REPLY_ACTION.label} The lesson goes on, nothing in the way.`}
+            >
               <MainBranch sides={2} sunsets animate={[1, 2]} />
             </Scene>
           </div>
           <div class="dm-live">
-            <div class="dm-chips" role="radiogroup" aria-label="Branches">
+            <div class="dm-chips" role="radiogroup" aria-label="Tangents">
               {([1, 2, 3, 4] as const).map((b) => (
                 <>
                   <input
@@ -320,21 +324,21 @@ export function LandingDemo() {
             <div class="dm-pane p1">
               <MainBranch sides={2} sunsets />
               <Caption mood="glad" note>
-                Tap any branch to open it.
+                Tap any tangent to open it.
               </Caption>
             </div>
             <div class="dm-pane p2">
               <SideBranch b={2}>
-                <p class="dm-forks">1 side question</p>
+                <p class="dm-forks">1 tangent</p>
               </SideBranch>
               <Caption mood="glad" note>
-                Each question gets its own branch.
+                Each side trip is its own tangent.
               </Caption>
             </div>
             <div class="dm-pane p3">
               <SideBranch b={3} />
               <Caption mood="glad" note>
-                A branch of a branch. Still easy to find.
+                A tangent off a tangent. Still easy to find.
               </Caption>
             </div>
             <div class="dm-pane p4">

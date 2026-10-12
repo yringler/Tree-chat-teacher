@@ -14,6 +14,9 @@ const PATHS = {
   key: 'M14.5 9.5a4 4 0 1 0-4 4M10.5 13.5L4 20M6 18l2 2M8 16l2 2',
   branch:
     'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+  tangent: 'M4 4v7a4 4 0 0 0 4 4h12M15 10l5 5-5 5',
+  next: 'M5 12h14M12 5l7 7-7 7',
+  keyboard: 'M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
   settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6',
   share: 'M4 12v8h16v-8M12 3v13M7 8l5-5 5 5',

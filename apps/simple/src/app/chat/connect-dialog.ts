@@ -40,7 +40,7 @@ import { connectionTitleOf } from './connections';
           noteLabel="Why? (a note for yourself)"
           notePlaceholder="How do they connect?"
           submitLabel="Connect"
-          tangentLabel="Side question"
+          tangentLabel="Tangent"
           (picked)="connect($event)"
           (cancelled)="close()"
         />

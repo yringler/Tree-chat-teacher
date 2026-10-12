@@ -16,12 +16,20 @@
     // scripts/check-turbo-inputs.mjs checks these reach the files.
     "@tangent/web-shared#test": {
       "dependsOn": ["transit"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/{web,simple,canvas,admin}/src/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/{web,simple,canvas,admin}/src/**",
+        "$TURBO_ROOT$/apps/flutter/lib/ui/{tangent_help_copy,lesson_outline}.dart"
+      ],
       "outputs": []
     },
     "@tangent/web-shared#coverage": {
       "dependsOn": ["transit"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/{web,simple,canvas,admin}/src/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/{web,simple,canvas,admin}/src/**",
+        "$TURBO_ROOT$/apps/flutter/lib/ui/{tangent_help_copy,lesson_outline}.dart"
+      ],
       "outputs": ["coverage/**"]
     },
     "@tangent/worker#test": {

@@ -100,7 +100,7 @@ export interface FailedSend {
 export interface ConversationCopy {
   /** What a tree is called: "conversation", "lesson". */
   tree: string;
-  /** What a branch is called: "branch", "lane", "side question". */
+  /** What a branch is called: "tangent", "lane". */
   branch: string;
   /** What a link between messages is called: "link", "connection". */
   link: string;
@@ -609,9 +609,22 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   }
 
   /**
+   * Sends a "Keep going" suggestion under `fromNodeId` as the next message
+   * of its branch, as the composer would. A next step only makes sense at
+   * the end of the thread on screen, so from any other message it does
+   * nothing and resolves false.
+   */
+  continueWith(fromNodeId: string, text: string): Promise<boolean> {
+    const branch = this.branchOf(fromNodeId);
+    if (!branch || !this.isLatest(fromNodeId)) return Promise.resolve(false);
+    return this.send(branch.id, text);
+  }
+
+  /**
    * The user's own question in a new branch from `fromNodeId`, asked like a
    * followed tangent, about `anchorQuote` when they selected words in it.
-   * Untitled: it reads "Branch: …" until the first reply names it.
+   * Untitled: it reads `DEFAULT_BRANCH_TITLE_PREFIX` and the question until
+   * the first reply names it.
    */
   askFrom(
     fromNodeId: string,

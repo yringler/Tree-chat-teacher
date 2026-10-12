@@ -41,7 +41,8 @@ export interface LinkReturn {
 
 /**
  * A dialog of the power app, with what it was opened with. `keys`: Keys &
- * credit, `provider` preselecting the provider to enter a key for; `review`:
+ * credit, `provider` preselecting the provider to enter a key for; `help`:
+ * How tangents work; `review`:
  * the review of one assistant message; `compare`: Normal and Max answer
  * `content` at the leaf of `branchId`, and the user keeps one (the message
  * stays in the composer until a pick commits).
@@ -52,6 +53,7 @@ export type Dialog =
   | { kind: 'tree-settings' }
   | { kind: 'share' }
   | { kind: 'shortcuts' }
+  | { kind: 'help' }
   | { kind: 'keys'; provider: string | null }
   | { kind: 'settings' }
   | { kind: 'account' }

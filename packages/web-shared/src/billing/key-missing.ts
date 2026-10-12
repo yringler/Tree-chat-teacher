@@ -69,8 +69,8 @@ export function keyMissingText(
   ].filter((w): w is string => w !== null);
   const how =
     ways.length > 0
-      ? ` To send it, ${ways.join(', or ')}; any other provider or model is in the branch’s settings.`
-      : ' To send it, pick another provider or model in the branch’s settings.';
+      ? ` To send it, ${ways.join(', or ')}; any other provider or model is in the tangent’s settings.`
+      : ' To send it, pick another provider or model in the tangent’s settings.';
   return { lead: 'Your message wasn’t sent.', body: where + how };
 }
 

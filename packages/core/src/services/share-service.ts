@@ -54,7 +54,7 @@ export type PublicShareCheck =
 
 const PROJECTION_ERRORS: Record<Exclude<ProjectShareResult, { ok: true }>['reason'], string> = {
   target_not_found: 'The message to share was not found in this conversation',
-  target_private: 'That message is inside a private branch',
+  target_private: 'That message is inside a private tangent',
   empty: 'There is nothing to share yet',
 };
 

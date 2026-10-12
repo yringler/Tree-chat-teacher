@@ -18,6 +18,7 @@ export * from './pool.js';
 export * from './admin.js';
 export * from './waitlist.js';
 export * from './tangents.js';
+export * from './tangent-help.js';
 export * from './default-prompt.js';
 export * from './grounding.js';
 export * from './output-tokens.js';

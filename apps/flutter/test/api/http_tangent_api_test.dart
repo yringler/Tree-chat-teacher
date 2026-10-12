@@ -127,6 +127,7 @@ const Json branch = {
   'parentBranchId': null,
   'branchPointNodeId': null,
   'title': 'Trunk',
+  'titleSource': 'auto',
   'model': 'm',
 };
 
@@ -267,8 +268,12 @@ void main() {
               ],
             },
           ]),
-          ('POST', '/api/branches') ||
-          ('PATCH', '/api/branches/b2') => json({...branch, 'id': 'b2'}),
+          ('POST', '/api/branches') || ('PATCH', '/api/branches/b2') => json({
+            ...branch,
+            'id': 'b2',
+            'title': 'Tangent: Why',
+            'titleSource': 'default',
+          }),
           _ => empty(),
         },
       );
@@ -280,6 +285,7 @@ void main() {
 
       final created = await f.api.createBranch(fromNodeId: 'n1', title: 'Why');
       expect(created.id, 'b2');
+      expect(created.titleSource, 'default');
       expect(f.seen.last.json, {
         'fromNodeId': 'n1',
         'contextMode': 'path',
@@ -292,6 +298,35 @@ void main() {
       await f.api.cancel('a1');
       expect(f.seen.last.method, 'POST');
       expect(f.seen.last.url.path, '/api/nodes/a1/cancel');
+    });
+  });
+
+  group('settings', () {
+    test('reads the walkthrough flag', () async {
+      final f = fake(
+        (_) => json({
+          'systemPrompt': null,
+          'defaultSystemPrompt': 'Be brief.',
+          'walkthroughDoneAt': null,
+        }),
+      );
+      expect((await f.api.settings()).walkthroughDoneAt, isNull);
+      expect(f.seen.single.method, 'GET');
+      expect(f.seen.single.url.path, '/api/settings');
+    });
+
+    test('marks the walkthrough done, and only that', () async {
+      final f = fake(
+        (_) => json({
+          'systemPrompt': 'Mine',
+          'defaultSystemPrompt': 'Be brief.',
+          'walkthroughDoneAt': '2026-10-12T00:00:00.000Z',
+        }),
+      );
+      await f.api.markWalkthroughDone();
+      expect(f.seen.single.method, 'PATCH');
+      expect(f.seen.single.url.path, '/api/settings');
+      expect(f.seen.single.json, {'walkthroughDone': true});
     });
   });
 

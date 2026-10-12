@@ -53,9 +53,9 @@ export interface RouteView {
           type="button"
           class="route-chip"
           [class.is-warn]="r.missing"
-          title="Change the provider, model or who pays (branch settings)"
+          title="Change the provider, model or who pays (tangent settings)"
           [attr.aria-label]="
-            'Replies on ' + r.label + ', ' + r.model + '. Change them in the branch settings'
+            'Replies on ' + r.label + ', ' + r.model + '. Change them in the tangent settings'
           "
           (click)="ui.dialogs.open({ kind: 'branch-settings' })"
         >

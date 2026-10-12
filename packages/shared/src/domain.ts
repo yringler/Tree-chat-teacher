@@ -125,10 +125,10 @@ export const DEFAULT_TREE_TITLE = 'New conversation';
 export const TRUNK_TITLE = 'Main thread';
 /**
  * Prefix of a branch's default title when it was started from a whole
- * message rather than a quote ("Branch: <first words of the message>").
- * UIs with their own word for branches strip it (see the Learn app).
+ * message rather than a quote ("Tangent: <first words of the message>").
+ * UIs that already say it is a tangent strip it (see the Learn app).
  */
-export const DEFAULT_BRANCH_TITLE_PREFIX = 'Branch: ';
+export const DEFAULT_BRANCH_TITLE_PREFIX = 'Tangent: ';
 
 export interface Branch {
   id: string;

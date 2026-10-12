@@ -276,7 +276,7 @@ export function checkBranches(
     if (!byBranchId.has(node.branchId)) {
       throw new BrokenChainError(
         `Node ${node.id} is in unknown branch ${node.branchId}`,
-        'a message belongs to a branch that is missing',
+        'a message belongs to a thread that is missing',
       );
     }
   }
@@ -329,7 +329,7 @@ function resolveChain<B extends ChainBranch>(
 ): B[] {
   const target = byId.get(targetBranchId);
   if (!target)
-    throw new BrokenChainError(`Unknown target branch ${targetBranchId}`, 'a branch is missing');
+    throw new BrokenChainError(`Unknown target branch ${targetBranchId}`, 'a thread is missing');
 
   const chain: B[] = [];
   const seen = new Set<string>();
@@ -338,13 +338,13 @@ function resolveChain<B extends ChainBranch>(
     if (seen.has(current.id)) {
       throw new BrokenChainError(
         `Branch chain has a cycle at ${current.id}`,
-        'its branches branch off each other in a loop',
+        'its tangents start from each other in a loop',
       );
     }
     if (current.treeId !== treeId) {
       throw new BrokenChainError(
         `Branch ${current.id} does not belong to tree ${treeId}`,
-        'a branch belongs to another conversation',
+        'a thread belongs to another conversation',
       );
     }
     seen.add(current.id);
@@ -354,14 +354,14 @@ function resolveChain<B extends ChainBranch>(
     if (current.branchPointNodeId === null) {
       throw new BrokenChainError(
         `Branch ${current.id} has a parent branch but no branch point`,
-        'a branch has no message it branches off',
+        'a tangent has no message it starts from',
       );
     }
     const parent = byId.get(parentId);
     if (!parent) {
       throw new BrokenChainError(
         `Parent branch ${parentId} of branch ${current.id} is missing`,
-        'a branch branches off a branch that is missing',
+        'a tangent starts from a thread that is missing',
       );
     }
     current = parent;
@@ -384,7 +384,7 @@ function resolveOwnNodes(
   chain: readonly ChainBranch[],
   targetNodeId: string | null,
 ): ChatNode[][] {
-  const missing = 'a branch is missing some of its messages';
+  const missing = 'a thread is missing some of its messages';
   const k = chain.length - 1;
   const result: ChatNode[][] = [];
   for (let i = 0; i <= k; i++) {
@@ -398,13 +398,13 @@ function resolveOwnNodes(
       if (!point) {
         throw new BrokenChainError(
           `Branch point ${pointId} of branch ${child.id} is missing`,
-          'a branch branches off a message that is missing',
+          'a tangent starts from a message that is missing',
         );
       }
       if (point.branchId !== branch.id) {
         throw new BrokenChainError(
           `Branch point ${pointId} of branch ${child.id} is not in parent branch ${branch.id}`,
-          'a branch branches off a message outside its parent branch',
+          'a tangent starts from a message outside the thread it comes from',
         );
       }
       lastSeq = point.seq;
@@ -413,7 +413,7 @@ function resolveOwnNodes(
       if (!targetNode || targetNode.branchId !== branch.id) {
         throw new BrokenChainError(
           `Target node ${targetNodeId} is not in target branch ${branch.id}`,
-          'a message is not in its branch',
+          'a message is not in its thread',
         );
       }
       lastSeq = targetNode.seq;
@@ -463,7 +463,7 @@ function nodeSegment(ctx: Ctx, node: ChatNode, branch: Branch, isTarget: boolean
     return {
       kind: 'branch',
       reason: 'branch-message',
-      explanation: `Message in this branch ${quoted(branch.title)}`,
+      explanation: `Message in this thread ${quoted(branch.title)}`,
       sourceNodeIds: [node.id],
       viaBranchId: branch.id,
       tokens,
@@ -504,7 +504,7 @@ function branchPointSegment(
     ...segment,
     reason: 'branch-point-message',
     explanation:
-      `The message in ${quoted(parent.title)} that ${quoted(branch.title)} branched from, ` +
+      `The message in ${quoted(parent.title)} that ${quoted(branch.title)} starts from, ` +
       'because it uses parent-message mode',
   };
 }
@@ -636,8 +636,8 @@ function branchSummary(
       focus,
       viaBranchId: branch.id,
       explanation:
-        `Summary of what ${quoted(parent.title)} sent at the branch point, because ` +
-        `${quoted(branch.title)} uses summary mode` +
+        `Summary of what ${quoted(parent.title)} sent up to where ${quoted(branch.title)} starts, ` +
+        `because ${quoted(branch.title)} uses summary mode` +
         (focus === null ? '' : ' (focused on the anchor quote)'),
     },
     parentCtx,

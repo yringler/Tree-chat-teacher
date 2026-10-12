@@ -73,16 +73,37 @@ describe('ChatPage', () => {
     expect(within(chat).getByText('What is light?')).toBeTruthy();
     expect(within(chat).getByText('A wave.')).toBeTruthy();
     expect(composer()?.placeholder).toBe('Continue this thread…');
+    expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
+      'Next ➜: Got it, what’s next? Keeps the main lesson moving.',
+    );
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?{Enter}');
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
   });
 
-  it('a new branch shows where it starts, and asks for its first question', async () => {
+  it('a new tangent shows where it starts, and asks for its first question', async () => {
     await page({ branchId: 'side' });
-    expect(screen.getByText('New branch. Your next message starts it.')).toBeTruthy();
+    expect(screen.getByText('New tangent. Your next message starts it.')).toBeTruthy();
     expect(screen.getByText('A wave', { selector: 'blockquote' })).toBeTruthy();
     expect(composer()?.placeholder).toBe('Ask your question…');
+    expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
+      'Next ➜: Got it, what’s next? Keeps this tangent moving.',
+    );
+  });
+
+  it('the header names the open thread: the main thread is not called a tangent', async () => {
+    await page();
+    expect(screen.getByRole('button', { name: /^Link the main thread/ })).toBeTruthy();
+    expect(screen.getByTitle('Main thread settings')).toBeTruthy();
+    expect(
+      screen.queryByText(/tangent/i, { selector: '.chat-head button, .chat-head span' }),
+    ).toBeNull();
+  });
+
+  it('inside a tangent the header says tangent', async () => {
+    await page({ branchId: 'side' });
+    expect(screen.getByRole('button', { name: /^Link this tangent/ })).toBeTruthy();
+    expect(screen.getByTitle('Tangent settings')).toBeTruthy();
   });
 
   it('while a reply streams, the box is disabled and Stop stops it', async () => {

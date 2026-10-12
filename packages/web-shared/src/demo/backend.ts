@@ -154,7 +154,7 @@ interface Held {
 }
 
 /** The shape of a mirrored session; a session saved in another shape is discarded. */
-const SAVED_VERSION = 3;
+const SAVED_VERSION = 4;
 
 interface Saved {
   version: typeof SAVED_VERSION;
@@ -167,6 +167,8 @@ interface Saved {
   usage: UsageEntry[];
   /** The account's saved default system prompt (Settings). */
   systemPrompt: string | null;
+  /** When the visitor finished or skipped the first-run walkthrough; null = not yet. */
+  walkthroughDoneAt: string | null;
 }
 
 const encoder = new TextEncoder();
@@ -388,7 +390,7 @@ export class DemoBackend {
       } satisfies PoolMeResponse),
     poolVerify: 'unsupported',
 
-    // Account settings (the default system prompt), kept with the session
+    // Account settings (the default system prompt, the walkthrough flag), kept with the session
     settings: async () => json(await this.chat.getSettings()),
     updateSettings: async ({ body }) =>
       this.saved(json(await this.chat.updateSettings(R.updateSettings.body.parse(body ?? {})))),
@@ -850,6 +852,7 @@ export class DemoBackend {
       balanceMicros: this.balanceMicros,
       usage: this.usage,
       systemPrompt: this.state.settings.get(DEMO_ACCOUNT_ID)?.systemPrompt ?? null,
+      walkthroughDoneAt: this.state.settings.get(DEMO_ACCOUNT_ID)?.walkthroughDoneAt ?? null,
     };
     try {
       this.storage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -884,8 +887,11 @@ export class DemoBackend {
     for (const s of saved.summaries) {
       this.state.summaries.set(`${s.anchorNodeId}|${s.sourceHash}|${s.model}`, s);
     }
-    if (saved.systemPrompt !== null) {
-      this.state.settings.set(DEMO_ACCOUNT_ID, { systemPrompt: saved.systemPrompt });
+    if (saved.systemPrompt !== null || saved.walkthroughDoneAt !== null) {
+      this.state.settings.set(DEMO_ACCOUNT_ID, {
+        systemPrompt: saved.systemPrompt,
+        walkthroughDoneAt: saved.walkthroughDoneAt,
+      });
     }
     this.balanceMicros = saved.balanceMicros;
     this.usage = saved.usage.map((e) =>

@@ -6,8 +6,8 @@ const REASONS: Record<InclusionReason, string> = {
   'system-node': 'system message',
   'path-ancestor': 'inherited (path)',
   'branch-point-message': 'parent message',
-  'branch-message': 'this branch',
-  'branch-summary': 'branch summary',
+  'branch-message': 'this tangent',
+  'branch-summary': 'tangent summary',
   'budget-compaction': 'compaction',
   'anchor-quote': 'anchor quote',
 };

@@ -28,7 +28,7 @@ interface VariantRow extends BranchVariant {
 const MAX_VARIANTS = 6;
 
 /**
- * "Branch from here", the canvas way: one new lane, or several *variants*
+ * "Tangent from here", the canvas way: one new lane, or several *variants*
  * off the same message at once, each with its own context mode and model.
  * With a starting message (or one carried from "Ask your own"), every
  * variant is asked in parallel and the lanes stream side by side. Titles
@@ -39,7 +39,7 @@ const MAX_VARIANTS = 6;
   imports: [Modal, Icon, ModelField],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Branch from here" [wide]="true" (closed)="close()">
+    <app-modal heading="Tangent from here" [wide]="true" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); create()">
         @if (source(); as n) {
           <div class="excerpt">
@@ -57,7 +57,7 @@ const MAX_VARIANTS = 6;
             [value]="quote()"
             (input)="quote.set(q.value)"
             #q
-            placeholder="Select text in a message before branching to quote it"
+            placeholder="Select text in a message before starting a tangent to quote it"
           ></textarea>
         </label>
 

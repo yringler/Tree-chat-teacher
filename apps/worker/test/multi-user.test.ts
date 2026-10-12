@@ -239,12 +239,14 @@ describe('account settings: the default system prompt', () => {
     expect(await ok<SettingsResponse>(await u.call('/api/settings'))).toEqual({
       systemPrompt: null,
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+      walkthroughDoneAt: null,
     });
     expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
 
     expect(await ok<SettingsResponse>(await patch(u, 'Answer in French.'))).toEqual({
       systemPrompt: 'Answer in French.',
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+      walkthroughDoneAt: null,
     });
     expect((await ok<SettingsResponse>(await u.call('/api/settings'))).systemPrompt).toBe(
       'Answer in French.',
@@ -337,11 +339,38 @@ describe('account settings: the default system prompt', () => {
     expect(pooled).not.toContain('Answer in French.');
   });
 
+  it('remembers the walkthrough per user across apps, keeping the saved prompt', async () => {
+    const u = await newUser();
+    const other = await newUser();
+    await ok<SettingsResponse>(await patch(u, 'My prompt.'));
+    const done = await ok<SettingsResponse>(
+      await u.call('/api/settings', {
+        method: 'PATCH',
+        json: { walkthroughDone: true },
+        learn: 'own-key',
+      }),
+    );
+    expect(done.systemPrompt).toBe('My prompt.');
+    expect(done.walkthroughDoneAt).toEqual(expect.any(String));
+    const read = await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'credit' }));
+    expect(read.walkthroughDoneAt).toBe(done.walkthroughDoneAt);
+    // Saving the prompt leaves the flag alone.
+    expect((await ok<SettingsResponse>(await patch(u, 'Changed.'))).walkthroughDoneAt).toBe(
+      done.walkthroughDoneAt,
+    );
+    expect(
+      (await ok<SettingsResponse>(await other.call('/api/settings'))).walkthroughDoneAt,
+    ).toBeNull();
+  });
+
   it('rejects malformed updates and needs a session', async () => {
     const u = await newUser();
     expect((await patch(u, 'x'.repeat(20_001))).status).toBe(400);
     expect((await patch(u, 42)).status).toBe(400);
     expect((await u.call('/api/settings', { method: 'PATCH', json: {} })).status).toBe(400);
+    expect(
+      (await u.call('/api/settings', { method: 'PATCH', json: { walkthroughDone: 'yes' } })).status,
+    ).toBe(400);
     const anonymous = client();
     expect((await anonymous.call('/api/settings')).status).toBe(401);
   });
