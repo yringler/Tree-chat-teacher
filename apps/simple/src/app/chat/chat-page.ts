@@ -318,8 +318,12 @@ export class ChatPage implements OnDestroy {
 
   /** Tangent ↳ or Next ➜ pressed (or Enter / Ctrl+Enter) with the composer's text. */
   protected act({ id, text }: { id: string; text: string }): void {
-    if (id === 'tangent') void this.goOnTangent(text);
-    else this.send(text);
+    if (id === 'tangent') {
+      void this.goOnTangent(text);
+      return;
+    }
+    if (this.store.selectedBranch()?.parentBranchId === null) this.walkthrough.onRepliedOnTrunk();
+    this.send(text);
   }
 
   /** The message continues what is open (Send or Next ➜). */

@@ -199,13 +199,26 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   /// Sends the composer's text: on a tangent from the reply on screen (or
-  /// the one quoted), or as the next step of the branch on screen.
-  void _sendComposer({required bool tangent}) {
+  /// the one quoted), or as the next step of the branch on screen. False
+  /// when there is nothing to send yet.
+  bool _sendComposer({required bool tangent}) {
     final text = _composer.text.trim();
-    if (text.isEmpty || _chat.sending || _chat.streamingNode != null) return;
+    if (text.isEmpty || _chat.sending || _chat.streamingNode != null) {
+      return false;
+    }
     final quote = _quote;
     final from = quote?.node ?? (tangent ? _chat.asideFrom : null);
     unawaited(from == null ? _send(text) : _ask(from, text, quote?.text));
+    return true;
+  }
+
+  /// Next ➜: on the main thread, the reply the walkthrough's last step asks
+  /// for.
+  void _sendNext() {
+    final onTrunk = !_chat.isSideBranch;
+    if (_sendComposer(tangent: false) && onTrunk) {
+      _walkthrough.onRepliedOnTrunk();
+    }
   }
 
   /// Asks [text] in a new tangent from [node], about [quote] if given.
@@ -263,7 +276,7 @@ class _ChatPageState extends State<ChatPage> {
               : replyAction.hint,
           semanticsLabel: 'Send as next step',
           primary: false,
-          onPressed: () => _sendComposer(tangent: false),
+          onPressed: _sendNext,
         ),
     ];
   }

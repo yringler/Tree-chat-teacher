@@ -675,6 +675,43 @@ void main() {
       expect(api.walkthroughDoneMarks, 1);
     });
 
+    testWidgets('a reply sent with Next ➜ on the main thread ends it at step '
+        '3', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await sendAs(tester, tangentAction.label, 'Why the moon?');
+      await settle(tester);
+      final side = branch('side-1', parent: 'trunk', fork: 'a1');
+      final sideReply = node(
+        's2',
+        branch: 'side-1',
+        seq: 1,
+        role: Role.assistant,
+        content: 'Gravity.',
+      );
+      await emit(
+        tester,
+        StartEvent(
+          userNode: node('s1', branch: 'side-1', seq: 0, content: 'Why?'),
+          assistantNode: sideReply,
+          branch: side,
+        ),
+      );
+      await emit(tester, DoneEvent(node: sideReply, branch: side));
+      await tester.tap(find.text('Main thread'));
+      await settle(tester);
+      expect(find.text(walkthroughSteps.next), findsOneWidget);
+
+      await sendAs(tester, replyAction.label, 'And then?');
+      await settle(tester);
+      expect(api.sends.last.target, 'trunk');
+      expect(find.text(walkthroughSteps.next), findsNothing);
+      expect(api.walkthroughDoneMarks, 1);
+    });
+
     testWidgets('Skip tour ends it and says so to the server', (tester) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',

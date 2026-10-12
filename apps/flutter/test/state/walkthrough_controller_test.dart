@@ -44,6 +44,25 @@ void main() {
     expect(api.walkthroughDoneMarks, 1);
   });
 
+  test('a reply sent with Next ➜ on step 3 ends it, as Done does', () async {
+    await walkthrough.start();
+    walkthrough
+      ..onTrunkReplyReady()
+      ..onRepliedOnTrunk();
+    expect(walkthrough.showing, WalkthroughPhase.tangent, reason: 'step 1');
+
+    walkthrough
+      ..onEnteredTangent()
+      ..onBackOnTrunk();
+    expect(walkthrough.showing, WalkthroughPhase.next);
+    walkthrough
+      ..onRepliedOnTrunk()
+      ..onRepliedOnTrunk();
+    expect(walkthrough.state.phase, WalkthroughPhase.done);
+    await pumpEventQueue();
+    expect(api.walkthroughDoneMarks, 1);
+  });
+
   test(
     '"Got it" puts a step away until the learner gets to the next',
     () async {

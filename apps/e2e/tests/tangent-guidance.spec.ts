@@ -90,6 +90,42 @@ test('Learn demo: the first-run walkthrough goes round the loop once, then stays
   expect(errors).toEqual([]);
 });
 
+test('Learn demo: replying with Next ➜ on the last step finishes the walkthrough', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await openExampleLesson(page);
+  const coach = page.locator('.coach-mark');
+  const composer = page.locator('#composer-input');
+  const users = page.locator('.msg-user');
+
+  await expect(coach).toContainText('Anything confusing or interesting? Go on a tangent.');
+  await composer.fill('What is a whistle, really?');
+  await page.locator('[data-action="tangent"]').click();
+  await expect(page).toHaveURL(/\/b\//);
+  await expect(coach).toContainText('Tangents never clutter your main lesson. Head back anytime.');
+  await page.locator('[data-coach="main-thread"]').click();
+  await expect(page).not.toHaveURL(/\/b\//);
+  await expect(coach).toContainText('Ready to move on? Reply.');
+
+  // Doing what step 3 asks ends the tour, as Done does.
+  const before = await users.count();
+  await composer.fill('And what comes next?');
+  await page.locator('[data-action="next"]').click();
+  await expect(users).toHaveCount(before + 1);
+  await expect(coach).toBeHidden();
+  await expect(page.locator('.msg-assistant').last()).not.toHaveClass(/streaming/, {
+    timeout: 30_000,
+  });
+  await expect(coach).toBeHidden();
+
+  // Saved: it stays away after a reload.
+  await page.reload();
+  await expect(page.locator('[data-action="next"]')).toBeVisible();
+  await expect(coach).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test('Learn demo: Keep going replies on the open thread, a suggested tangent opens one', async ({
   page,
 }) => {

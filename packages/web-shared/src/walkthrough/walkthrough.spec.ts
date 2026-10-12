@@ -62,6 +62,14 @@ describe('walkthroughStep', () => {
     expect(run([...steps, 'next', 'backOnTrunk'])).toEqual({ step: 3, shown: true });
   });
 
+  it('a reply sent with Next ➜ on step 3 ends it, as Done does', () => {
+    const steps: WalkthroughEvent[] = ['start', 'trunkReplyReady', 'enteredTangent'];
+    expect(run([...steps, 'backOnTrunk', 'replied'])).toEqual({ step: 'done' });
+    // Before step 3 is shown, a reply is just a reply.
+    expect(run(['start', 'trunkReplyReady', 'replied'])).toEqual({ step: 1, shown: true });
+    expect(run([...steps, 'next', 'replied'])).toEqual({ step: 3, shown: false });
+  });
+
   it('a tangent entered before step 1 showed goes straight to step 2', () => {
     expect(run(['start', 'enteredTangent'])).toEqual({ step: 2, shown: true });
   });
@@ -130,6 +138,20 @@ describe('Walkthrough', () => {
     expect(w.current()).toBeNull();
     expect(w.active()).toBe(false);
     w.skip();
+    expect(api.updateSettings).toHaveBeenCalledExactlyOnceWith({ walkthroughDone: true });
+  });
+
+  it('a reply sent with Next ➜ on step 3 ends it and saves once', async () => {
+    const { w, api } = await started();
+    w.onTrunkReplyReady();
+    w.onRepliedOnTrunk();
+    expect(w.current()?.step).toBe(1);
+    w.onEnteredTangent();
+    w.onBackOnTrunk();
+    expect(w.current()?.step).toBe(3);
+    w.onRepliedOnTrunk();
+    expect(w.active()).toBe(false);
+    w.onRepliedOnTrunk();
     expect(api.updateSettings).toHaveBeenCalledExactlyOnceWith({ walkthroughDone: true });
   });
 

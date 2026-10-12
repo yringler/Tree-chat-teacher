@@ -50,6 +50,7 @@ function fakeWalkthrough() {
     onTrunkReplyReady: vi.fn(),
     onEnteredTangent: vi.fn(),
     onBackOnTrunk: vi.fn(),
+    onRepliedOnTrunk: vi.fn(),
   };
 }
 
@@ -464,6 +465,27 @@ describe('Learn: what the lesson page tells the walkthrough', () => {
     p.store.setRoute('t1', null, null);
     await p.fixture.whenStable();
     await vi.waitFor(() => expect(w.onBackOnTrunk).toHaveBeenCalled());
+  });
+
+  it('a reply sent with Next ➜ on the main thread, which step 3 asks for', async () => {
+    const w = fakeWalkthrough();
+    const p = await page(lesson(), {}, null, w);
+    vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
+    vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'And a particle?');
+    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent ↳' }));
+    expect(w.onRepliedOnTrunk).not.toHaveBeenCalled();
+    await p.user.click(within(dock()).getByRole('button', { name: 'Next ➜' }));
+    expect(w.onRepliedOnTrunk).toHaveBeenCalledOnce();
+  });
+
+  it('a reply sent with Next ➜ inside a tangent: not the main thread', async () => {
+    const w = fakeWalkthrough();
+    const p = await page(branchyLesson(), {}, 'side', w);
+    vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'More?');
+    await p.user.click(within(dock()).getByRole('button', { name: 'Next ➜' }));
+    expect(w.onRepliedOnTrunk).not.toHaveBeenCalled();
   });
 
   it('a replay from the help, which closes it, is told the screen again', async () => {

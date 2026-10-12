@@ -23,6 +23,7 @@ enum WalkthroughEvent {
   trunkReplyReady,
   enteredTangent,
   backOnTrunk,
+  replied,
   next,
   skip,
 }
@@ -37,8 +38,8 @@ const walkthroughOff = (phase: WalkthroughPhase.off, shown: false);
 /// - Step 2 (back to the main thread) shows inside any tangent, however it
 ///   was entered; entering one before step 1 showed skips straight to it.
 /// - Step 3 (Next ➜) shows back on the main thread after step 2.
-/// "Got it" puts a step away and waits for the next one; Done on step 3 and
-/// Skip end it.
+/// "Got it" puts a step away and waits for the next one; Done on step 3,
+/// replying with Next ➜ while step 3 shows (what it asks for) and Skip end it.
 WalkthroughState walkthroughStep(WalkthroughState s, WalkthroughEvent e) {
   const done = (phase: WalkthroughPhase.done, shown: false);
   if (e == WalkthroughEvent.start) {
@@ -56,6 +57,8 @@ WalkthroughState walkthroughStep(WalkthroughState s, WalkthroughEvent e) {
       WalkthroughPhase.back => (phase: WalkthroughPhase.next, shown: false),
       _ => done,
     },
+    WalkthroughEvent.replied =>
+      s.phase == WalkthroughPhase.next && s.shown ? done : s,
     WalkthroughEvent.trunkReplyReady =>
       s.phase == WalkthroughPhase.tangent
           ? (phase: WalkthroughPhase.tangent, shown: true)
@@ -78,7 +81,8 @@ WalkthroughState walkthroughStep(WalkthroughState s, WalkthroughEvent e) {
 /// `walkthroughDoneAt` is null, and finishing or skipping it tells the
 /// server once, so it never comes back on another device or in Learn on
 /// the web. The chat page reports the screen ([onTrunkReplyReady],
-/// [onEnteredTangent], [onBackOnTrunk]) and shows [showing].
+/// [onEnteredTangent], [onBackOnTrunk]) and a reply sent with Next ➜
+/// ([onRepliedOnTrunk]), and shows [showing].
 class WalkthroughController extends ChangeNotifier {
   WalkthroughController({required this.api, required this.session}) {
     session.addListener(_onSession);
@@ -129,6 +133,9 @@ class WalkthroughController extends ChangeNotifier {
 
   /// The main thread is on screen again, with Next ➜ under its reply.
   void onBackOnTrunk() => _dispatch(WalkthroughEvent.backOnTrunk);
+
+  /// Next ➜ sent a reply on the main thread: on step 3, that ends the tour.
+  void onRepliedOnTrunk() => _dispatch(WalkthroughEvent.replied);
 
   /// "Got it", or Done on the last step.
   void next() => _dispatch(WalkthroughEvent.next);

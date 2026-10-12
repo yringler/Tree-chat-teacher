@@ -18,7 +18,7 @@ export type WalkthroughState =
 
 /** What the app tells the walkthrough about the screen, and what the learner does with it. */
 export type WalkthroughEvent =
-  'start' | 'trunkReplyReady' | 'enteredTangent' | 'backOnTrunk' | 'next' | 'skip';
+  'start' | 'trunkReplyReady' | 'enteredTangent' | 'backOnTrunk' | 'replied' | 'next' | 'skip';
 
 export const WALKTHROUGH_OFF: WalkthroughState = { step: 'off' };
 
@@ -29,8 +29,8 @@ export const WALKTHROUGH_OFF: WalkthroughState = { step: 'off' };
  * - Step 2 (back to the main thread) shows inside any tangent, however it
  *   was entered; entering one before step 1 showed skips straight to it.
  * - Step 3 (Next ➜) shows back on the main thread after step 2.
- * "Got it" puts a step away and waits for the next one; Done on step 3 and
- * Skip end it.
+ * "Got it" puts a step away and waits for the next one; Done on step 3,
+ * replying with Next ➜ while step 3 shows (what it asks for) and Skip end it.
  */
 export function walkthroughStep(s: WalkthroughState, e: WalkthroughEvent): WalkthroughState {
   if (e === 'start') return { step: 1, shown: false };
@@ -41,6 +41,8 @@ export function walkthroughStep(s: WalkthroughState, e: WalkthroughEvent): Walkt
     case 'next':
       if (!s.shown) return s;
       return s.step === 3 ? { step: 'done' } : { step: s.step === 1 ? 2 : 3, shown: false };
+    case 'replied':
+      return s.step === 3 && s.shown ? { step: 'done' } : s;
     case 'trunkReplyReady':
       return s.step === 1 ? { step: 1, shown: true } : s;
     case 'enteredTangent':
@@ -93,7 +95,8 @@ const STEPS: Readonly<Record<1 | 2 | 3, Omit<CoachStep, 'step' | 'skipText'>>> =
  * account's `walkthroughDoneAt` is null, and finishing or skipping it saves
  * that on the server once, so it never comes back on another device or in
  * the phone app. The app reports the screen (`onTrunkReplyReady`,
- * `onEnteredTangent`, `onBackOnTrunk`); `CoachMark` shows `current`.
+ * `onEnteredTangent`, `onBackOnTrunk`) and a reply sent with Next ➜
+ * (`onRepliedOnTrunk`); `CoachMark` shows `current`.
  */
 @Injectable({ providedIn: 'root' })
 export class Walkthrough {
@@ -145,6 +148,11 @@ export class Walkthrough {
   /** The open branch is the main thread again. */
   onBackOnTrunk(): void {
     this.dispatch('backOnTrunk');
+  }
+
+  /** Next ➜ sent a reply on the main thread: on step 3, that ends the tour. */
+  onRepliedOnTrunk(): void {
+    this.dispatch('replied');
   }
 
   /** "Got it" (or Done on the last step). */
