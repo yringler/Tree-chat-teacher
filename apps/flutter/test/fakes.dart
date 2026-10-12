@@ -129,11 +129,17 @@ class FakeTangentApi implements TangentApi {
   /// Thrown by `signInWithCode`, when set; otherwise the code signs in.
   ApiException? refuseCode;
 
+  /// Thrown by `deleteAccount`, when set; otherwise the account goes.
+  ApiException? refuseDeleteAccount;
+
   final magicLinks = <({String email, String captchaToken})>[];
   final codes = <({String email, String code})>[];
   final createdTrees = <({String? providerId, String? model})>[];
   final createdBranches = <({String fromNodeId, String? title})>[];
   final deletedTrees = <String>[];
+
+  /// The emails `deleteAccount` was confirmed with.
+  final deletedAccounts = <String>[];
   final modelSwitches = <({String branchId, String model})>[];
   final sends = <ScriptedStream>[];
   final resumes = <ScriptedStream>[];
@@ -179,6 +185,14 @@ class FakeTangentApi implements TangentApi {
 
   @override
   Future<void> signOut() async => signedOut = true;
+
+  @override
+  Future<void> deleteAccount(String confirmEmail) async {
+    final refusal = refuseDeleteAccount;
+    if (refusal != null) throw refusal;
+    deletedAccounts.add(confirmEmail);
+    meAnswers = [unauthorized];
+  }
 
   @override
   Future<PoolStatus> poolStatus() async => poolStatusAnswer;

@@ -61,6 +61,13 @@ class SessionController extends ChangeNotifier {
     signedOut();
   }
 
+  /// Deletes the account (see [TangentApi.deleteAccount]); signed out once
+  /// it is gone. A refusal throws and changes nothing.
+  Future<void> deleteAccount(String confirmEmail) async {
+    await api.deleteAccount(confirmEmail);
+    signedOut();
+  }
+
   /// A call answered `unauthorized`: the session ended elsewhere.
   void signedOut() {
     if (_status == SessionStatus.signedOut) return;

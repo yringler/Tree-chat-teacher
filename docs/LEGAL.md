@@ -30,8 +30,9 @@ Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania,
 | Item                                                                            | Status          | Where                                               |
 | ------------------------------------------------------------------------------- | --------------- | --------------------------------------------------- |
 | In-app "Delete account" (Power: Account dialog; Learn and Canvas: account menu) | done            | `packages/web-shared/src/account/delete-account.ts` |
+| In-app "Delete account" in the Flutter and phone apps (account menu)            | done            | `apps/flutter/lib/ui/delete_account_dialog.dart`    |
 | `DELETE /api/account`, confirmed by retyping the email, same-origin only        | done            | `apps/worker/src/auth/delete-account.ts`            |
-| `/delete-account` (the URL app stores ask for): sign-in, then Learn's page      | done            | `http/learn-app.ts`, Learn `delete-account-page.ts` |
+| `/delete-account`: public page (app stores), what goes and stays; signs in      | done            | `http/delete-account-page.tsx`                      |
 | Deletes the account's trees, branches, messages, summaries, shares, settings    | done            | one D1 batch; `ON DELETE CASCADE` does the children |
 | Deletes the user, sessions, OAuth links, passkeys, plan rows                    | done            | same                                                |
 | Revokes the user's Polar subscriptions and anonymises the Polar customer        | done            | same; a Polar failure aborts the deletion           |

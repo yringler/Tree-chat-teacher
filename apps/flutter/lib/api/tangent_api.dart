@@ -36,6 +36,11 @@ abstract interface class TangentApi {
 
   Future<void> signOut();
 
+  /// Deletes the signed-in account and everything in it (`DELETE
+  /// /api/account`). [confirmEmail] must be the account's email, which the
+  /// server checks; afterwards there is no session.
+  Future<void> deleteAccount(String confirmEmail);
+
   // Paying for replies.
 
   Future<PoolStatus> poolStatus();

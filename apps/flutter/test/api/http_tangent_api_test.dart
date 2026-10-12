@@ -359,6 +359,44 @@ void main() {
     );
 
     test(
+      'deleting the account sends the typed email, then forgets the token',
+      () async {
+        final tokens = MemoryTokens('kept.signature');
+        final f = fake(
+          (request) =>
+              request.url.path == '/api/account' ? empty() : json(meJson),
+          tokens: tokens,
+        );
+        await f.api.deleteAccount('a@b.test');
+        final delete = f.seen.single;
+        expect(delete.method, 'DELETE');
+        expect(delete.url.path, '/api/account');
+        expect(delete.json, {'confirmEmail': 'a@b.test'});
+        expect(delete.headers['authorization'], 'Bearer kept.signature');
+        expect(tokens.token, isNull);
+        await f.api.me();
+        expect(f.seen.last.headers.containsKey('authorization'), isFalse);
+      },
+    );
+
+    test(
+      'a refused deletion keeps the token: the account is still there',
+      () async {
+        final tokens = MemoryTokens('kept.signature');
+        final f = fake(
+          (_) =>
+              json({'code': 'validation', 'message': 'Type your email'}, 400),
+          tokens: tokens,
+        );
+        await expectLater(
+          f.api.deleteAccount('wrong@b.test'),
+          throwsA(apiError(400, 'validation')),
+        );
+        expect(tokens.token, 'kept.signature');
+      },
+    );
+
+    test(
       'on the web the session is the cookie: no token is kept or sent',
       () async {
         final f = fake(server());
