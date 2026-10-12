@@ -1,0 +1,104 @@
+/*
+ * The walkthrough's coach marks (walkthrough/coach-mark.ts): a callout in the
+ * top layer, placed by floating-ui beside the control it points at, and a
+ * ring around that control. Nothing here covers the page: the learner uses
+ * the control itself to go on. Imported by the apps that run the walkthrough,
+ * after base.css (whose tokens it uses).
+ */
+.coach-mark {
+  /* Undo the browser's centred popover: floating-ui sets left and top. */
+  position: fixed;
+  inset: auto;
+  left: 0;
+  top: 0;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 16px));
+  margin: 0;
+  padding: 12px 14px 10px;
+  overflow: visible;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+/* Hidden until a step shows, also where the browser has no popovers. */
+.coach-mark:not(.is-open) {
+  display: none;
+}
+
+.coach-mark.is-open {
+  animation: coach-mark-in 0.16s ease-out;
+}
+
+.coach-mark-text {
+  margin: 0 0 8px;
+}
+
+.coach-mark-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.coach-mark-arrow {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent);
+  transform: rotate(45deg);
+}
+
+.coach-mark[data-placement='top'] .coach-mark-arrow {
+  bottom: -6px;
+  border-top: 0;
+  border-left: 0;
+}
+
+.coach-mark[data-placement='bottom'] .coach-mark-arrow {
+  top: -6px;
+  border-bottom: 0;
+  border-right: 0;
+}
+
+.coach-mark[data-placement='left'] .coach-mark-arrow {
+  right: -6px;
+  border-bottom: 0;
+  border-left: 0;
+}
+
+.coach-mark[data-placement='right'] .coach-mark-arrow {
+  left: -6px;
+  border-top: 0;
+  border-right: 0;
+}
+
+.coach-mark-target {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px var(--accent-soft);
+  animation: coach-mark-pulse 1.6s ease-in-out 3;
+}
+
+@keyframes coach-mark-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes coach-mark-pulse {
+  50% {
+    box-shadow: 0 0 0 9px var(--accent-soft);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coach-mark.is-open,
+  .coach-mark-target {
+    animation: none;
+  }
+}

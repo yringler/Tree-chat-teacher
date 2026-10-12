@@ -147,6 +147,10 @@ export { LoginPage } from './login/login-page';
 export { AccountId } from './account/account-id';
 export { DeleteAccount } from './account/delete-account';
 
+// The first-run walkthrough (Learn): its steps and the coach marks that show them
+export { CoachMark } from './walkthrough/coach-mark';
+export { Walkthrough, type WalkthroughApi } from './walkthrough/walkthrough';
+
 // Billing: the shared billing page, the read-only notice and their helpers
 export { BillingPage } from './billing/billing-page';
 export { BILLING_SUMMARY_LISTENER } from './billing/billing-listener';
