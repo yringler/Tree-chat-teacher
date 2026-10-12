@@ -46,6 +46,14 @@ describe('payloadToMarkdown', () => {
     expect(md).toContain('CONTENTQ2 <script>alert("x")</script>');
   });
 
+  it('leaves mermaid fences unchanged', () => {
+    const p = samplePayload();
+    const reply = p.branches[0]?.messages[1];
+    const fence = '```mermaid\nflowchart LR\n  A["x"] --> B\n```';
+    if (reply) reply.content = `A picture:\n\n${fence}`;
+    expect(payloadToMarkdown(p)).toContain(`A picture:\n\n${fence}`);
+  });
+
   it('marks empty branches and ends with a newline', () => {
     expect(md).toContain(
       '## Trunk › Other\n\nForked from: “CONTENTA1 Like this: const x: number = 1;”\n\n_(no messages)_',

@@ -19,6 +19,7 @@ import sql from 'highlight.js/lib/languages/sql';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
+import { diagramPlugin } from './diagram.js';
 import { mathPlugin, type MathEnv, type MathRenderer } from './math.js';
 
 export type { MathRenderer } from './math.js';
@@ -72,7 +73,9 @@ const md = new MarkdownIt({
   typographer: false,
   breaks: false,
   highlight,
-}).use(mathPlugin);
+})
+  .use(mathPlugin)
+  .use(diagramPlugin);
 
 const defaultLinkOpen = md.renderer.rules.link_open;
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
@@ -116,6 +119,9 @@ for (const rule of ['th_open', 'td_open'] as const) {
  * escapes can eat its backslashes, and becomes a `.math` element holding
  * `options.math(tex)`: by default the escaped source, which the
  * Angular apps typeset in the DOM; the viewer passes `renderMathMl`.
+ *
+ * A ```mermaid fence becomes a `.diagram` block around its plain code block,
+ * which the Angular apps draw in the DOM (see `diagramPlugin`).
  */
 export function renderMarkdown(markdown: string, options: { math?: MathRenderer } = {}): string {
   return md.render(markdown, { math: options.math } satisfies MathEnv);

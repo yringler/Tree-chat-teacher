@@ -290,6 +290,62 @@ z_{1,2} &amp;= 0.55
   });
 });
 
+describe('renderMarkdown: mermaid', () => {
+  /** The diagram placeholder: the plain code block, wrapped. */
+  const diagram = (escaped: string): string =>
+    `<div class="diagram"><pre><code class="hljs">${escaped}</code></pre></div>\n`;
+
+  it('a backtick mermaid fence becomes a diagram block', () => {
+    expect(renderMarkdown('```mermaid\nflowchart LR\n  A["<b>"] --> B\n```')).toBe(
+      diagram('flowchart LR\n  A[&quot;&lt;b&gt;&quot;] --&gt; B\n'),
+    );
+  });
+
+  it('a tilde mermaid fence becomes a diagram block', () => {
+    expect(renderMarkdown('~~~mermaid\npie\n  "a" : 1\n~~~')).toBe(
+      diagram('pie\n  &quot;a&quot; : 1\n'),
+    );
+  });
+
+  it('only the first word of the info string counts', () => {
+    expect(renderMarkdown('```mermaid title="x"\npie\n```')).toBe(diagram('pie\n'));
+    expect(renderMarkdown('``` mermaid\npie\n```')).toBe(diagram('pie\n'));
+    // Split on any whitespace, after entities and escapes are decoded.
+    expect(renderMarkdown('```mermaid\tx\npie\n```')).toBe(diagram('pie\n'));
+    expect(renderMarkdown('```mer&#109;aid\npie\n```')).toBe(diagram('pie\n'));
+    expect(renderMarkdown('```mermaid&#32;x\npie\n```')).toBe(diagram('pie\n'));
+    for (const info of ['mermaidjs', 'graph mermaid', 'mermaid-js'])
+      expect(renderMarkdown('```' + info + '\npie\n```')).toBe(
+        '<pre><code class="hljs">pie\n</code></pre>\n',
+      );
+  });
+
+  it('the language name is case-sensitive', () => {
+    for (const info of ['Mermaid', 'MERMAID'])
+      expect(renderMarkdown('```' + info + '\npie\n```')).toBe(
+        '<pre><code class="hljs">pie\n</code></pre>\n',
+      );
+  });
+
+  it('a mermaid fence inside a list item becomes a diagram block', () => {
+    expect(renderMarkdown('- item\n\n  ```mermaid\n  pie\n  ```\n- next')).toBe(
+      `<ul>\n<li>\n<p>item</p>\n${diagram('pie\n')}</li>\n<li>\n<p>next</p>\n</li>\n</ul>\n`,
+    );
+  });
+
+  it('mermaid in inline code stays text', () => {
+    expect(renderMarkdown('Use `mermaid` or ```mermaid pie```.')).toBe(
+      '<p>Use <code>mermaid</code> or <code>mermaid pie</code>.</p>\n',
+    );
+  });
+
+  it('an unclosed mermaid fence becomes a diagram block', () => {
+    expect(renderMarkdown('```mermaid\nsequenceDiagram\n  A->>B: Hel')).toBe(
+      diagram('sequenceDiagram\n  A-&gt;&gt;B: Hel'),
+    );
+  });
+});
+
 describe('renderMathMl', () => {
   it('renders MathML with the TeX source as an annotation', () => {
     const html = renderMathMl('x^2', false);
