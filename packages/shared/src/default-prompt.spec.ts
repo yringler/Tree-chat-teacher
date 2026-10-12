@@ -11,4 +11,20 @@ describe('DEFAULT_SYSTEM_PROMPT', () => {
     // Stable text: nothing in the prompt varies per request (prompt caching).
     expect(DEFAULT_SYSTEM_PROMPT).not.toMatch(/\{\{|\$\{|\b20\d\d-\d\d-\d\d\b/);
   });
+
+  it('offers a specific diagram after the Markdown rule, and draws one only when asked', () => {
+    const markdown =
+      "- Use Markdown sparingly: short lists when they help, code blocks for code. Reply in the user's language.\n";
+    const diagrams = DEFAULT_SYSTEM_PROMPT.slice(
+      DEFAULT_SYSTEM_PROMPT.indexOf(markdown) + markdown.length,
+    );
+    expect(diagrams).toMatch(/^- Don't draw diagrams unprompted\./);
+    const rule = diagrams.slice(0, diagrams.indexOf('\n'));
+    expect(rule).toContain('before the tangents');
+    expect(rule).toContain('Never ask a bare "Want a diagram?"');
+    expect(rule).toContain(
+      'a single ```mermaid code block, using flowchart, sequenceDiagram, classDiagram, stateDiagram-v2, erDiagram, pie, gantt, timeline or mindmap.',
+    );
+    expect(rule).toContain('write a double quote inside a label as #quot;');
+  });
 });
