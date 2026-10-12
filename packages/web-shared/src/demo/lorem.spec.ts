@@ -1,4 +1,5 @@
 import {
+  groupTangents,
   parseReview,
   splitTangents,
   usageFactorOf,
@@ -44,7 +45,7 @@ describe('lorem text', () => {
     expect(loremReply(DEMO_MAX_MODEL, seeded(7))).not.toBe(loremReply(DEMO_MAX_MODEL, seeded(8)));
   });
 
-  it('always ends with a tangents block the app can parse', () => {
+  it('always ends with a tagged block of next steps and tangents the app can parse', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const reply = loremReply(seed % 2 ? DEMO_MAX_MODEL : DEMO_NORMAL_MODEL, seeded(seed));
       expect(reply.endsWith('</tangents>')).toBe(true);
@@ -52,14 +53,20 @@ describe('lorem text', () => {
       expect(partial).toBe(false);
       expect(body).not.toContain('<tangents>');
       expect(body.length).toBeGreaterThan(20);
-      expect(tangents.length).toBeGreaterThanOrEqual(2);
-      expect(tangents.length).toBeLessThanOrEqual(4);
+      const groups = groupTangents(tangents);
+      expect(groups.continue.length).toBeGreaterThanOrEqual(1);
+      expect(groups.continue.length).toBeLessThanOrEqual(2);
+      expect(groups.tangent.length).toBeGreaterThanOrEqual(2);
+      expect(groups.tangent.length).toBeLessThanOrEqual(4);
       for (const t of tangents) expect(t.why).not.toBeNull();
       expect(reply).not.toContain('{{');
       expect(reply).not.toContain('undefined');
     }
-    const titles = loremTangents(seeded(3)).map((t) => t.title);
+    const suggestions = loremTangents(seeded(3));
+    const titles = suggestions.map((t) => t.title);
     expect(new Set(titles).size).toBe(titles.length);
+    // Next steps come first, as the prompt asks.
+    expect(suggestions[0]?.kind).toBe('continue');
   });
 
   it('writes longer replies for Max than for Normal', () => {

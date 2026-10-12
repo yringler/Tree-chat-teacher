@@ -105,7 +105,7 @@ describe('renderViewerPage', () => {
       { variant: 'export' },
     );
     expect(page).not.toContain('tangents&gt;');
-    expect(page).toContain('<p><strong>Where next?</strong></p>');
+    expect(page).toContain('<p><strong>Tangents</strong></p>');
     expect(page).toContain('<li><strong>Why ice floats</strong> — density</li>');
   });
 

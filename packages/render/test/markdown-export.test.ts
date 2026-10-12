@@ -75,7 +75,7 @@ describe('payloadToMarkdown', () => {
 
 describe('tangents in shared replies', () => {
   const reply =
-    'The answer.\n\n<tangents>\n- Why ice floats — density again\n- Heavy water\n</tangents>';
+    'The answer.\n\n<tangents>\n- [tangent] Why ice floats — density again\n- [continue] Heavy water\n</tangents>';
   const payload = samplePayload({
     context: null,
     branches: [
@@ -101,10 +101,10 @@ describe('tangents in shared replies', () => {
     ],
   });
 
-  it('turns the block into a "Where next?" list and keeps it out of fork excerpts', () => {
+  it('turns the block into "Keep going" and "Tangents" lists and keeps it out of fork excerpts', () => {
     const md = payloadToMarkdown(payload);
     expect(md).toContain(
-      '**AI:**\n\nThe answer.\n\n**Where next?**\n\n- **Why ice floats** — density again\n- **Heavy water**',
+      '**AI:**\n\nThe answer.\n\n**Keep going**\n\n- **Heavy water**\n\n**Tangents**\n\n- **Why ice floats** — density again',
     );
     expect(md).not.toContain('<tangents>\n- Why');
     expect(md).toContain('Forked from: “The answer.”');
@@ -114,7 +114,7 @@ describe('tangents in shared replies', () => {
 });
 
 describe('sources in exports', () => {
-  it('ends a grounded reply with a Sources list, after Where next?', () => {
+  it('ends a grounded reply with a Sources list, after the suggestions', () => {
     const md = messageMarkdown({
       key: 'm1',
       role: 'assistant',
@@ -126,7 +126,7 @@ describe('sources in exports', () => {
       ],
     });
     expect(md).toBe(
-      'Body.\n\n**Where next?**\n\n- **Next** — why\n\n**Sources**\n\n' +
+      'Body.\n\n**Tangents**\n\n- **Next** — why\n\n**Sources**\n\n' +
         '- [An odd title](https://example.org/a)\n- [example.com](https://example.com/b%20%28c%29)',
     );
   });

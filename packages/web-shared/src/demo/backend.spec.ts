@@ -89,7 +89,10 @@ describe('demo backend', () => {
     // The followed tangent: titled after one of the first reply's tangents, asked as its first message.
     const tangent = detail.branches.find((b) => b.titleSource === 'user')!;
     expect(tangent.branchPointNodeId).toBe(point.id);
-    expect(splitTangents(point.content).tangents.map((t) => t.title)).toContain(tangent.title);
+    const offered = splitTangents(point.content).tangents;
+    expect(offered.find((t) => t.title === tangent.title)?.kind).toBe('tangent');
+    // The first reply also offers a next step, shown under Keep going.
+    expect(offered.some((t) => t.kind === 'continue')).toBe(true);
     expect(detail.nodes.find((n) => n.branchId === tangent.id && n.role === 'user')?.content).toBe(
       tangent.title,
     );

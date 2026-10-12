@@ -26,11 +26,25 @@ const FIRST_TURN: Turn = [
     `- **Listening**: ${QUOTE}.\n- **Copying**: the kitten repeats what the owl does, slightly off-key.\n- **Practising**: every evening, a patient lemon applauds a little louder.`,
     'The off-key part matters: a kitten that copies perfectly never finds its own tune.',
     formatTangents([
-      { title: TANGENT, why: 'the applauding lemon is doing more than it seems' },
-      { title: 'What owls hear that kittens cannot', why: 'the same tune, one layer down' },
+      {
+        title: 'From whistling to a whole song',
+        why: 'the next step once the tune holds',
+        kind: 'continue',
+      },
+      {
+        title: TANGENT,
+        why: 'the applauding lemon is doing more than it seems',
+        kind: 'tangent',
+      },
+      {
+        title: 'What owls hear that kittens cannot',
+        why: 'the same tune, one layer down',
+        kind: 'tangent',
+      },
       {
         title: 'The myth of the silent kitten',
         why: 'a common misconception, and where it comes from',
+        kind: 'tangent',
       },
     ]),
   ].join('\n\n'),
@@ -41,8 +55,21 @@ const SECOND_TURN: Turn = [
   [
     'Yes, and that is how **creative kittens** are born. A tune without a teacher is a brave grapefruit: wobbly at first, then surprisingly catchy. Some people call this the curious melon effect.',
     formatTangents([
-      { title: 'The curious melon effect', why: 'who named it, and why the name stuck' },
-      { title: 'Why wobbly tunes are catchier', why: 'an edge case that explains the rule' },
+      {
+        title: 'How a kitten keeps its own tune',
+        why: 'what comes after making one up',
+        kind: 'continue',
+      },
+      {
+        title: 'The curious melon effect',
+        why: 'who named it, and why the name stuck',
+        kind: 'tangent',
+      },
+      {
+        title: 'Why wobbly tunes are catchier',
+        why: 'an edge case that explains the rule',
+        kind: 'tangent',
+      },
     ]),
   ].join('\n\n'),
 ];
@@ -52,8 +79,16 @@ const SIDE_QUESTION: Turn = [
   [
     'Owls are **courteous** creatures: humming is how an owl checks that the night is listening. A humming owl is a calm panda, more or less, and calm pandas rarely sing off-key.',
     formatTangents([
-      { title: 'How an owl knows the night is listening', why: 'the mechanism underneath' },
-      { title: 'Pandas that sing off-key anyway', why: 'where the simple picture breaks' },
+      {
+        title: 'How an owl knows the night is listening',
+        why: 'the mechanism underneath',
+        kind: 'tangent',
+      },
+      {
+        title: 'Pandas that sing off-key anyway',
+        why: 'where the simple picture breaks',
+        kind: 'tangent',
+      },
     ]),
   ].join('\n\n'),
 ];
@@ -63,8 +98,12 @@ const TANGENT_TURN: Turn = [
   [
     'Because the lemon is louder in the evening, and a louder lemon is a clearer signal. Practice works when the reward arrives right after the attempt, and an evening lemon has had all day to warm up.',
     formatTangents([
-      { title: 'Why rewards must arrive quickly', why: 'the timing is the whole trick' },
-      { title: 'Morning lemons', why: 'the exception that proves the rule' },
+      {
+        title: 'Why rewards must arrive quickly',
+        why: 'the timing is the whole trick',
+        kind: 'tangent',
+      },
+      { title: 'Morning lemons', why: 'the exception that proves the rule', kind: 'tangent' },
     ]),
   ].join('\n\n'),
 ];
