@@ -847,7 +847,7 @@ describe('LessonStore', () => {
       expect(s.ui.dialogs.get('connect')).toBeNull();
       expect(s.store.linkReturn()).toBeNull();
       // In Learn's words.
-      expect(s.toasts.toasts().at(-1)?.text).toBe('Deleted the side question and 1 below it');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Deleted the tangent and 1 below it');
     });
 
     it('drops the message left unsent there, and the pool notice, but not those elsewhere', async () => {

@@ -73,6 +73,9 @@ export class ChatPage implements OnDestroy {
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
   private readonly pinned = signal(true);
   protected readonly switching = signal(false);
+  /** The first crumb: the lesson's trunk, the way back from any tangent. */
+  protected readonly mainThreadLabel = 'Main thread';
+  protected readonly mainThreadBack = 'Back to main thread';
   /** Text selected inside one finished message: offers "Ask about this". */
   protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
   /** Words "Ask about this" put on the composer: the next message asks about them. */
@@ -123,14 +126,14 @@ export class ChatPage implements OnDestroy {
   protected readonly placeholder = computed(() => {
     const b = this.store.selectedBranch();
     if (!b || this.store.path().length === 0) return 'What do you want to learn?';
-    if (b.parentBranchId && this.store.emptyBranch()) return 'Ask your side question…';
+    if (b.parentBranchId && this.store.emptyBranch()) return 'Ask your tangent…';
     switch (this.destination()) {
       case 'quote':
         return 'Ask about this…';
       case 'aside':
-        return 'Ask a side question…';
+        return 'Ask anything…';
       case 'continue':
-        return b.parentBranchId ? 'Continue this side question…' : 'Continue this lesson…';
+        return b.parentBranchId ? 'Ask anything in this tangent…' : 'Ask anything…';
     }
   });
 
@@ -277,8 +280,7 @@ export class ChatPage implements OnDestroy {
   protected deleteLesson(): void {
     const d = this.store.detail();
     if (!d) return;
-    if (!confirm(`Delete the lesson “${lessonTitle(d.tree.title)}” with all its side questions?`))
-      return;
+    if (!confirm(`Delete the lesson “${lessonTitle(d.tree.title)}” with all its tangents?`)) return;
     void this.store.deleteTree(d.tree.id);
   }
 

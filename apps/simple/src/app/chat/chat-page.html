@@ -63,7 +63,7 @@
       </div>
     </div>
     @if (store.parentBranch()) {
-      <nav class="crumbs" aria-label="Side question path">
+      <nav class="crumbs" aria-label="Tangent path">
         <ol>
           @for (c of store.crumbs(); track c.branch.id; let first = $first, i = $index) {
             <li [class.crumb-mid]="!first && i < store.crumbs().length - 2">
@@ -72,8 +72,14 @@
                   branchTitle(c.branch)
                 }}</span>
               } @else {
-                <button type="button" class="crumb" (click)="store.go(c.branch.id, c.focusNodeId)">
-                  {{ first ? 'Lesson' : branchTitle(c.branch) }}
+                <button
+                  type="button"
+                  class="crumb"
+                  [attr.title]="first ? mainThreadBack : null"
+                  [attr.data-coach]="first ? 'main-thread' : null"
+                  (click)="store.go(c.branch.id, c.focusNodeId)"
+                >
+                  {{ first ? mainThreadLabel : branchTitle(c.branch) }}
                 </button>
                 <app-icon name="chevronRight" [size]="12" />
               }
@@ -104,7 +110,7 @@
           <p class="lead">What would you like to learn?</p>
           <p class="muted">
             Ask a question or name a topic. You get a straight answer, then a few tangents worth
-            following. Each one opens a side question of its own.
+            following. Each one opens a tangent of its own.
           </p>
         </div>
       }
@@ -125,7 +131,7 @@
       }
       @if (store.emptyBranch(); as b) {
         <ng-container *ngTemplateOutlet="fork; context: { $implicit: b, current: true }" />
-        <p class="muted small center">Ask your side question below.</p>
+        <p class="muted small center">Ask your tangent below.</p>
       }
     </div>
   </div>
@@ -133,7 +139,7 @@
   @if (pendingAsk.value(); as ask) {
     <div class="ask-bar">
       <app-selection-ask
-        title="Ask a side question about the selected words, keeping the lesson so far"
+        title="Go on a tangent about the selected words, keeping the lesson so far"
         (ask)="askAbout(ask)"
       />
     </div>
@@ -188,7 +194,7 @@
           <div composerLead class="composer-lead">
             @if (quote(); as q) {
               <span class="composer-pill composer-quote">
-                <app-icon name="branch" [size]="14" />
+                <app-icon name="tangent" [size]="14" />
                 <span class="composer-quote-text" [attr.title]="q.quote">“{{ q.quote }}”</span>
                 <button
                   type="button"
@@ -208,17 +214,15 @@
                 [class.is-aside]="asksAside()"
                 [title]="
                   asksAside()
-                    ? 'Your message starts a side question from the last reply. Click to continue here instead.'
-                    : 'Your message continues here. Click to ask a side question instead.'
+                    ? 'Tangent ↳: Wait, what’s that? Explore on the side without derailing the lesson. Click to send as Next instead.'
+                    : 'Next ➜: Got it, what’s next? Keeps the main lesson moving. Click to send as a tangent instead.'
                 "
                 (mousedown)="$event.preventDefault()"
                 (click)="switchDestination()"
               >
                 <span class="sr-only">Send as: </span>
-                <app-icon [name]="asksAside() ? 'branch' : 'chevronRight'" [size]="14" />
-                <span class="composer-dest-label">{{
-                  asksAside() ? 'Side question' : 'Continue'
-                }}</span>
+                <app-icon [name]="asksAside() ? 'tangent' : 'next'" [size]="14" />
+                <span class="composer-dest-label">{{ asksAside() ? 'Tangent' : 'Next' }}</span>
               </button>
             }
           </div>
@@ -231,7 +235,7 @@
 <ng-template #fork let-b let-current="current">
   <div class="fork-divider" [class.fork-current]="current">
     <span class="fork-line"></span>
-    <span class="fork-label">Side question · {{ branchTitle(b) }}</span>
+    <span class="fork-label">Tangent · {{ branchTitle(b) }}</span>
     <span class="fork-line"></span>
   </div>
   @if (b.anchorQuote) {

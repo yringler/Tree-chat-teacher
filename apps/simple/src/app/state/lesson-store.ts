@@ -99,7 +99,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
   constructor() {
     super(inject(ApiClient), inject(Router), {
       tree: 'lesson',
-      branch: 'side question',
+      branch: 'tangent',
       link: 'connection',
       linked: { created: 'Connected', existing: 'Already connected' },
       noteSaved: 'Note saved',

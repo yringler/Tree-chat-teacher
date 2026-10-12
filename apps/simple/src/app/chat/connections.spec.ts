@@ -29,7 +29,7 @@ const index = indexTree(
 );
 
 describe('connectionTitleOf', () => {
-  it('names the main thread "Lesson" and side questions in Learn’s words', () => {
+  it('names the main thread "Lesson" and tangents in Learn’s words', () => {
     expect(connectionTitleOf(trunk)).toBe(LESSON_CRUMB);
     expect(connectionTitleOf(side)).toBe('Why waves');
   });
@@ -45,13 +45,13 @@ describe('connectedLabel', () => {
 describe('learnConnections', () => {
   const byNode = indexLinks([link('l1', 'a1', 's1', 'Same idea'), link('l2', 'a1', 's2', null)]);
 
-  it('shows a side question’s first message as the side question', () => {
+  it('shows a tangent’s first message as the tangent', () => {
     const [toHead, toReply] = learnConnections(
       relatedLinks(index, byNode, 'a1', connectionTitleOf),
     );
-    expect(toHead?.title).toBe('Side question: Why waves');
+    expect(toHead?.title).toBe('Tangent: Why waves');
     expect(toHead?.crumbs).toBe(LESSON_CRUMB);
-    expect(toHead?.tooltip).toBe('Lesson\nSide question: Why waves\nSame idea');
+    expect(toHead?.tooltip).toBe('Lesson\nTangent: Why waves\nSame idea');
     // Any other message keeps its snippet, under its breadcrumb.
     expect(toReply?.title).toBe('It interferes.');
     expect(toReply?.crumbs).toBe('Lesson › Why waves');

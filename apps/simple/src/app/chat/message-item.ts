@@ -44,12 +44,12 @@ import { branchTitle } from './titles';
           <button
             type="button"
             class="btn btn-ghost btn-sm msg-ask"
-            title="Start a side question about this message"
+            title="Go on a tangent about this message"
             (click)="
               store.createBranch({ fromNodeId: n.id, contextMode: 'path', anchorQuote: null })
             "
           >
-            <app-icon name="branch" [size]="14" /> Side question
+            <app-icon name="tangent" [size]="14" /> Tangent ↳
           </button>
           <button
             type="button"
@@ -111,10 +111,10 @@ import { branchTitle } from './titles';
               [class.is-followed]="followed().has(t.title)"
               [class.is-on]="followedOn().has(t.title)"
               [disabled]="opening() !== null"
-              [title]="followed().has(t.title) ? 'Open this side question' : (t.why ?? t.title)"
+              [title]="followed().has(t.title) ? 'Open tangent' : (t.why ?? t.title)"
               (click)="follow(t.title)"
             >
-              <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'branch'" [size]="14" />
+              <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'tangent'" [size]="14" />
               <span class="tangent-title">{{ t.title }}</span>
               @if (t.why) {
                 <span class="tangent-why muted">{{ t.why }}</span>
@@ -125,11 +125,11 @@ import { branchTitle } from './titles';
       }
 
       @if (otherChildren().length > 0) {
-        <nav class="side-questions" [attr.aria-label]="'Side questions from this message'">
+        <nav class="side-questions" [attr.aria-label]="'Tangents from this message'">
           <span class="muted small">
-            <app-icon name="branch" [size]="13" />
+            <app-icon name="tangent" [size]="13" />
             {{ otherChildren().length }}
-            {{ otherChildren().length === 1 ? 'side question' : 'side questions' }}
+            {{ otherChildren().length === 1 ? 'tangent' : 'tangents' }}
           </span>
           @for (b of otherChildren(); track b.id) {
             <span class="chip-row">
@@ -146,8 +146,8 @@ import { branchTitle } from './titles';
               <button
                 type="button"
                 class="icon-btn icon-btn-danger chip-delete"
-                [attr.aria-label]="'Delete the side question ' + branchTitle(b)"
-                title="Delete this side question"
+                [attr.aria-label]="'Delete the tangent ' + branchTitle(b)"
+                title="Delete this tangent"
                 (click)="remove(b.id)"
               >
                 <app-icon name="trash" [size]="13" />

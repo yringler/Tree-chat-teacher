@@ -22,7 +22,7 @@ function lesson(id: string, title: string, branchCount = 1): TreeSummary {
   return { id, title, branchCount, messageCount: 2, createdAt: T, updatedAt: T };
 }
 
-/** Learn's home page over the lessons "Light" (two side questions) and "Tides". */
+/** Learn's home page over the lessons "Light" (two tangents) and "Tides". */
 async function home(facts: Parameters<typeof learner>[0] = {}, lessons = true) {
   const r = await render(HomePage, {
     providers: [...appProviders({}), { provide: BillingClient, useValue: {} }],
@@ -84,7 +84,7 @@ describe('Learn: the home page', () => {
     const h = await home();
     const rows = within(lessonList()).getAllByRole('listitem');
     expect(within(rows[0]!).getByRole('link').getAttribute('href')).toBe('/t/t1');
-    expect(rows[0]!.textContent).toContain('2 side questions');
+    expect(rows[0]!.textContent).toContain('2 tangents');
     const buttons = within(rows[0]!)
       .getAllByRole('button')
       .map((b) => b.getAttribute('aria-label'));
@@ -107,7 +107,7 @@ describe('Learn: the home page', () => {
     const h = await home();
     const remove = vi.spyOn(h.store, 'deleteTree').mockResolvedValue(true);
     await h.user.click(screen.getByRole('button', { name: 'Delete Tides' }));
-    expect(confirm).toHaveBeenCalledWith('Delete the lesson “Tides” with all its side questions?');
+    expect(confirm).toHaveBeenCalledWith('Delete the lesson “Tides” with all its tangents?');
     expect(remove).toHaveBeenCalledWith('t2');
   });
 
