@@ -15,6 +15,8 @@
     "apps/web": { "ignoreDependencies": ["highlight.js"] },
     "apps/simple": { "ignoreDependencies": ["highlight.js"] },
     "apps/canvas": { "ignoreDependencies": ["highlight.js"] },
+    // Flutter's own tools, installed with the Flutter SDK rather than from npm.
+    "apps/flutter": { "ignoreBinaries": ["flutter", "dart"] },
     "apps/worker": {
       // The node test project's `cloudflare:workers`, reached through a vitest.config.ts alias.
       "entry": ["test/node/cloudflare-workers.ts"],

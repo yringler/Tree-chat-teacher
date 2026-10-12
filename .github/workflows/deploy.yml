@@ -52,6 +52,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # Flutter for apps/flutter's web build, at the version apps/flutter/.flutter-version pins.
+      - id: flutter-version
+        run: echo "version=$(cat apps/flutter/.flutter-version)" >> "$GITHUB_OUTPUT"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+          cache: true
       - run: pnpm install --frozen-lockfile
       # Runs wrangler.jsonc's build.command (the root `pnpm build`) and bundles the Worker, so a
       # broken build stops here, before any migration. No secrets in this or any build step. This
@@ -62,7 +70,7 @@ jobs:
       # Worker would 404 every app page and asset.
       - name: Check the assets
         run: |
-          for app in . learn canvas admin; do
+          for app in . learn canvas admin app; do
             if [ ! -s "apps/worker/site/$app/index.html" ]; then
               echo "::error::apps/worker/site/$app/index.html is missing: the apps weren't built."
               exit 1

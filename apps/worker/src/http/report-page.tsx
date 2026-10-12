@@ -144,6 +144,7 @@ function page(c: Context<AppBindings>, body: Child, status: 200 | 400): Promise<
       noindex: true,
       style: REPORT_STYLE,
       turnstile: turnstileConfigured(c.env),
+      form: true,
     },
     body,
     {

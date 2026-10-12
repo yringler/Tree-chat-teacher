@@ -231,6 +231,14 @@ export const VERIFY_STYLE =
 .verify .error{color:#c0392b;font-weight:600}
 `;
 
+/** The phone app's captcha (`/app-captcha`): the widget alone, centred in the app's web view. */
+export const APP_CAPTCHA_STYLE =
+  BASE_STYLE +
+  `
+.captcha{display:grid;gap:16px;justify-items:center;padding-top:32px;padding-bottom:32px;text-align:center}
+.captcha p{margin:0;color:var(--muted)}
+`;
+
 /** The report form on a share link (`/s/:token/report`). */
 export const REPORT_STYLE =
   DOC_STYLE +

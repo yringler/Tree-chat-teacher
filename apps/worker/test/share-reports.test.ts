@@ -135,6 +135,16 @@ describe('the report form', () => {
     expect(html).not.toContain('REPORTED-QUESTION');
   });
 
+  it('without Turnstile the form still posts back here, and loads no widget', async () => {
+    const e = reportEnv({ TURNSTILE_SITE_KEY: '' });
+    const { share } = await publish(e);
+    const res = await client(e).call(`/s/${share.token}/report`);
+    const csp = res.headers.get('content-security-policy')!;
+    expect(csp).toContain("form-action 'self'");
+    expect(csp).not.toContain('challenges.cloudflare.com');
+    expect(await res.text()).not.toContain('cf-turnstile');
+  });
+
   it('answers for an unknown, revoked or taken-down link as for a gone one', async () => {
     const e = reportEnv();
     const { owner, share } = await publish(e);

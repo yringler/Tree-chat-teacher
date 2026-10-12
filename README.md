@@ -11,14 +11,15 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 
 The **Context Inspector** shows exactly what will be sent and why. Every reply suggests a few **tangents** to explore next, and replies can be grounded in a web search, with sources.
 
-Three apps share one Worker and one sign-in:
+These apps share one Worker and one sign-in:
 
-| App           | Path       | Code          | What it is                                                                                                                                                 |
-| ------------- | ---------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Power         | `/`        | `apps/web`    | Every control: context modes, inspector, reviewer, system prompts, shares, export, backups. Runs on the user's own API keys, or on prepaid Tangent credit. |
-| Learn         | `/learn/`  | `apps/simple` | A tutor with nothing to configure: Normal and Max models, Compare, tangents, "Ask about this". Own OpenRouter key, Tangent credit, or the free open pool.  |
-| Canvas (exp.) | `/canvas/` | `apps/canvas` | The power app's conversations as lanes on one pannable surface, each streaming on its own.                                                                 |
-| Admin         | `/admin/`  | `apps/admin`  | For the operator: users, share permissions, credit, waivers, the pool.                                                                                     |
+| App                   | Path       | Code           | What it is                                                                                                                                                 |
+| --------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Power                 | `/`        | `apps/web`     | Every control: context modes, inspector, reviewer, system prompts, shares, export, backups. Runs on the user's own API keys, or on prepaid Tangent credit. |
+| Learn                 | `/learn/`  | `apps/simple`  | A tutor with nothing to configure: Normal and Max models, Compare, tangents, "Ask about this". Own OpenRouter key, Tangent credit, or the free open pool.  |
+| Canvas (exp.)         | `/canvas/` | `apps/canvas`  | The power app's conversations as lanes on one pannable surface, each streaming on its own.                                                                 |
+| Admin                 | `/admin/`  | `apps/admin`   | For the operator: users, share permissions, credit, waivers, the pool.                                                                                     |
+| Learn (Flutter, exp.) | `/app/`    | `apps/flutter` | Learn in Flutter, on the web and (untried on devices) Android and iOS: sign-in, lessons, the chat and its tangents.                                        |
 
 The Worker also renders the public pages (landing, `/pricing`, `/pool`, `/privacy`, `/terms`), the share viewer (`/s/…`), and in-browser demos at `/demo`, `/learn/demo` and `/canvas/demo` that need no account and call no model.
 
@@ -26,7 +27,7 @@ How to use the apps: [docs/user-guide.md](docs/user-guide.md).
 
 ## Quickstart (local development)
 
-You need **Node 24** (`.nvmrc`; at least 22.22.3, which the Angular 22 CLI requires) and **pnpm 10** (`corepack enable`).
+You need **Node 24** (`.nvmrc`; at least 22.22.3, which the Angular 22 CLI requires), **pnpm 10** (`corepack enable`) and **Flutter** at the version in `apps/flutter/.flutter-version`, on your `PATH`: `pnpm build`, `pnpm dev` and the checks build, test and analyse the Flutter app too.
 
 ```bash
 pnpm install
@@ -52,11 +53,11 @@ The dev servers proxy `/api` and `/s` to the Worker. With real sign-in, set `PUB
 ### Checks
 
 ```bash
-pnpm test           # Vitest everywhere, through turbo: a package nothing changed in replays its last result; worker suites run in workerd with real D1 and Durable Objects; Angular *.dom.spec.ts render components with TestBed in happy-dom
-pnpm typecheck      # tsc everywhere, Angular strict templates included
+pnpm test           # Vitest everywhere and `flutter test`, through turbo: a package nothing changed in replays its last result; worker suites run in workerd with real D1 and Durable Objects; Angular *.dom.spec.ts render components with TestBed in happy-dom
+pnpm typecheck      # tsc everywhere, Angular strict templates included, and `flutter analyze`
 pnpm lint           # ESLint, plus the provider-neutral, migration, import-cycle and turbo inputs checks
-pnpm format:check   # Prettier (`pnpm format` rewrites)
-pnpm build          # builds the four apps into apps/worker/site/
+pnpm format:check   # Prettier, and `dart format` for the Flutter app (`pnpm format` rewrites)
+pnpm build          # builds the apps into apps/worker/site/
 pnpm knip           # unused files, dependencies and exports
 pnpm coverage       # tests with coverage, then a table per package
 pnpm e2e            # Playwright against wrangler dev on port 8790
@@ -81,11 +82,12 @@ apps/web             power app (Angular 22, standalone, signals, zoneless)
 apps/simple          Learn
 apps/canvas          Canvas (experimental)
 apps/admin           admin app
+apps/flutter         Learn in Flutter (its web build at /app/)
 apps/e2e             Playwright end-to-end tests
 scripts/             build assembly, lint checks, deploy config, coverage summary
 ```
 
-`pnpm build` builds the four apps (through turbo, so an app nothing changed in is restored from the cache) and copies them into `apps/worker/site/` (`scripts/assemble-assets.mjs`): power at `/`, then `learn/`, `canvas/` and `admin/`. `wrangler.jsonc` runs that build before every `wrangler dev` and `wrangler deploy`.
+`pnpm build` builds the apps (through turbo, so an app nothing changed in is restored from the cache) and copies them into `apps/worker/site/` (`scripts/assemble-assets.mjs`): power at `/`, then `learn/`, `canvas/`, `admin/` and `app/` (Flutter). `wrangler.jsonc` runs that build before every `wrangler dev` and `wrangler deploy`.
 
 ## Documentation
 

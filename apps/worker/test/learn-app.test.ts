@@ -6,6 +6,8 @@ import type { AppBindings, AppEnv } from '../src/env.js';
 import headersText from '../../web/public/_headers?raw';
 import {
   canvasAppRoutes,
+  FLUTTER_APP_CSP,
+  flutterAppRoutes,
   LEARN_APP_CSP,
   LEARN_COMMON_HEADERS,
   LEARN_LOGIN_CSP,
@@ -15,6 +17,7 @@ import { BASE } from './http.js';
 
 const SIMPLE_INDEX = '<!doctype html><title>simple</title>';
 const CANVAS_INDEX = '<!doctype html><title>canvas</title>';
+const FLUTTER_INDEX = '<!doctype html><title>flutter</title>';
 const POWER_INDEX = '<!doctype html><title>power</title>';
 
 /**
@@ -31,6 +34,10 @@ function fakeAssets() {
     '/learn/main-xyz.js': ['console.log(1)', 'text/javascript'],
     '/canvas/index.html': [CANVAS_INDEX, 'text/html; charset=utf-8'],
     '/canvas/main-abc.js': ['console.log(2)', 'text/javascript'],
+    '/app/index.html': [FLUTTER_INDEX, 'text/html; charset=utf-8'],
+    '/app/main.dart.js': ['console.log(3)', 'text/javascript'],
+    '/app/canvaskit/canvaskit.wasm': ['wasm', 'application/wasm'],
+    '/app/assets/NOTICES': ['licenses', 'text/plain'],
   };
   const seen: string[] = [];
   const fetcher = {
@@ -55,6 +62,7 @@ function setup() {
   const app = new Hono<AppBindings>();
   app.route('/', learnAppRoutes());
   app.route('/', canvasAppRoutes());
+  app.route('/', flutterAppRoutes());
   app.get('/api/ping', (c) => c.json({ ok: true }));
   app.notFound((c) => c.json({ error: 'not_found' }, 404));
   const e = { ...env, ASSETS: assets.fetcher } as AppEnv;
@@ -180,6 +188,63 @@ describe('canvasAppRoutes', () => {
     const { request } = setup();
     expect(await (await request('/learn/t/abc')).text()).toBe(SIMPLE_INDEX);
     expect(await (await request('/canvas/t/abc')).text()).toBe(CANVAS_INDEX);
+  });
+});
+
+describe('flutterAppRoutes', () => {
+  it('redirects /app to /app/ permanently', async () => {
+    const { request, seen } = setup();
+    const res = await request('/app?x=1');
+    expect(res.status).toBe(301);
+    expect(res.headers.get('Location')).toBe('/app/?x=1');
+    expect(seen).toEqual([]);
+  });
+
+  it('serves the Flutter index.html with its CSP on every route, sign-in included', async () => {
+    const { request, seen } = setup();
+    for (const path of ['/app/', '/app/t/abc/b/def', '/app/login']) {
+      const res = await request(path);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(FLUTTER_INDEX);
+      expect(res.headers.get('Content-Security-Policy')).toBe(FLUTTER_APP_CSP);
+      expectCommonHeaders(res);
+    }
+    expect(seen).toEqual(['GET /app/', 'GET /app/', 'GET /app/']);
+  });
+
+  it('passes files through, assets/ ones without an extension too, and 404s missing ones', async () => {
+    const { request, seen } = setup();
+    const wasm = await request('/app/canvaskit/canvaskit.wasm');
+    expect(wasm.status).toBe(200);
+    expect(wasm.headers.get('Content-Type')).toBe('application/wasm');
+    expect(wasm.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    const notices = await request('/app/assets/NOTICES');
+    expect(notices.status).toBe(200);
+    expect(await notices.text()).toBe('licenses');
+    expect(seen).toEqual(['GET /app/canvaskit/canvaskit.wasm', 'GET /app/assets/NOTICES']);
+    expect((await request('/app/missing-abc.js')).status).toBe(404);
+    expect((await request('/app/assets/MISSING')).status).toBe(404);
+  });
+
+  it('keeps it apart from the other apps', async () => {
+    const { request } = setup();
+    expect(await (await request('/app/t/abc')).text()).toBe(FLUTTER_INDEX);
+    expect(await (await request('/learn/t/abc')).text()).toBe(SIMPLE_INDEX);
+    expect((await request('/apps')).status).toBe(404);
+  });
+
+  it("keeps every directive of the Angular apps' policy but script-src and trusted-types", () => {
+    const directives = (csp: string) => new Map(csp.split('; ').map((d) => [d.split(' ')[0], d]));
+    const flutter = directives(FLUTTER_APP_CSP);
+    for (const [name, directive] of directives(LEARN_APP_CSP)) {
+      if (name === 'script-src' || name === 'trusted-types') continue;
+      expect(flutter.get(name)).toBe(directive);
+    }
+    expect(flutter.get('script-src')).toBe(
+      "script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com",
+    );
+    expect(flutter.get('frame-src')).toBe('frame-src https://challenges.cloudflare.com');
+    expect(flutter.get('trusted-types')).toBe('trusted-types flutter-js tangent-turnstile');
   });
 });
 

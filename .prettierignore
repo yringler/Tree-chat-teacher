@@ -12,3 +12,6 @@ apps/worker/migrations/meta/
 # Records of finished plans and audits, kept as written.
 docs/archive/
 docs/audits/
+
+# The Flutter app: `dart format` owns its code, and Flutter's tools write its platform files.
+apps/flutter/

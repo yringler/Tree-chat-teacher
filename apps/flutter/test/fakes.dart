@@ -1,0 +1,291 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:tangent/api/models.dart';
+import 'package:tangent/api/tangent_api.dart';
+import 'package:tangent/app.dart';
+
+const unauthorized = ApiException(
+  status: 401,
+  code: 'unauthorized',
+  message: 'Sign in first',
+);
+
+const normalModel = ModelInfo(
+  id: 'normal-model',
+  label: 'Normal',
+  tier: Tier.normal,
+);
+const maxModel = ModelInfo(id: 'max-model', label: 'Max', tier: Tier.max);
+
+const signedInMe = Me(
+  userId: 'u1',
+  email: 'ada@example.com',
+  devMode: false,
+  builtInCredit: true,
+);
+
+ChatNode node(
+  String id, {
+  required String branch,
+  required int seq,
+  Role role = Role.user,
+  String content = '',
+  NodeStatus status = NodeStatus.complete,
+  String? errorKind,
+}) => ChatNode(
+  id: id,
+  branchId: branch,
+  parentId: null,
+  seq: seq,
+  role: role,
+  content: content,
+  status: status,
+  error: null,
+  errorKind: errorKind,
+);
+
+Branch branch(
+  String id, {
+  String treeId = 't1',
+  String? parent,
+  String? fork,
+  String title = '',
+  String? model,
+}) => Branch(
+  id: id,
+  treeId: treeId,
+  parentBranchId: parent,
+  branchPointNodeId: fork,
+  title: title,
+  model: model,
+);
+
+TreeDetail treeDetail({
+  String id = 't1',
+  String title = 'New conversation',
+  List<Branch>? branches,
+  List<ChatNode> nodes = const [],
+}) => TreeDetail(
+  tree: Tree(id: id, title: title, trunkBranchId: 'trunk'),
+  branches: branches ?? [branch('trunk', treeId: id, model: 'normal-model')],
+  nodes: nodes,
+);
+
+/// A reply stream the test drives event by event.
+class ScriptedStream {
+  ScriptedStream(this.target, this.content);
+
+  /// The branch it was sent on, or the node it resumes.
+  final String target;
+  final String? content;
+  final controller = StreamController<StreamEvent>();
+}
+
+/// A [TangentApi] with scripted answers that records what the app asked.
+class FakeTangentApi implements TangentApi {
+  Payer? payerSet;
+
+  @override
+  set payer(Payer payer) => payerSet = payer;
+
+  /// Answers to `me()` in turn; the last one repeats.
+  List<Object> meAnswers = [signedInMe];
+  LoginOptions loginOptionsAnswer = const LoginOptions(
+    configured: true,
+    devMode: false,
+    turnstileSiteKey: 'site-key',
+    signupsOpen: true,
+  );
+  BillingSummary billingAnswer = const BillingSummary(
+    enabled: true,
+    builtInCredit: true,
+    availableMicros: 0,
+  );
+  PoolStatus poolStatusAnswer = const PoolStatus(
+    enabled: false,
+    modelLabel: null,
+  );
+  List<ProviderInfo> providersAnswer = const [
+    ProviderInfo(
+      id: 'other',
+      defaultModel: null,
+      models: [ModelInfo(id: 'x', label: 'X', tier: null)],
+    ),
+    ProviderInfo(
+      id: 'openrouter',
+      defaultModel: 'normal-model',
+      models: [normalModel, maxModel],
+    ),
+  ];
+  List<TreeSummary> treesAnswer = const [];
+  final details = <String, TreeDetail>{};
+
+  /// Thrown by `sendMessage`'s stream before any event, when set.
+  ApiException? refuseSend;
+
+  /// Thrown by `signInWithCode`, when set; otherwise the code signs in.
+  ApiException? refuseCode;
+
+  final magicLinks = <({String email, String captchaToken})>[];
+  final codes = <({String email, String code})>[];
+  final createdTrees = <({String? providerId, String? model})>[];
+  final createdBranches = <({String fromNodeId, String? title})>[];
+  final deletedTrees = <String>[];
+  final modelSwitches = <({String branchId, String model})>[];
+  final sends = <ScriptedStream>[];
+  final resumes = <ScriptedStream>[];
+  final cancelled = <String>[];
+  var signedOut = false;
+  var _meCalls = 0;
+  var _branchCount = 0;
+
+  @override
+  Future<LoginOptions> loginOptions() async => loginOptionsAnswer;
+
+  @override
+  Future<void> sendMagicLink({
+    required String email,
+    required String captchaToken,
+    required String callbackPath,
+    required String errorCallbackPath,
+  }) async {
+    magicLinks.add((email: email, captchaToken: captchaToken));
+  }
+
+  @override
+  Future<void> signInWithCode({
+    required String email,
+    required String code,
+  }) async {
+    codes.add((email: email, code: code));
+    final refusal = refuseCode;
+    if (refusal != null) throw refusal;
+    meAnswers = [signedInMe];
+  }
+
+  @override
+  Future<Me> me() async {
+    final answer = meAnswers[_meCalls.clamp(0, meAnswers.length - 1)];
+    _meCalls++;
+    if (answer is Me) return answer;
+    throw answer;
+  }
+
+  @override
+  Future<bool> refreshSession() async => true;
+
+  @override
+  Future<void> signOut() async => signedOut = true;
+
+  @override
+  Future<PoolStatus> poolStatus() async => poolStatusAnswer;
+
+  @override
+  Future<BillingSummary> billing() async => billingAnswer;
+
+  @override
+  Future<List<ProviderInfo>> providers() async => providersAnswer;
+
+  @override
+  Future<List<TreeSummary>> trees() async => treesAnswer;
+
+  @override
+  Future<TreeDetail> createTree({String? providerId, String? model}) async {
+    createdTrees.add((providerId: providerId, model: model));
+    final detail = treeDetail(id: 'new-tree');
+    details[detail.tree.id] = detail;
+    return detail;
+  }
+
+  @override
+  Future<TreeDetail> tree(String treeId) async {
+    final detail = details[treeId];
+    if (detail == null) {
+      throw const ApiException(
+        status: 404,
+        code: 'not_found',
+        message: 'No such lesson',
+      );
+    }
+    return detail;
+  }
+
+  @override
+  Future<void> deleteTree(String treeId) async => deletedTrees.add(treeId);
+
+  @override
+  Future<Branch> createBranch({
+    required String fromNodeId,
+    String? title,
+    String? anchorQuote,
+  }) async {
+    createdBranches.add((fromNodeId: fromNodeId, title: title));
+    return branch(
+      'side-${++_branchCount}',
+      parent: 'trunk',
+      fork: fromNodeId,
+      title: title ?? '',
+    );
+  }
+
+  @override
+  Future<Branch> setBranchModel(String branchId, String model) async {
+    modelSwitches.add((branchId: branchId, model: model));
+    return branch(branchId, model: model);
+  }
+
+  @override
+  Stream<StreamEvent> sendMessage(String branchId, String content) {
+    final scripted = ScriptedStream(branchId, content);
+    sends.add(scripted);
+    final refusal = refuseSend;
+    if (refusal != null) {
+      scripted.controller
+        ..addError(refusal)
+        ..close();
+    }
+    return scripted.controller.stream;
+  }
+
+  @override
+  Stream<StreamEvent> resume(String nodeId) {
+    final scripted = ScriptedStream(nodeId, null);
+    resumes.add(scripted);
+    return scripted.controller.stream;
+  }
+
+  @override
+  Future<void> cancel(String nodeId) async => cancelled.add(nodeId);
+}
+
+/// Pumps frames until routes and loads settle. Not `pumpAndSettle`: a reply
+/// being written blinks its cursor forever.
+Future<void> settle(WidgetTester tester) async {
+  for (var i = 0; i < 10; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
+/// Turnstile's stand-in: solved by a tap.
+Widget fakeCaptcha({
+  Key? key,
+  required String siteKey,
+  required ValueChanged<String?> onToken,
+}) => TextButton(
+  key: key,
+  onPressed: () => onToken('captcha-token'),
+  child: const Text('Solve'),
+);
+
+Future<void> pumpApp(
+  WidgetTester tester,
+  FakeTangentApi api, {
+  String location = '/',
+}) async {
+  await tester.pumpWidget(
+    TangentApp(api: api, initialLocation: location, captcha: fakeCaptcha),
+  );
+  await settle(tester);
+}

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Assembles the Workers Static Assets directory (apps/worker/site) from the
-// Angular builds:
+// apps' builds:
 //   apps/web/dist/web/browser/**       → apps/worker/site/         (power app, `/`)
 //   apps/simple/dist/simple/browser/** → apps/worker/site/learn/   (simple app, `/learn/`)
 //   apps/canvas/dist/canvas/browser/** → apps/worker/site/canvas/  (canvas app, `/canvas/`)
 //   apps/admin/dist/admin/browser/**   → apps/worker/site/admin/   (admin app, `/admin/`)
-// Run by the root `pnpm build` after the `ng build`s. Pure Node fs, no deps.
+//   apps/flutter/dist/web/**           → apps/worker/site/app/     (Flutter app, `/app/`)
+// Run by the root `pnpm build` after the `ng build`s and `flutter build web`. Pure Node fs, no deps.
 import { cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +33,11 @@ const sources = [
     from: path.join(root, 'apps/admin/dist/admin/browser'),
     to: path.join(site, 'admin'),
     build: 'pnpm --filter @tangent/admin build',
+  },
+  {
+    from: path.join(root, 'apps/flutter/dist/web'),
+    to: path.join(site, 'app'),
+    build: 'pnpm --filter @tangent/flutter build',
   },
 ];
 // Kept across runs: git tracks it so the directory exists before any build

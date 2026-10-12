@@ -286,7 +286,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           conversation that you wouldn't want an AI provider to process.
         </li>
         <li>
-          <strong>Resend</strong> (USA): sends sign-in link emails to your address.
+          <strong>Resend</strong> (USA): sends sign-in emails (a link and a code) to your address.
         </li>
         {info.screening && (
           <li>
@@ -362,9 +362,10 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
       </ul>
       <p>
         The apps also keep a few preferences in your browser's local storage (such as "remember me",
-        how Learn replies are paid for, and the default reviewer model). The sign-in page loads
-        Cloudflare Turnstile, which checks that you're human. There are no analytics, advertising or
-        tracking cookies.
+        how Learn replies are paid for, and the default reviewer model). The phone app has no
+        cookies: it keeps its sign-in token in the device's secure storage until you sign out. The
+        sign-in page loads Cloudflare Turnstile, which checks that you're human. There are no
+        analytics, advertising or tracking cookies.
       </p>
 
       <h2>How long we keep it</h2>
@@ -379,7 +380,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           them at once; deleting your account leaves any still held to go when their{' '}
           {candidateMinutes} minutes are up.
         </li>
-        <li>Sessions: until they expire or you sign out. Sign-in links: 15 minutes.</li>
+        <li>Sessions: until they expire or you sign out. Sign-in links and codes: 15 minutes.</li>
         <li>
           Waitlist: until you sign up with that address, when it is deleted, or until you ask us to
           remove it.

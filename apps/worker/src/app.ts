@@ -14,8 +14,14 @@ import { keyRenewal } from './byok/keys.js';
 import { appConfig } from './config.js';
 import type { AppBindings } from './env.js';
 import { apiError, notFound, onError } from './http/errors.js';
+import { appCaptchaRoutes } from './http/app-captcha-page.js';
 import { landingRoutes } from './http/landing.js';
-import { adminAppRoutes, canvasAppRoutes, learnAppRoutes } from './http/learn-app.js';
+import {
+  adminAppRoutes,
+  canvasAppRoutes,
+  flutterAppRoutes,
+  learnAppRoutes,
+} from './http/learn-app.js';
 import { legalRoutes } from './http/legal.js';
 import { poolPageRoutes } from './http/pool-page.js';
 import { pricingPageRoutes } from './http/pricing-page.js';
@@ -53,14 +59,16 @@ export interface AppOptions {
  * - `/s/*` is public and read-only, but for each link's report form,
  *   `/s/:token/report` (http/report-page.tsx).
  * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
- *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
- *   (http/learn-app.ts), but for `/admin/review/:shareId`, the reported
- *   conversation an admin decides on (http/review-page.ts).
+ *   canvas app, `/app`, `/app/*` the Flutter app and `/admin`, `/admin/*`
+ *   the admin app, to admins only (http/learn-app.ts), but for
+ *   `/admin/review/:shareId`, the reported conversation an admin decides on
+ *   (http/review-page.ts).
  * - `/privacy` and `/terms` are the public legal pages (http/legal.tsx), and
  *   `/pool` explains the open pool (http/pool-page.tsx) and `/pricing`
  *   what each plan gets you (http/pricing-page.tsx).
  * - `/verify` is the Turnstile interstitial after a first OAuth sign-in
- *   (http/verify-page.tsx).
+ *   (http/verify-page.tsx), and `/app-captcha` the Turnstile widget the
+ *   phone app shows in a web view to sign in (http/app-captcha-page.tsx).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
  *   (http/landing.tsx); `/` with a session cookie is the power app's index.
  * Everything else is served by Workers Static Assets before the Worker runs
@@ -110,12 +118,14 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.route('/s', shareRoutes());
   app.route('/', learnAppRoutes());
   app.route('/', canvasAppRoutes());
+  app.route('/', flutterAppRoutes());
   app.route('/', reviewPageRoutes(options.auth));
   app.route('/', adminAppRoutes(options.auth));
   app.route('/', legalRoutes());
   app.route('/', poolPageRoutes());
   app.route('/', pricingPageRoutes());
   app.route('/', verifyPageRoutes(options.auth));
+  app.route('/', appCaptchaRoutes());
   app.route('/', landingRoutes());
   return app;
 }

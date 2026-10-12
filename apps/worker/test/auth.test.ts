@@ -366,6 +366,260 @@ describe('remember me', () => {
   });
 });
 
+describe('sign-in by code', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  function codeFrom(message: EmailMessage): string {
+    const m = /code in the app: (\d{6})/.exec(message.text);
+    if (!m) throw new Error('no code in email');
+    return m[1]!;
+  }
+
+  /** Requests the email (link and code) for `email` and returns its code. */
+  async function requestCode(s: ReturnType<typeof setup>, email: string): Promise<string> {
+    expect((await requestMagicLink(s.call, email)).status).toBe(200);
+    return codeFrom(s.mail.sent.at(-1)!);
+  }
+
+  /**
+   * `POST /api/auth/sign-in/email-otp` as the native app sends it: no cookie,
+   * no Origin. `call` defaults to a fresh client IP, as Better Auth allows
+   * three tries a minute per IP.
+   */
+  async function submitCode(
+    email: string,
+    otp: string,
+    opts: { call?: ReturnType<typeof setup>['call']; env?: AppEnv; cookie?: string } = {},
+  ): Promise<Response> {
+    const call = opts.call ?? setup(opts.env).call;
+    return call('/api/auth/sign-in/email-otp', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(opts.cookie ? { cookie: opts.cookie, origin: BASE } : {}),
+      },
+      body: JSON.stringify({ email, otp }),
+    });
+  }
+
+  async function sessionExpiry(token: string): Promise<number> {
+    const row = await env.DB.prepare('SELECT expires_at FROM auth_sessions WHERE token = ?')
+      .bind(token.split('.')[0])
+      .first<{ expires_at: number }>();
+    return row!.expires_at - Date.now();
+  }
+
+  it('the sign-in email carries both the link and a 6-digit code', async () => {
+    const s = setup();
+    const code = await requestCode(s, 'both@example.com');
+    const mail = s.mail.sent[0]!;
+    expect(mail.text).toContain('/api/auth/magic-link/verify');
+    expect(code).toMatch(/^\d{6}$/);
+    expect(mail.html).toContain(code);
+    // The code is stored encrypted, never as itself.
+    const row = await env.DB.prepare('SELECT value FROM auth_verifications WHERE identifier = ?')
+      .bind('sign-in-otp-both@example.com')
+      .first<{ value: string }>();
+    expect(row!.value).not.toContain(code);
+  });
+
+  it('signs in a new address by code, creating a verified account, with a bearer token', async () => {
+    const s = setup();
+    const code = await requestCode(s, 'Coder@Example.com');
+    const res = await submitCode('coder@example.com', code);
+    expect(res.status).toBe(200);
+    const token = res.headers.get('set-auth-token');
+    expect(token).toMatch(/^[^.]+\..+$/);
+    const me = await s.call('/api/me', { headers: { authorization: `Bearer ${token}` } });
+    expect(me.status).toBe(200);
+    expect(await me.json()).toMatchObject({ email: 'coder@example.com', devMode: false });
+    const user = await env.DB.prepare('SELECT email_verified FROM auth_users WHERE email = ?')
+      .bind('coder@example.com')
+      .first<{ email_verified: number }>();
+    expect(user?.email_verified).toBe(1);
+    // A client without cookies (the app) keeps its token: the normal 30-day session.
+    expect(await sessionExpiry(token!)).toBeGreaterThan(29 * DAY);
+  });
+
+  it('a browser that asked not to be remembered gets a 1-day session by code too', async () => {
+    const s = setup();
+    const code = await requestCode(s, 'shared-computer@example.com');
+    const res = await submitCode('shared-computer@example.com', code, {
+      cookie: `${REMEMBER_COOKIE}=0`,
+    });
+    expect(res.status).toBe(200);
+    expect(findSetCookie(res, SESSION_COOKIE)).not.toMatch(/Max-Age/i);
+    expect(await sessionExpiry(res.headers.get('set-auth-token')!)).toBeLessThanOrEqual(DAY);
+    // A browser that asked to be remembered gets the persistent cookie.
+    const s2 = setup();
+    const code2 = await requestCode(s2, 'own-laptop@example.com');
+    const res2 = await submitCode('own-laptop@example.com', code2, {
+      cookie: `${REMEMBER_COOKIE}=1`,
+    });
+    expect(findSetCookie(res2, SESSION_COOKIE)).toMatch(/Max-Age=2592000/);
+  });
+
+  it('refuses a wrong code, and after three wrong ones the right one too', async () => {
+    const s = setup();
+    const code = await requestCode(s, 'guesser@example.com');
+    const wrong = code === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 3; i++) {
+      const res = await submitCode('guesser@example.com', wrong);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ code: 'INVALID_OTP' });
+    }
+    const res = await submitCode('guesser@example.com', code);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'TOO_MANY_ATTEMPTS' });
+    expect(res.headers.get('set-auth-token')).toBeNull();
+    // A new email brings a new code that works.
+    const fresh = await requestCode(s, 'guesser@example.com');
+    expect((await submitCode('guesser@example.com', fresh)).status).toBe(200);
+  });
+
+  it('a code works once', async () => {
+    const s = setup();
+    const code = await requestCode(s, 'once@example.com');
+    expect((await submitCode('once@example.com', code)).status).toBe(200);
+    const again = await submitCode('once@example.com', code);
+    expect(again.status).toBe(400);
+    expect(again.headers.get('set-auth-token')).toBeNull();
+  });
+
+  it('an expired code is refused', async () => {
+    const s = setup();
+    const code = await requestCode(s, 'late@example.com');
+    await env.DB.prepare('UPDATE auth_verifications SET expires_at = ? WHERE identifier = ?')
+      .bind(Date.now() - 1000, 'sign-in-otp-late@example.com')
+      .run();
+    const res = await submitCode('late@example.com', code);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: 'OTP_EXPIRED' });
+  });
+
+  it('a code expires with its link, after 15 minutes', async () => {
+    const s = setup();
+    await requestCode(s, 'quarter-hour@example.com');
+    const row = await env.DB.prepare(
+      'SELECT expires_at FROM auth_verifications WHERE identifier = ?',
+    )
+      .bind('sign-in-otp-quarter-hour@example.com')
+      .first<{ expires_at: number }>();
+    const left = row!.expires_at - Date.now();
+    expect(left).toBeLessThanOrEqual(15 * 60 * 1000);
+    expect(left).toBeGreaterThan(14 * 60 * 1000);
+  });
+
+  it('a code only comes in the captcha-gated sign-in email: the plugin’s other endpoints are off', async () => {
+    const s = setup();
+    for (const path of [
+      '/email-otp/send-verification-otp',
+      '/email-otp/check-verification-otp',
+      '/email-otp/verify-email',
+      '/email-otp/request-password-reset',
+      '/forget-password/email-otp',
+      '/email-otp/reset-password',
+      '/email-otp/request-email-change',
+      '/email-otp/change-email',
+    ]) {
+      const res = await s.call(`/api/auth${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'bypass@example.com', type: 'sign-in', otp: '123456' }),
+      });
+      expect(res.status, path).toBe(404);
+    }
+    expect(s.mail.sent).toHaveLength(0);
+  });
+
+  it('records the Turnstile pass while the pool is on, as the link does', async () => {
+    const e = authEnv({ POOL_ENABLED: 'true' });
+    const s = setup(e);
+    const code = await requestCode(s, 'code-verified@example.org');
+    expect((await submitCode('code-verified@example.org', code, { env: e })).status).toBe(200);
+    const row = await env.DB.prepare('SELECT pool_verified_at FROM auth_users WHERE email = ?')
+      .bind('code-verified@example.org')
+      .first<{ pool_verified_at: string | null }>();
+    expect(row?.pool_verified_at).toBeTruthy();
+  });
+
+  it('a code requested while there was room is refused once full', async () => {
+    const count = async () =>
+      (await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_users').first<{ n: number }>())!.n;
+    const e = authEnv({ MAX_USERS: String((await count()) + 1) });
+    const s = setup(e);
+    const code = await requestCode(s, 'slow-typist@example.com');
+    await signIn(setup(authEnv({ MAX_USERS: '' })), 'fast-typist@example.com');
+    const res = await submitCode('slow-typist@example.com', code, { env: e });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: SIGNUPS_CLOSED });
+  });
+
+  it('the bearer token must be the signed one, and signing out ends it', async () => {
+    const s = setup();
+    const code = await requestCode(s, 'bearer@example.com');
+    const res = await submitCode('bearer@example.com', code);
+    const token = res.headers.get('set-auth-token')!;
+    const raw = ((await res.json()) as { token: string }).token;
+    expect(token.startsWith(`${raw}.`)).toBe(true);
+    const me = (authorization: string) => s.call('/api/me', { headers: { authorization } });
+    expect((await me(`Bearer ${raw}`)).status).toBe(401);
+    expect((await me(`Bearer ${raw}.forged`)).status).toBe(401);
+    expect((await me(`Bearer ${token}`)).status).toBe(200);
+    const session = await s.call('/api/auth/get-session', {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(await session.json()).toMatchObject({ user: { email: 'bearer@example.com' } });
+    // The token is handed out on the code sign-in only, not on every session response.
+    expect(session.headers.get('set-auth-token')).toBeNull();
+    const out = await s.call('/api/auth/sign-out', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(out.status).toBe(200);
+    expect((await me(`Bearer ${token}`)).status).toBe(401);
+  });
+
+  it('the web sign-ins hand out no bearer token: their session stays in the HttpOnly cookie', async () => {
+    const res = await signIn(setup(), 'web-only@example.com');
+    expect(findSetCookie(res, SESSION_COOKIE)).toBeDefined();
+    expect(res.headers.get('set-auth-token')).toBeNull();
+  });
+});
+
+describe('the app’s captcha page', () => {
+  it('shows only the Turnstile widget, with a script of its own that hands the token to the app', async () => {
+    const s = setup();
+    const page = await s.call('/app-captcha');
+    expect(page.status).toBe(200);
+    expect(page.headers.get('cache-control')).toBe('no-store');
+    const csp = page.headers.get('content-security-policy')!;
+    expect(csp).toContain("script-src https://challenges.cloudflare.com 'self'");
+    expect(csp).toContain('frame-src https://challenges.cloudflare.com');
+    expect(csp).toContain("form-action 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    const html = await page.text();
+    expect(html).toContain('class="cf-turnstile" data-sitekey="site-key"');
+    expect(html).toContain('data-callback="tangentCaptchaPassed"');
+    expect(html).toContain('<script src="/app-captcha.js"></script>');
+    // Nothing to navigate away to inside the app's web view.
+    expect(html).not.toContain('<header');
+    expect(html).not.toMatch(/<a\s/);
+
+    const script = await s.call('/app-captcha.js');
+    expect(script.status).toBe(200);
+    expect(script.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    const js = await script.text();
+    expect(js).toContain('TangentCaptcha.postMessage');
+    expect(js).toContain('tangentCaptchaPassed');
+  });
+
+  it('is not found where Turnstile is not configured', async () => {
+    const s = setup(authEnv({ TURNSTILE_SITE_KEY: '' }));
+    expect((await s.call('/app-captcha')).status).toBe(404);
+  });
+});
+
 describe('social sign-in', () => {
   it('redirects to Google when it is configured', async () => {
     const { call } = setup(authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' }));

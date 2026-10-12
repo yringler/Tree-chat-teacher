@@ -4,6 +4,8 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
 import { captcha } from 'better-auth/plugins';
+import { bearer } from 'better-auth/plugins/bearer';
+import { emailOTP } from 'better-auth/plugins/email-otp';
 import { magicLink } from 'better-auth/plugins/magic-link';
 import { drizzle } from 'drizzle-orm/d1';
 import { AUTH_BASE_PATH, REMEMBER_COOKIE, SIGNUPS_CLOSED } from '@tangent/shared';
@@ -26,9 +28,14 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
 /**
  * Better Auth (https://better-auth.com), mounted at `/api/auth/*`.
  *
- * Sign-in methods: Google, GitHub, magic link (email) and passkeys. There are
- * no passwords: the email+password method is never enabled. Passkeys are
- * added from the account dialog once signed in, then work as a sign-in method.
+ * Sign-in methods: Google, GitHub, email (a magic link, or the code that comes
+ * in the same email) and passkeys. There are no passwords: the
+ * email+password method is never enabled. Passkeys are added from the
+ * account dialog once signed in, then work as a sign-in method.
+ *
+ * The session is Better Auth's HttpOnly cookie. A client without cookies
+ * (the phone app) signs in by code and keeps the signed session token
+ * itself, sending it as `Authorization: Bearer <token>`.
  *
  * Anyone may sign up until the deployment has `MAX_USERS` users; abuse is
  * bounded by Turnstile and the rate limits on magic links. While the open
@@ -52,10 +59,36 @@ const DAY_SECONDS = 24 * 60 * 60;
 const SESSION_DAYS = 30;
 export const MAGIC_LINK_MINUTES = 15;
 
+/** Signs in with the code from the sign-in email (the email-OTP plugin's endpoint). */
+const CODE_SIGN_IN_PATH = '/sign-in/email-otp';
+
+/**
+ * The response header that carries the signed session token to a client that
+ * signed in by code (Better Auth's bearer plugin names it so).
+ */
+const BEARER_TOKEN_HEADER = 'set-auth-token';
+
+/**
+ * The email-OTP plugin's endpoints other than signing in by code. Each would
+ * send a code without the captcha the magic-link request has, verify an
+ * email, or set a password, none of which Tangent does.
+ */
+const UNUSED_EMAIL_OTP_PATHS = [
+  '/email-otp/send-verification-otp',
+  '/email-otp/check-verification-otp',
+  '/email-otp/verify-email',
+  '/email-otp/request-password-reset',
+  '/forget-password/email-otp',
+  '/email-otp/reset-password',
+  '/email-otp/request-email-change',
+  '/email-otp/change-email',
+];
+
 /** Endpoints that finish a sign-in (and create the session). */
 function isSignInCompletion(path: string | undefined): boolean {
   return (
     path === '/magic-link/verify' ||
+    path === CODE_SIGN_IN_PATH ||
     path === '/passkey/verify-authentication' ||
     (path?.startsWith('/callback/') ?? false)
   );
@@ -139,8 +172,8 @@ const NO_OAUTH_TOKENS = {
 
 /**
  * Turnstile on first sign-in (see `createAuth`), while the open pool is
- * on. A magic link was requested with a Turnstile pass: the user is recorded
- * as verified. An OAuth callback
+ * on. A magic link, and the code in the same email, was requested with a
+ * Turnstile pass: the user is recorded as verified. An OAuth callback
  * of a user with no pass on record is redirected through the interstitial,
  * which continues to where the callback was going. Passkeys need a session to
  * be added, so they never sign a user in for the first time.
@@ -154,7 +187,7 @@ async function recordFirstSignInCheck(
 ): Promise<void> {
   // Only while the pool is on: it is what the record is for (pool/identity.ts).
   if (!appConfig(env).flags.poolEnabled) return;
-  if (path === '/magic-link/verify') {
+  if (path === '/magic-link/verify' || path === CODE_SIGN_IN_PATH) {
     await markPoolVerified(env.DB, user.id, user.email);
     return;
   }
@@ -200,6 +233,28 @@ function signupsClosedError(): APIError {
   });
 }
 
+/** The value a pending `Set-Cookie` gives cookie `name`, decoded; undefined when there is none. */
+function setCookieValue(headers: Headers | undefined, name: string): string | undefined {
+  const cookie = headers?.getSetCookie().find((c) => c.startsWith(`${name}=`));
+  if (cookie === undefined) return undefined;
+  return decodeURIComponent(cookie.slice(name.length + 1).split(';')[0] ?? '');
+}
+
+/**
+ * Better Auth's bearer plugin turns `Authorization: Bearer <token>` into the
+ * session, on its own endpoints and on our `/api/*` (sessionMiddleware asks
+ * Better Auth with the request's headers). Only signed tokens count, as only
+ * signed cookies do: the raw token Better Auth puts in JSON bodies (e.g.
+ * `get-session`) is no credential. The plugin's after hook, which would add
+ * the token to every response that sets the session cookie, is left out so
+ * the web apps' session stays out of reach of page scripts; the code sign-in
+ * hands the token out instead (`createAuth`).
+ */
+function bearerSessions() {
+  const plugin = bearer({ requireSignature: true });
+  return { ...plugin, hooks: { before: plugin.hooks.before } };
+}
+
 /** Drops pending `Set-Cookie` entries for `name` so a re-issued cookie is the only one on the wire. */
 function dropSetCookie(headers: Headers | undefined, name: string): void {
   if (!headers) return;
@@ -214,7 +269,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
   const base = new URL(baseUrl);
   const turnstilePin = pinnedTurnstileHostname(env, base.hostname);
 
-  return betterAuth({
+  const auth = betterAuth({
     appName: 'Tangent',
     baseURL: base.origin,
     basePath: AUTH_BASE_PATH,
@@ -248,8 +303,9 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
     },
     // In D1 so limits hold across isolates. Better Auth's defaults apply
     // (100 requests / 10 s per IP and path), plus the magic-link plugin's
-    // own 5 / minute.
+    // own 5 / minute and the email-OTP plugin's 3 / minute on code sign-in.
     rateLimit: { enabled: true, storage: 'database' },
+    disabledPaths: UNUSED_EMAIL_OTP_PATHS,
     advanced: {
       cookiePrefix: 'tangent',
       ipAddress: { ipAddressHeaders: ['cf-connecting-ip'] },
@@ -257,11 +313,11 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
     databaseHooks: {
       user: {
         create: {
-          // Covers every sign-up path (OAuth callback, magic link). Anyone may
-          // sign up, but only with a verified email (magic links always are;
-          // OAuth reports it): the session middleware refuses unverified
-          // users, so creating one would only leave a user that can never get
-          // in. Returning false (rather than throwing) makes the OAuth
+          // Covers every sign-up path (OAuth callback, magic link, code).
+          // Anyone may sign up, but only with a verified email (the email's
+          // link and code always are; OAuth reports it): the session
+          // middleware refuses unverified users, so creating one would only
+          // leave a user that can never get in. Returning false (rather than throwing) makes the OAuth
           // callback redirect to the login page with an error instead of
           // answering with JSON. The user cap is checked here too, so it
           // holds on every path; it throws for its own error code.
@@ -289,6 +345,14 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       // login page asked otherwise, shortened here: 1 day server-side, a
       // browser-session cookie, and Better Auth's signed `dont_remember`
       // cookie so later refreshes don't extend it.
+      //
+      // A code is typed into the page or app that asked for it, so a
+      // browser's code sign-in carries the login page's preference cookie.
+      // A request without one is a client without cookies (the phone app):
+      // it keeps the token itself and has no browser session to end with,
+      // so it gets the remembered session. A link, a callback or a passkey
+      // without the cookie may be on a computer that never asked: those are
+      // shortened.
       after: createAuthMiddleware(async (ctx) => {
         if (ctx.path === '/sign-out') {
           // The user's provider keys go with their session (byok/keys.ts).
@@ -305,12 +369,23 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
           created.user,
           ctx.context.responseHeaders,
         );
-        const remember = ctx.getCookie(REMEMBER_COOKIE) === '1';
+        const preference = ctx.getCookie(REMEMBER_COOKIE);
+        const remember =
+          preference === '1' || (ctx.path === CODE_SIGN_IN_PATH && preference === null);
         ctx.setCookie(REMEMBER_COOKIE, '', { path: AUTH_BASE_PATH, maxAge: 0 });
+        const sessionCookie = ctx.context.authCookies.sessionToken.name;
+        // Only the code sign-in hands out the token: it is how the app signs
+        // in, and it takes the emailed code, which a script on a page lacks.
+        // The signed value is the session cookie's, which a shortened
+        // session keeps.
+        if (ctx.path === CODE_SIGN_IN_PATH) {
+          const token = setCookieValue(ctx.context.responseHeaders, sessionCookie);
+          if (token) ctx.setHeader(BEARER_TOKEN_HEADER, token);
+        }
         if (remember) return;
         const expiresAt = new Date(Date.now() + DAY_SECONDS * 1000);
         await ctx.context.internalAdapter.updateSession(created.session.token, { expiresAt });
-        dropSetCookie(ctx.context.responseHeaders, ctx.context.authCookies.sessionToken.name);
+        dropSetCookie(ctx.context.responseHeaders, sessionCookie);
         await setSessionCookie(
           ctx,
           { session: { ...created.session, expiresAt }, user: created.user },
@@ -329,10 +404,33 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
           // so whether an address has an account can't be probed without one.
           if (!(await userExists(env, email)) && (await signupsFull(env)))
             throw signupsClosedError();
+          // The code goes in the same email, so this captcha-gated request is
+          // the only way to get one.
+          const code = await auth.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
           const sender = deps.emailSender ?? createEmailSender(env, base.origin);
-          await sender.send(magicLinkEmail(email, url, MAGIC_LINK_MINUTES));
+          await sender.send(magicLinkEmail(email, url, code, MAGIC_LINK_MINUTES));
         },
       }),
+      // Sign-in by the code in the magic-link email (`POST
+      // /api/auth/sign-in/email-otp {email, otp}`), for where the link can't
+      // reach: the phone app, or a computer the email isn't open on. It signs
+      // up a new address as the link does. The code is 6 digits from the
+      // CSPRNG; 3 wrong tries end it, so guessing has 3 chances in a million
+      // per email, and each email takes a captcha. It is stored encrypted
+      // with BETTER_AUTH_SECRET: a hash of a 6-digit number is reversed by
+      // trying them all.
+      emailOTP({
+        otpLength: 6,
+        expiresIn: MAGIC_LINK_MINUTES * 60,
+        allowedAttempts: 3,
+        storeOTP: 'encrypted',
+        // Never called: the endpoints that would send a code on their own are
+        // disabled (UNUSED_EMAIL_OTP_PATHS) and codes go out in the magic-link
+        // email. It fails closed should that ever change.
+        sendVerificationOTP: () =>
+          Promise.reject(new Error('Sign-in codes are sent only with the magic link')),
+      }),
+      bearerSessions(),
       passkey({
         rpID: base.hostname,
         rpName: 'Tangent',
@@ -349,6 +447,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       }),
     ],
   });
+  return auth;
 }
 
 export type Auth = ReturnType<typeof createAuth>;

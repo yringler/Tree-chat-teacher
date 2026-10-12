@@ -167,6 +167,8 @@ importers:
         specifier: ^24.19.1
         version: 24.19.1
 
+  apps/flutter: {}
+
   apps/simple:
     dependencies:
       '@angular/common':
