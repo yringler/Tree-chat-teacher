@@ -47,7 +47,7 @@ Sign-in needs no browser on a phone:
 - **Code:** the sign-in email carries a 6-digit code next to the link, and
   the app signs in by typing it. The link would open the phone's browser and
   sign in the web app there instead.
-- **Google (Android):** package:google_sign_in shows the phone's account
+- **Google (Android):** google_sign_in_android shows the phone's account
   picker and returns an ID token issued to the Worker's `GOOGLE_CLIENT_ID`
   (from `/api/login-options`); the app posts it with the captcha token to
   `/api/auth/sign-in/social`. It needs the Android OAuth client in
