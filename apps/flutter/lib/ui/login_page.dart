@@ -63,6 +63,10 @@ String googleErrorMessage(Object error) => switch (error) {
   _ => 'Signing in with Google didn’t work. Try again, or use your email.',
 };
 
+/// Google sign-in is off until Google approves the OAuth consent screen's
+/// branding; flip this back to true then.
+const _googleSignInEnabled = false;
+
 final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
 const _codeLength = 6;
@@ -88,6 +92,7 @@ class LoginPage extends StatefulWidget {
     this.native = !kIsWeb,
     this.googleOnDevice,
     this.googleIdToken = deviceGoogleIdToken,
+    this.googleEnabled = _googleSignInEnabled,
   });
 
   /// `?error=` from a magic link that failed.
@@ -105,6 +110,9 @@ class LoginPage extends StatefulWidget {
 
   /// Google's account picker; tests pass a stand-in.
   final GoogleIdTokenSource googleIdToken;
+
+  /// Whether any Google button shows, on the web or on the device.
+  final bool googleEnabled;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -348,6 +356,7 @@ class _LoginPageState extends State<LoginPage> {
     // apps.
     final deviceGoogle =
         widget.native &&
+        widget.googleEnabled &&
         _googleOnDevice &&
         options.google &&
         googleClientId != null &&
@@ -355,7 +364,8 @@ class _LoginPageState extends State<LoginPage> {
     final browserProviders = widget.native
         ? const <(String, String)>[]
         : [
-            if (options.google) ('google', 'Continue with Google'),
+            if (widget.googleEnabled && options.google)
+              ('google', 'Continue with Google'),
             if (options.github) ('github', 'Continue with GitHub'),
           ];
     return [
