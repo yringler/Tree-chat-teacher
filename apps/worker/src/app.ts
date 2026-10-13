@@ -100,6 +100,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
       configured,
       devMode: !configured && auth.devAllowNoAuth,
       social: configured ? socialProviderFlags(c.env) : { google: false, github: false },
+      googleClientId: configured ? (auth.google?.clientId ?? null) : null,
       turnstileSiteKey: auth.turnstileSiteKey,
       signupsOpen: !(await signupsFull(c.env)),
     };

@@ -338,6 +338,7 @@ export class DemoBackend {
         configured: false,
         devMode: false,
         social: { google: false, github: false },
+        googleClientId: null,
         turnstileSiteKey: null,
         signupsOpen: true,
       } satisfies LoginOptionsResponse),

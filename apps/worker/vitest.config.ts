@@ -3,6 +3,7 @@ import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-worker
 import { defineConfig } from 'vitest/config';
 import { coverage } from '../../vitest.coverage.js';
 import { MOCK_UPSTREAM, TEST_BINDINGS } from './test/bindings.js';
+import { GOOGLE_APIS_ORIGIN, mockGoogleApis } from './test/mocks/google.js';
 import { MODERATION_ORIGIN, mockModeration } from './test/mocks/moderation.js';
 import { mockOpenRouter, OPENROUTER_ORIGIN } from './test/mocks/openrouter.js';
 import { mockPolar, POLAR_ORIGIN } from './test/mocks/polar.js';
@@ -14,9 +15,10 @@ import { mockResend, RESEND_ORIGIN } from './test/mocks/resend.js';
  * `…-slow` keys stream slowly (abort tests).
  *
  * Polar's sandbox (sandbox-api.polar.sh), OpenRouter (openrouter.ai), Resend
- * (api.resend.com) and the moderation classifier (api.openai.com) are
- * delegated to test/mocks/polar.ts, test/mocks/openrouter.ts,
- * test/mocks/resend.ts and test/mocks/moderation.ts. Mechanism: miniflare's
+ * (api.resend.com), the moderation classifier (api.openai.com) and Google's
+ * signing keys (www.googleapis.com) are delegated to test/mocks/polar.ts,
+ * test/mocks/openrouter.ts, test/mocks/resend.ts, test/mocks/moderation.ts
+ * and test/mocks/google.ts. Mechanism: miniflare's
  * `outboundService` (this function) receives every global `fetch()` made by the
  * Worker, its Durable Objects and the test files themselves, and runs in the
  * Node host process. The mocks are therefore plain Node modules imported here;
@@ -31,6 +33,7 @@ async function mockUpstream(request: Request): Promise<Response> {
   if (url.origin === OPENROUTER_ORIGIN) return mockOpenRouter(request);
   if (url.origin === RESEND_ORIGIN) return mockResend(request);
   if (url.origin === MODERATION_ORIGIN) return mockModeration(request);
+  if (url.origin === GOOGLE_APIS_ORIGIN) return mockGoogleApis(request);
   // Cloudflare Turnstile siteverify: the token `pass` is valid, `pass-elsewhere`
   // is valid but issued for another host. Like the real service, the always-pass
   // test secret passes any token and reports the hostname `example.com`.

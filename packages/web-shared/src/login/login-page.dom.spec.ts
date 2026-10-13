@@ -12,6 +12,7 @@ const OPTIONS: LoginOptionsResponse = {
   configured: true,
   devMode: false,
   social: { google: false, github: false },
+  googleClientId: null,
   turnstileSiteKey: 'site-key',
   signupsOpen: false,
 };

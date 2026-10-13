@@ -142,6 +142,12 @@ export interface LoginOptionsResponse {
   devMode: boolean;
   /** OAuth providers with credentials configured. */
   social: { google: boolean; github: boolean };
+  /**
+   * Google's OAuth client id when Google is configured: the phone app asks
+   * Google for an ID token issued to it (its `serverClientId`), which the
+   * Worker accepts only with that audience.
+   */
+  googleClientId: string | null;
   /** Cloudflare Turnstile site key for the magic-link form; null = not configured. */
   turnstileSiteKey: string | null;
   /**
