@@ -85,6 +85,12 @@ When the run finishes, its page lists `tangent-<run number>.apk` and/or
 itself. The run number is the app's version code, so each build is newer
 than the last; a re-run reuses it, so start a new run to publish again.
 
+A publishing run then reads the track back from Google Play and lists its
+releases in the run's summary, failing if the new version code isn't there. A
+production release waits on Google's review before it goes live, and until
+then Play Console shows it under **Publishing overview**, not in the release
+history.
+
 To install the APK, open it on the phone and allow "install unknown apps"
 for the browser or file manager. Builds signed with the upload key install
 over each other. Builds made without it are signed with a different

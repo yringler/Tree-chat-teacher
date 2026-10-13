@@ -181,6 +181,9 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+          # The credentials file is for the upload; the access token is for reading the track back.
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
       - uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJson: ${{ steps.auth.outputs.credentials_file_path }}
@@ -189,3 +192,32 @@ jobs:
           releaseFiles: dist/**/*.aab
           track: ${{ inputs.track }}
           status: ${{ inputs.status }}
+      # A committed edit only means Google accepted it: a production release waits on Google's
+      # review before it goes live, and Play Console's release history shows only live releases. So
+      # the run reads the track back and shows what's on it in its summary. Reading needs an edit
+      # of its own, which is deleted unchanged.
+      - name: Show the track
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          PACKAGE: com.tangentailearning.tangent
+          TRACK: ${{ inputs.track }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          api="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/$PACKAGE/edits"
+          call() { curl -fsS -H "Authorization: Bearer $TOKEN" "$@"; }
+          edit=$(call -X POST "$api" | jq -r .id)
+          releases=$(call "$api/$edit/tracks/$TRACK" | jq '.releases // []')
+          call -X DELETE "$api/$edit" > /dev/null
+          {
+            echo "### Google Play $TRACK track"
+            echo
+            echo "| Release | Version codes | Status | Rollout |"
+            echo "| --- | --- | --- | --- |"
+            echo "$releases" | jq -r '.[] | "| \(.name // "") | \(.versionCodes // [] | join(", ")) | \(.status) | \(if .userFraction then "\(.userFraction * 100)%" else "" end) |"'
+            echo
+            echo "A production release is reviewed by Google before it goes live; Play Console's Publishing overview shows the review."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if ! echo "$releases" | jq -e --arg v "$VERSION_CODE" 'any(.[]; (.versionCodes // []) | index($v))' > /dev/null; then
+            echo "::error::Version code $VERSION_CODE isn't on the $TRACK track."
+            exit 1
+          fi
