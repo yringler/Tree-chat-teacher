@@ -113,10 +113,15 @@ describe('magicLinkEmail', () => {
     expect(m.html).not.toContain('"<x>');
   });
 
-  it('includes the code in both bodies, for typing into the app', () => {
-    const m = magicLinkEmail('a@example.com', 'https://t.example/x', '042917', 15);
-    expect(m.text).toContain('Or enter this code where you asked to sign in: 042917');
-    expect(m.html).toContain('042917');
-    expect(m.html).toMatch(/enter this code where you asked to sign in/);
+  it('puts the code first in both bodies, and says the link skips the phone app', () => {
+    const url = 'https://t.example/x';
+    const m = magicLinkEmail('a@example.com', url, '042917', 15);
+    expect(m.subject).toBe('Your Tangent code: 042917');
+    expect(m.text.split('\n')[0]).toBe('Your sign-in code: 042917');
+    expect(m.html.indexOf('042917')).toBeLessThan(m.html.indexOf(url));
+    for (const body of [m.text, m.html]) {
+      expect(body).toContain('The code works everywhere.');
+      expect(body).toContain("The link won't sign in the phone app.");
+    }
   });
 });

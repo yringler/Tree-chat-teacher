@@ -272,7 +272,7 @@ describe('magic link', () => {
     expect(s.mail.sent).toHaveLength(1);
     expect(s.mail.sent[0]).toMatchObject({
       to: 'owner@example.com',
-      subject: 'Sign in to Tangent',
+      subject: expect.stringMatching(/^Your Tangent code: \d{6}$/),
     });
     expect(s.mail.sent[0]!.html).toContain('/api/auth/magic-link/verify');
 
@@ -375,7 +375,7 @@ describe('sign-in by code', () => {
   const DAY = 24 * 60 * 60 * 1000;
 
   function codeFrom(message: EmailMessage): string {
-    const m = /where you asked to sign in: (\d{6})/.exec(message.text);
+    const m = /sign-in code: (\d{6})/.exec(message.text);
     if (!m) throw new Error('no code in email');
     return m[1]!;
   }

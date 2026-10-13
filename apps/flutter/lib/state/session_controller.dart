@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -10,9 +11,18 @@ import 'notice.dart';
 
 enum SessionStatus { loading, signedOut, signedIn, failed }
 
+/// How long an emailed sign-in code works (`MAGIC_LINK_MINUTES` in
+/// apps/worker/src/auth/auth.ts).
+const signInCodeLifetime = Duration(minutes: 15);
+
 /// Who is signed in, and who pays for their replies.
 class SessionController extends ChangeNotifier {
-  SessionController(this.api, {this.choiceStore});
+  SessionController(
+    this.api, {
+    this.choiceStore,
+    this.signInStore,
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
 
   final TangentApi api;
 
@@ -20,6 +30,14 @@ class SessionController extends ChangeNotifier {
   /// web, the same entry the web app's Learn uses); null keeps it for this
   /// run only.
   final TokenStore? choiceStore;
+
+  /// Where a sign-in waiting on its emailed code is kept, so a phone that
+  /// closes the app while the learner reads the email reopens on the code
+  /// screen; another email would replace the code they are reading. Null
+  /// keeps it for this run only.
+  final TokenStore? signInStore;
+
+  final DateTime Function() _now;
 
   SessionStatus _status = SessionStatus.loading;
   SessionStatus get status => _status;
@@ -129,8 +147,50 @@ class SessionController extends ChangeNotifier {
       _readKey(),
     ]);
     api.payer = payer;
+    unawaited(cancelSignIn());
     _status = SessionStatus.signedIn;
     notifyListeners();
+  }
+
+  /// A code was emailed to [email]: until it signs in, expires or the
+  /// learner starts over, [codeSentTo] returns it.
+  Future<void> codeSent(String email) async {
+    try {
+      await signInStore?.write(
+        jsonEncode({'email': email, 'sentAt': _now().toIso8601String()}),
+      );
+    } on Object {
+      // Not kept: a restart asks for the email again.
+    }
+  }
+
+  /// The address a code went to within its lifetime; null when none did,
+  /// or the code has expired.
+  Future<String?> codeSentTo() async {
+    try {
+      final stored = await signInStore?.read();
+      if (stored == null) return null;
+      if (jsonDecode(stored) case {
+        'email': final String email,
+        'sentAt': final String sentAt,
+      }) {
+        final age = _now().difference(DateTime.parse(sentAt));
+        if (!age.isNegative && age < signInCodeLifetime) return email;
+      }
+    } on Object {
+      // Unreadable: as if none was sent.
+    }
+    await cancelSignIn();
+    return null;
+  }
+
+  /// The sign-in is over: done, or given up for another email.
+  Future<void> cancelSignIn() async {
+    try {
+      await signInStore?.clear();
+    } on Object {
+      // Ignored once the code expires.
+    }
   }
 
   /// Replies run on [payer] from now on, where it can apply; the pick is

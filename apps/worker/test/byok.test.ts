@@ -433,7 +433,7 @@ describe('the key cookie belongs to its user', () => {
       json: { email: address, callbackURL: '/', errorCallbackURL: '/login' },
     });
     expect(sent.status).toBe(200);
-    const otp = /where you asked to sign in: (\d{6})/.exec(phone.mail.sent.at(-1)!.text)![1];
+    const otp = /sign-in code: (\d{6})/.exec(phone.mail.sent.at(-1)!.text)![1];
     const signedIn = await phone.call('/api/auth/sign-in/email-otp', {
       method: 'POST',
       json: { email: address, otp },

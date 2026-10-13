@@ -363,8 +363,10 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
       <p>
         The apps also keep a few preferences in your browser's local storage (such as "remember me",
         how Learn replies are paid for, and the default reviewer model). The phone app has no
-        cookies: it keeps its sign-in token in the device's secure storage until you sign out. The
-        sign-in page loads Cloudflare Turnstile, which checks that you're human. There are no
+        cookies: it keeps its sign-in token in the device's secure storage until you sign out. While
+        you sign in, Learn keeps the email address a code went to (in local storage, or the phone's
+        secure storage) until you sign in or the code expires, so it can ask for that code again.
+        The sign-in page loads Cloudflare Turnstile, which checks that you're human. There are no
         analytics, advertising or tracking cookies.
       </p>
 

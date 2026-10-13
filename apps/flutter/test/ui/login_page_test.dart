@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
+import 'package:tangent/api/token_store.dart';
 import 'package:tangent/state/app_scope.dart';
 import 'package:tangent/state/lessons_controller.dart';
 import 'package:tangent/state/session_controller.dart';
@@ -17,8 +18,10 @@ Future<SessionController> pumpLogin(
   required bool native,
   bool googleOnDevice = false,
   GoogleIdTokenSource? googleIdToken,
+  TokenStore? signInStore,
+  DateTime Function()? now,
 }) async {
-  final session = SessionController(api);
+  final session = SessionController(api, signInStore: signInStore, now: now);
   final lessons = LessonsController(api: api, session: session);
   await tester.pumpWidget(
     AppScope(
@@ -146,6 +149,77 @@ void main() {
     await settle(tester);
     expect(api.codes.single, (email: 'ada@example.com', code: '042917'));
     expect(session.status, SessionStatus.signedIn);
+  });
+
+  testWidgets('a code sent before the app closed is asked for on reopening', (
+    tester,
+  ) async {
+    final store = MemoryStore();
+    var now = DateTime.utc(2026, 10, 13, 9);
+    final api = FakeTangentApi()..meAnswers = [unauthorized];
+    await pumpLogin(
+      tester,
+      api,
+      native: true,
+      signInStore: store,
+      now: () => now,
+    );
+    await requestEmail(tester, button: 'Email me a code');
+
+    // The phone closes the app while the learner reads the email.
+    await tester.pumpWidget(const SizedBox());
+    now = now.add(const Duration(minutes: 4));
+    final session = await pumpLogin(
+      tester,
+      api,
+      native: true,
+      signInStore: store,
+      now: () => now,
+    );
+    expect(find.text('Check your email'), findsOneWidget);
+    expect(
+      find.textContaining('ada@example.com', findRichText: true),
+      findsOneWidget,
+    );
+    expect(api.magicLinks, hasLength(1), reason: 'no second email');
+
+    await tester.enterText(find.byType(TextField), '042917');
+    await settle(tester);
+    expect(api.codes.single, (email: 'ada@example.com', code: '042917'));
+    expect(session.status, SessionStatus.signedIn);
+    expect(store.value, isNull);
+  });
+
+  testWidgets('an expired or abandoned code opens on the email form', (
+    tester,
+  ) async {
+    final store = MemoryStore();
+    var now = DateTime.utc(2026, 10, 13, 9);
+    final api = FakeTangentApi()..meAnswers = [unauthorized];
+    Future<void> reopen() async {
+      await tester.pumpWidget(const SizedBox());
+      await pumpLogin(
+        tester,
+        api,
+        native: true,
+        signInStore: store,
+        now: () => now,
+      );
+    }
+
+    await reopen();
+    await requestEmail(tester, button: 'Email me a code');
+    now = now.add(signInCodeLifetime);
+    await reopen();
+    expect(find.text('Sign in to Tangent Learn'), findsOneWidget);
+
+    expect(store.value, isNull);
+
+    await requestEmail(tester, button: 'Email me a code');
+    await tester.tap(find.text('Use a different email'));
+    await settle(tester);
+    await reopen();
+    expect(find.text('Sign in to Tangent Learn'), findsOneWidget);
   });
 
   testWidgets('a wrong code says so, and another can be typed', (tester) async {
