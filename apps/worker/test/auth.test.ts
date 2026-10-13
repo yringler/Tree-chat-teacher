@@ -373,7 +373,7 @@ describe('sign-in by code', () => {
   const DAY = 24 * 60 * 60 * 1000;
 
   function codeFrom(message: EmailMessage): string {
-    const m = /where you asked to sign in: (\d{6})/.exec(message.text);
+    const m = /sign-in code: (\d{6})/.exec(message.text);
     if (!m) throw new Error('no code in email');
     return m[1]!;
   }
