@@ -132,6 +132,12 @@ export interface MeResponse {
    * clients never copy it.
    */
   membershipNeededFor: BranchFunding[];
+  /**
+   * The Play Store application id of the Android app that talks to this
+   * deployment (`ANDROID_APP_ID`), which the web apps offer to phones running
+   * Android; null = none.
+   */
+  androidAppId: string | null;
 }
 
 /** What the login page offers. Magic links and passkeys are always available once auth is configured. */

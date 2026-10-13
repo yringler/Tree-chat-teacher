@@ -358,6 +358,8 @@ export class DemoBackend {
         membership: { ...DEMO_MEMBERSHIP },
         // Nothing needs a membership here, so nothing is ever read-only.
         membershipNeededFor: [],
+        // The demo shows the demo banner, not the app's.
+        androidAppId: null,
       } satisfies MeResponse),
     deleteAccount: 'unsupported',
     providers: () => json([withUsageFactor(providerInfo(this.provider))]),

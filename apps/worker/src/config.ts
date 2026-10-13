@@ -47,6 +47,7 @@ export const CONFIG_VARS = [
   'SHARE_CREATES_PER_DAY',
   'MODERATION_API_KEY',
   'ADMIN_USER_IDS',
+  'ANDROID_APP_ID',
   // Sign-in and email
   'BETTER_AUTH_SECRET',
   'GOOGLE_CLIENT_ID',
@@ -464,6 +465,12 @@ export interface AppConfig {
     /** `TEST_MODERATION_URL` (tests only); null = the provider's endpoint. */
     moderationUrl: string | null;
     adminUserIds: readonly string[];
+    /**
+     * `ANDROID_APP_ID`: the Play Store package of an Android app that talks to
+     * this deployment, which the web apps and the landing page point phones
+     * to; null = none.
+     */
+    androidAppId: string | null;
   };
   auth: {
     /**
@@ -593,6 +600,19 @@ export function reviewerSignInVar(raw: string | undefined): ReviewerSignIn | nul
   const m = /^([^\s:@]+@[^\s:@]+):(\d{6})$/.exec(s);
   if (!m) throw new Error('Invalid REVIEWER_SIGN_IN: expected <email>:<6 digits>');
   return { email: m[1]!.toLowerCase(), code: m[2]! };
+}
+
+/**
+ * An Android application id (`com.example.app`): two or more dot-separated
+ * segments, each a letter then letters, digits or underscores, as Gradle
+ * accepts. Null when empty or unset.
+ */
+export function androidAppIdVar(raw: string | undefined): string | null {
+  const s = raw?.trim();
+  if (!s) return null;
+  if (!/^[A-Za-z]\w*(\.[A-Za-z]\w*)+$/.test(s))
+    throw new Error('Invalid ANDROID_APP_ID: expected an application id like com.example.app');
+  return s;
 }
 
 /** The trimmed value; null when empty or unset. */
@@ -803,6 +823,7 @@ function parse(env: AppEnv): AppConfig {
       moderationApiKey: text('MODERATION_API_KEY'),
       moderationUrl: testSeams ? text('TEST_MODERATION_URL') : null,
       adminUserIds: listVar(v('ADMIN_USER_IDS')),
+      androidAppId: androidAppIdVar(v('ANDROID_APP_ID')),
     },
     auth: {
       secret: authSecret?.trim() ? authSecret : null,

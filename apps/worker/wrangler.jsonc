@@ -141,6 +141,7 @@
     "LEGAL_OPERATOR": "Yehuda Ringler",
     "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
     "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
+    "ANDROID_APP_ID": "com.tangentailearning.tangent",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
     "POLAR_SERVER": "production",
     "POLAR_CREDITS_PRODUCT_ID": "1458ace2-00b3-4710-991e-8d8e04ed4385",
@@ -226,6 +227,8 @@
         "LEGAL_OPERATOR": "Yehuda Ringler",
         "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
         "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
+        // The production app (there is no sandbox build), so the links to it show here too.
+        "ANDROID_APP_ID": "com.tangentailearning.tangent",
         "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
         "POLAR_CREDITS_PRODUCT_ID": "29791ebf-f51e-4e2f-9df4-832f3b841b17",
         "POLAR_MEMBERSHIP_PRODUCT_ID": "c311f9b3-b604-42bd-86a7-12239eb9cbd2",
