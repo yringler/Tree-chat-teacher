@@ -47,7 +47,13 @@ Sign-in needs no browser on a phone:
 - **Code:** the sign-in email carries a 6-digit code next to the link, and
   the app signs in by typing it. The link would open the phone's browser and
   sign in the web app there instead.
-- **Session:** the code sign-in answers with a signed token
+- **Google (Android):** package:google_sign_in shows the phone's account
+  picker and returns an ID token issued to the Worker's `GOOGLE_CLIENT_ID`
+  (from `/api/login-options`); the app posts it with the captcha token to
+  `/api/auth/sign-in/social`. It needs the Android OAuth client in
+  [operating.md](../../docs/operating.md). The web build's Google and GitHub
+  buttons go through the browser instead.
+- **Session:** the code and Google sign-ins answer with a signed token
   (`set-auth-token`). The app keeps it in the keychain or keystore
   (`lib/api/token_store.dart`), sends it as `Authorization: Bearer` on every
   call, and forgets it on sign-out. The web build keeps the HttpOnly cookie.

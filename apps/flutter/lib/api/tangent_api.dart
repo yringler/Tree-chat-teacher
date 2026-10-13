@@ -27,6 +27,25 @@ abstract interface class TangentApi {
   /// `OTP_EXPIRED` and `TOO_MANY_ATTEMPTS` when it no longer works.
   Future<void> signInWithCode({required String email, required String code});
 
+  /// Starts a browser's sign-in with [provider] (`google` or `github`) and
+  /// returns the provider's page to open. Coming back signs in, the first
+  /// time creating the account, and lands on [callbackPath], or on
+  /// [errorCallbackPath] with `?error=`. The web build only: the callback
+  /// signs the browser in, with its cookie.
+  Future<Uri> socialSignInUrl({
+    required String provider,
+    required String callbackPath,
+    required String errorCallbackPath,
+  });
+
+  /// Signs in with an ID token Google issued to this app (a native build);
+  /// the first sign-in creates the account. [captchaToken] is Turnstile's
+  /// token, as for [sendMagicLink].
+  Future<void> signInWithGoogle({
+    required String idToken,
+    required String captchaToken,
+  });
+
   /// The signed-in user; throws `unauthorized` when signed out.
   Future<Me> me();
 

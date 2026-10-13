@@ -5,6 +5,7 @@ import 'package:tangent/state/app_scope.dart';
 import 'package:tangent/state/lessons_controller.dart';
 import 'package:tangent/state/session_controller.dart';
 import 'package:tangent/state/walkthrough_controller.dart';
+import 'package:tangent/ui/google_id_token.dart';
 import 'package:tangent/ui/login_page.dart';
 
 import '../fakes.dart';
@@ -14,6 +15,8 @@ Future<SessionController> pumpLogin(
   WidgetTester tester,
   FakeTangentApi api, {
   required bool native,
+  bool googleOnDevice = false,
+  GoogleIdTokenSource? googleIdToken,
 }) async {
   final session = SessionController(api);
   final lessons = LessonsController(api: api, session: session);
@@ -24,7 +27,12 @@ Future<SessionController> pumpLogin(
       lessons: lessons,
       walkthrough: WalkthroughController(api: api, session: session),
       child: MaterialApp(
-        home: LoginPage(captcha: fakeCaptcha, native: native),
+        home: LoginPage(
+          captcha: fakeCaptcha,
+          native: native,
+          googleOnDevice: googleOnDevice,
+          googleIdToken: googleIdToken ?? (_) async => 'id-token',
+        ),
       ),
     ),
   );
@@ -191,6 +199,122 @@ void main() {
       tester.widget<TextField>(find.byType(TextField)).controller!.text,
       'ada@example.com',
     );
+  });
+
+  const withProviders = LoginOptions(
+    configured: true,
+    devMode: false,
+    turnstileSiteKey: 'site-key',
+    signupsOpen: true,
+    google: true,
+    github: true,
+    googleClientId: 'google-client',
+  );
+
+  testWidgets('the web build offers the configured providers', (tester) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(tester, api, native: false);
+    expect(find.text('Continue with GitHub'), findsOneWidget);
+
+    await tester.tap(find.text('Continue with Google'));
+    await settle(tester);
+    expect(api.socialStarts.single, (
+      provider: 'google',
+      callbackPath: '/app/',
+    ));
+  });
+
+  testWidgets('no provider buttons when none is configured', (tester) async {
+    final api = FakeTangentApi()..meAnswers = [unauthorized];
+    await pumpLogin(tester, api, native: false);
+    expect(find.text('Continue with Google'), findsNothing);
+    expect(find.text('Continue with GitHub'), findsNothing);
+  });
+
+  testWidgets('Android signs in with Google on the device, after the captcha', (
+    tester,
+  ) async {
+    final asked = <String>[];
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    final session = await pumpLogin(
+      tester,
+      api,
+      native: true,
+      googleOnDevice: true,
+      googleIdToken: (clientId) async {
+        asked.add(clientId);
+        return 'id-token';
+      },
+    );
+    // A provider's browser callback can't sign the app in.
+    expect(find.text('Continue with GitHub'), findsNothing);
+    OutlinedButton google() => tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Continue with Google'),
+    );
+    expect(google().onPressed, isNull, reason: 'no captcha token yet');
+
+    await tester.tap(find.text('Solve'));
+    await tester.pump();
+    await tester.tap(find.text('Continue with Google'));
+    await settle(tester);
+    expect(asked, ['google-client']);
+    expect(api.googleSignIns.single, (
+      idToken: 'id-token',
+      captchaToken: 'captcha-token',
+    ));
+    expect(session.status, SessionStatus.signedIn);
+  });
+
+  testWidgets('backing out of Google\'s picker signs nothing in', (
+    tester,
+  ) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(
+      tester,
+      api,
+      native: true,
+      googleOnDevice: true,
+      googleIdToken: (_) async => null,
+    );
+    await tester.tap(find.text('Solve'));
+    await tester.pump();
+    await tester.tap(find.text('Continue with Google'));
+    await settle(tester);
+    expect(api.googleSignIns, isEmpty);
+    expect(find.byType(LoginPage), findsOneWidget);
+  });
+
+  testWidgets('a refused Google sign-in says why', (tester) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders
+      ..refuseGoogle = const ApiException(
+        status: 403,
+        code: 'signups_closed',
+        message: '',
+      );
+    await pumpLogin(tester, api, native: true, googleOnDevice: true);
+    await tester.tap(find.text('Solve'));
+    await tester.pump();
+    await tester.tap(find.text('Continue with Google'));
+    await settle(tester);
+    expect(find.textContaining('full for now'), findsOneWidget);
+  });
+
+  testWidgets('no device Google sign-in where it isn\'t offered', (
+    tester,
+  ) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(tester, api, native: true);
+    expect(find.text('Continue with Google'), findsNothing);
   });
 
   test('code error messages', () {
