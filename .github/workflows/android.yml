@@ -172,6 +172,21 @@ jobs:
             echo "::error::Set the GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER and GOOGLE_PLAY_SERVICE_ACCOUNT variables on the google-play environment."
             exit 1
           fi
+      # Only the release notes; the build job built the app.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: apps/flutter/android/whatsnew
+      # Google Play rejects notes over 500 characters, after the bundle has uploaded.
+      - name: Check the release notes
+        run: |
+          for file in apps/flutter/android/whatsnew/whatsnew-*; do
+            length=$(LC_ALL=C.UTF-8 wc -m < "$file")
+            if [ "$length" -gt 500 ]; then
+              echo "::error file=$file::$length characters; Google Play takes at most 500."
+              exit 1
+            fi
+          done
       - uses: actions/download-artifact@v8
         with:
           name: tangent-${{ github.run_number }}.aab
@@ -192,6 +207,8 @@ jobs:
           releaseFiles: dist/**/*.aab
           track: ${{ inputs.track }}
           status: ${{ inputs.status }}
+          # One whatsnew-<language> file per store listing language, such as whatsnew-en-US.
+          whatsNewDirectory: apps/flutter/android/whatsnew
       # A committed edit only means Google accepted it: a production release waits on Google's
       # review before it goes live, and Play Console's release history shows only live releases. So
       # the run reads the track back and shows what's on it in its summary. Reading needs an edit
