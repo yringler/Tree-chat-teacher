@@ -89,6 +89,36 @@ describe('the legal pages', () => {
     }
   });
 
+  it('disclose what Google sign-in receives, its use, sharing, protection and deletion, and Limited Use', async () => {
+    const privacy = await page('/privacy');
+    const section = privacy.slice(
+      privacy.indexOf('<h2 id="google-user-data">'),
+      privacy.indexOf('<h2>Share links</h2>'),
+    );
+    expect(section).toMatch(
+      /<code>openid<\/code>, <code>email<\/code> and\s+<code>profile<\/code>/,
+    );
+    for (const heading of [
+      'What we receive:',
+      'How we use it:',
+      'Who we share it with:',
+      'How we protect it:',
+      'How long we keep it:',
+    ])
+      expect(section).toContain(`<strong>${heading}</strong>`);
+    expect(section).toMatch(
+      /don't use it to develop, improve or train AI\s+or machine-learning models/,
+    );
+    expect(section).toMatch(/We discard the\s+access, refresh and ID tokens Google issues/);
+    expect(section).toContain(`(for ${POOL_IDENTITY_RETENTION_DAYS} days)`);
+    expect(section).toContain('href="https://myaccount.google.com/connections"');
+    expect(section).toContain(
+      'href="https://developers.google.com/terms/api-services-user-data-policy"',
+    );
+    expect(section).toContain('including the Limited Use requirements');
+    expect(privacy).toContain('<a href="#google-user-data">Google user data</a>');
+  });
+
   it('name the moderation provider as a recipient of shared text only while it screens', async () => {
     const recipient = /<strong>OpenAI<\/strong> \(USA\): screens share links/;
     const screened = await page('/privacy', { MODERATION_API_KEY: 'mod-key' });

@@ -23,7 +23,7 @@ import { DOC_STYLE } from './page-styles.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '11 October 2026';
+export const LEGAL_UPDATED = '13 October 2026';
 
 /** A long-form public page (the legal pages, `/pool`), cacheable for five minutes. */
 export function docResponse(
@@ -297,7 +297,8 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           </li>
         )}
         <li>
-          <strong>Google and GitHub</strong>: only if you choose to sign in with them.
+          <strong>Google and GitHub</strong>: only if you choose to sign in with them (see{' '}
+          <a href="#google-user-data">Google user data</a>).
         </li>
         <li>
           <strong>Polar Software, Inc.</strong> (USA): our reseller and merchant of record for
@@ -314,6 +315,59 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         Because these providers are in the USA and elsewhere, your data may be processed outside
         your country. Where the law requires it, transfers rely on the providers' standard
         contractual clauses or equivalent safeguards.
+      </p>
+
+      {/* Google's OAuth verification asks for this disclosure on its own: what the
+          sign-in scopes give us, and the Limited Use statement. */}
+      <h2 id="google-user-data">Google user data</h2>
+      <p>
+        If you sign in with Google, on the web or in the Android app, Tangent asks Google only for
+        the basic sign-in permissions: the <code>openid</code>, <code>email</code> and{' '}
+        <code>profile</code> scopes. It asks for no access to Gmail, Drive, Calendar, contacts or
+        any other Google service.
+      </p>
+      <ul>
+        <li>
+          <strong>What we receive:</strong> your Google account id, your email address and whether
+          Google has verified it, your name, and the URL of your profile picture.
+        </li>
+        <li>
+          <strong>How we use it:</strong> to create your Tangent account, sign you in, and tell your
+          accounts apart. If Google has verified your email address and it matches an existing
+          Tangent account, you are signed in to that account. The open pool keeps a hash of your
+          email address so each person gets one free tier, as described above. We don't use Google
+          user data for advertising, don't sell it, and don't use it to develop, improve or train AI
+          or machine-learning models. It is never sent to the AI providers that write replies.
+        </li>
+        <li>
+          <strong>Who we share it with:</strong> Cloudflare stores it as our host. If you buy credit
+          or a membership, Polar receives your email address and name to process the payment. No one
+          else, unless the law requires it.
+        </li>
+        <li>
+          <strong>How we protect it:</strong> it is stored in our database on Cloudflare, encrypted
+          at rest, sent only over HTTPS, and reachable only through your account. We discard the
+          access, refresh and ID tokens Google issues as soon as you are signed in, so Tangent can't
+          act in your Google account or call Google on your behalf.
+        </li>
+        <li>
+          <strong>How long we keep it:</strong> while you have an account. Deleting your account
+          deletes it at once, except the records described under "How long we keep it" below: the
+          pool's hash of your email address (for {POOL_IDENTITY_RETENTION_DAYS} days) and, if you
+          bought anything, Polar's order records. You can also remove Tangent on your Google
+          Account's{' '}
+          <a href="https://myaccount.google.com/connections">Third-party apps and services</a> page.
+          That stops Google sign-in for Tangent but doesn't delete your Tangent account; delete that
+          in the app.
+        </li>
+      </ul>
+      <p>
+        Tangent's use and transfer to any other app of information received from Google APIs will
+        adhere to the{' '}
+        <a href="https://developers.google.com/terms/api-services-user-data-policy">
+          Google API Services User Data Policy
+        </a>
+        , including the Limited Use requirements.
       </p>
 
       <h2>Share links</h2>

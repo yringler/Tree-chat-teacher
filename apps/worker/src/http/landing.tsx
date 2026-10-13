@@ -10,7 +10,7 @@ import {
   type PoolStatusResponse,
 } from '@tangent/shared';
 import { Hono, type Context } from 'hono';
-import { authConfigured } from '../auth/auth.js';
+import { authConfigured, socialProviderFlags, type SocialProviderFlags } from '../auth/auth.js';
 import { appConfig } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { logEvent } from '../log.js';
@@ -55,6 +55,8 @@ function devBypass(env: AppEnv): boolean {
 interface Landing extends Offer {
   /** The open pool's meter; absent when the pool is off or couldn't be read. */
   pool?: PoolStatusResponse;
+  /** Which OAuth providers this deployment signs in with. */
+  social: SocialProviderFlags;
 }
 
 /** True when the pool is on and can cover at least one more learning session: only then is "free" promised. */
@@ -178,6 +180,33 @@ function MoreWays(props: { page: Landing }) {
 }
 
 /**
+ * How signing in works and what it shares, linking the privacy policy: Google's
+ * OAuth verification asks the home page to say why the app requests user data.
+ */
+function AccountSection(props: { social: SocialProviderFlags }) {
+  const { google, github } = props.social;
+  const methods = [
+    'your email address',
+    ...(google ? ['Google'] : []),
+    ...(github ? ['GitHub'] : []),
+  ];
+  return (
+    <section aria-labelledby="account">
+      <div class="wrap">
+        <h2 id="account">Your account and your data</h2>
+        <p class="sub">
+          Sign in with {joinList(methods, 'or')}.
+          {google &&
+            ' If you sign in with Google, Tangent receives your name, email address and profile picture, and uses them only to create your account and sign you in.'}{' '}
+          We never sell your data, show ads, or train AI models on your conversations.{' '}
+          <a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of service</a>
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/**
  * One problem and its fix, as one card: stacked and labeled on a phone, side
  * by side under the column heads on a wide screen, so each fix reads as the
  * answer to its own problem at every width.
@@ -199,7 +228,7 @@ function Pair(props: { problem: string; fix: string }) {
 
 /**
  * The landing page's body: the hero and its demo, the problem and fix, how
- * tangents work, the pool and the other ways in.
+ * tangents work, the pool, the other ways in, and the account and its data.
  */
 function LandingBody(props: { page: Landing }) {
   const { page } = props;
@@ -265,6 +294,7 @@ function LandingBody(props: { page: Landing }) {
       <TangentHelpCard />
       {page.pool && <PoolSection pool={page.pool} page={page} />}
       <MoreWays page={page} />
+      <AccountSection social={page.social} />
     </main>
   );
 }
@@ -289,7 +319,11 @@ async function landingResponse(
   headers: Record<string, string>,
 ): Promise<Response> {
   const info = legalInfo(c.env, c.req.raw);
-  const page: Landing = { ...offerOf(c.env, info.sharing), pool: await landingPool(c) };
+  const page: Landing = {
+    ...offerOf(c.env, info.sharing),
+    pool: await landingPool(c),
+    social: socialProviderFlags(c.env),
+  };
   return pageResponse(
     {
       path: '/',
