@@ -207,6 +207,7 @@ describe('login options', () => {
       configured: true,
       devMode: false,
       social: { google: true, github: false },
+      googleClientId: 'gid',
       turnstileSiteKey: 'site-key',
       signupsOpen: true,
     } satisfies LoginOptionsResponse);
@@ -218,6 +219,7 @@ describe('login options', () => {
       configured: false,
       devMode: true,
       social: { google: false, github: false },
+      googleClientId: null,
       turnstileSiteKey: null,
       signupsOpen: true,
     } satisfies LoginOptionsResponse);
@@ -805,6 +807,111 @@ describe('social sign-in', () => {
       body: JSON.stringify({ provider: 'github', callbackURL: '/' }),
     });
     expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe('Google sign-in from the app (an ID token)', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const googleEnv = (overrides: Partial<AppEnv> = {}) =>
+    authEnv({
+      GOOGLE_CLIENT_ID: 'gid',
+      GOOGLE_CLIENT_SECRET: 'gsecret',
+      POOL_ENABLED: 'false',
+      ...overrides,
+    });
+
+  /**
+   * `POST /api/auth/sign-in/social {provider, idToken}` as the native app
+   * sends it: no cookie, no Origin, the Turnstile token in
+   * `x-captcha-response`. The ID token is one Google issued to `aud` for `email`.
+   */
+  async function appGoogleSignIn(
+    s: ReturnType<typeof setup>,
+    email: string,
+    opts: { captcha?: string | null; aud?: string; verified?: boolean } = {},
+  ): Promise<Response> {
+    const query = new URLSearchParams({ email, aud: opts.aud ?? 'gid' });
+    if (opts.verified === false) query.set('verified', 'false');
+    const token = await (await fetch(`https://www.googleapis.com/__mock/id-token?${query}`)).text();
+    const captcha = opts.captcha === undefined ? 'pass' : opts.captcha;
+    return s.call('/api/auth/sign-in/social', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(captcha === null ? {} : { 'x-captcha-response': captcha }),
+      },
+      body: JSON.stringify({ provider: 'google', idToken: { token } }),
+    });
+  }
+
+  const userRow = (email: string) =>
+    env.DB.prepare('SELECT id, pool_verified_at FROM auth_users WHERE email = ?')
+      .bind(email)
+      .first<{ id: string; pool_verified_at: string | null }>();
+
+  it('signs up a new address with a bearer token and the remembered session', async () => {
+    const s = setup(googleEnv());
+    const res = await appGoogleSignIn(s, 'app-googler@example.org');
+    expect(res.status).toBe(200);
+    const token = res.headers.get('set-auth-token');
+    expect(token).toMatch(/^[^.]+\..+$/);
+    const me = await s.call('/api/me', { headers: { authorization: `Bearer ${token}` } });
+    expect(await me.json()).toMatchObject({ email: 'app-googler@example.org' });
+    const row = await env.DB.prepare('SELECT expires_at FROM auth_sessions WHERE token = ?')
+      .bind(token!.split('.')[0])
+      .first<{ expires_at: number }>();
+    expect(row!.expires_at - Date.now()).toBeGreaterThan(29 * DAY);
+  });
+
+  it('takes a Turnstile pass, and records it while the pool is on', async () => {
+    for (const captcha of [null, 'not-a-pass', 'pass-elsewhere']) {
+      const res = await appGoogleSignIn(setup(googleEnv()), 'no-captcha@example.org', { captcha });
+      expect(res.status).toBe(400);
+      expect(res.headers.get('set-auth-token')).toBeNull();
+    }
+    expect(await userRow('no-captcha@example.org')).toBeNull();
+
+    const res = await appGoogleSignIn(
+      setup(googleEnv({ POOL_ENABLED: 'true' })),
+      'pool@example.org',
+    );
+    expect(res.status).toBe(200);
+    expect((await userRow('pool@example.org'))?.pool_verified_at).toBeTruthy();
+  });
+
+  it('refuses an ID token issued to another client', async () => {
+    const res = await appGoogleSignIn(setup(googleEnv()), 'other-app@example.org', {
+      aud: 'someone-elses-client',
+    });
+    expect(res.status).toBe(401);
+    expect(await userRow('other-app@example.org')).toBeNull();
+  });
+
+  it('refuses an unverified email, and never links it to an existing user', async () => {
+    const res = await appGoogleSignIn(setup(googleEnv()), 'unverified-app@example.org', {
+      verified: false,
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.headers.get('set-auth-token')).toBeNull();
+    expect(await userRow('unverified-app@example.org')).toBeNull();
+
+    const victim = 'app-victim@example.org';
+    await signIn(setup(googleEnv()), victim);
+    const takeover = await appGoogleSignIn(setup(googleEnv()), victim, { verified: false });
+    expect(takeover.status).toBeGreaterThanOrEqual(400);
+    expect(takeover.headers.get('set-auth-token')).toBeNull();
+  });
+
+  it('refuses a sign-up once MAX_USERS is reached', async () => {
+    const { n } = (await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_users').first<{
+      n: number;
+    }>())!;
+    const res = await appGoogleSignIn(
+      setup(googleEnv({ MAX_USERS: String(n) })),
+      'late-app-googler@example.org',
+    );
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(await userRow('late-app-googler@example.org')).toBeNull();
   });
 });
 

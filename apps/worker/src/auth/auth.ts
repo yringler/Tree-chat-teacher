@@ -28,7 +28,12 @@ import { createEmailSender, magicLinkEmail, type EmailSender } from '../email/in
 import type { SqlRow } from '../db/rows.js';
 import type { AppEnv } from '../env.js';
 import { markPoolVerified } from '../pool/identity.js';
-import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnstile.js';
+import {
+  safeNextPath,
+  turnstileConfigured,
+  verifyPageUrl,
+  verifyTurnstile,
+} from '../pool/turnstile.js';
 
 /**
  * Better Auth (https://better-auth.com), mounted at `/api/auth/*`.
@@ -39,8 +44,8 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  * account dialog once signed in, then work as a sign-in method.
  *
  * The session is Better Auth's HttpOnly cookie. A client without cookies
- * (the phone app) signs in by code and keeps the signed session token
- * itself, sending it as `Authorization: Bearer <token>`.
+ * (the phone app) signs in by code or with a Google ID token and keeps the
+ * signed session token itself, sending it as `Authorization: Bearer <token>`.
  *
  * Anyone may sign up until the deployment has `MAX_USERS` users; abuse is
  * bounded by Turnstile and the rate limits on magic links. While the open
@@ -66,6 +71,21 @@ export const MAGIC_LINK_MINUTES = 15;
 
 /** Signs in with the code from the sign-in email (the email-OTP plugin's endpoint). */
 const CODE_SIGN_IN_PATH = '/sign-in/email-otp';
+
+/**
+ * Starts an OAuth sign-in (a browser), or, with an `idToken` in the body,
+ * signs in with an ID token the provider issued to the phone app.
+ */
+const SOCIAL_SIGN_IN_PATH = '/sign-in/social';
+
+/** An app's sign-in: it hands out the bearer token, and needs no cookie to be remembered. */
+function isAppSignIn(path: string | undefined): boolean {
+  return path === CODE_SIGN_IN_PATH || path === SOCIAL_SIGN_IN_PATH;
+}
+
+function hasIdToken(body: unknown): boolean {
+  return typeof body === 'object' && body !== null && 'idToken' in body;
+}
 
 /**
  * The response header that carries the signed session token to a client that
@@ -94,6 +114,8 @@ function isSignInCompletion(path: string | undefined): boolean {
   return (
     path === '/magic-link/verify' ||
     path === CODE_SIGN_IN_PATH ||
+    // Only an ID token sign-in here makes a session; starting a redirect doesn't.
+    path === SOCIAL_SIGN_IN_PATH ||
     path === '/passkey/verify-authentication' ||
     (path?.startsWith('/callback/') ?? false)
   );
@@ -178,7 +200,8 @@ const NO_OAUTH_TOKENS = {
 /**
  * Turnstile on first sign-in (see `createAuth`), while the open pool is
  * on. A magic link, and the code in the same email, was requested with a
- * Turnstile pass: the user is recorded as verified. An OAuth callback
+ * Turnstile pass, as was an ID token sign-in: the user is recorded as
+ * verified. An OAuth callback
  * of a user with no pass on record is redirected through the interstitial,
  * which continues to where the callback was going. Passkeys need a session to
  * be added, so they never sign a user in for the first time.
@@ -192,7 +215,7 @@ async function recordFirstSignInCheck(
 ): Promise<void> {
   // Only while the pool is on: it is what the record is for (pool/identity.ts).
   if (!appConfig(env).flags.poolEnabled) return;
-  if (path === '/magic-link/verify' || path === CODE_SIGN_IN_PATH) {
+  if (path === '/magic-link/verify' || isAppSignIn(path)) {
     await markPoolVerified(env.DB, user.id, user.email);
     return;
   }
@@ -347,6 +370,26 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       },
     },
     hooks: {
+      // The app's Google sign-in takes a Turnstile pass, as the sign-in
+      // email does: the pool counts on one for every user (pool/identity.ts),
+      // and the app has no browser to show the OAuth callback's interstitial.
+      // The captcha plugin matches paths only, and the browser's redirect
+      // start on this path has no captcha to give.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== SOCIAL_SIGN_IN_PATH || !hasIdToken(ctx.body)) return;
+        const pass = await verifyTurnstile(
+          env,
+          ctx.headers?.get('x-captcha-response') ?? '',
+          ctx.headers?.get('cf-connecting-ip') ?? null,
+          { hostname: turnstilePin },
+        );
+        if (!pass) {
+          throw new APIError('BAD_REQUEST', {
+            code: 'CAPTCHA_FAILED',
+            message: 'Captcha verification failed',
+          });
+        }
+      }),
       // "Remember me" for every sign-in method. Better Auth only has it for
       // email+password, so sessions are created remembered and, when the
       // login page asked otherwise, shortened here: 1 day server-side, a
@@ -355,7 +398,8 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       //
       // A code is typed into the page or app that asked for it, so a
       // browser's code sign-in carries the login page's preference cookie.
-      // A request without one is a client without cookies (the phone app):
+      // A request without one (by code or ID token) is a client without
+      // cookies (the phone app):
       // it keeps the token itself and has no browser session to end with,
       // so it gets the remembered session. A link, a callback or a passkey
       // without the cookie may be on a computer that never asked: those are
@@ -377,15 +421,14 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
           ctx.context.responseHeaders,
         );
         const preference = ctx.getCookie(REMEMBER_COOKIE);
-        const remember =
-          preference === '1' || (ctx.path === CODE_SIGN_IN_PATH && preference === null);
+        const remember = preference === '1' || (isAppSignIn(ctx.path) && preference === null);
         ctx.setCookie(REMEMBER_COOKIE, '', { path: AUTH_BASE_PATH, maxAge: 0 });
         const sessionCookie = ctx.context.authCookies.sessionToken.name;
-        // Only the code sign-in hands out the token: it is how the app signs
-        // in, and it takes the emailed code, which a script on a page lacks.
-        // The signed value is the session cookie's, which a shortened
-        // session keeps.
-        if (ctx.path === CODE_SIGN_IN_PATH) {
+        // Only the app's sign-ins hand out the token: they take the emailed
+        // code or an ID token Google issued after the user picked an
+        // account, which a script on a page lacks. The signed value is the
+        // session cookie's, which a shortened session keeps.
+        if (isAppSignIn(ctx.path)) {
           const token = setCookieValue(ctx.context.responseHeaders, sessionCookie);
           if (token) ctx.setHeader(BEARER_TOKEN_HEADER, token);
         }
@@ -450,7 +493,8 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         rpName: 'Tangent',
         origin: base.origin,
       }),
-      // Only the endpoint that sends email needs a captcha: OAuth providers
+      // Only the endpoint that sends email needs a captcha here (the app's
+      // ID token sign-in has its own, in `hooks.before`): OAuth providers
       // run their own bot checks and passkeys can't be scripted. With no
       // TURNSTILE_SECRET_KEY the plugin rejects the request (fails closed).
       captcha({

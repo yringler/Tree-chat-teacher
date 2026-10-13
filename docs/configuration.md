@@ -35,7 +35,7 @@ Selling Tangent credit adds `BUILT_IN_API_KEY` and Polar (`POLAR_*`); the member
 ## Sign-in and email
 
 - `BETTER_AUTH_SECRET`: secret; required. Signs session cookies (`openssl rand -base64 32`); rotating it signs everyone out. Unset, every `/api/*` request fails closed, unless `DEV_ALLOW_NO_AUTH` applies.
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: secrets; optional. Google sign-in, offered only when both are set (redirect URI `<origin>/api/auth/callback/google`).
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: secrets; optional. Google sign-in, offered only when both are set (redirect URI `<origin>/api/auth/callback/google`). The client id is public: `/api/login-options` gives it to the phone app, which asks Google for ID tokens issued to it.
 - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`: secrets; optional. GitHub sign-in, offered only when both are set (callback URL `<origin>/api/auth/callback/github`).
 - `TURNSTILE_SITE_KEY`: var; default none; every deployment. Cloudflare Turnstile site key for the magic-link form and the first-sign-in check.
 - `TURNSTILE_SECRET_KEY`: secret; required for magic links. Without it, magic-link requests are refused. A token must have been issued for `PUBLIC_BASE_URL`'s host, except with one of [Turnstile's test secrets](https://developers.cloudflare.com/turnstile/troubleshooting/testing/), whose passes report a dummy host. The always-pass one (`1x0000000000000000000000000000000AA`, with the site key `1x00000000000000000000AA`) lets every client through, so it belongs only on a deployment something else guards, and the config refuses it with `POLAR_SERVER=production`.

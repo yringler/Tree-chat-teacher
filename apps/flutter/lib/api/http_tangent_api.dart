@@ -90,9 +90,48 @@ class HttpTangentApi implements TangentApi {
       ['auth', 'sign-in', 'email-otp'],
       body: {'email': email, 'otp': code},
     );
+    await _keepSessionToken(response);
+  }
+
+  @override
+  Future<Uri> socialSignInUrl({
+    required String provider,
+    required String callbackPath,
+    required String errorCallbackPath,
+  }) async {
+    final json = await _object(
+      'POST',
+      ['auth', 'sign-in', 'social'],
+      body: {
+        'provider': provider,
+        'callbackURL': callbackPath,
+        'errorCallbackURL': errorCallbackPath,
+      },
+    );
+    return Uri.parse(json.str('url'));
+  }
+
+  @override
+  Future<void> signInWithGoogle({
+    required String idToken,
+    required String captchaToken,
+  }) async {
+    final response = await _send(
+      'POST',
+      ['auth', 'sign-in', 'social'],
+      body: {
+        'provider': 'google',
+        'idToken': {'token': idToken},
+      },
+      headers: {'x-captcha-response': captchaToken},
+    );
+    await _keepSessionToken(response);
+  }
+
+  /// Keeps the signed session token a sign-in answered with (Better Auth's
+  /// bearer plugin), for a client that keeps it itself.
+  Future<void> _keepSessionToken(http.StreamedResponse response) async {
     await response.stream.drain<void>();
-    // The signed session token (Better Auth's bearer plugin), for a client
-    // that keeps it itself.
     final token = response.headers['set-auth-token'];
     final store = tokens;
     if (store == null || token == null || token.isEmpty) return;

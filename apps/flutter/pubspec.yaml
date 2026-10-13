@@ -45,6 +45,8 @@ dependencies:
   markdown: ^7.3.1
   mermaid_flutter: ^0.3.0
   mermaid_core: ^0.3.0
+  google_sign_in_android: ^7.2.17
+  google_sign_in_platform_interface: ^3.1.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

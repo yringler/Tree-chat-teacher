@@ -7,13 +7,16 @@ import 'package:flutter/services.dart';
 import '../api/models.dart';
 import '../state/app_scope.dart';
 import '../state/notice.dart';
+import 'google_id_token.dart';
 import 'links.dart';
+import 'open_url.dart';
 import 'remember.dart';
 import 'theme.dart';
 import 'turnstile/turnstile.dart';
 import 'widgets.dart';
 
-/// Why a magic link didn't sign in (`?error=` on the page it lands on).
+/// Why a magic link or a provider's sign-in didn't sign in (`?error=` on the
+/// page it lands on).
 String? loginErrorMessage(String? code) => switch (code) {
   null || '' => null,
   'unable_to_create_user' || 'not_allowed' =>
@@ -53,6 +56,13 @@ String? loginErrorMessage(String? code) => switch (code) {
   _ => (text: noticeFor(error).text, spent: false),
 };
 
+/// Why signing in with Google on the device didn't work.
+String googleErrorMessage(Object error) => switch (error) {
+  ApiException(code: 'signups_closed') => loginErrorMessage('signups_closed')!,
+  ApiException() => noticeFor(error).text,
+  _ => 'Signing in with Google didn’t work. Try again, or use your email.',
+};
+
 final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
 const _codeLength = 6;
@@ -64,15 +74,20 @@ typedef CaptchaBuilder = Widget Function({
   required ValueChanged<String?> onToken,
 });
 
-/// Sign-in by email: the email has a link and a code. Signing in the first
-/// time creates the account. On the web either works; a native build has no
-/// browser session for the link to sign in, so it asks for the code.
+/// Sign-in by email (the email has a link and a code), or with Google or
+/// GitHub. Signing in the first time creates the account. On the web either
+/// email route works and the providers' buttons go through the browser; a
+/// native build has no browser session for the link or a provider's callback
+/// to sign in, so it asks for the code, and on Android signs in with Google
+/// on the device.
 class LoginPage extends StatefulWidget {
   const LoginPage({
     super.key,
     this.errorCode,
     this.captcha = TurnstileWidget.new,
     this.native = !kIsWeb,
+    this.googleOnDevice,
+    this.googleIdToken = deviceGoogleIdToken,
   });
 
   /// `?error=` from a magic link that failed.
@@ -83,6 +98,13 @@ class LoginPage extends StatefulWidget {
 
   /// A native build: the page speaks of the code only.
   final bool native;
+
+  /// Google sign-in through the device's account picker: Android builds,
+  /// unless a test says otherwise. iOS doesn't offer it (docs/DEFERRED.md).
+  final bool? googleOnDevice;
+
+  /// Google's account picker; tests pass a stand-in.
+  final GoogleIdTokenSource googleIdToken;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -143,6 +165,60 @@ class _LoginPageState extends State<LoginPage> {
 
   bool get _canSend =>
       !_busy && _token != null && _emailPattern.hasMatch(_email.text.trim());
+
+  bool get _googleOnDevice =>
+      widget.googleOnDevice ??
+      (!kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+
+  /// The web build's Google or GitHub sign-in: off to the provider's page,
+  /// back to the app signed in.
+  Future<void> _social(String provider) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      rememberSignIn();
+      final url = await AppScope.of(context).api.socialSignInUrl(
+        provider: provider,
+        callbackPath: '/app/',
+        errorCallbackPath: '/app/login',
+      );
+      if (openUrl(url, newTab: false)) return;
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = noticeFor(error).text);
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  /// Google on the device: its account picker gives an ID token, which signs
+  /// in with the captcha token, as the email does.
+  Future<void> _googleOnDeviceSignIn(String clientId) async {
+    final captcha = _token;
+    if (_busy || captcha == null) return;
+    final scope = AppScope.of(context);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final idToken = await widget.googleIdToken(clientId);
+      if (idToken == null) return;
+      await scope.api.signInWithGoogle(idToken: idToken, captchaToken: captcha);
+      // Signed in: the router leaves this page once the session knows.
+      await scope.session.start();
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = googleErrorMessage(error));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _token = null;
+          _attempt++;
+        });
+      }
+    }
+  }
 
   Future<void> _send() async {
     final token = _token;
@@ -266,6 +342,22 @@ class _LoginPageState extends State<LoginPage> {
     if (sentTo != null) return _checkEmail(sentTo);
     final theme = Theme.of(context);
     final siteKey = options.turnstileSiteKey;
+    final googleClientId = options.googleClientId;
+    // The device's Google sign-in takes the captcha below the email field,
+    // so its button comes after it; the browser's go first, as on the web
+    // apps.
+    final deviceGoogle =
+        widget.native &&
+        _googleOnDevice &&
+        options.google &&
+        googleClientId != null &&
+        siteKey != null;
+    final browserProviders = widget.native
+        ? const <(String, String)>[]
+        : [
+            if (options.google) ('google', 'Continue with Google'),
+            if (options.github) ('github', 'Continue with GitHub'),
+          ];
     return [
       Text('Sign in to $brandName', style: theme.textTheme.titleLarge),
       const SizedBox(height: 4),
@@ -285,6 +377,20 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ],
       const SizedBox(height: 20),
+      if (browserProviders.isNotEmpty) ...[
+        for (final (provider, label) in browserProviders) ...[
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _busy ? null : () => unawaited(_social(provider)),
+              child: Text(label),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        const _Divider('or by email'),
+        const SizedBox(height: 8),
+      ],
       TextField(
         controller: _email,
         enabled: !_busy,
@@ -310,6 +416,20 @@ class _LoginPageState extends State<LoginPage> {
           child: Text(widget.native ? 'Email me a code' : 'Email me a link'),
         ),
       ),
+      if (deviceGoogle) ...[
+        const SizedBox(height: 8),
+        const _Divider('or'),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: !_busy && _token != null
+                ? () => unawaited(_googleOnDeviceSignIn(googleClientId))
+                : null,
+            child: const Text('Continue with Google'),
+          ),
+        ),
+      ],
       const SizedBox(height: 16),
       Wrap(
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -417,6 +537,23 @@ class _ErrorText extends StatelessWidget {
       borderRadius: BorderRadius.circular(radius),
     ),
     child: Semantics(liveRegion: true, child: Text(text)),
+  );
+}
+
+class _Divider extends StatelessWidget {
+  const _Divider(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      const Expanded(child: Divider()),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ),
+      const Expanded(child: Divider()),
+    ],
   );
 }
 

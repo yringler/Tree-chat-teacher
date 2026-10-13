@@ -78,6 +78,9 @@ class LoginOptions {
     required this.devMode,
     required this.turnstileSiteKey,
     required this.signupsOpen,
+    this.google = false,
+    this.github = false,
+    this.googleClientId,
   });
 
   factory LoginOptions.fromJson(Json json) => LoginOptions(
@@ -85,6 +88,9 @@ class LoginOptions {
     devMode: json.boolean('devMode'),
     turnstileSiteKey: json.strOrNull('turnstileSiteKey'),
     signupsOpen: json.boolOrNull('signupsOpen') ?? true,
+    google: json.objOrNull('social')?.boolOrNull('google') ?? false,
+    github: json.objOrNull('social')?.boolOrNull('github') ?? false,
+    googleClientId: json.strOrNull('googleClientId'),
   );
 
   /// Sign-in is set up on this server.
@@ -94,6 +100,14 @@ class LoginOptions {
   final bool devMode;
   final String? turnstileSiteKey;
   final bool signupsOpen;
+
+  /// Google and GitHub sign-in are set up on this server.
+  final bool google;
+  final bool github;
+
+  /// Google's OAuth client id: the audience of the ID token a native build
+  /// asks Google for.
+  final String? googleClientId;
 }
 
 /// `GET /api/pool/status`.

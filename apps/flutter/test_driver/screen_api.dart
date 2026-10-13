@@ -152,6 +152,19 @@ class ScreenApi implements TangentApi {
   }) async {}
 
   @override
+  Future<Uri> socialSignInUrl({
+    required String provider,
+    required String callbackPath,
+    required String errorCallbackPath,
+  }) async => Uri.parse('https://accounts.google.com/');
+
+  @override
+  Future<void> signInWithGoogle({
+    required String idToken,
+    required String captchaToken,
+  }) async {}
+
+  @override
   Future<Me> me() async => const Me(
     userId: 'learner',
     email: 'learner@example.com',

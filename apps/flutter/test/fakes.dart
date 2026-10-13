@@ -152,6 +152,11 @@ class FakeTangentApi implements TangentApi {
 
   final magicLinks = <({String email, String captchaToken})>[];
   final codes = <({String email, String code})>[];
+  final socialStarts = <({String provider, String callbackPath})>[];
+  final googleSignIns = <({String idToken, String captchaToken})>[];
+
+  /// Thrown by `signInWithGoogle`, when set; otherwise the token signs in.
+  ApiException? refuseGoogle;
   final createdTrees = <({String? providerId, String? model})>[];
   final createdBranches =
       <({String fromNodeId, String? title, String? anchorQuote})>[];
@@ -187,6 +192,27 @@ class FakeTangentApi implements TangentApi {
   }) async {
     codes.add((email: email, code: code));
     final refusal = refuseCode;
+    if (refusal != null) throw refusal;
+    meAnswers = [signedInMe];
+  }
+
+  @override
+  Future<Uri> socialSignInUrl({
+    required String provider,
+    required String callbackPath,
+    required String errorCallbackPath,
+  }) async {
+    socialStarts.add((provider: provider, callbackPath: callbackPath));
+    return Uri.parse('https://accounts.example/$provider');
+  }
+
+  @override
+  Future<void> signInWithGoogle({
+    required String idToken,
+    required String captchaToken,
+  }) async {
+    googleSignIns.add((idToken: idToken, captchaToken: captchaToken));
+    final refusal = refuseGoogle;
     if (refusal != null) throw refusal;
     meAnswers = [signedInMe];
   }

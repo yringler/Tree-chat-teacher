@@ -86,6 +86,7 @@ describe('open sign-up', () => {
       configured: true,
       devMode: false,
       social: { google: false, github: false },
+      googleClientId: null,
       turnstileSiteKey: 'site-key',
       signupsOpen: true,
     });

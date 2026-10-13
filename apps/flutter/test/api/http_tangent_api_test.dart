@@ -511,6 +511,54 @@ void main() {
       expect(f.seen.last.headers['authorization'], 'Bearer raw.signature');
     });
 
+    test(
+      'signs in with a Google ID token and the captcha, keeping the token',
+      () async {
+        final tokens = MemoryTokens();
+        final f = fake(
+          (request) => request.url.path == '/api/auth/sign-in/social'
+              ? http.StreamedResponse(
+                  Stream.value(utf8.encode(jsonEncode({'redirect': false}))),
+                  200,
+                  headers: {'set-auth-token': 'google.signature'},
+                )
+              : json(meJson),
+          tokens: tokens,
+        );
+        await f.api.signInWithGoogle(idToken: 'id.token', captchaToken: 'pass');
+        final signIn = f.seen.single;
+        expect(signIn.method, 'POST');
+        expect(signIn.url.path, '/api/auth/sign-in/social');
+        expect(signIn.json, {
+          'provider': 'google',
+          'idToken': {'token': 'id.token'},
+        });
+        expect(signIn.headers['x-captcha-response'], 'pass');
+        expect(tokens.token, 'google.signature');
+      },
+    );
+
+    test('a browser sign-in with a provider answers with its page', () async {
+      final f = fake(
+        (_) => json({
+          'url': 'https://accounts.google.com/o?x=1',
+          'redirect': true,
+        }),
+      );
+      final url = await f.api.socialSignInUrl(
+        provider: 'github',
+        callbackPath: '/app/',
+        errorCallbackPath: '/app/login',
+      );
+      expect(url, Uri.parse('https://accounts.google.com/o?x=1'));
+      expect(f.seen.single.url.path, '/api/auth/sign-in/social');
+      expect(f.seen.single.json, {
+        'provider': 'github',
+        'callbackURL': '/app/',
+        'errorCallbackURL': '/app/login',
+      });
+    });
+
     test('loads a kept token before the first call, once', () async {
       final tokens = MemoryTokens('kept.signature');
       final f = fake(server(), tokens: tokens);
