@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
-import 'package:tangent/api/token_store.dart';
 import 'package:tangent/state/session_controller.dart';
 
 import '../fakes.dart';
@@ -166,6 +165,45 @@ void main() {
     expect(session.payer, Payer.ownKey);
   });
 
+  test('a sent code is remembered for its lifetime', () async {
+    final store = MemoryStore();
+    var now = DateTime.utc(2026, 10, 13, 9);
+    SessionController at() =>
+        SessionController(FakeTangentApi(), signInStore: store, now: () => now);
+
+    await at().codeSent('ada@example.com');
+    now = now.add(const Duration(minutes: 14));
+    expect(await at().codeSentTo(), 'ada@example.com');
+    now = now.add(const Duration(minutes: 1));
+    expect(await at().codeSentTo(), isNull, reason: 'the code has expired');
+    expect(store.value, isNull);
+  });
+
+  test('a sent code is forgotten once over', () async {
+    final store = MemoryStore();
+    final api = apiWith(creditMicros: 5, poolEnabled: false);
+    final session = SessionController(api, signInStore: store);
+    await session.codeSent('ada@example.com');
+    await session.cancelSignIn();
+    expect(await session.codeSentTo(), isNull);
+
+    await session.codeSent('ada@example.com');
+    await session.start();
+    expect(session.status, SessionStatus.signedIn);
+    expect(store.value, isNull);
+  });
+
+  test('an unreadable sent code reads as none', () async {
+    final store = MemoryStore()..value = 'not json';
+    expect(
+      await SessionController(
+        FakeTangentApi(),
+        signInStore: store,
+      ).codeSentTo(),
+      isNull,
+    );
+  });
+
   test('picked own key without a key is blocked', () async {
     final api = apiWith(creditMicros: 0, poolEnabled: true);
     final session = SessionController(api);
@@ -174,18 +212,4 @@ void main() {
     expect(session.payer, Payer.ownKey);
     expect(session.ownKeyBlocked, isTrue);
   });
-}
-
-/// A [TokenStore] in memory.
-class MemoryStore implements TokenStore {
-  String? value;
-
-  @override
-  Future<String?> read() async => value;
-
-  @override
-  Future<void> write(String token) async => value = token;
-
-  @override
-  Future<void> clear() async => value = null;
 }

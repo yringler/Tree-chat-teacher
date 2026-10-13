@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/api/tangent_api.dart';
+import 'package:tangent/api/token_store.dart';
 import 'package:tangent/app.dart';
 import 'package:tangent/ui/login_page.dart';
 
@@ -351,4 +352,18 @@ Future<void> pumpApp(
     TangentApp(api: api, initialLocation: location, captcha: captcha),
   );
   await settle(tester);
+}
+
+/// A [TokenStore] in memory.
+class MemoryStore implements TokenStore {
+  String? value;
+
+  @override
+  Future<String?> read() async => value;
+
+  @override
+  Future<void> write(String token) async => value = token;
+
+  @override
+  Future<void> clear() async => value = null;
 }
