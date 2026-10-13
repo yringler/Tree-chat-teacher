@@ -177,16 +177,24 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: apps/flutter/android/whatsnew
-      # Google Play rejects notes over 500 characters, after the bundle has uploaded.
-      - name: Check the release notes
+      # Google Play rejects notes over 500 characters, after the bundle has uploaded. Empty files
+      # mean the release goes out without notes.
+      - id: notes
+        name: Check the release notes
         run: |
-          for file in apps/flutter/android/whatsnew/whatsnew-*; do
+          dir=apps/flutter/android/whatsnew
+          for file in "$dir"/whatsnew-*; do
             length=$(LC_ALL=C.UTF-8 wc -m < "$file")
             if [ "$length" -gt 500 ]; then
               echo "::error file=$file::$length characters; Google Play takes at most 500."
               exit 1
             fi
           done
+          if grep -q '[^[:space:]]' "$dir"/whatsnew-*; then
+            echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::The release notes are empty, so this release has none."
+          fi
       - uses: actions/download-artifact@v8
         with:
           name: tangent-${{ github.run_number }}.aab
@@ -208,7 +216,10 @@ jobs:
           track: ${{ inputs.track }}
           status: ${{ inputs.status }}
           # One whatsnew-<language> file per store listing language, such as whatsnew-en-US.
-          whatsNewDirectory: apps/flutter/android/whatsnew
+          whatsNewDirectory: ${{ steps.notes.outputs.dir }}
+      # The notes describe the changes since the last release, so they start empty after one.
+      - if: steps.notes.outputs.dir != ''
+        run: echo "::notice file=apps/flutter/android/whatsnew/whatsnew-en-US::These release notes are on Google Play now. Empty the whatsnew files on master so the next release's notes start fresh."
       # A committed edit only means Google accepted it: a production release waits on Google's
       # review before it goes live, and Play Console's release history shows only live releases. So
       # the run reads the track back and shows what's on it in its summary. Reading needs an edit

@@ -92,9 +92,11 @@ then Play Console shows it under **Publishing overview**, not in the release
 history.
 
 The release notes ("What's new" in the Play Store) are
-`android/whatsnew/whatsnew-en-US`, at most 500 characters, and every
-publishing run sends them, so update the file before publishing. Add a
-`whatsnew-<language>` file for each other language the store listing has.
+`android/whatsnew/whatsnew-en-US`, at most 500 characters. Changes add their
+line to it as they merge, and a publishing run sends it, then reminds you to
+empty it so the next release starts fresh. While it's empty, a release goes
+out without notes. Add a `whatsnew-<language>` file for each other language
+the store listing has.
 
 To install the APK, open it on the phone and allow "install unknown apps"
 for the browser or file manager. Builds signed with the upload key install

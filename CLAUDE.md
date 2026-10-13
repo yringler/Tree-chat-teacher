@@ -61,6 +61,7 @@ Update one doc, the one that owns the fact, in the same change. Don't restate it
 - A var or secret: `docs/configuration.md`.
 - Deploying, setup, admin, pricing mechanics: `docs/operating.md`.
 - What users see and do: `docs/user-guide.md`.
+- A change Android app users will notice: a short line in `apps/flutter/android/whatsnew/whatsnew-en-US`, the next Play release's notes (500 characters in all). Say in the PR description that the notes go out with the next Play release and the file is to be emptied after it.
 - Something consciously left out: `docs/DEFERRED.md`; remove the entry when it is done.
 - What is collected, kept or shown to users legally: the privacy page (`apps/worker/src/http/legal.tsx`) and `docs/LEGAL.md`.
 - Commands, layout or these rules: this file and the README.
