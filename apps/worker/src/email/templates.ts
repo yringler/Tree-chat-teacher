@@ -16,7 +16,9 @@ export function magicLinkEmail(
   const href = escapeHtml(url);
   return {
     to,
-    subject: 'Sign in to Tangent',
+    // The code in the subject shows in the phone's notification, so the
+    // learner can type it without leaving the app, which the phone may close.
+    subject: `Your Tangent code: ${code}`,
     text: [
       `Your sign-in code: ${code}`,
       '',

@@ -270,7 +270,7 @@ describe('magic link', () => {
     expect(s.mail.sent).toHaveLength(1);
     expect(s.mail.sent[0]).toMatchObject({
       to: 'owner@example.com',
-      subject: 'Sign in to Tangent',
+      subject: expect.stringMatching(/^Your Tangent code: \d{6}$/),
     });
     expect(s.mail.sent[0]!.html).toContain('/api/auth/magic-link/verify');
 

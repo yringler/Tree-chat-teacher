@@ -116,6 +116,7 @@ describe('magicLinkEmail', () => {
   it('puts the code first in both bodies, and says the link skips the phone app', () => {
     const url = 'https://t.example/x';
     const m = magicLinkEmail('a@example.com', url, '042917', 15);
+    expect(m.subject).toBe('Your Tangent code: 042917');
     expect(m.text.split('\n')[0]).toBe('Your sign-in code: 042917');
     expect(m.html.indexOf('042917')).toBeLessThan(m.html.indexOf(url));
     for (const body of [m.text, m.html]) {
