@@ -62,6 +62,9 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **State names in state diagrams lose their last letter.** `mermaid_flutter` 0.3.x measures them at normal weight but paints them bold; a fix is proposed upstream. Bump the pinned version once a release has it.
 - **A tab open across a deploy can't draw diagrams.** The web build loads the diagram library (about 660 KB gzipped) as a deferred part on first use; a tab still running the previous `main.dart.js` asks for a part the deploy replaced, and shows each diagram as its source under the failure note until it reloads.
 
+- **The Android app banner can't tell whether the app is installed.** Chrome's `navigator.getInstalledRelatedApps()` would hide it for people who have the app, but needs a web manifest listing the app in each web app and the app declaring the site (`asset_statements` in its manifest, so a Play release). One tap on its close hides it meanwhile.
+- **No iOS banner, and the Flutter web build (`/app/`) offers no app.** There is no App Store release; Safari's Smart App Banner (`<meta name="apple-itunes-app">`) is the way once there is. The web build is the same app as the Android one, reached only by its own URL.
+
 ## Reply and tangent guidance
 
 - **Suggestions aren't provider-native structured output.** They are a `[continue]`/`[tangent]`-tagged block in the reply's text ([DECISIONS](DECISIONS.md#reply-or-tangent)). JSON mode or tool calls would split the streamed Markdown, need code per provider, and a new SSE event or column to carry them.

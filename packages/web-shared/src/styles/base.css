@@ -574,13 +574,16 @@ textarea:focus-visible {
   gap: 8px;
 }
 
-/* Beta notice above an app's page (ui/beta-banner.ts) */
+/* Notices above an app's page: the beta notice (ui/beta-banner.ts) and the
+   Android app's (ui/android-app-banner.ts) */
 
-app-beta-banner {
+app-beta-banner,
+app-android-app-banner {
   display: block;
 }
 
-.beta-banner {
+.beta-banner,
+.app-banner {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -593,7 +596,8 @@ app-beta-banner {
   text-align: center;
 }
 
-.beta-banner a {
+.beta-banner a,
+.app-banner a {
   white-space: nowrap;
 }
 
