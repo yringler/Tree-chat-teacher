@@ -85,6 +85,19 @@ When the run finishes, its page lists `tangent-<run number>.apk` and/or
 itself. The run number is the app's version code, so each build is newer
 than the last; a re-run reuses it, so start a new run to publish again.
 
+A publishing run then reads the track back from Google Play and lists its
+releases in the run's summary, failing if the new version code isn't there. A
+production release waits on Google's review before it goes live, and until
+then Play Console shows it under **Publishing overview**, not in the release
+history.
+
+The release notes ("What's new" in the Play Store) are
+`android/whatsnew/whatsnew-en-US`, at most 500 characters. Changes add their
+line to it as they merge, and a publishing run sends it, then reminds you to
+empty it so the next release starts fresh. While it's empty, a release goes
+out without notes. Add a `whatsnew-<language>` file for each other language
+the store listing has.
+
 To install the APK, open it on the phone and allow "install unknown apps"
 for the browser or file manager. Builds signed with the upload key install
 over each other. Builds made without it are signed with a different
