@@ -121,6 +121,32 @@ describe('landingRoutes', () => {
     expect(seen).toEqual(['HEAD /']);
   });
 
+  it('says what each configured sign-in shares, and links the privacy policy and terms', async () => {
+    const google = { GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret' };
+    const github = { GITHUB_CLIENT_ID: 'id', GITHUB_CLIENT_SECRET: 'secret' };
+    const none = {
+      GOOGLE_CLIENT_ID: '',
+      GOOGLE_CLIENT_SECRET: '',
+      GITHUB_CLIENT_ID: '',
+      GITHUB_CLIENT_SECRET: '',
+    };
+    const html = async (overrides: Partial<AppEnv>) =>
+      expectLanding(await setup({ env: overrides }).request('/'), 'no-cache');
+    const shared =
+      /If you sign in with Google, Tangent receives your name, email address and profile picture/;
+
+    const both = await html({ ...none, ...google, ...github });
+    expect(both).toContain('Sign in with your email address, Google or GitHub.');
+    expect(both).toMatch(shared);
+    expect(both).toContain('<a href="/privacy">Privacy policy</a>');
+    expect(both).toContain('<a href="/terms">Terms of service</a>');
+
+    const emailOnly = await html(none);
+    expect(emailOnly).toContain('Sign in with your email address.');
+    expect(emailOnly).not.toMatch(shared);
+    expect(emailOnly).toContain('<a href="/privacy">Privacy policy</a>');
+  });
+
   it('leaves other methods and paths alone', async () => {
     const { request, seen } = setup();
     for (const [path, method] of [
