@@ -11,6 +11,8 @@ import 'config.dart';
 /// `STORAGE_KEY` in apps/simple/src/app/state/payment-choice.ts.
 const _choiceKey = 'tangent.learn.payment';
 
+const _signInKey = 'tangent.learn.sign_in';
+
 void main() {
   // Path URLs (/app/t/…) rather than /app/#/t/…; a no-op off the web.
   usePathUrlStrategy();
@@ -30,6 +32,9 @@ void main() {
       choiceStore: kIsWeb
           ? browserStore(_choiceKey)
           : const SecureTokenStore(_choiceKey),
+      signInStore: kIsWeb
+          ? browserStore(_signInKey)
+          : const SecureTokenStore(_signInKey),
     ),
   );
 }

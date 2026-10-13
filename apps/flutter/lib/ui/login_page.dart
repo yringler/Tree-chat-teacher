@@ -121,10 +121,19 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _loadOptions() async {
     final scope = AppScope.of(context);
+    // A code sent before the app was closed opens on its code screen.
+    final pending = scope.session.codeSentTo();
     try {
       final options = await scope.api.loginOptions();
+      final sentTo = await pending;
       if (!mounted) return;
-      setState(() => _options = options);
+      setState(() {
+        _options = options;
+        if (sentTo != null) {
+          _sentTo = sentTo;
+          _email.text = sentTo;
+        }
+      });
       // Under the local no-sign-in bypass every request is signed in already.
       if (options.devMode) await scope.session.start();
     } on Object catch (error) {
@@ -145,12 +154,14 @@ class _LoginPageState extends State<LoginPage> {
     });
     try {
       rememberSignIn();
-      await AppScope.of(context).api.sendMagicLink(
+      final scope = AppScope.of(context);
+      await scope.api.sendMagicLink(
         email: email,
         captchaToken: token,
         callbackPath: '/app/',
         errorCallbackPath: '/app/login',
       );
+      await scope.session.codeSent(email);
       if (mounted) {
         setState(() {
           _sentTo = email;
@@ -201,11 +212,14 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   /// Back to the email form, the address kept, for a new email.
-  void _startOver() => setState(() {
-    _sentTo = null;
-    _codeError = null;
-    _codeSpent = false;
-  });
+  void _startOver() {
+    unawaited(AppScope.of(context).session.cancelSignIn());
+    setState(() {
+      _sentTo = null;
+      _codeError = null;
+      _codeSpent = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
