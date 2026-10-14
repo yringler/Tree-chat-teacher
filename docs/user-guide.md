@@ -106,7 +106,7 @@ Learn keeps only the essentials:
 - **Billing** (`/learn/billing`): the membership, and with credit the balance, top-ups and recent usage.
 - **Delete account** (account menu, here and in the Flutter and phone apps, or `/learn/delete-account` as a page of its own): deletes the account all three apps share, once you retype your email. The public `/delete-account` page says what is deleted and kept, and its button signs you in and opens that page.
 
-An import into Learn is adapted so it can be continued there: threads on a provider or model Learn doesn't offer move to Normal, every tangent gets the whole path as context, and the lesson gets Learn's tutor prompt. Nothing is charged by an import.
+An import into Learn is adapted so it can be continued there: threads on a provider or model Learn doesn't offer move to Normal, and every tangent gets the whole path as context. Learn answers with its tutor prompt whatever prompt the conversation had in power mode. Nothing is charged by an import.
 
 ## Canvas (experimental)
 

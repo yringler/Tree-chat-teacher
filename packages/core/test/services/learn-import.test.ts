@@ -84,13 +84,13 @@ const routes = (d: Pick<TreeDetail, 'branches'>) =>
   d.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode, b.funding]);
 
 describe('importing into Learn (profile learn)', () => {
-  it('adapts a power backup to Learn: its provider and models, path context, no prompt, own-key', async () => {
+  it('adapts a power backup to Learn: its provider and models, path context, own-key, the prompt kept', async () => {
     const { power, learn } = setup();
     const original = await powerTree(power);
     const backup = await power.exportBackup(original.tree.id);
 
     const lesson = await learn.importBackup(backup);
-    expect(lesson.tree).toMatchObject({ accountId: 'u_user', systemPrompt: null });
+    expect(lesson.tree).toMatchObject({ accountId: 'u_user', systemPrompt: 'Be a pirate.' });
     expect(routes(lesson)).toEqual([
       ['Main thread', 'openrouter', 'normal', 'path', 'own-key'],
       ['On credit', 'openrouter', 'max', 'path', 'own-key'],

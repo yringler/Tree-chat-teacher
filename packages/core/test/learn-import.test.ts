@@ -114,17 +114,15 @@ describe('adaptBackupForLearn', () => {
     ]);
   });
 
-  it('keeps no system prompt on the lesson, as a new lesson keeps none', () => {
-    expect(adaptBackupForLearn(powerBackup(), TARGET).tree.systemPrompt).toBeNull();
+  it("keeps the tree's system prompt: Learn ignores it, power still uses it", () => {
+    expect(adaptBackupForLearn(powerBackup(), TARGET).tree.systemPrompt).toBe('You are a pirate.');
   });
 
   it('keeps messages, titles, anchors, privacy and the tree structure as they are', () => {
     const before = powerBackup();
     const after = adaptBackupForLearn(before, TARGET);
     expect(after.nodes).toEqual(before.nodes);
-    const { systemPrompt: _a, ...treeBefore } = before.tree;
-    const { systemPrompt: _b, ...treeAfter } = after.tree;
-    expect(treeAfter).toEqual(treeBefore);
+    expect(after.tree).toEqual(before.tree);
     const keep = (b: TreeBackupInput) =>
       b.branches.map((x) => ({
         id: x.id,

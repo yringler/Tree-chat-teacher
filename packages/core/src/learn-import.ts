@@ -23,14 +23,12 @@ export interface LearnImportTarget {
  *   already on one of Learn's models keeps it;
  * - every branch uses `path` context, which is what Learn shows (a `summary`
  *   or `independent` branch would answer from context the learner can't see);
- * - the lesson keeps no system prompt, as a new lesson does: Learn sends its
- *   tutor prompt instead, and a learner could neither see nor change a
- *   custom one;
  * - every branch is `own-key`: Learn decides who pays per request, and an
  *   import never moves anything onto credit or the pool.
  *
- * Messages, titles, anchor quotes, privacy and the learner's instructions are
- * kept as they are, and so is the provider each reply ran on (it is history).
+ * Messages, titles, anchor quotes, privacy, the tree's system prompt and the
+ * learner's instructions are kept as they are (Learn never sends the tree's
+ * prompt, so it stays for power to use), and so is the provider each reply ran on (it is history).
  * Pure: the input is not changed, and adapting a Learn backup again changes
  * nothing.
  */
@@ -42,7 +40,6 @@ export function adaptBackupForLearn(
     providerId === target.providerId && target.models.includes(model);
   return {
     ...backup,
-    tree: { ...backup.tree, systemPrompt: null },
     branches: backup.branches.map((b) => ({
       ...b,
       providerId: target.providerId,

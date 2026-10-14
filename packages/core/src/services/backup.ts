@@ -21,8 +21,8 @@ import { INTERRUPTED, type TreeService } from './tree-service.js';
 export class BackupService {
   /**
    * `learnProviders`: Learn adapts every import (`adaptBackupForLearn`) onto
-   * this registry's default provider and its models, `path` context, and no
-   * tree prompt. Null: imports are restored as they are.
+   * this registry's default provider and its models, and `path` context.
+   * Null: imports are restored as they are.
    */
   constructor(
     private readonly ctx: ServiceContext,
