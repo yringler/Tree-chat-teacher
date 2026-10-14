@@ -21,6 +21,7 @@ class MessageView extends StatelessWidget {
     required this.status,
     required this.tangents,
     required this.chainIds,
+    required this.cameFromIds,
     required this.onFollow,
     required this.onOpenTangent,
     required this.onAskAbout,
@@ -39,6 +40,9 @@ class MessageView extends StatelessWidget {
 
   /// The branches from the main thread down to the one on screen.
   final Set<String> chainIds;
+
+  /// The tangents the learner just came back from.
+  final Set<String> cameFromIds;
 
   /// Starts a tangent that follows a suggestion; null while that isn't
   /// possible (e.g. a send is in flight).
@@ -126,6 +130,7 @@ class MessageView extends StatelessWidget {
               tangents: footer.yours,
               suggested: groups.tangent,
               chainIds: chainIds,
+              cameFromIds: cameFromIds,
               onOpen: onOpenTangent,
             ),
           if (nextSteps.isNotEmpty)
@@ -307,6 +312,7 @@ class _YourTangents extends StatelessWidget {
     required this.tangents,
     required this.suggested,
     required this.chainIds,
+    required this.cameFromIds,
     required this.onOpen,
   });
 
@@ -315,6 +321,7 @@ class _YourTangents extends StatelessWidget {
   /// The reply's tangent suggestions, whose reason a followed one shows.
   final List<Tangent> suggested;
   final Set<String> chainIds;
+  final Set<String> cameFromIds;
   final ValueChanged<Branch> onOpen;
 
   @override
@@ -330,7 +337,8 @@ class _YourTangents extends StatelessWidget {
             _YourTangentRow(
               title: outlineTitle(b),
               tip: _tipFor(b, whyOf[b.title]),
-              lit: chainIds.contains(b.id),
+              onPath: chainIds.contains(b.id),
+              cameFrom: cameFromIds.contains(b.id),
               onTap: () => onOpen(b),
             ),
         ],
@@ -354,7 +362,8 @@ class _YourTangentRow extends StatelessWidget {
   const _YourTangentRow({
     required this.title,
     required this.tip,
-    required this.lit,
+    required this.onPath,
+    required this.cameFrom,
     required this.onTap,
   });
 
@@ -364,19 +373,25 @@ class _YourTangentRow extends StatelessWidget {
   final String tip;
 
   /// On the learner's path to the branch on screen.
-  final bool lit;
+  final bool onPath;
+
+  /// The tangent the learner just came back from.
+  final bool cameFrom;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final tokens = TangentColors.of(context);
     final accent = Theme.of(context).colorScheme.primary;
+    final lit = onPath || cameFrom;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Semantics(
         container: true,
         button: true,
-        selected: lit,
+        // The way to the branch on screen; the one just left says so in its
+        // label instead.
+        selected: onPath,
         child: Tooltip(
           message: tip,
           // A tip that is only the title would have it read twice.
@@ -409,7 +424,9 @@ class _YourTangentRow extends StatelessWidget {
                         Expanded(
                           child: Text(
                             title,
-                            semanticsLabel: 'Open tangent: $title',
+                            semanticsLabel: cameFrom
+                                ? 'Open tangent: $title (you were just here)'
+                                : 'Open tangent: $title',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

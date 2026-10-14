@@ -594,6 +594,7 @@ class _ChatPageState extends State<ChatPage> {
       status: _chat.statusOf(node.id),
       tangents: _chat.tangentsAt(node),
       chainIds: chainIds,
+      cameFromIds: _chat.cameFromIds,
       latest: node.id == _chat.asideFrom?.id,
       onContinue: _chat.sending ? null : (t) => unawaited(_send(t.title)),
       onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),

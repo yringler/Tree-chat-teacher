@@ -76,6 +76,14 @@ class ChatController extends ChangeNotifier {
     return id == null ? const [] : branchChain(id, _branches);
   }
 
+  /// The tangents the learner just came back from: on the way to the branch
+  /// they left, not on the way to the one on screen. Going deeper leaves
+  /// none; back to the parent, the tangent left. Coming back is when the
+  /// learner looks for where they were, so its row under the reply is lit.
+  /// A controller holds one lesson, so another lesson starts with none.
+  Set<String> get cameFromIds => _cameFromIds;
+  Set<String> _cameFromIds = const {};
+
   /// Every branch of the lesson, tangents nested under their parents.
   List<OutlineEntry> get outline {
     final trunkId = _tree?.trunkBranchId;
@@ -159,7 +167,9 @@ class ChatController extends ChangeNotifier {
 
   void selectBranch(String? branchId) {
     if (branchId == _requestedBranchId) return;
+    final left = {for (final b in chain) b.id};
     _requestedBranchId = branchId;
+    _cameFromIds = left.difference({for (final b in chain) b.id});
     _notice = null;
     _notify();
   }

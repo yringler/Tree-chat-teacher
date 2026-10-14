@@ -154,6 +154,7 @@ Future<void> pumpReply(
             status: null,
             tangents: const [],
             chainIds: const {},
+            cameFromIds: const {},
             onFollow: null,
             onOpenTangent: (_) {},
             onAskAbout: (_) {},

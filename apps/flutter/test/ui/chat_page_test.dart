@@ -732,6 +732,45 @@ void main() {
         isSemantics(isButton: true, isSelected: false),
       );
     });
+
+    testWidgets('lights the tangent the learner just came back from', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('moon', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+          branch('sun', parent: 'trunk', fork: 'a1', title: 'The sun'),
+        ],
+        nodes: [
+          userNode,
+          answer('Tides rise and fall.'),
+          node('m1', branch: 'moon', seq: 0, content: 'How strong?'),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.bySemanticsLabel(RegExp('just here')), findsNothing);
+
+      await tester.tap(inThread('Moon gravity'));
+      await settle(tester);
+      await tester.tap(find.text('Main thread'));
+      await settle(tester);
+      expect(find.text('Main thread'), findsNothing);
+      expect(fill(tester, 'Moon gravity'), accentSoft(tester));
+      expect(fill(tester, 'The sun'), isNot(accentSoft(tester)));
+      expect(
+        find.bySemanticsLabel(
+          'Open tangent: Moon gravity (you were just here)',
+        ),
+        findsOne,
+      );
+      // Lit, but not on the way to the branch on screen.
+      expect(
+        tester.getSemantics(yours('Moon gravity')),
+        isSemantics(isButton: true, isSelected: false),
+      );
+    });
   });
 
   group('suggestions', () {
