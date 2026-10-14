@@ -645,7 +645,7 @@ describe('power demo backend', () => {
     expect(await api.listTrees()).toHaveLength(2);
   });
 
-  it("adapts a power backup imported into the Learn demo to Learn's provider, models and context, without its prompt", async () => {
+  it("adapts a power backup imported into the Learn demo to Learn's provider, models and context, keeping its prompt", async () => {
     const power = setup({ mode: 'power' });
     const [tree] = await power.api.listTrees();
     const res = await power.backend.fetch(power.api.backupUrl(tree!.id));
@@ -663,7 +663,7 @@ describe('power demo backend', () => {
 
     const learn = setup({ seed: false });
     const lesson = await learn.api.importBackup(fromPower);
-    expect(lesson.tree.systemPrompt).toBeNull();
+    expect(lesson.tree.systemPrompt).toBe('Talk like a pirate.');
     expect(lesson.branches.map((b) => [b.providerId, b.contextMode, b.funding])).toEqual(
       lesson.branches.map(() => ['openrouter', 'path', 'own-key']),
     );
