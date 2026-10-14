@@ -59,7 +59,8 @@ Here is the next step: the bulge on the far side forms because the Moon pulls th
 - [tangent] Inertia — what “left behind” really means
 </tangents>''';
 
-/// A [TangentApi] for the screenshot harness (screens.dart): a learner who
+/// A [TangentApi] for the screenshot harnesses (screens.dart in a browser,
+/// screenshots/store_screenshots_test.dart headlessly): a learner who
 /// is signed in, one lesson about tides, and replies that write themselves.
 /// It stands in for the Worker so the screens look the same on every run;
 /// the widget tests use test/fakes.dart instead.

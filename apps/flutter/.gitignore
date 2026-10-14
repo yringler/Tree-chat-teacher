@@ -46,3 +46,6 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Store screenshots: `pnpm --filter @tangent/flutter screenshots` writes them.
+/store/screenshots/

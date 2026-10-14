@@ -5,8 +5,9 @@
   "scripts": {
     "build": "flutter build web --release --base-href /app/ --no-web-resources-cdn --output dist/web",
     "test": "flutter test",
+    "screenshots": "flutter test screenshots",
     "typecheck": "flutter analyze",
-    "format": "dart format lib test test_driver",
-    "format:check": "dart format --output=none --set-exit-if-changed lib test test_driver"
+    "format": "dart format lib test test_driver screenshots",
+    "format:check": "dart format --output=none --set-exit-if-changed lib test test_driver screenshots"
   }
 }
