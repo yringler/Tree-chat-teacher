@@ -42,6 +42,7 @@ final _screens = <String, (String, Future<void> Function(WidgetTester))>{
     (tester) => tester.tap(find.text(mainThreadLabel).first),
   ),
   'help': ('lesson-reply', (tester) => tester.tap(find.byType(HelpButton))),
+  'tangents': ('tangents', (tester) => tester.tap(find.byTooltip('Tangents'))),
 };
 
 Future<void> _nothing(WidgetTester tester) async {}
