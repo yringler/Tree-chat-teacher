@@ -84,13 +84,13 @@ const routes = (d: Pick<TreeDetail, 'branches'>) =>
   d.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode, b.funding]);
 
 describe('importing into Learn (profile learn)', () => {
-  it('adapts a power backup to Learn: its provider and models, path context, its prompt, own-key', async () => {
+  it('adapts a power backup to Learn: its provider and models, path context, own-key, the prompt kept', async () => {
     const { power, learn } = setup();
     const original = await powerTree(power);
     const backup = await power.exportBackup(original.tree.id);
 
     const lesson = await learn.importBackup(backup);
-    expect(lesson.tree).toMatchObject({ accountId: 'u_user', systemPrompt: 'TUTOR' });
+    expect(lesson.tree).toMatchObject({ accountId: 'u_user', systemPrompt: 'Be a pirate.' });
     expect(routes(lesson)).toEqual([
       ['Main thread', 'openrouter', 'normal', 'path', 'own-key'],
       ['On credit', 'openrouter', 'max', 'path', 'own-key'],
@@ -107,11 +107,13 @@ describe('importing into Learn (profile learn)', () => {
     expect((await power.listTrees()).map((t) => t.id)).toEqual([original.tree.id]);
   });
 
-  it("gets the tutor prompt, not the account's saved power prompt, like a new lesson", async () => {
-    const { power, learn } = setup();
+  it("sends the tutor prompt, not the account's saved power prompt, like a new lesson", async () => {
+    const { power, learn, learnProvider } = setup();
     await learn.updateSettings({ systemPrompt: 'SAVED' });
     const backup = await power.exportBackup((await powerTree(power)).tree.id);
-    expect((await learn.importBackup(backup)).tree.systemPrompt).toBe('TUTOR');
+    const lesson = await learn.importBackup(backup);
+    await send(learn, lesson.tree.trunkBranchId, 'Go on');
+    expect(learnProvider.chatCalls().at(-1)?.system).toBe('TUTOR');
   });
 
   it('continues the lesson on the Learn provider with the whole path as context', async () => {

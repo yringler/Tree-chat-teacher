@@ -19,7 +19,7 @@ import { assembleContext, summaryKeyString } from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
 import { buildSummaryPrompt, renderPlan } from '../context/render.js';
 import { ValidationError } from '../errors.js';
-import { errorText, type ServiceContext } from '../services/context.js';
+import { emptyToNull, errorText, type ServiceContext } from '../services/context.js';
 import type { GenerationProfile, PoolProfile } from '../services/profile.js';
 
 /**
@@ -144,27 +144,30 @@ function clipAnchorQuote(branch: Branch, maxChars: number | undefined): Branch {
 }
 
 /**
- * The system prompt a generation sends for a tree: power sends the tree's
- * prompt as it is, the pool its locked prompt instead, and Learn its tutor
- * prompt (`tutor`, the prompt of its new lessons) followed by the tree's
- * learner instructions where the profile allows them. Learn never reads the
- * tree's prompt, which holds whatever tutor prompt was current when the
- * lesson began, so a changed tutor prompt is never sent twice.
+ * The system prompt a generation sends for a tree. Power sends the tree's own
+ * prompt, else the current default: the account's saved prompt (read only
+ * then, through `savedPrompt`), else the built-in one (`builtIn`), so a tree
+ * without its own prompt follows the default as it changes. The pool sends
+ * its locked prompt instead. Learn sends its tutor prompt (`builtIn`)
+ * followed by the tree's learner instructions where the profile allows them,
+ * and never reads the tree's prompt, which only power edits.
  */
 function systemPromptFor(
   profile: GenerationProfile,
-  tutor: string | null,
-): (tree: Pick<Tree, 'systemPrompt' | 'learnerInstructions'>) => string | null {
+  builtIn: string | null,
+  savedPrompt: () => Promise<string | null>,
+): (tree: Pick<Tree, 'systemPrompt' | 'learnerInstructions'>) => Promise<string | null> {
   switch (profile.kind) {
     case 'power':
-      return (tree) => tree.systemPrompt;
+      return async (tree) =>
+        emptyToNull(tree.systemPrompt) ?? emptyToNull(await savedPrompt()) ?? emptyToNull(builtIn);
     case 'pool':
-      return () => profile.systemPrompt;
+      return () => Promise.resolve(profile.systemPrompt);
     case 'learn':
       return (tree) => {
         const own = profile.customPrompt ? tree.learnerInstructions?.trim() : undefined;
-        if (!own) return tutor;
-        return tutor === null ? own : `${tutor}\n\n${own}`;
+        if (!own) return Promise.resolve(builtIn);
+        return Promise.resolve(builtIn === null ? own : `${builtIn}\n\n${own}`);
       };
   }
 }
@@ -179,14 +182,18 @@ export class ContextResolver {
   /** The system prompt this profile sends for a tree (`systemPromptFor`). */
   private readonly systemPrompt: (
     tree: Pick<Tree, 'systemPrompt' | 'learnerInstructions'>,
-  ) => string | null;
+  ) => Promise<string | null>;
 
   constructor(
     private readonly ctx: ServiceContext,
     profile: GenerationProfile,
   ) {
     this.pool = profile.kind === 'pool' ? profile : null;
-    this.systemPrompt = systemPromptFor(profile, ctx.defaultSystemPrompt);
+    this.systemPrompt = systemPromptFor(
+      profile,
+      ctx.defaultSystemPrompt,
+      async () => (await ctx.repos.settings.getSettings(ctx.accountId))?.systemPrompt ?? null,
+    );
   }
 
   /**
@@ -256,7 +263,7 @@ export class ContextResolver {
     const repo = this.ctx.repos.trees;
     const owned = await this.ctx.owned.branch(branchId);
     // The only way into the context's system prompt (the `tree-system-prompt` segment).
-    const tree = { ...owned.tree, systemPrompt: this.systemPrompt(owned.tree) };
+    const tree = { ...owned.tree, systemPrompt: await this.systemPrompt(owned.tree) };
     // Each branch on the route this instance runs it on (`RouteResolver.runnable`).
     const clip = (b: Branch): Branch =>
       this.ctx.routes.runnable(clipAnchorQuote(b, this.pool?.anchorQuoteMaxChars));

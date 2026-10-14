@@ -32,7 +32,7 @@ export interface PowerProfile {
  * branch this instance writes is `own-key`. Imported
  * backups are adapted to what Learn can show and continue
  * (`adaptBackupForLearn`): onto that registry's default provider and its
- * models, `path` context, and the prompt a new tree gets.
+ * models, `path` context, and no tree prompt.
  */
 export interface LearnProfile {
   kind: 'learn';

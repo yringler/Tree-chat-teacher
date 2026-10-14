@@ -54,8 +54,9 @@ interface TierRow {
         <fieldset class="settings-section">
           <legend>Default system prompt</legend>
           <p class="muted small">
-            New conversations start with this prompt. A conversation's own prompt (Conversation
-            settings) replaces it for that conversation. Saved to your account, on every device.
+            Every conversation without a prompt of its own uses this one, including ones started
+            before you change it. A conversation's own prompt (Conversation settings) replaces it
+            for that conversation. Saved to your account, on every device.
           </p>
           @if (promptError(); as err) {
             <p class="small" role="alert">Couldn't load it: {{ err }}</p>
@@ -96,7 +97,7 @@ interface TierRow {
                 type="button"
                 class="btn btn-ghost btn-sm"
                 [disabled]="!promptLoaded() || systemPrompt() === ''"
-                title="Empty the box: new conversations get the built-in prompt"
+                title="Empty the box: conversations without their own prompt use the built-in one"
                 (click)="systemPrompt.set('')"
               >
                 Reset to built-in

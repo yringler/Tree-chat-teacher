@@ -47,6 +47,7 @@ export function confirmDeleteTree(title: string): boolean {
           <textarea
             rows="8"
             maxlength="20000"
+            placeholder="Empty: your default system prompt (Settings), as it is when you send"
             [value]="systemPrompt()"
             (input)="systemPrompt.set(sp.value)"
             #sp

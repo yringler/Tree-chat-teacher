@@ -93,7 +93,7 @@ describe('account settings', () => {
     });
   }
 
-  it('gives new trees the saved prompt, else the built-in one, unless the request names one', async () => {
+  it('keeps the saved prompt per account, a blank one meaning the built-in one', async () => {
     const base = setup({ autoTitle: false });
     const chat = withDefault('a', base);
     const other = withDefault('b', base);
@@ -102,30 +102,19 @@ describe('account settings', () => {
       defaultSystemPrompt: 'BUILT-IN',
       walkthroughDoneAt: null,
     });
-    expect((await chat.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
-    expect((await chat.createTree({ systemPrompt: '  ' })).tree.systemPrompt).toBe('BUILT-IN');
-
     expect(await chat.updateSettings({ systemPrompt: 'MINE' })).toEqual({
       systemPrompt: 'MINE',
       defaultSystemPrompt: 'BUILT-IN',
       walkthroughDoneAt: null,
     });
-    expect((await chat.createTree({})).tree.systemPrompt).toBe('MINE');
-    expect((await chat.createTree({ systemPrompt: 'THIS ONE' })).tree.systemPrompt).toBe(
-      'THIS ONE',
-    );
     // Settings are per account.
     expect((await other.getSettings()).systemPrompt).toBeNull();
-    expect((await other.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
-
     // A blank prompt goes back to the built-in one.
     expect((await chat.updateSettings({ systemPrompt: ' \n' })).systemPrompt).toBeNull();
-    expect((await chat.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
   });
 
   it('has no default prompt without a built-in one', async () => {
     const { chat } = setup({ autoTitle: false });
-    expect((await chat.createTree({})).tree.systemPrompt).toBeNull();
     expect(await chat.getSettings()).toEqual({
       systemPrompt: null,
       defaultSystemPrompt: '',

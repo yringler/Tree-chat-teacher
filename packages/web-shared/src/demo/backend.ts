@@ -278,7 +278,7 @@ export class DemoBackend {
       accountId: DEMO_ACCOUNT_ID,
       providers: registry,
       // Like the Worker: Learn pays per request, so its branches are written `own-key`,
-      // and imports are adapted to its provider, models, context and prompt. The demo
+      // and imports are adapted to its provider, models and context. The demo
       // runs on pretend credit, so a lesson's learner instructions apply.
       profile: this.mode === 'simple' ? { kind: 'learn', customPrompt: true } : { kind: 'power' },
       // As a server with the default config, summarizing on each branch's own route.
@@ -288,7 +288,7 @@ export class DemoBackend {
         maxInputTokens: DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
         groundingPolicy: DEFAULT_GROUNDING_POLICY,
       }),
-      // New conversations get the same built-in prompt as on the server (both modes).
+      // The same built-in prompt as on the server (both modes).
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       clock: this.clock,
     });

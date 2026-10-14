@@ -29,6 +29,8 @@ function setup() {
     learnProvider,
     powerProvider,
     power: service({ kind: 'power' }, DEFAULT_SYSTEM_PROMPT),
+    /** Power on the same account after the built-in prompt changed. */
+    powerWith: (builtIn: string) => service({ kind: 'power' }, builtIn),
     learn: service({ kind: 'learn', customPrompt: true }, 'TUTOR'),
     learnPlain: service({ kind: 'learn', customPrompt: false }, 'TUTOR'),
     /** Learn on the same account after the operator changed its tutor prompt. */
@@ -95,9 +97,7 @@ describe("Learn's system prompt", () => {
   it('never doubles a tutor prompt that changed after the lesson was made', async () => {
     const s = setup();
     const lesson = await s.learn.createTree({});
-    expect(lesson.tree.systemPrompt).toBe('TUTOR');
     const powerTree = await s.power.createTree({});
-    expect(powerTree.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     const changed = s.learnWith('NEW TUTOR');
     expect(await systemSent(s.learnProvider, changed, lesson.tree.trunkBranchId)).toBe('NEW TUTOR');
     expect(await systemSent(s.learnProvider, changed, powerTree.tree.trunkBranchId)).toBe(
@@ -105,14 +105,12 @@ describe("Learn's system prompt", () => {
     );
   });
 
-  it("new lessons get the tutor prompt, not the account's saved power prompt", async () => {
+  it("stores no prompt on a new lesson and sends the tutor prompt, not the account's saved power prompt", async () => {
     const s = setup();
     await s.power.updateSettings({ systemPrompt: 'My power prompt.' });
-    expect((await s.power.createTree({})).tree.systemPrompt).toBe('My power prompt.');
-    expect((await s.learn.createTree({})).tree.systemPrompt).toBe('TUTOR');
-    expect((await s.learn.createTree({ systemPrompt: 'Be brief.' })).tree.systemPrompt).toBe(
-      'Be brief.',
-    );
+    const { tree } = await s.learn.createTree({});
+    expect(tree.systemPrompt).toBeNull();
+    expect(await systemSent(s.learnProvider, s.learn, tree.trunkBranchId)).toBe('TUTOR');
   });
 });
 
@@ -122,5 +120,50 @@ describe("Power's system prompt", () => {
     const { tree } = await s.power.createTree({ systemPrompt: 'Be terse.' });
     await s.power.updateTree(tree.id, { learnerInstructions: 'Answer in French.' });
     expect(await systemSent(s.powerProvider, s.power, tree.trunkBranchId)).toBe('Be terse.');
+  });
+
+  it('stores no prompt on a tree made without one', async () => {
+    const s = setup();
+    await s.power.updateSettings({ systemPrompt: 'My default.' });
+    expect((await s.power.createTree({})).tree.systemPrompt).toBeNull();
+    expect((await s.power.createTree({ systemPrompt: '  ' })).tree.systemPrompt).toBeNull();
+  });
+
+  it('sends the current default for a tree without a prompt: the saved one, else the built-in one', async () => {
+    const s = setup();
+    const { tree } = await s.power.createTree({});
+    expect(await systemSent(s.powerProvider, s.power, tree.trunkBranchId)).toBe(
+      DEFAULT_SYSTEM_PROMPT,
+    );
+    await s.power.updateSettings({ systemPrompt: 'My default.' });
+    expect(await systemSent(s.powerProvider, s.power, tree.trunkBranchId)).toBe('My default.');
+    await s.power.updateSettings({ systemPrompt: 'My new default.' });
+    expect(await systemSent(s.powerProvider, s.power, tree.trunkBranchId)).toBe('My new default.');
+    await s.power.updateSettings({ systemPrompt: null });
+    expect(await systemSent(s.powerProvider, s.powerWith('NEW BUILT-IN'), tree.trunkBranchId)).toBe(
+      'NEW BUILT-IN',
+    );
+  });
+
+  it("prefers the tree's own prompt to the saved default", async () => {
+    const s = setup();
+    await s.power.updateSettings({ systemPrompt: 'My default.' });
+    const { tree } = await s.power.createTree({ systemPrompt: 'Be terse.' });
+    expect(await systemSent(s.powerProvider, s.power, tree.trunkBranchId)).toBe('Be terse.');
+  });
+
+  it('follows the default again once the tree prompt is cleared', async () => {
+    const s = setup();
+    await s.power.updateSettings({ systemPrompt: 'My default.' });
+    const { tree } = await s.power.createTree({ systemPrompt: 'Be terse.' });
+    await s.power.updateTree(tree.id, { systemPrompt: '' });
+    expect((await s.power.getTreeDetail(tree.id)).tree.systemPrompt).toBeNull();
+    expect(await systemSent(s.powerProvider, s.power, tree.trunkBranchId)).toBe('My default.');
+  });
+
+  it('sends no prompt when there is neither a saved nor a built-in one', async () => {
+    const s = setup();
+    const { tree } = await s.powerWith('').createTree({});
+    expect(await systemSent(s.powerProvider, s.powerWith(''), tree.trunkBranchId)).toBeNull();
   });
 });

@@ -105,7 +105,7 @@ describe('demo backend', () => {
     const { api } = setup({ seed: false });
     const detail = await api.createTree({ providerId: 'openrouter', model: 'max' });
     expect(detail.tree.title).toBe('New conversation');
-    expect(detail.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(detail.tree.systemPrompt).toBeNull();
 
     const res = await api.sendMessage(
       detail.tree.trunkBranchId,
@@ -537,11 +537,11 @@ describe('power demo backend', () => {
     await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject(unsupported);
   });
 
-  it('starts conversations with the built-in prompt and is never out of credit', async () => {
+  it('starts conversations following the default prompt and is never out of credit', async () => {
     const storage = memoryStorage();
     const { api } = setup({ mode: 'power', storage, seed: false });
     const tree = await api.createTree({});
-    expect(tree.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(tree.tree.systemPrompt).toBeNull();
     const saved = JSON.parse(storage.data.get('tangent.demo')!) as object;
     storage.data.set('tangent.demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: next } = setup({ mode: 'power', storage });
@@ -584,7 +584,6 @@ describe('power demo backend', () => {
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       walkthroughDoneAt: null,
     });
-    expect((await api.createTree({})).tree.systemPrompt).toBe('Be terse.');
     expect((await api.createTree({ systemPrompt: 'Mine.' })).tree.systemPrompt).toBe('Mine.');
 
     const { api: next } = setup({ mode: 'power', storage });
@@ -592,7 +591,6 @@ describe('power demo backend', () => {
     await expect(next.updateSettings({ systemPrompt: null })).resolves.toMatchObject({
       systemPrompt: null,
     });
-    expect((await next.createTree({})).tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     await expect(next.updateSettings({ systemPrompt: 'x'.repeat(20_001) })).rejects.toMatchObject({
       status: 400,
     });
@@ -647,7 +645,7 @@ describe('power demo backend', () => {
     expect(await api.listTrees()).toHaveLength(2);
   });
 
-  it("adapts a power backup imported into the Learn demo to Learn's provider, models, context and prompt", async () => {
+  it("adapts a power backup imported into the Learn demo to Learn's provider, models and context, keeping its prompt", async () => {
     const power = setup({ mode: 'power' });
     const [tree] = await power.api.listTrees();
     const res = await power.backend.fetch(power.api.backupUrl(tree!.id));
@@ -665,7 +663,7 @@ describe('power demo backend', () => {
 
     const learn = setup({ seed: false });
     const lesson = await learn.api.importBackup(fromPower);
-    expect(lesson.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(lesson.tree.systemPrompt).toBe('Talk like a pirate.');
     expect(lesson.branches.map((b) => [b.providerId, b.contextMode, b.funding])).toEqual(
       lesson.branches.map(() => ['openrouter', 'path', 'own-key']),
     );

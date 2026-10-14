@@ -186,13 +186,13 @@ describe('switching modes', () => {
     });
   });
 
-  it('new Learn trees use the built-in endpoint and the tutor prompt unless one is given', async () => {
+  it('new Learn trees use the built-in endpoint and store no prompt unless one is given', async () => {
     const u = await newUser();
     const plain = await ok<TreeDetail>(
       await u.call('/api/trees', { method: 'POST', json: { title: 'A' }, learn: 'own-key' }),
       201,
     );
-    expect(plain.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(plain.tree.systemPrompt).toBeNull();
     // Learn pays per request: its branches are written `own-key`, whatever the payment.
     expect(plain.branches[0]).toMatchObject({
       providerId: 'openrouter',
@@ -235,52 +235,66 @@ describe('account settings: the default system prompt', () => {
       ...(learn ? { learn } : {}),
     });
 
-  it('power trees start with the built-in prompt, then with the saved one', async () => {
+  /** The system prompt a power reply on `tree`'s trunk sent, as the fake provider echoes it (JSON-escaped). */
+  const powerSystemEcho = async (u: User, tree: TreeDetail) => {
+    const sent = await u.call(`/api/branches/${tree.branches[0]!.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Hi [echo-request]' },
+    });
+    const text = await sent.text();
+    expect(sent.status, text).toBe(200);
+    return replyText(parseSse(text));
+  };
+  const escaped = (prompt: string) => JSON.stringify(prompt).slice(1, 40);
+  const newDetail = async (u: User, body: Record<string, unknown> = {}) =>
+    ok<TreeDetail>(await u.call('/api/trees', { method: 'POST', json: body }), 201);
+
+  it('saves the default per user, a blank or null one meaning the built-in one', async () => {
     const u = await newUser();
+    const other = await newUser();
     expect(await ok<SettingsResponse>(await u.call('/api/settings'))).toEqual({
       systemPrompt: null,
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       walkthroughDoneAt: null,
     });
-    expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-
     expect(await ok<SettingsResponse>(await patch(u, 'Answer in French.'))).toEqual({
       systemPrompt: 'Answer in French.',
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       walkthroughDoneAt: null,
     });
-    expect((await ok<SettingsResponse>(await u.call('/api/settings'))).systemPrompt).toBe(
-      'Answer in French.',
-    );
-    expect((await newTree(u)).systemPrompt).toBe('Answer in French.');
-    expect((await newTree(u, undefined, { systemPrompt: '  ' })).systemPrompt).toBe(
-      'Answer in French.',
-    );
-    // A prompt in the request wins.
-    expect((await newTree(u, undefined, { systemPrompt: 'Be brief.' })).systemPrompt).toBe(
-      'Be brief.',
-    );
-
-    // A blank or null prompt goes back to the built-in one.
-    expect((await ok<SettingsResponse>(await patch(u, ' '))).systemPrompt).toBeNull();
-    expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    await ok<SettingsResponse>(await patch(u, 'Again.'));
-    expect((await ok<SettingsResponse>(await patch(u, null))).systemPrompt).toBeNull();
-  });
-
-  it('is per user and starts power trees only: new Learn lessons keep the tutor prompt', async () => {
-    const u = await newUser();
-    const other = await newUser();
-    await ok<SettingsResponse>(await patch(u, 'My prompt.'));
     expect(
       (await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'own-key' })))
         .systemPrompt,
-    ).toBe('My prompt.');
-    expect((await newTree(u, 'own-key')).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    await ok<SettingsResponse>(await patch(u, 'Saved in Learn.', 'credit'));
-    expect((await newTree(u)).systemPrompt).toBe('Saved in Learn.');
+    ).toBe('Answer in French.');
     expect((await ok<SettingsResponse>(await other.call('/api/settings'))).systemPrompt).toBeNull();
-    expect((await newTree(other)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect((await ok<SettingsResponse>(await patch(u, ' '))).systemPrompt).toBeNull();
+    await ok<SettingsResponse>(await patch(u, 'Again.', 'credit'));
+    expect((await ok<SettingsResponse>(await patch(u, null))).systemPrompt).toBeNull();
+  });
+
+  it('power trees without their own prompt store none and send the current default', async () => {
+    const u = await newUser();
+    const tree = await newDetail(u);
+    expect(tree.tree.systemPrompt).toBeNull();
+    expect((await newTree(u, undefined, { systemPrompt: '  ' })).systemPrompt).toBeNull();
+    expect(await powerSystemEcho(u, tree)).toContain(escaped(DEFAULT_SYSTEM_PROMPT));
+
+    await ok<SettingsResponse>(await patch(u, 'Answer in French.'));
+    const saved = await powerSystemEcho(u, tree);
+    expect(saved).toContain('Answer in French.');
+    expect(saved).not.toContain(escaped(DEFAULT_SYSTEM_PROMPT));
+
+    // A prompt of the tree's own wins; clearing it follows the default again.
+    const own = await newDetail(u, { systemPrompt: 'Be brief.' });
+    expect(own.tree.systemPrompt).toBe('Be brief.');
+    expect(await powerSystemEcho(u, own)).toContain('Be brief.');
+    await ok<Tree>(
+      await u.call(`/api/trees/${own.tree.id}`, { method: 'PATCH', json: { systemPrompt: '' } }),
+    );
+    expect(await powerSystemEcho(u, own)).toContain('Answer in French.');
+
+    await ok<SettingsResponse>(await patch(u, null));
+    expect(await powerSystemEcho(u, tree)).toContain(escaped(DEFAULT_SYSTEM_PROMPT));
   });
 
   it('LEARN_SYSTEM_PROMPT replaces the built-in prompt of Learn only', async () => {
@@ -289,14 +303,13 @@ describe('account settings: the default system prompt', () => {
       (await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'credit' })))
         .defaultSystemPrompt,
     ).toBe('Operator tutor prompt.');
-    expect((await newTree(u, 'credit')).systemPrompt).toBe('Operator tutor prompt.');
     expect((await ok<SettingsResponse>(await u.call('/api/settings'))).defaultSystemPrompt).toBe(
       DEFAULT_SYSTEM_PROMPT,
     );
-    expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    // A saved prompt starts power trees only.
-    await ok<SettingsResponse>(await patch(u, 'My own.', 'credit'));
-    expect((await newTree(u, 'credit')).systemPrompt).toBe('Operator tutor prompt.');
+    const tree = await newDetail(u);
+    const sent = await powerSystemEcho(u, tree);
+    expect(sent).toContain(escaped(DEFAULT_SYSTEM_PROMPT));
+    expect(sent).not.toContain('Operator tutor prompt.');
   });
 
   it("Learn adds a tree's learner instructions after the tutor prompt on its own key or credit, never on the pool", async () => {

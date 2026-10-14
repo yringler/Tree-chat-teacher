@@ -8,7 +8,6 @@ const TARGET: LearnImportTarget = {
   providerId: 'openrouter',
   models: ['normal', 'max'],
   defaultModel: 'normal',
-  systemPrompt: 'TUTOR',
 };
 
 type BackupBranch = TreeBackupInput['branches'][number];
@@ -115,20 +114,15 @@ describe('adaptBackupForLearn', () => {
     ]);
   });
 
-  it("gives the lesson Learn's prompt, or none when Learn has none", () => {
-    expect(adaptBackupForLearn(powerBackup(), TARGET).tree.systemPrompt).toBe('TUTOR');
-    expect(
-      adaptBackupForLearn(powerBackup(), { ...TARGET, systemPrompt: null }).tree.systemPrompt,
-    ).toBeNull();
+  it("keeps the tree's system prompt: Learn ignores it, power still uses it", () => {
+    expect(adaptBackupForLearn(powerBackup(), TARGET).tree.systemPrompt).toBe('You are a pirate.');
   });
 
   it('keeps messages, titles, anchors, privacy and the tree structure as they are', () => {
     const before = powerBackup();
     const after = adaptBackupForLearn(before, TARGET);
     expect(after.nodes).toEqual(before.nodes);
-    const { systemPrompt: _a, ...treeBefore } = before.tree;
-    const { systemPrompt: _b, ...treeAfter } = after.tree;
-    expect(treeAfter).toEqual(treeBefore);
+    expect(after.tree).toEqual(before.tree);
     const keep = (b: TreeBackupInput) =>
       b.branches.map((x) => ({
         id: x.id,
@@ -152,10 +146,10 @@ describe('adaptBackupForLearn', () => {
     expect(adaptBackupForLearn(once, TARGET)).toEqual(once);
   });
 
-  it('leaves a backup made in Learn as it was, apart from the prompt', () => {
+  it('leaves a backup made in Learn as it was', () => {
     const learn: TreeBackupInput = {
       ...powerBackup(),
-      tree: { ...powerBackup().tree, systemPrompt: 'TUTOR' },
+      tree: { ...powerBackup().tree, systemPrompt: null },
       branches: [
         branch('trunk', { parentBranchId: null, branchPointNodeId: null }),
         branch('side', { model: 'max', anchorQuote: 'two divisors' }),

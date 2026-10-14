@@ -855,7 +855,8 @@ test('Learn demo: export a lesson, import a power-style backup, get a Learn less
   await again.saveAs(reexported);
   const lesson = JSON.parse(fs.readFileSync(reexported, 'utf8'));
   expect(lesson.tree.title).toBe('From power');
-  expect(lesson.tree.systemPrompt).not.toBe('Talk like a pirate.');
+  // Learn never sends the tree's prompt, so it keeps power's for power.
+  expect(lesson.tree.systemPrompt).toBe('Talk like a pirate.');
   for (const b of lesson.branches) {
     expect(b.providerId).toBe('openrouter');
     expect(['max', 'normal']).toContain(b.model);

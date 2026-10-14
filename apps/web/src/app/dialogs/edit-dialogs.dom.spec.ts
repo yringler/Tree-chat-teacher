@@ -125,4 +125,13 @@ describe('Conversation settings', () => {
     await d.user.click(screen.getByRole('button', { name: 'Save' }));
     expect(d.api.updateTree).toHaveBeenCalledWith('t1', { systemPrompt: 'Be brief.' });
   });
+
+  it('clearing the prompt saves none, so the conversation follows the default', async () => {
+    const d = await open(TreeSettings, { tree: { ...tree, systemPrompt: 'Be terse.' } });
+    const prompt = screen.getByRole('textbox', { name: /^System prompt/ });
+    await d.user.clear(prompt);
+    expect(prompt.getAttribute('placeholder')).toMatch(/default system prompt/);
+    await d.user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(d.api.updateTree).toHaveBeenCalledWith('t1', { systemPrompt: null });
+  });
 });

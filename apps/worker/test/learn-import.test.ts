@@ -1,5 +1,4 @@
 import {
-  DEFAULT_SYSTEM_PROMPT,
   MAX_BACKUP_BYTES,
   type Branch,
   type MeResponse,
@@ -80,7 +79,7 @@ const routes = (d: Pick<TreeDetail, 'branches'>) =>
   d.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode, b.funding]);
 
 describe('importing into Learn', () => {
-  it("adapts a power backup to Learn's provider, models, path context and prompt, in the user's account", async () => {
+  it("adapts a power backup to Learn's provider, models and path context, keeping its prompt, in the user's account", async () => {
     const u = await newUser();
     const original = await powerTree(u);
     const backup = await ok<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
@@ -90,7 +89,7 @@ describe('importing into Learn', () => {
       201,
     );
     expect(lesson.tree.accountId).toBe(u.learn.accountId);
-    expect(lesson.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(lesson.tree.systemPrompt).toBe('Talk like a pirate.');
     expect(routes(lesson)).toEqual([
       ['Main thread', 'openrouter', 'max', 'path', 'own-key'],
       ['On credit', 'openrouter', 'normal', 'path', 'own-key'],
@@ -364,7 +363,7 @@ describe('a backup naming providers the server does not offer', () => {
       201,
     );
     expect(lesson.tree.accountId).toBe(u.learn.accountId);
-    expect(lesson.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(lesson.tree.systemPrompt).toBe('Be brief.');
     expect(routes(lesson)).toEqual([
       ['Main thread', 'openrouter', 'max', 'path', 'own-key'],
       ['On the built-in provider', 'openrouter', 'max', 'path', 'own-key'],
