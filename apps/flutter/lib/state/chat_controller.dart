@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
 import '../api/tangent_api.dart';
-import '../api/tangents.dart';
 import 'lessons_controller.dart';
 import 'notice.dart';
 import 'session_controller.dart';
@@ -132,18 +131,10 @@ class ChatController extends ChangeNotifier {
       streamingNode == null;
 
   /// The tangents that start from [node], in the server's order.
-  List<Branch> sideQuestionsAt(ChatNode node) => [
+  List<Branch> tangentsAt(ChatNode node) => [
     for (final b in _branches.values)
       if (b.branchPointNodeId == node.id) b,
   ];
-
-  /// The tangent from [node] titled [title], if one was opened before.
-  Branch? branchFor(ChatNode node, String title) {
-    for (final b in sideQuestionsAt(node)) {
-      if (b.title == title) return b;
-    }
-    return null;
-  }
 
   Future<void> load() async {
     try {
@@ -214,26 +205,11 @@ class ChatController extends ChangeNotifier {
     _notify();
   }
 
-  /// Opens the side branch that follows [tangent] from [node], creating it
-  /// when it's new. Returns its id and whether it was created (its first
-  /// message, the tangent's title, is then still to send), or null on error.
-  Future<({String branchId, bool created})?> followTangent(
-    ChatNode node,
-    Tangent tangent,
-  ) async {
-    final existing = branchFor(node, tangent.title);
-    if (existing != null) {
-      selectBranch(existing.id);
-      return (branchId: existing.id, created: false);
-    }
-    final created = await openSideQuestion(node, title: tangent.title);
-    return created == null ? null : (branchId: created, created: true);
-  }
-
-  /// Creates a tangent from [node] and puts it on screen, about
-  /// [anchorQuote] when the learner selected words in it. Returns its id
-  /// (its first message is still to send), or null on error (see [notice]).
-  Future<String?> openSideQuestion(
+  /// Creates a tangent from [node] and puts it on screen, titled [title]
+  /// when it follows a suggestion, about [anchorQuote] when the learner
+  /// selected words in it. Returns its id (its first message is still to
+  /// send), or null on error (see [notice]).
+  Future<String?> startTangent(
     ChatNode node, {
     String? title,
     String? anchorQuote,

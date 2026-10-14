@@ -11,16 +11,18 @@ import 'tangent_help_copy.dart';
 import 'theme.dart';
 
 /// One message of the thread: the learner's, or the tutor's reply rendered
-/// as Markdown with its suggestions once it's complete: next steps ("Keep
-/// going") on the newest reply only, and tangents on every reply.
+/// as Markdown with its footer once it's complete: the tangents the learner
+/// started from it first, next steps ("Keep going") on the newest reply
+/// only, then the tangents it suggests.
 class MessageView extends StatelessWidget {
   const MessageView({
     super.key,
     required this.node,
     required this.status,
-    required this.sideQuestions,
+    required this.tangents,
+    required this.chainIds,
     required this.onFollow,
-    required this.onOpenSideQuestion,
+    required this.onOpenTangent,
     required this.onAskAbout,
     this.latest = false,
     this.onContinue,
@@ -31,11 +33,15 @@ class MessageView extends StatelessWidget {
   /// Transient progress text while the reply is written.
   final String? status;
 
-  /// The tangents that fork from this message. One titled like a suggested
-  /// tangent is that suggestion followed before, so following it reopens it.
-  final List<Branch> sideQuestions;
+  /// The tangents started from this message, in the server's order. One
+  /// titled like a suggested tangent follows that suggestion.
+  final List<Branch> tangents;
 
-  /// Null while following isn't possible (e.g. a send is in flight).
+  /// The branches from the main thread down to the one on screen.
+  final Set<String> chainIds;
+
+  /// Starts a tangent that follows a suggestion; null while that isn't
+  /// possible (e.g. a send is in flight).
   final ValueChanged<Tangent>? onFollow;
 
   /// The newest reply of the thread on screen. Only it offers next steps:
@@ -46,7 +52,7 @@ class MessageView extends StatelessWidget {
   /// isn't possible.
   final ValueChanged<Tangent>? onContinue;
 
-  final ValueChanged<Branch> onOpenSideQuestion;
+  final ValueChanged<Branch> onOpenTangent;
 
   /// "Ask about this" on words selected in a finished reply.
   final ValueChanged<String> onAskAbout;
@@ -84,20 +90,14 @@ class MessageView extends StatelessWidget {
     final split = splitTangents(node.content);
     final streaming = node.status == NodeStatus.streaming;
     final complete = node.status == NodeStatus.complete;
-    final groups = groupTangents(complete ? split.tangents : const []);
+    final suggestions = complete ? split.tangents : const <Tangent>[];
+    final groups = groupTangents(suggestions);
     final nextSteps = latest ? groups.continueOn : const <Tangent>[];
-    final tangents = groups.tangent;
-    // A next step is sent as a reply, so only tangents can have been
-    // followed into a branch.
-    final tangentTitles = {for (final t in tangents) t.title};
-    final followed = {
-      for (final b in sideQuestions)
-        if (tangentTitles.contains(b.title)) b.title,
-    };
-    final others = [
-      for (final b in sideQuestions)
-        if (!followed.contains(b.title)) b,
-    ];
+    final footer = tangentFooter(
+      suggestions,
+      tangents,
+      titleOf: (b) => b.title,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
@@ -121,16 +121,23 @@ class MessageView extends StatelessWidget {
             ),
           if (streaming) const BlinkingCursor(),
           if (node.status == NodeStatus.error) _ErrorBox(node),
+          if (footer.yours.isNotEmpty)
+            _YourTangents(
+              tangents: footer.yours,
+              suggested: groups.tangent,
+              chainIds: chainIds,
+              onOpen: onOpenTangent,
+            ),
           if (nextSteps.isNotEmpty)
             _KeepGoing(steps: nextSteps, onContinue: onContinue),
-          if (tangents.isNotEmpty)
-            _Tangents(
-              tangents: tangents,
-              followed: followed,
+          if (footer.offers.isNotEmpty)
+            _SuggestedTangents(
+              id: node.id,
+              offers: footer.offers,
+              folded: footer.folded,
+              followed: footer.followed,
               onFollow: onFollow,
             ),
-          if (others.isNotEmpty)
-            _SideQuestions(branches: others, onOpen: onOpenSideQuestion),
         ],
       ),
     );
@@ -273,6 +280,158 @@ class _ErrorBox extends StatelessWidget {
   }
 }
 
+/// A footer group's heading, which a screen reader can jump between.
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    // A node of its own: merged into the reply's, the header flag would make
+    // the whole reply a header.
+    child: Semantics(
+      container: true,
+      header: true,
+      child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+    ),
+  );
+}
+
+/// The tangents the learner started from a reply, whether they follow a
+/// suggestion or were asked in the learner's own words. They come first and
+/// never fold: under a reply, they are the one sign of where the learner
+/// went from it.
+class _YourTangents extends StatelessWidget {
+  const _YourTangents({
+    required this.tangents,
+    required this.suggested,
+    required this.chainIds,
+    required this.onOpen,
+  });
+
+  final List<Branch> tangents;
+
+  /// The reply's tangent suggestions, whose reason a followed one shows.
+  final List<Tangent> suggested;
+  final Set<String> chainIds;
+  final ValueChanged<Branch> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final whyOf = {for (final t in suggested) t.title: t.why};
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionLabel(yourTangentsLabel),
+          for (final b in tangents)
+            _YourTangentRow(
+              title: outlineTitle(b),
+              tip: _tipFor(b, whyOf[b.title]),
+              lit: chainIds.contains(b.id),
+              onTap: () => onOpen(b),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// What the tangent asks about: the words it quotes, else the reason of
+  /// the suggestion it follows, else its title.
+  static String _tipFor(Branch branch, String? why) {
+    final quote = branch.anchorQuote;
+    if (quote != null && quote.isNotEmpty) return quote;
+    return why ?? outlineTitle(branch);
+  }
+}
+
+/// One tangent the learner took: shaped like a suggestion, but marked by an
+/// accent bar and a chevron, since it opens a tangent that is there rather
+/// than starting one.
+class _YourTangentRow extends StatelessWidget {
+  const _YourTangentRow({
+    required this.title,
+    required this.tip,
+    required this.lit,
+    required this.onTap,
+  });
+
+  final String title;
+
+  /// Shown on hover or a long press.
+  final String tip;
+
+  /// On the learner's path to the branch on screen.
+  final bool lit;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = TangentColors.of(context);
+    final accent = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Semantics(
+        container: true,
+        button: true,
+        selected: lit,
+        child: Tooltip(
+          message: tip,
+          // A tip that is only the title would have it read twice.
+          excludeFromSemantics: tip == title,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            // Over the outline, so the bar takes the left edge whole.
+            child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                border: Border(left: BorderSide(color: accent, width: 3)),
+              ),
+              child: Material(
+                color: lit ? tokens.accentSoft : tokens.bgElev,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(radius),
+                  side: BorderSide(color: lit ? accent : tokens.border),
+                ),
+                child: InkWell(
+                  onTap: onTap,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.chevron_right, size: 18, color: accent),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            title,
+                            semanticsLabel: 'Open tangent: $title',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The next steps the newest reply offers; one is sent as a reply.
 class _KeepGoing extends StatelessWidget {
   const _KeepGoing({required this.steps, required this.onContinue});
@@ -288,12 +447,10 @@ class _KeepGoing extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(keepGoingLabel, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 6),
+          const _SectionLabel(keepGoingLabel),
           for (final step in steps)
             _TangentButton(
               tangent: step,
-              followed: false,
               icon: Icons.arrow_forward,
               onPressed: onContinue == null ? null : () => onContinue(step),
             ),
@@ -303,108 +460,114 @@ class _KeepGoing extends StatelessWidget {
   }
 }
 
-/// The tangents a reply offers. A phone has little height to spare, so only
-/// the first one and any followed before show until the learner asks for the
-/// rest.
-class _Tangents extends StatefulWidget {
-  const _Tangents({
-    required this.tangents,
+/// The tangents a reply suggests that the learner hasn't taken. Before they
+/// take one from the reply, the first shows and the rest wait behind a row,
+/// since a phone has little height to spare. Once they have ([folded]), all
+/// of them wait behind one row: the learner has read them, and the footer
+/// then changes only when a tangent is started, never while they read on or
+/// a reply streams in.
+class _SuggestedTangents extends StatefulWidget {
+  const _SuggestedTangents({
+    required this.id,
+    required this.offers,
+    required this.folded,
     required this.followed,
     required this.onFollow,
   });
 
-  final List<Tangent> tangents;
+  /// The reply's id, to name the rows the fold row shows.
+  final String id;
+  final List<Tangent> offers;
+  final bool folded;
 
-  /// Titles of the tangents followed before.
-  final Set<String> followed;
+  /// How many of the reply's suggestions a tangent follows.
+  final int followed;
   final ValueChanged<Tangent>? onFollow;
 
   @override
-  State<_Tangents> createState() => _TangentsState();
+  State<_SuggestedTangents> createState() => _SuggestedTangentsState();
 }
 
-class _TangentsState extends State<_Tangents> {
-  bool _expanded = false;
+class _SuggestedTangentsState extends State<_SuggestedTangents> {
+  /// The learner asked for the rows that are hidden.
+  bool _open = false;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  void didUpdateWidget(_SuggestedTangents oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Suggestions that have just folded start out of the way.
+    if (oldWidget.folded != widget.folded) _open = false;
+  }
+
+  Widget _row(Tangent tangent) {
     final onFollow = widget.onFollow;
-    final shown = _expanded
-        ? widget.tangents
-        : [
-            for (final (i, t) in widget.tangents.indexed)
-              if (i == 0 || widget.followed.contains(t.title)) t,
-          ];
-    final hidden = widget.tangents.length - shown.length;
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(tangentsLabel, style: theme.textTheme.bodySmall),
-          const SizedBox(height: 6),
-          for (final tangent in shown)
-            _TangentButton(
-              tangent: tangent,
-              followed: widget.followed.contains(tangent.title),
-              onPressed: onFollow == null ? null : () => onFollow(tangent),
-            ),
-          if (hidden > 0)
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
-              onPressed: () => setState(() => _expanded = true),
-              icon: const Icon(Icons.expand_more, size: 18),
-              label: Text(
-                hidden == 1 ? '1 more tangent' : '$hidden more tangents',
-              ),
-            ),
-        ],
-      ),
+    return _TangentButton(
+      tangent: tangent,
+      action: 'Start a tangent: ',
+      onPressed: onFollow == null ? null : () => onFollow(tangent),
     );
   }
-}
 
-/// Tangents from this message that aren't one of its suggestions, such as
-/// one the learner asked in their own words.
-class _SideQuestions extends StatelessWidget {
-  const _SideQuestions({required this.branches, required this.onOpen});
-
-  final List<Branch> branches;
-  final ValueChanged<Branch> onOpen;
+  Widget _foldButton(String label) => TextButton.icon(
+    style: TextButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+    ),
+    onPressed: () => setState(() => _open = !_open),
+    icon: Icon(_open ? Icons.expand_less : Icons.expand_more, size: 18),
+    label: Text(label),
+  );
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final count = branches.length;
+    final offers = widget.offers;
+    if (widget.folded) {
+      final rows = 'suggested-tangents-${widget.id}';
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // One node: the button, saying whether its rows are open.
+            MergeSemantics(
+              child: Semantics(
+                expanded: _open,
+                // Only while the rows are there: the web engine looks these
+                // ids up when the set changes and drops one it can't find.
+                controlsNodes: _open ? {rows} : null,
+                child: _foldButton(
+                  suggestedFoldLabel(offers.length, more: widget.followed > 0),
+                ),
+              ),
+            ),
+            if (_open)
+              Semantics(
+                identifier: rows,
+                container: true,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _SectionLabel(suggestedTangentsLabel),
+                      for (final tangent in offers) _row(tangent),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+    final shown = _open ? offers : offers.take(1);
+    final hidden = offers.length - shown.length;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            count == 1 ? '1 tangent' : '$count tangents',
-            style: theme.textTheme.bodySmall,
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final b in branches)
-                ActionChip(
-                  avatar: Icon(
-                    Icons.chevron_right,
-                    size: 18,
-                    color: theme.colorScheme.primary,
-                  ),
-                  label: Text(outlineTitle(b), overflow: TextOverflow.ellipsis),
-                  onPressed: () => onOpen(b),
-                ),
-            ],
-          ),
+          const _SectionLabel(suggestedTangentsLabel),
+          for (final tangent in shown) _row(tangent),
+          if (hidden > 0) _foldButton(suggestedFoldLabel(hidden, more: true)),
         ],
       ),
     );
@@ -414,70 +577,74 @@ class _SideQuestions extends StatelessWidget {
 class _TangentButton extends StatelessWidget {
   const _TangentButton({
     required this.tangent,
-    required this.followed,
     required this.onPressed,
-    this.icon,
+    this.icon = Icons.subdirectory_arrow_right,
+    this.action,
   });
 
   final Tangent tangent;
-  final bool followed;
   final VoidCallback? onPressed;
 
-  /// Overrides the tangent arrow, as for a next step.
-  final IconData? icon;
+  /// The tangent arrow, or another for a next step.
+  final IconData icon;
+
+  /// What a tap does, said before the title to a screen reader.
+  final String? action;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = TangentColors.of(context);
     final why = tangent.why;
+    final action = this.action;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Material(
-        color: followed ? tokens.accentSoft : tokens.bgElev,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(radius),
-          side: BorderSide(color: tokens.border),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                Icon(
-                  icon ??
-                      (followed
-                          ? Icons.chevron_right
-                          : Icons.subdirectory_arrow_right),
-                  size: 18,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        tangent.title,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          height: 1.4,
-                        ),
-                      ),
-                      if (why != null)
+      child: Semantics(
+        container: true,
+        button: true,
+        enabled: onPressed != null,
+        child: Material(
+          color: tokens.bgElev,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(radius),
+            side: BorderSide(color: tokens.border),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onPressed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(icon, size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          why,
-                          style: theme.textTheme.bodySmall?.copyWith(
+                          tangent.title,
+                          semanticsLabel: action == null
+                              ? null
+                              : '$action${tangent.title}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                             height: 1.4,
                           ),
                         ),
-                    ],
+                        if (why != null)
+                          Text(
+                            why,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              height: 1.4,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

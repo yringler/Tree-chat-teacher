@@ -224,7 +224,7 @@ class _ChatPageState extends State<ChatPage> {
   /// Asks [text] in a new tangent from [node], about [quote] if given.
   /// The text stays in the composer if it can't be made.
   Future<void> _ask(ChatNode node, String text, String? quote) async {
-    final id = await _chat.openSideQuestion(node, anchorQuote: quote);
+    final id = await _chat.startTangent(node, anchorQuote: quote);
     if (id == null || !mounted) return;
     context.go('/t/${widget.treeId}/b/$id');
     await _send(text);
@@ -282,11 +282,14 @@ class _ChatPageState extends State<ChatPage> {
     ];
   }
 
+  /// Starts a tangent that follows [tangent], a suggestion of [node], and
+  /// asks it. A suggestion a tangent already follows is under Your tangents
+  /// instead, so this always starts a new one.
   Future<void> _follow(ChatNode node, Tangent tangent) async {
-    final opened = await _chat.followTangent(node, tangent);
-    if (opened == null || !mounted) return;
-    context.go('/t/${widget.treeId}/b/${opened.branchId}');
-    if (opened.created) await _send(tangent.title);
+    final id = await _chat.startTangent(node, title: tangent.title);
+    if (id == null || !mounted) return;
+    context.go('/t/${widget.treeId}/b/$id');
+    await _send(tangent.title);
   }
 
   /// Tells the walkthrough what the frame just drawn shows: a tangent, or
@@ -558,6 +561,7 @@ class _ChatPageState extends State<ChatPage> {
     final id = _chat.branchId;
     final start = max(0, thread.indexWhere((n) => n.branchId == id));
     final center = ValueKey('start-$id');
+    final chainIds = {for (final b in _chat.chain) b.id};
     return CustomScrollView(
       controller: _scroll,
       center: center,
@@ -566,7 +570,8 @@ class _ChatPageState extends State<ChatPage> {
           padding: start == 0 ? EdgeInsets.zero : padding.copyWith(bottom: 0),
           sliver: SliverList.builder(
             itemCount: start,
-            itemBuilder: (context, i) => _message(thread, start - 1 - i),
+            itemBuilder: (context, i) =>
+                _message(thread, start - 1 - i, chainIds),
           ),
         ),
         SliverPadding(
@@ -574,25 +579,26 @@ class _ChatPageState extends State<ChatPage> {
           padding: padding.copyWith(top: start == 0 ? padding.top : 0),
           sliver: SliverList.builder(
             itemCount: thread.length - start,
-            itemBuilder: (context, i) => _message(thread, start + i),
+            itemBuilder: (context, i) => _message(thread, start + i, chainIds),
           ),
         ),
       ],
     );
   }
 
-  Widget _message(List<ChatNode> thread, int i) {
+  Widget _message(List<ChatNode> thread, int i, Set<String> chainIds) {
     final node = thread[i];
     final message = MessageView(
       key: _messageKeys.putIfAbsent(node.id, GlobalKey.new),
       node: node,
       status: _chat.statusOf(node.id),
-      sideQuestions: _chat.sideQuestionsAt(node),
+      tangents: _chat.tangentsAt(node),
+      chainIds: chainIds,
       latest: node.id == _chat.asideFrom?.id,
       onContinue: _chat.sending ? null : (t) => unawaited(_send(t.title)),
       onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),
       onAskAbout: (text) => _askAbout(node, text),
-      onOpenSideQuestion: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),
+      onOpenTangent: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),
     );
     final forked = i > 0 && thread[i - 1].branchId != node.branchId;
     if (!forked) return message;

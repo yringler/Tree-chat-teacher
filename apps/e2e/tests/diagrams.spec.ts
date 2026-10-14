@@ -171,6 +171,10 @@ test('flutter: a finished reply loads the diagram library and draws its diagram'
   // Flutter draws to a canvas; its semantics tree carries the diagram's label
   // and the reply's text, with the note on the source mermaid can't parse.
   await page.locator('flt-semantics-placeholder').dispatchEvent('click');
+  // The main thread opens at its end, and the tree holds only what is near
+  // the view: scroll up to the first diagram.
+  await page.mouse.move(640, 360);
+  await page.mouse.wheel(0, -5000);
   await expect(page.getByLabel('Diagram: Request, Cached?, Return it')).toBeAttached();
   await expect(page.getByLabel(/This diagram could not be drawn\./)).toBeAttached();
   expect(errors).toEqual([]);
