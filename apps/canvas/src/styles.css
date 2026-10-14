@@ -1101,7 +1101,9 @@
   mask-image: linear-gradient(to bottom, #000 70%, transparent);
 }
 
-.lane-cards.is-compact .tangents {
+/* They offer no suggestions either; the lanes started off a card stay, as the way there. */
+.lane-cards.is-compact .tangents-group:not(.tangents-yours),
+.lane-cards.is-compact .tangents:not(:has(.tangents-yours)) {
   display: none;
 }
 
@@ -1149,37 +1151,7 @@
   font-size: calc(0.85 * var(--chat-rem, 1rem));
 }
 
-.card-forks {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.chip {
-  max-width: 100%;
-  padding: 2px 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--fg);
-  font-size: calc(0.78 * var(--chat-rem, 1rem));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.chip:hover {
-  background: var(--bg-hover);
-}
-
-.chip.is-on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
+/* The lanes off a card (SuggestionGroups `compact`), edged in their context mode's colour. */
 .mode-chip-path {
   border-left: 3px solid var(--mode-path);
 }

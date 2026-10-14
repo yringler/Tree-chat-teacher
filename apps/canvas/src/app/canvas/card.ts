@@ -7,7 +7,13 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { isCutOffReply, isStoppedReply, splitTangents, type ChatNode } from '@tangent/shared';
+import {
+  isCutOffReply,
+  isStoppedReply,
+  splitTangents,
+  type Branch,
+  type ChatNode,
+} from '@tangent/shared';
 import {
   Icon,
   MarkdownService,
@@ -118,18 +124,29 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
         </div>
       }
 
-      @if (complete()) {
-        <app-suggestion-groups
-          [tangents]="tangents()"
-          [latest]="latest()"
-          [inTangent]="inTangent()"
-          [children]="children()"
-          [locked]="locked()"
-          noun="lane"
-          [withAsk]="true"
-          [send]="sendStep"
-          [open]="openTangent"
-        >
+      <!--
+        Pressing in here doesn't select the card's lane first: on one of the
+        lanes off the card, that would make the card's lane the one just come
+        back from instead of the lane being left.
+      -->
+      <app-suggestion-groups
+        (pointerdown)="$event.stopPropagation()"
+        [tangents]="tangents()"
+        [latest]="latest()"
+        [inTangent]="inTangent()"
+        [children]="children()"
+        [chainIds]="store.chainIds()"
+        [cameFromIds]="store.cameFromIds()"
+        [locked]="locked()"
+        noun="lane"
+        [withAsk]="complete()"
+        [titleOf]="laneTitle"
+        [compact]="true"
+        [send]="sendStep"
+        [open]="openTangent"
+        [openBranch]="openBranch"
+      >
+        @if (complete()) {
           <!-- The user's own question, in a new lane like a tangent. -->
           <app-tangent-ask
             [(text)]="askText"
@@ -143,24 +160,8 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
             (ask)="ask($event)"
             (settings)="askWithSettings($event)"
           />
-        </app-suggestion-groups>
-      }
-
-      @if (children().length > 0) {
-        <nav class="card-forks" aria-label="Tangents from this message">
-          @for (b of children(); track b.id) {
-            <button
-              type="button"
-              class="chip mode-chip-{{ b.contextMode }}"
-              [class.is-on]="store.chainIds().has(b.id)"
-              [title]="b.anchorQuote ?? laneTitle(b)"
-              (click)="open(b.id, $event)"
-            >
-              {{ laneTitle(b) }}
-            </button>
-          }
-        </nav>
-      }
+        }
+      </app-suggestion-groups>
 
       <!--
         Editable here too, so a link can be changed from either end while the
@@ -266,6 +267,7 @@ export class Card {
   protected readonly sendStep = (title: string) => this.store.continueWith(this.node().id, title);
   protected readonly openTangent = (title: string) =>
     this.store.followTangent(this.node().id, title);
+  protected readonly openBranch = (b: Branch) => this.store.go(b.id);
 
   /** This message's links, resolved to their other ends (the chips). */
   protected readonly related = computed(() => {
@@ -328,11 +330,6 @@ export class Card {
   protected branch(e: Event): void {
     e.stopPropagation();
     this.ui.dialogs.open({ kind: 'branch', fromNodeId: this.node().id, quote: null });
-  }
-
-  protected open(branchId: string, e: Event): void {
-    e.stopPropagation();
-    this.store.go(branchId);
   }
 
   protected openLinked(nodeId: string): void {

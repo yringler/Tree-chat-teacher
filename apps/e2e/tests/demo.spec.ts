@@ -99,13 +99,11 @@ test('power demo: a tangent is deleted from under its message, without the outli
   const errors = collectErrors(page);
   await page.goto('/demo');
   await page.locator('.home-list .tree-row a').first().click();
-  const toggle = page.locator('.fork-toggle').first();
-  await expect(toggle).toHaveText(/2 tangents/);
-  await toggle.click();
-  const forks = page.locator('.fork-list .fork-row');
+  const yours = page.getByRole('group', { name: 'Your tangents' }).first();
+  const forks = yours.getByRole('button', { name: /^Open tangent: / });
   await expect(forks).toHaveCount(2);
-  const title = (await forks.first().locator('.outline-title').innerText()).trim();
-  const del = page.locator('.fork-list').getByRole('button', { name: `Delete ${title}` });
+  const title = (await forks.first().locator('.tangent-title').innerText()).trim();
+  const del = yours.getByRole('button', { name: `Delete the tangent ${title}` });
 
   // Cancel: nothing changes.
   const asked: string[] = [];
@@ -123,7 +121,7 @@ test('power demo: a tangent is deleted from under its message, without the outli
   page.once('dialog', (d) => d.accept());
   await del.click();
   await expect(forks).toHaveCount(1);
-  await expect(toggle).toHaveText(/1 tangent\b/);
+  await expect(yours).not.toContainText(title);
   expect(page.url()).toBe(url);
   expect(errors).toEqual([]);
 });
@@ -194,12 +192,11 @@ test('power demo: the open tangent is deleted from the chat header, back to wher
   const errors = collectErrors(page);
   await page.goto('/demo');
   await page.locator('.home-list .tree-row a').first().click();
-  await page.locator('.fork-toggle').first().click();
-  const fork = page.locator('.fork-list .fork-row').first();
-  const title = (await fork.locator('.outline-title').innerText()).trim();
+  const fork = page.getByRole('button', { name: /^Open tangent: / }).first();
+  const title = (await fork.locator('.tangent-title').innerText()).trim();
   const outline = page.locator('.outline .outline-title', { hasText: title });
   await expect(outline).toHaveCount(1);
-  await fork.locator('.fork-link').click();
+  await fork.click();
   await expect(page).toHaveURL(/\/b\//);
   const branchUrl = page.url();
   const branchId = /\/b\/([^/?]+)/.exec(branchUrl)?.[1] ?? '';
@@ -228,14 +225,14 @@ test('power demo: the open tangent is deleted from the chat header, back to wher
   expect(errors).toEqual([]);
 });
 
-test('Learn demo: a tangent is deleted from its chip, or from the sidebar when open', async ({
+test('Learn demo: a tangent is deleted from under its message, or from the sidebar when open', async ({
   page,
 }) => {
   const errors = collectErrors(page);
   await page.goto('/learn/demo/');
   await page.locator('.lesson-row a').first().click();
   await skipTour(page);
-  const chip = page.locator('.side-questions .chip', { hasText: 'Why the owl hums first' });
+  const chip = page.getByRole('button', { name: 'Open tangent: Why the owl hums first' });
   await expect(chip).toBeVisible();
 
   const asked: string[] = [];
@@ -256,7 +253,7 @@ test('Learn demo: a tangent is deleted from its chip, or from the sidebar when o
   await expect(page.locator('.toast').filter({ hasText: 'Tangent deleted' })).toBeVisible();
 
   // The open tangent (a followed suggestion): from the sidebar, back to the lesson.
-  const tangent = page.locator('.tangent.is-followed').first();
+  const tangent = page.getByRole('button', { name: /^Open tangent: / }).first();
   const name = (await tangent.locator('.tangent-title').innerText()).trim();
   await tangent.click();
   await expect(page).toHaveURL(/\/b\//);
@@ -267,7 +264,9 @@ test('Learn demo: a tangent is deleted from its chip, or from the sidebar when o
     .click();
   await expect(page).not.toHaveURL(/\/b\//);
   await expect(page).toHaveURL(/[?&]m=/);
-  await expect(page.locator('.tangent', { hasText: name })).not.toHaveClass(/is-followed/);
+  // With no tangent left under it, the reply offers that suggestion again, unfolded.
+  await expect(page.getByRole('group', { name: 'Your tangents' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: `Start a tangent: ${name}` })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -281,7 +280,7 @@ test('Learn demo: tangents open where they start; the path, sidebar and keys fin
   await expect(page.locator('.msg').first()).toBeVisible();
 
   // A tangent opens at its first message.
-  await page.locator('.side-questions .chip', { hasText: 'Why the owl hums first' }).click();
+  await page.getByRole('button', { name: 'Open tangent: Why the owl hums first' }).click();
   await expect(page).toHaveURL(/\/b\/[^?]+\?m=/);
   await expect(page.locator('.msg-focused:not(.msg-ancestor)')).toBeVisible();
 
@@ -425,7 +424,7 @@ test('power demo: ask your own question under a reply, inline or through the tan
   const noTitle = (dialog: Locator) =>
     expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
   const field = ask.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
-  // The last item of the Tangents group, after the suggested tangents.
+  // The last item of the Suggested tangents group, after the suggestions.
   await expect(
     reply.locator('.tangents > .tangents-group:last-child > :last-child .tangent-ask'),
   ).toBeVisible();
@@ -590,8 +589,10 @@ test('power demo: the newest reply’s "Ask your own" is open, without taking fo
 
   // Into a tangent and back: the newest reply's item is open again.
   const here = page.url();
-  await page.locator('.fork-toggle').first().click();
-  await page.locator('.fork-list .fork-link').first().click();
+  await page
+    .getByRole('button', { name: /^Open tangent: / })
+    .first()
+    .click();
   await expect.poll(() => page.url()).not.toBe(here);
   await page.goBack();
   await expect.poll(() => page.url()).toBe(here);

@@ -9,13 +9,13 @@
  *   - [tangent] Title — why it's worth following
  *   </tangents>
  *
- * which the apps turn into "Keep going" and "Tangents" buttons and keep out
- * of the rendered reply (shares and exports show the same two groups as
- * plain lists). The block stays in the stored message (and so in later
- * context), so the model sees what it already offered. The tag lives in the
- * text rather than in a provider's structured output, so it streams through
- * every provider the same way; apps/flutter/lib/api/tangents.dart mirrors
- * this parser.
+ * which the apps turn into "Keep going" and "Suggested tangents" buttons
+ * (under the reply's "Your tangents") and keep out of the rendered reply;
+ * shares and exports show "Keep going" and "Tangents" as plain lists. The
+ * block stays in the stored message (and so in later context), so the model
+ * sees what it already offered. The tag lives in the text rather than in a
+ * provider's structured output, so it streams through every provider the
+ * same way; apps/flutter/lib/api/tangents.dart mirrors this parser.
  */
 
 export const TANGENTS_TAG = 'tangents';
@@ -39,8 +39,12 @@ export interface Tangent {
 
 /** The heading over the `continue` suggestions. */
 export const KEEP_GOING_LABEL = 'Keep going';
-/** The heading over the `tangent` suggestions. */
+/** The heading over the `tangent` suggestions in shares and exports. */
 export const TANGENTS_LABEL = 'Tangents';
+/** The heading over the tangents started from a reply, in the apps. */
+export const YOUR_TANGENTS_LABEL = 'Your tangents';
+/** The heading over the `tangent` suggestions no tangent follows yet, in the apps. */
+export const SUGGESTED_TANGENTS_LABEL = 'Suggested tangents';
 
 export interface SplitTangents {
   /** The reply without its tangents block (trailing whitespace trimmed). */
@@ -159,6 +163,53 @@ export function groupTangents(tangents: readonly Tangent[]): {
     continue: tangents.filter((t) => t.kind === 'continue'),
     tangent: tangents.filter((t) => t.kind === 'tangent'),
   };
+}
+
+/** What a finished reply's tangents footer shows, in every app. */
+export interface TangentFooter<B> {
+  /** The tangents started from the reply, in the order given: shown first. */
+  yours: B[];
+  /** The `tangent` suggestions no tangent follows yet, in their order. */
+  offers: Tangent[];
+  /** The offers start hidden behind one row (`suggestedFoldLabel`). */
+  folded: boolean;
+  /** How many `tangent` suggestions a tangent follows. */
+  followed: number;
+}
+
+/**
+ * Sorts a reply's tangents footer by where the user went, not by where an
+ * idea came from. Every tangent started from the reply is the user's,
+ * whether it follows a suggestion or was asked in their own words; one that
+ * carries a suggestion's title follows it, so that suggestion leaves the
+ * offers rather than showing twice. Once the reply has a tangent of the
+ * user's, its offers fold: the user has read them (they picked from them),
+ * and a reply's footer then changes only when the user starts a tangent
+ * (and moves to it) or deletes one, never while they read or a reply streams
+ * in.
+ */
+export function tangentFooter<B extends { readonly title: string }>(
+  tangents: readonly Tangent[],
+  children: readonly B[],
+): TangentFooter<B> {
+  const taken = new Set(children.map((b) => b.title));
+  const suggested = groupTangents(tangents).tangent;
+  const offers = suggested.filter((t) => !taken.has(t.title));
+  return {
+    yours: [...children],
+    offers,
+    folded: children.length > 0 && offers.length > 0,
+    followed: suggested.length - offers.length,
+  };
+}
+
+/**
+ * The row folded suggestions hide behind: "4 suggested tangents", or
+ * "3 more suggested" when one is already in view or followed (`more`).
+ */
+export function suggestedFoldLabel(hidden: number, more: boolean): string {
+  if (more) return `${hidden} more suggested`;
+  return hidden === 1 ? '1 suggested tangent' : `${hidden} suggested tangents`;
 }
 
 function markdownList(label: string, tangents: readonly Tangent[]): string {

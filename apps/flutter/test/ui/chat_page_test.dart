@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
+import 'package:tangent/ui/message_view.dart';
 import 'package:tangent/ui/tangent_help_copy.dart';
+import 'package:tangent/ui/theme.dart';
 
 import '../fakes.dart';
 
@@ -20,7 +22,22 @@ const taggedReply =
     '- [tangent] Tidal locking — why we see one face of the moon\n'
     '</tangents>';
 
+/// A reply with four suggested tangents.
+const longReply =
+    'The **moon** pulls the sea.\n\n'
+    '<tangents>\n'
+    '- Spring tides — when the sun and moon line up\n'
+    '- Tidal locking — why we see one face of the moon\n'
+    '- Neap tides — the weak ones between\n'
+    '- Tidal bulges — the shape the pull makes\n'
+    '</tangents>';
+
 final userNode = node('u1', branch: 'trunk', seq: 0, content: 'Why tides?');
+
+/// The finished first reply, saying [content].
+ChatNode answer(String content) =>
+    node('a1', branch: 'trunk', seq: 1, role: Role.assistant, content: content);
+
 final streamingReply = node(
   'a1',
   branch: 'trunk',
@@ -106,7 +123,7 @@ void main() {
       findsWidgets,
     );
     expect(find.textContaining('tangents', findRichText: true), findsNothing);
-    expect(find.text('Tangents'), findsNothing);
+    expect(find.text(suggestedTangentsLabel), findsNothing);
 
     await emit(
       tester,
@@ -124,9 +141,13 @@ void main() {
     await settle(tester);
     expect(find.text(tangentAction.label), findsOneWidget);
     expect(find.text(replyAction.label), findsOneWidget);
-    expect(find.text('Tangents'), findsOneWidget);
+    expect(find.text(suggestedTangentsLabel), findsOneWidget);
     expect(find.text('Spring tides'), findsOneWidget);
     expect(find.text('when the sun and moon line up'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp('^Start a tangent: Spring tides')),
+      findsOne,
+    );
 
     await tester.tap(find.text('Spring tides'));
     await settle(tester);
@@ -135,40 +156,6 @@ void main() {
     expect(api.sends.last.target, 'side-1');
     expect(api.sends.last.content, 'Spring tides');
     expect(find.text('Main thread'), findsOneWidget);
-  });
-
-  testWidgets('a tangent followed before reopens it', (tester) async {
-    api.details['t1'] = treeDetail(
-      title: 'Tides',
-      branches: [
-        trunk,
-        branch('side-9', parent: 'trunk', fork: 'a1', title: 'Spring tides'),
-      ],
-      nodes: [
-        userNode,
-        node(
-          'a1',
-          branch: 'trunk',
-          seq: 1,
-          role: Role.assistant,
-          content: reply,
-        ),
-        node('s1', branch: 'side-9', seq: 0, content: 'Spring tides'),
-      ],
-    );
-    await pumpApp(tester, api, location: '/t/t1');
-    expect(find.text('Main thread'), findsNothing);
-
-    await tester.tap(find.text('Spring tides'));
-    await settle(tester);
-    expect(api.createdBranches, isEmpty);
-    expect(api.sends, isEmpty);
-    expect(find.text('Main thread'), findsOneWidget);
-    expect(find.text('Tangent · Spring tides'), findsOneWidget);
-
-    await tester.tap(find.text('Main thread'));
-    await settle(tester);
-    expect(find.text('Main thread'), findsNothing);
   });
 
   testWidgets('a tangent asked in its own words is listed and opens', (
@@ -193,7 +180,19 @@ void main() {
       ],
     );
     await pumpApp(tester, api, location: '/t/t1');
-    expect(find.text('1 tangent'), findsOneWidget);
+    expect(find.text(yourTangentsLabel), findsOneWidget);
+    // The heading is a node of its own: merged into the reply's, it would
+    // make the whole reply a header.
+    expect(
+      tester.getSemantics(find.text(yourTangentsLabel)),
+      isSemantics(isHeader: true, label: yourTangentsLabel),
+    );
+    expect(find.bySemanticsLabel('Open tangent: Moon gravity'), findsOne);
+    // Its tip is only its title, which the label already says.
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Open tangent: Moon gravity')),
+      isSemantics(tooltip: ''),
+    );
 
     await tester.tap(find.text('Moon gravity'));
     await settle(tester);
@@ -238,7 +237,7 @@ void main() {
       ],
     );
     await pumpApp(tester, api, location: '/t/t1');
-    // The chip low on the screen, as after reading down to it.
+    // The row low on the screen, as after reading down to it.
     final list = find.byType(Scrollable).first;
     await tester.scrollUntilVisible(
       find.text('Moon gravity'),
@@ -515,57 +514,263 @@ void main() {
     expect(first.dy, inInclusiveRange(list.top, list.top + 64));
   });
 
-  testWidgets('one tangent shows until the learner asks for more', (
-    tester,
-  ) async {
+  testWidgets('before the learner takes a tangent, one suggestion shows '
+      'until they ask for more', (tester) async {
     api.details['t1'] = treeDetail(
       title: 'Tides',
-      nodes: [
-        userNode,
-        node(
-          'a1',
-          branch: 'trunk',
-          seq: 1,
-          role: Role.assistant,
-          content: reply,
-        ),
-      ],
+      nodes: [userNode, answer(longReply)],
     );
     await pumpApp(tester, api, location: '/t/t1');
+    expect(find.text(yourTangentsLabel), findsNothing);
+    expect(find.text(suggestedTangentsLabel), findsOneWidget);
     expect(find.text('Spring tides'), findsOneWidget);
     expect(find.text('Tidal locking'), findsNothing);
+    expect(find.text('4 suggested tangents'), findsNothing);
 
-    await tester.tap(find.text('1 more tangent'));
+    await tester.tap(find.text('3 more suggested'));
     await settle(tester);
     expect(find.text('Tidal locking'), findsOneWidget);
-    expect(find.text('1 more tangent'), findsNothing);
+    expect(find.text('Neap tides'), findsOneWidget);
+    expect(find.text('Tidal bulges'), findsOneWidget);
+    expect(find.text('3 more suggested'), findsNothing);
   });
 
-  testWidgets('a followed tangent stays in view when the rest are hidden', (
-    tester,
-  ) async {
-    api.details['t1'] = treeDetail(
-      title: 'Tides',
-      branches: [
-        trunk,
-        branch('side-9', parent: 'trunk', fork: 'a1', title: 'Tidal locking'),
-      ],
-      nodes: [
-        userNode,
-        node(
-          'a1',
-          branch: 'trunk',
-          seq: 1,
-          role: Role.assistant,
-          content: reply,
-        ),
-      ],
+  group('the tangents footer', () {
+    Finder inThread(String text) => find.descendant(
+      of: find.byType(MessageView),
+      matching: find.text(text),
     );
-    await pumpApp(tester, api, location: '/t/t1');
-    expect(find.text('Spring tides'), findsOneWidget);
-    expect(find.text('Tidal locking'), findsOneWidget);
-    expect(find.textContaining('more'), findsNothing);
-    expect(find.text('1 tangent'), findsNothing);
+
+    /// The fill of the row titled [title] in the thread.
+    Color? fill(WidgetTester tester, String title) => tester
+        .widget<Material>(
+          find
+              .ancestor(of: inThread(title), matching: find.byType(Material))
+              .first,
+        )
+        .color;
+
+    Color accentSoft(WidgetTester tester) =>
+        TangentColors.of(tester.element(find.byType(MessageView).first))
+            .accentSoft;
+
+    /// The Your tangents row titled [title], as a screen reader has it.
+    Finder yours(String title) =>
+        find.bySemanticsLabel(RegExp('^Open tangent: $title'));
+
+    testWidgets('lists the learner’s tangents first, then next steps, then '
+        'the suggestions', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('own', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+        ],
+        nodes: [userNode, answer(taggedReply)],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      final yours = tester.getTopLeft(find.text(yourTangentsLabel)).dy;
+      final keepGoing = tester.getTopLeft(find.text(keepGoingLabel)).dy;
+      final fold = tester.getTopLeft(find.text('1 suggested tangent')).dy;
+      expect(yours, lessThan(keepGoing));
+      expect(keepGoing, lessThan(fold));
+      expect(find.text('Moon gravity'), findsOneWidget);
+      expect(find.text('Neap tides'), findsOneWidget);
+      expect(find.text(suggestedTangentsLabel), findsNothing);
+      expect(find.text('Tidal locking'), findsNothing);
+    });
+
+    testWidgets('a followed suggestion shows once, under Your tangents, and '
+        'opens its tangent', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('side-9', parent: 'trunk', fork: 'a1', title: 'Spring tides'),
+        ],
+        nodes: [
+          userNode,
+          answer(reply),
+          node('s1', branch: 'side-9', seq: 0, content: 'Spring tides'),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text('Main thread'), findsNothing);
+      expect(find.text(yourTangentsLabel), findsOneWidget);
+      expect(find.text('Spring tides'), findsOneWidget);
+      expect(find.bySemanticsLabel('Open tangent: Spring tides'), findsOne);
+      expect(
+        tester.getSemantics(yours('Spring tides')),
+        isSemantics(tooltip: 'when the sun and moon line up'),
+      );
+      expect(find.text('1 more suggested'), findsOneWidget);
+      expect(find.text('Tidal locking'), findsNothing);
+
+      await tester.tap(find.text('Spring tides'));
+      await settle(tester);
+      expect(api.createdBranches, isEmpty);
+      expect(api.sends, isEmpty);
+      expect(find.text('Main thread'), findsOneWidget);
+      expect(find.text('Tangent · Spring tides'), findsOneWidget);
+
+      await tester.tap(find.text('Main thread'));
+      await settle(tester);
+      expect(find.text('Main thread'), findsNothing);
+    });
+
+    testWidgets('a tangent in the learner’s own words folds the suggestions '
+        'behind one row, which opens and closes them', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+        ],
+        nodes: [userNode, answer(reply)],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      final fold = find.text('2 suggested tangents');
+      expect(find.text(suggestedTangentsLabel), findsNothing);
+      expect(find.text('Spring tides'), findsNothing);
+      expect(
+        tester.getSemantics(fold),
+        isSemantics(isButton: true, isExpanded: false),
+      );
+      expect(
+        tester.getSemantics(fold).getSemanticsData().controlsNodes,
+        isNull,
+      );
+
+      await tester.tap(fold);
+      await settle(tester);
+      expect(find.text(suggestedTangentsLabel), findsOneWidget);
+      expect(find.text('Spring tides'), findsOneWidget);
+      expect(find.text('Tidal locking'), findsOneWidget);
+      expect(
+        tester.getSemantics(fold),
+        isSemantics(isButton: true, isExpanded: true),
+      );
+      expect(tester.getSemantics(fold).getSemanticsData().controlsNodes, {
+        'suggested-tangents-a1',
+      });
+
+      await tester.tap(fold);
+      await settle(tester);
+      expect(find.text(suggestedTangentsLabel), findsNothing);
+      expect(find.text('Spring tides'), findsNothing);
+
+      await tester.tap(fold);
+      await settle(tester);
+      await tester.tap(find.text('Tidal locking'));
+      await settle(tester);
+      expect(api.createdBranches.single.title, 'Tidal locking');
+      expect(api.sends.single.content, 'Tidal locking');
+    });
+
+    testWidgets('after following one suggestion, the rest are "more '
+        'suggested"', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('side-9', parent: 'trunk', fork: 'a1', title: 'Tidal locking'),
+        ],
+        nodes: [userNode, answer(longReply)],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text('Tidal locking'), findsOneWidget);
+      expect(find.text('Spring tides'), findsNothing);
+
+      await tester.tap(find.text('3 more suggested'));
+      await settle(tester);
+      expect(find.text('Spring tides'), findsOneWidget);
+      expect(find.text('Neap tides'), findsOneWidget);
+      expect(find.text('Tidal bulges'), findsOneWidget);
+      expect(find.text('Tidal locking'), findsOneWidget);
+    });
+
+    testWidgets('lights the tangent on the way to the one on screen', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('moon', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+          branch('sun', parent: 'trunk', fork: 'a1', title: 'The sun'),
+        ],
+        nodes: [
+          userNode,
+          answer('Tides rise and fall.'),
+          node('m1', branch: 'moon', seq: 0, content: 'How strong?'),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(fill(tester, 'Moon gravity'), isNot(accentSoft(tester)));
+      expect(fill(tester, 'The sun'), isNot(accentSoft(tester)));
+      expect(
+        tester.getSemantics(yours('Moon gravity')),
+        isSemantics(isSelected: false),
+      );
+
+      await tester.tap(inThread('Moon gravity'));
+      await settle(tester);
+      // The reply it forks from, above the tangent's start.
+      await tester.scrollUntilVisible(
+        inThread('Moon gravity'),
+        -100,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(fill(tester, 'Moon gravity'), accentSoft(tester));
+      expect(fill(tester, 'The sun'), isNot(accentSoft(tester)));
+      expect(
+        tester.getSemantics(yours('Moon gravity')),
+        isSemantics(isButton: true, isSelected: true),
+      );
+      expect(
+        tester.getSemantics(yours('The sun')),
+        isSemantics(isButton: true, isSelected: false),
+      );
+    });
+
+    testWidgets('lights the tangent the learner just came back from', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('moon', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+          branch('sun', parent: 'trunk', fork: 'a1', title: 'The sun'),
+        ],
+        nodes: [
+          userNode,
+          answer('Tides rise and fall.'),
+          node('m1', branch: 'moon', seq: 0, content: 'How strong?'),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.bySemanticsLabel(RegExp('just here')), findsNothing);
+
+      await tester.tap(inThread('Moon gravity'));
+      await settle(tester);
+      await tester.tap(find.text('Main thread'));
+      await settle(tester);
+      expect(find.text('Main thread'), findsNothing);
+      expect(fill(tester, 'Moon gravity'), accentSoft(tester));
+      expect(fill(tester, 'The sun'), isNot(accentSoft(tester)));
+      expect(
+        find.bySemanticsLabel(
+          'Open tangent: Moon gravity (you were just here)',
+        ),
+        findsOne,
+      );
+      // Lit, but not on the way to the branch on screen.
+      expect(
+        tester.getSemantics(yours('Moon gravity')),
+        isSemantics(isButton: true, isSelected: false),
+      );
+    });
   });
 
   group('suggestions', () {
@@ -594,13 +799,41 @@ void main() {
       expect(find.text('Neap tides'), findsNothing);
       expect(find.text('Solar tides'), findsOneWidget);
       // Every reply keeps its tangents.
-      expect(find.text('Tangents'), findsNWidgets(2));
+      expect(find.text(suggestedTangentsLabel), findsNWidgets(2));
 
       await tester.tap(find.text('Solar tides'));
       await settle(tester);
       expect(api.createdBranches, isEmpty);
       expect(api.sends.single.target, 'trunk');
       expect(api.sends.single.content, 'Solar tides');
+    });
+
+    testWidgets('while a send is in flight, the suggestions are disabled', (
+      tester,
+    ) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, tagged('a1', 1, 'Neap tides')],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      final rows = [
+        find.bySemanticsLabel(RegExp('^Neap tides')),
+        find.bySemanticsLabel(RegExp('^Start a tangent: Tidal locking')),
+      ];
+      for (final row in rows) {
+        expect(
+          tester.getSemantics(row),
+          isSemantics(isButton: true, hasEnabledState: true, isEnabled: true),
+        );
+      }
+
+      await sendAs(tester, replyAction.label, 'And the sun?');
+      for (final row in rows) {
+        expect(
+          tester.getSemantics(row),
+          isSemantics(isButton: true, hasEnabledState: true, isEnabled: false),
+        );
+      }
     });
 
     testWidgets('a tangent suggestion opens a tangent', (tester) async {
@@ -631,7 +864,7 @@ void main() {
       );
       await pumpApp(tester, api, location: '/t/t1');
       expect(find.text('Keep going'), findsNothing);
-      expect(find.text('Tangents'), findsOneWidget);
+      expect(find.text(suggestedTangentsLabel), findsOneWidget);
       expect(find.text('Spring tides'), findsOneWidget);
     });
   });

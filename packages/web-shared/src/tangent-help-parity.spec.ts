@@ -13,19 +13,21 @@ import {
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
   REPLY_ACTION,
+  SUGGESTED_TANGENTS_LABEL,
   TANGENT_ACTION,
-  TANGENTS_LABEL,
   WALKTHROUGH_BUTTONS,
   WALKTHROUGH_STEPS,
+  YOUR_TANGENTS_LABEL,
 } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 
 /*
  * The Flutter app can't import @tangent/shared, so it keeps a copy of the
- * tangent help words (packages/shared/src/tangent-help.ts) and the labels of
- * a reply's two suggestion groups (tangents.ts). This checks the copy has
- * every string verbatim. A new export of tangent-help.ts goes in COPY too. It also checks the default tangent title prefix, which Flutter
- * strips from titles as Learn web does.
+ * tangent help words (packages/shared/src/tangent-help.ts) and the headings
+ * of a reply's tangents footer (tangents.ts). This checks the copy has every
+ * string verbatim. A new export of tangent-help.ts goes in COPY too. It also
+ * checks the default tangent title prefix, which Flutter strips from titles
+ * as Learn web does.
  */
 
 const ROOT = new URL('../../../', import.meta.url);
@@ -45,10 +47,11 @@ const COPY = {
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
   REPLY_ACTION,
+  SUGGESTED_TANGENTS_LABEL,
   TANGENT_ACTION,
-  TANGENTS_LABEL,
   WALKTHROUGH_BUTTONS,
   WALKTHROUGH_STEPS,
+  YOUR_TANGENTS_LABEL,
 };
 
 /** Every string inside `value`, with the path that leads to it. */

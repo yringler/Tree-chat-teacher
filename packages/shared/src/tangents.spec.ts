@@ -4,6 +4,8 @@ import {
   groupTangents,
   parseTangentLine,
   splitTangents,
+  suggestedFoldLabel,
+  tangentFooter,
   tangentsAsMarkdown,
   type Tangent,
 } from './tangents.js';
@@ -197,6 +199,75 @@ describe('groupTangents', () => {
     const c: Tangent = { title: 'C', why: null, kind: 'tangent' };
     expect(groupTangents([a, b, c])).toEqual({ continue: [b], tangent: [a, c] });
     expect(groupTangents([])).toEqual({ continue: [], tangent: [] });
+  });
+});
+
+describe('tangentFooter', () => {
+  const a: Tangent = { title: 'A', why: 'why a', kind: 'tangent' };
+  const b: Tangent = { title: 'B', why: null, kind: 'continue' };
+  const c: Tangent = { title: 'C', why: null, kind: 'tangent' };
+  const d: Tangent = { title: 'D', why: null, kind: 'tangent' };
+
+  it('offers every suggested tangent, open, while the reply has none of the user’s', () => {
+    expect(tangentFooter([a, b, c], [])).toEqual({
+      yours: [],
+      offers: [a, c],
+      folded: false,
+      followed: 0,
+    });
+  });
+
+  it('lists a tangent following a suggestion once, as the user’s, and folds the rest', () => {
+    const followed = { id: 'x', title: 'C' };
+    expect(tangentFooter([a, b, c, d], [followed])).toEqual({
+      yours: [followed],
+      offers: [a, d],
+      folded: true,
+      followed: 1,
+    });
+  });
+
+  it('folds the offers behind a tangent asked in the user’s own words too', () => {
+    const own = { id: 'y', title: 'Neural networks explained' };
+    const footer = tangentFooter([a, c], [own]);
+    expect(footer.yours).toEqual([own]);
+    expect(footer.offers).toEqual([a, c]);
+    expect(footer.folded).toBe(true);
+    expect(footer.followed).toBe(0);
+  });
+
+  it('keeps the tangents’ order, followed or not', () => {
+    const own = { title: 'Own' };
+    const followed = { title: 'A' };
+    expect(tangentFooter([a, c], [own, followed]).yours).toEqual([own, followed]);
+  });
+
+  it('has nothing to fold once every suggestion is followed', () => {
+    expect(tangentFooter([a, c], [{ title: 'A' }, { title: 'C' }])).toMatchObject({
+      offers: [],
+      folded: false,
+      followed: 2,
+    });
+  });
+
+  it('matches only tangent suggestions: a next step is sent as a reply, never followed', () => {
+    expect(tangentFooter([b], [{ title: 'B' }])).toMatchObject({
+      offers: [],
+      folded: false,
+      followed: 0,
+    });
+  });
+});
+
+describe('suggestedFoldLabel', () => {
+  it('counts the hidden suggestions', () => {
+    expect(suggestedFoldLabel(1, false)).toBe('1 suggested tangent');
+    expect(suggestedFoldLabel(4, false)).toBe('4 suggested tangents');
+  });
+
+  it('says "more" when one is already in view or followed', () => {
+    expect(suggestedFoldLabel(1, true)).toBe('1 more suggested');
+    expect(suggestedFoldLabel(3, true)).toBe('3 more suggested');
   });
 });
 

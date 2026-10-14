@@ -5,9 +5,9 @@
  * and ends every substantive reply with a `<tangents>` block of suggestions,
  * each tagged `[continue]` (the next step in the thread's topic) or
  * `[tangent]` (a side trip), that the apps turn into "Keep going" and
- * "Tangents" buttons (`splitTangents` in ./tangents.ts). No Socratic
- * back-and-forth: the user drills into whatever they don't follow by going on
- * a tangent.
+ * "Suggested tangents" buttons (`splitTangents` in ./tangents.ts). No
+ * Socratic back-and-forth: the user drills into whatever they don't follow by
+ * going on a tangent.
  *
  * The one copy of the text. The Worker applies it in `POST /api/trees` when
  * the request carries no prompt and, in power, the account has none saved
