@@ -11,6 +11,7 @@ import {
   type PoolStatusResponse,
 } from '@tangent/shared';
 import { Hono, type Context } from 'hono';
+import type { Child } from 'hono/jsx';
 import { authConfigured, socialProviderFlags, type SocialProviderFlags } from '../auth/auth.js';
 import { appConfig } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
@@ -72,9 +73,9 @@ function poolOpen(pool: PoolStatusResponse | undefined): pool is PoolStatusRespo
  * meter. It is Tangent's own commitment, funded by the operator's admin
  * adjustments: nothing here is for sale, and nothing asks the visitor to pay
  * for anyone else. The free sign-up button shows only while the pool has
- * credit.
+ * credit. `others` is how else replies are paid for, under the pool.
  */
-function PoolSection(props: { pool: PoolStatusResponse; page: Landing }) {
+function PoolSection(props: { pool: PoolStatusResponse; page: Landing; others: Child }) {
   const { pool } = props;
   return (
     <section aria-labelledby="pool">
@@ -104,44 +105,45 @@ function PoolSection(props: { pool: PoolStatusResponse; page: Landing }) {
           </div>
           <p class="fee">{POOL_AT_COST_TEXT}</p>
         </div>
+        <p class="after">{props.others}</p>
       </div>
     </section>
   );
 }
 
 /**
- * The card on how replies are paid for: the open pool while it is on,
- * prepaid credit while it is sold (to anyone, no membership needed), and the
+ * What replies cost, in one section: the open pool while it is on, then the
  * user's own OpenRouter key always (with the yearly membership, when one is
- * required, so the own key alone is "free" only where none is).
+ * required, so the own key alone is "free" only where none is), and prepaid
+ * credit while it is sold (to anyone, no membership needed).
  */
-function PayCard(props: { page: Landing }) {
+function CostSection(props: { page: Landing }) {
   const { pool, credit, membership } = props.page;
-  const title = pool
-    ? credit
-      ? 'Free, your key, or pay as you go'
-      : 'Free, or on your own key'
-    : credit
-      ? 'Your key, or pay as you go'
-      : membership
-        ? 'On your own key'
-        : 'Free on your own key';
-  const parts: string[] = [];
-  if (pool) parts.push('Learn free on the open pool, within daily limits, while it has credit.');
-  parts.push(
+  const parts = [
     `${pool ? 'Or use' : 'Use'} your own OpenRouter key: you pay OpenRouter directly, and ${membership ? `a ${formatCents(membership.priceCents)} yearly membership covers Tangent` : 'Tangent charges nothing'}.`,
-  );
+  ];
   if (credit)
     parts.push(
       `Or buy prepaid credit and pay for each reply at what it costs Tangent, plus ${formatBps(credit.markupBps)}${membership ? ', with no membership needed' : ''}.`,
     );
+  const others = (
+    <>
+      {parts.join(' ')} <a href="/pricing">See exactly what’s free and what’s paid</a>
+    </>
+  );
+  if (pool) return <PoolSection pool={pool} page={props.page} others={others} />;
+  const title = credit
+    ? 'Your key, or pay as you go'
+    : membership
+      ? 'On your own key'
+      : 'Free on your own key';
   return (
-    <article class="card">
-      <h3>{title}</h3>
-      <p>
-        {parts.join(' ')} <a href="/pricing">See exactly what’s free and what’s paid</a>
-      </p>
-    </article>
+    <section aria-labelledby="cost">
+      <div class="wrap">
+        <h2 id="cost">{title}</h2>
+        <p class="sub">{others}</p>
+      </div>
+    </section>
   );
 }
 
@@ -153,8 +155,7 @@ function MoreWays(props: { page: Landing }) {
       <div class="wrap">
         <h2 id="modes">More ways in</h2>
         <p class="sub">Learn, Power and Canvas share one sign-in.</p>
-        <div class="grid three">
-          <PayCard page={props.page} />
+        <div class="grid two">
           <article class="card">
             <h3>Want every control?</h3>
             <p>
@@ -230,8 +231,41 @@ function Pair(props: { problem: string; fix: string }) {
 }
 
 /**
- * The landing page's body: the hero and its demo, the problem and fix, how
- * tangents work, the pool, the other ways in, and the account and its data.
+ * The closing call to action, for the visitor who read to the end, and the
+ * Android app's store page, which every visitor gets since a computer's Play
+ * page installs on the visitor's phone.
+ */
+function StartSection(props: { page: Landing }) {
+  const { page } = props;
+  return (
+    <section aria-labelledby="start">
+      <div class="wrap">
+        <h2 id="start">Ask your first question</h2>
+        <div class="ctas">
+          <a class="btn primary" href="/learn/login">
+            {poolOpen(page.pool) ? 'Start learning free' : 'Start learning'}
+          </a>
+          <a class="btn" href="/learn/demo">
+            Try the demo
+          </a>
+        </div>
+        {page.androidAppId && (
+          <p class="note">
+            On Android? Learn is an app too, made for your phone.{' '}
+            <a href={androidAppStoreUrl(page.androidAppId, 'landing')}>Get it on Google Play</a>
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The landing page's body, in the order a visitor's questions come: what it
+ * is (the hero and its demo), why (the problem and fix), how to use it (how
+ * tangents work), what it costs, what else there is, what happens to their
+ * data, and where to start. The hero stays short so the demo starts near the
+ * top of a phone's screen.
  */
 function LandingBody(props: { page: Landing }) {
   const { page } = props;
@@ -250,25 +284,19 @@ function LandingBody(props: { page: Landing }) {
               {free ? 'Start learning free' : 'Start learning'}
             </a>
           </div>
-          <a class="help-link" href="#how-tangents">
-            {HELP_TITLE}
-          </a>
+          <p class="note">
+            The demo needs no sign-up and no AI: its replies are playful nonsense that show how
+            tangents work.
+          </p>
           {free && (
             <p class="free">
               <strong>No credit card needed.</strong> Learn free on the open pool, within daily
               limits. <a href="#pool">How it works</a>
             </p>
           )}
-          <p class="note">
-            The demo needs no sign-up and no AI: its replies are playful nonsense that show how
-            tangents work.
-          </p>
-          {page.androidAppId && (
-            <p class="note">
-              On Android? Learn is an app too, made for your phone.{' '}
-              <a href={androidAppStoreUrl(page.androidAppId, 'landing')}>Get it on Google Play</a>
-            </p>
-          )}
+          <a class="help-link" href="#how-tangents">
+            {HELP_TITLE}
+          </a>
         </div>
         <LandingDemo />
       </div>
@@ -301,9 +329,10 @@ function LandingBody(props: { page: Landing }) {
         </div>
       </section>
       <TangentHelpCard />
-      {page.pool && <PoolSection pool={page.pool} page={page} />}
+      <CostSection page={page} />
       <MoreWays page={page} />
       <AccountSection social={page.social} />
+      <StartSection page={page} />
     </main>
   );
 }

@@ -433,6 +433,34 @@ describe('the landing page', () => {
     );
   });
 
+  it('answers in order: why, how, what it costs, what else, the account, where to start', async () => {
+    for (const [name, overrides] of Object.entries(CONFIGS)) {
+      const { html } = await get(deployment(overrides), '/welcome');
+      const cost = overrides.POOL_ENABLED === 'false' ? 'cost' : 'pool';
+      expect(
+        [...html.matchAll(/<h2 id="([a-z-]+)"/g)].map((m) => m[1]),
+        name,
+      ).toEqual(['fix', 'how-tangents-h', cost, 'modes', 'account', 'start']);
+      // Every way to pay is in the one cost section; the other ways in are Power and Canvas.
+      const section = (id: string) =>
+        text(new RegExp(`<section aria-labelledby="${id}">[^]*?</section>`).exec(html)?.[0] ?? '');
+      expect(section(cost), name).toContain('your own OpenRouter key');
+      expect(section('modes'), name).not.toMatch(/own OpenRouter key|open pool|prepaid credit/);
+    }
+  });
+
+  it('says once that the pool is free, and offers the Android app at the end, not in the hero', async () => {
+    const e = deployment({ ANDROID_APP_ID: 'com.example.app' });
+    await fundPool(e.TEST_POOL_ACCOUNT_ID!, 1_000_000);
+    const { html } = await get(e, '/welcome');
+    expect(text(html).match(/Learn free on the open pool/g)).toHaveLength(1);
+    const hero = /<div class="wrap hero">[^]*?<section/.exec(html)?.[0] ?? '';
+    const start = /<section aria-labelledby="start">[^]*?<\/section>/.exec(html)?.[0] ?? '';
+    expect(hero).not.toContain('play.google.com');
+    expect(start).toContain('play.google.com');
+    expect(text(start)).toContain('Start learning free');
+  });
+
   it('leaves the pool out while it is off or can’t be read', async () => {
     const off = await get(deployment(NO_POOL), '/welcome');
     expect(off.html).not.toContain('aria-labelledby="pool"');
