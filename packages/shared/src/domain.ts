@@ -103,13 +103,17 @@ export interface Tree {
   /** Owner. Branches, nodes and summaries inherit ownership through the tree. */
   accountId: string;
   title: string;
-  /** Tree-wide system prompt; sent in every mode, including `independent`. */
+  /**
+   * The tree's own system prompt, set in power; sent in every context mode,
+   * including `independent`. Null: power sends the current default (the
+   * account's saved prompt, else the built-in one). Learn and the pool never
+   * read it.
+   */
   systemPrompt: string | null;
   /**
    * The learner's own instructions, which Learn adds after its tutor prompt
    * where the learner pays with their own key or credit; power ignores them.
-   * Kept apart from `systemPrompt` so a changed tutor prompt never reads as
-   * the learner's text.
+   * Kept apart from `systemPrompt`, which belongs to power.
    */
   learnerInstructions: string | null;
   trunkBranchId: string;

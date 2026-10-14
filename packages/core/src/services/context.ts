@@ -10,7 +10,7 @@ export interface ServiceContext {
   readonly owned: Ownership;
   readonly routes: RouteResolver;
   readonly settings: ChatSettings;
-  /** Built-in system prompt of new trees (`ChatServiceDeps.defaultSystemPrompt`). */
+  /** The built-in system prompt (`ChatServiceDeps.defaultSystemPrompt`). */
   readonly defaultSystemPrompt: string | null;
   now(): string;
   newId(): string;

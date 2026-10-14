@@ -1,9 +1,8 @@
 import type { TreeBackupInput } from '@tangent/shared';
 
 /**
- * What a backup imported into Learn is adapted to: Learn's one provider, the
- * models it offers there (Normal and Max), and the system prompt a new
- * Learn lesson gets.
+ * What a backup imported into Learn is adapted to: Learn's one provider and
+ * the models it offers there (Normal and Max).
  */
 export interface LearnImportTarget {
   /** Learn's provider: the built-in endpoint (`openrouter`). */
@@ -12,8 +11,6 @@ export interface LearnImportTarget {
   models: readonly string[];
   /** The model of a branch Learn can't run as it is: Learn's default (Normal). */
   defaultModel: string;
-  /** The prompt of the imported lesson: what a new lesson in this account gets. */
-  systemPrompt: string | null;
 }
 
 /**
@@ -26,8 +23,9 @@ export interface LearnImportTarget {
  *   already on one of Learn's models keeps it;
  * - every branch uses `path` context, which is what Learn shows (a `summary`
  *   or `independent` branch would answer from context the learner can't see);
- * - the lesson gets Learn's prompt (`target.systemPrompt`), since a learner
- *   could neither see nor change a custom one;
+ * - the lesson keeps no system prompt, as a new lesson does: Learn sends its
+ *   tutor prompt instead, and a learner could neither see nor change a
+ *   custom one;
  * - every branch is `own-key`: Learn decides who pays per request, and an
  *   import never moves anything onto credit or the pool.
  *
@@ -44,7 +42,7 @@ export function adaptBackupForLearn(
     providerId === target.providerId && target.models.includes(model);
   return {
     ...backup,
-    tree: { ...backup.tree, systemPrompt: target.systemPrompt },
+    tree: { ...backup.tree, systemPrompt: null },
     branches: backup.branches.map((b) => ({
       ...b,
       providerId: target.providerId,

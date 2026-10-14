@@ -207,13 +207,12 @@ export function chatSettingsFor(
 }
 
 /**
- * Built-in system prompt of an account's new trees, used when the request
- * names none and, in power, the account has none saved (GET/PATCH
- * /api/settings). Both modes share DEFAULT_SYSTEM_PROMPT; only Learn honours
- * the operator's LEARN_SYSTEM_PROMPT, since power users can set their own.
- * In Learn it is also the tutor prompt every reply starts with (`LearnProfile`).
- * A generating pool request uses the pool's locked prompt (which also
- * replaces the tree's).
+ * The built-in system prompt: power sends it for a tree without its own
+ * prompt while the account has none saved (GET/PATCH /api/settings), and in
+ * Learn it is the tutor prompt every reply starts with (`LearnProfile`).
+ * Both modes share DEFAULT_SYSTEM_PROMPT; only Learn honours the operator's
+ * LEARN_SYSTEM_PROMPT, since power users can set their own. A generating pool
+ * request uses the pool's locked prompt (which also replaces the tree's).
  */
 export function defaultSystemPromptFor(
   env: AppEnv,

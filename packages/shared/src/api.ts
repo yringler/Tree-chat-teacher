@@ -197,8 +197,8 @@ export const branchFundingSchema = z.enum(['own-key', 'credit']) satisfies z.Zod
 export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
 
 /**
- * Without a (non-blank) `systemPrompt`, the tree gets the account's saved
- * default (SettingsResponse.systemPrompt), else the built-in one.
+ * Without a (non-blank) `systemPrompt`, the tree stores none and power sends
+ * the current default with each reply (SettingsResponse.systemPrompt).
  */
 export const createTreeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
@@ -216,9 +216,10 @@ export type CreateTreeRequest = z.infer<typeof createTreeRequestSchema>;
  */
 export interface SettingsResponse {
   /**
-   * System prompt of new conversations; null = the built-in default
-   * (`defaultSystemPrompt`). A conversation's own prompt (PATCH /api/trees/:id)
-   * overrides it for that conversation.
+   * The default system prompt power sends for every conversation without one
+   * of its own, read at each reply, so a change reaches those conversations
+   * too; null = the built-in default (`defaultSystemPrompt`). A conversation's
+   * own prompt (PATCH /api/trees/:id) overrides it for that conversation.
    */
   systemPrompt: string | null;
   /** The built-in default the server uses for this account's mode, so a client can show and edit it. */
@@ -257,7 +258,7 @@ export const deleteAccountRequestSchema = z.object({
 });
 export type DeleteAccountRequest = z.infer<typeof deleteAccountRequestSchema>;
 
-/** A blank `systemPrompt` or `learnerInstructions` is stored as null. */
+/** A blank `systemPrompt` or `learnerInstructions` is stored as null: a tree without a prompt follows the default. */
 export const updateTreeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),

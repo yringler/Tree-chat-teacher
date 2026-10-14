@@ -21,8 +21,8 @@ import { INTERRUPTED, type TreeService } from './tree-service.js';
 export class BackupService {
   /**
    * `learnProviders`: Learn adapts every import (`adaptBackupForLearn`) onto
-   * this registry's default provider and its models, `path` context, and the
-   * prompt a new tree gets. Null: imports are restored as they are.
+   * this registry's default provider and its models, `path` context, and no
+   * tree prompt. Null: imports are restored as they are.
    */
   constructor(
     private readonly ctx: ServiceContext,
@@ -53,7 +53,7 @@ export class BackupService {
   async importBackup(backup: TreeBackup | TreeBackupInput): Promise<TreeDetail> {
     const parsed = treeBackupSchema.parse(backup);
     const data = this.learnProviders
-      ? adaptBackupForLearn(parsed, await this.learnImportTarget(this.learnProviders))
+      ? adaptBackupForLearn(parsed, this.learnImportTarget(this.learnProviders))
       : parsed;
     const newId = () => this.ctx.newId();
     const branchIds = new Map(data.branches.map((b) => [b.id, newId()] as const));
@@ -116,15 +116,14 @@ export class BackupService {
     return { tree, branches, nodes, links };
   }
 
-  /** What Learn adapts an import to: its one provider and models, and a new tree's prompt. */
-  private async learnImportTarget(providers: ProviderRegistry): Promise<LearnImportTarget> {
+  /** What Learn adapts an import to: its one provider and models. */
+  private learnImportTarget(providers: ProviderRegistry): LearnImportTarget {
     const provider = providers.get(providers.defaultProviderId());
     if (!provider) throw new ValidationError('There is no provider to import onto');
     return {
       providerId: provider.id,
       models: provider.models().map((m) => m.id),
       defaultModel: provider.defaultModel(),
-      systemPrompt: await this.trees.newTreeSystemPrompt(),
     };
   }
 }

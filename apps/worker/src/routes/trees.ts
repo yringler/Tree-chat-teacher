@@ -11,8 +11,6 @@ export function treeRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 
   api.get('/trees', async (c) => c.json(await chatOf(c).listTrees()));
-  // Without a system prompt in the request, the tree gets the account's saved
-  // default, else the built-in one (defaultSystemPromptFor in registries.ts).
   // A tree that names no provider starts on the default route, whose first choice is a
   // provider the user has a key for: the key cookie is read for it (leniently: an
   // unreadable cookie counts as no keys, since nothing is sent here).
