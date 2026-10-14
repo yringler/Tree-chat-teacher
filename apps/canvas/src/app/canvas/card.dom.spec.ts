@@ -79,21 +79,49 @@ async function card(nodeId: string, opts: { lapsed?: boolean; d?: TreeDetail } =
   };
 }
 
-const tangents = () => screen.getByRole('navigation', { name: 'Tangents' });
-const keepGoing = () => screen.getByRole('navigation', { name: 'Keep going' });
+const suggested = () => screen.getByRole('group', { name: 'Suggested tangents' });
+const keepGoing = () => screen.getByRole('group', { name: 'Keep going' });
+const lanes = () => screen.getByRole('group', { name: 'Your tangents' });
+/** The suggestions no lane follows, folded behind one button since "Photons" is followed. */
+const more = () => screen.getByRole<HTMLButtonElement>('button', { name: '1 more suggested' });
+const interference = () =>
+  within(suggested()).getByRole<HTMLButtonElement>('button', {
+    name: /^Start a tangent: Interference/,
+  });
 
 describe('Card', () => {
-  it('a finished reply: its text, its tangents, and the lanes off it', async () => {
+  it('a finished reply: its text, the lanes off it first, then its suggestions', async () => {
     const c = await card('a1');
     expect(screen.getByText('A wave.')).toBeTruthy();
     expect(screen.getByRole('article').textContent).not.toContain('<tangents>');
-    const follow = vi.spyOn(c.store, 'followTangent').mockResolvedValue(null);
-    await c.user.click(within(tangents()).getByRole('button', { name: /^Interference/ }));
-    expect(follow).toHaveBeenCalledWith('a1', 'Interference');
-    const lanes = screen.getByRole('navigation', { name: 'Tangents from this message' });
     const go = vi.spyOn(c.store, 'go').mockImplementation(() => undefined);
-    await c.user.click(within(lanes).getByRole('button', { name: 'Photons' }));
+    const photons = within(lanes()).getByRole('button', { name: 'Open tangent: Photons' });
+    expect(photons.classList).toContain('mode-chip-path');
+    await c.user.click(photons);
     expect(go).toHaveBeenCalledWith('photons');
+    const follow = vi.spyOn(c.store, 'followTangent').mockResolvedValue(null);
+    await c.user.click(more());
+    await c.user.click(interference());
+    expect(follow).toHaveBeenCalledWith('a1', 'Interference');
+  });
+
+  it('the lane on the selected chain is lit', async () => {
+    const c = await card('a1');
+    c.store.setRoute('t1', 'photons', null);
+    await c.fixture.whenStable();
+    const photons = within(lanes()).getByRole('button', { name: 'Open tangent: Photons' });
+    expect(photons.classList).toContain('is-on');
+    expect(photons.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('a question card lists the lanes off it too', async () => {
+    const d = tree();
+    d.branches.push(
+      branch('why', { parentBranchId: 'trunk', branchPointNodeId: 'u1', title: 'Why ask' }),
+    );
+    await card('u1', { d });
+    within(lanes()).getByRole('button', { name: 'Open tangent: Why ask' });
+    expect(screen.queryByRole('group', { name: 'Suggested tangents' })).toBeNull();
   });
 
   it('Tangent opens the tangent dialog on it; the port starts linking from it', async () => {
@@ -104,13 +132,15 @@ describe('Card', () => {
     expect(c.ui.linkPick()?.fromNodeId).toBe('a1');
   });
 
-  it('splits the suggestions: Keep going and Tangents, an untagged one under Tangents', async () => {
-    await card('a1');
+  it('splits the suggestions: Keep going and Suggested tangents, a followed one only as its lane', async () => {
+    const c = await card('a1');
     expect(within(keepGoing()).getAllByRole('button')).toHaveLength(1);
     within(keepGoing()).getByRole('button', { name: /^Diffraction/ });
-    within(tangents()).getByRole('button', { name: /^Interference/ });
-    within(tangents()).getByRole('button', { name: 'Photons' });
-    within(tangents()).getByRole('textbox', { name: 'Ask your own question in a new lane' });
+    // "Ask your own" stays in view while the suggestions are folded.
+    within(suggested()).getByRole('textbox', { name: 'Ask your own question in a new lane' });
+    await c.user.click(more());
+    interference();
+    expect(within(suggested()).queryByRole('button', { name: /Photons/ })).toBeNull();
   });
 
   it('a Keep going step is sent as the next message of the lane', async () => {
@@ -127,8 +157,8 @@ describe('Card', () => {
         node('a2', { parentId: 'u2', seq: 3, content: 'It spreads.' }),
       ]),
     });
-    expect(screen.queryByRole('navigation', { name: 'Keep going' })).toBeNull();
-    within(tangents()).getByRole('button', { name: /^Interference/ });
+    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
+    more();
   });
 
   it('asks your own question in a new lane', async () => {
@@ -141,23 +171,22 @@ describe('Card', () => {
   });
 
   it('on a lane the membership locks: suggestions and questions are disabled and say why', async () => {
-    await card('a1', { lapsed: true });
+    const c = await card('a1', { lapsed: true });
     const step = within(keepGoing()).getByRole<HTMLButtonElement>('button', {
       name: /^Diffraction/,
     });
     expect(step.disabled).toBe(true);
     expect(step.title).toBe('Continuing needs a membership (this lane is on your own key)');
-    const interference = within(tangents()).getByRole<HTMLButtonElement>('button', {
-      name: /^Interference/,
-    });
-    expect(interference.disabled).toBe(true);
-    expect(interference.title).toBe(
-      'Starting a tangent needs a membership (this lane is on your own key)',
-    );
+    const why = 'Starting a tangent needs a membership (this lane is on your own key)';
+    expect(more().title).toBe(why);
+    await c.user.click(more());
+    expect(interference().disabled).toBe(true);
+    expect(interference().title).toBe(why);
     // The lane already following one still opens.
-    const photons = within(tangents()).getByRole<HTMLButtonElement>('button', { name: 'Photons' });
+    const photons = within(lanes()).getByRole<HTMLButtonElement>('button', {
+      name: 'Open tangent: Photons',
+    });
     expect(photons.disabled).toBe(false);
-    expect(photons.title).toBe('Open tangent');
     expect(
       screen.getByRole<HTMLTextAreaElement>('textbox', { name: /Ask your own/ }).disabled,
     ).toBe(true);
@@ -168,9 +197,11 @@ describe('Card', () => {
       d: tree({ status: 'error', errorKind: 'cut_off', error: 'It hit the limit.' }),
     });
     expect(screen.getByRole('alert').textContent).toContain('Cut off.');
-    expect(screen.queryByRole('navigation', { name: 'Tangents' })).toBeNull();
-    expect(screen.queryByRole('navigation', { name: 'Keep going' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Suggested tangents' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Tangent from this message' })).toBeNull();
+    // The lane already started off it stays the way there.
+    within(lanes()).getByRole('button', { name: 'Open tangent: Photons' });
   });
 
   it('in pick mode, "Link here" links this card; the source card cannot be picked', async () => {

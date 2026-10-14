@@ -1,10 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import {
   CONTINUE_MESSAGE,
-  groupTangents,
   isCutOffReply,
   isStoppedReply,
   splitTangents,
+  type Branch,
   type ChatNode,
 } from '@tangent/shared';
 import {
@@ -117,42 +117,12 @@ import { branchTitle } from './titles';
         [children]="children()"
         [chainIds]="store.chainIds()"
         [busy]="store.busy()"
+        [titleOf]="branchTitle"
         [send]="keepGoingWith"
         [open]="openTangent"
+        [openBranch]="openBranch"
+        [remove]="removeBranch"
       />
-
-      @if (otherChildren().length > 0) {
-        <nav class="side-questions" [attr.aria-label]="'Tangents from this message'">
-          <span class="muted small">
-            <app-icon name="tangent" [size]="13" />
-            {{ otherChildren().length }}
-            {{ otherChildren().length === 1 ? 'tangent' : 'tangents' }}
-          </span>
-          @for (b of otherChildren(); track b.id) {
-            <span class="chip-row">
-              <button
-                type="button"
-                class="chip"
-                [class.is-on]="store.chainIds().has(b.id)"
-                [title]="b.anchorQuote ?? branchTitle(b)"
-                (click)="store.openAtStart(b.id)"
-              >
-                {{ branchTitle(b) }}
-              </button>
-              <!-- Delete it from here (shown on hover or keyboard focus, always on touch). -->
-              <button
-                type="button"
-                class="icon-btn icon-btn-danger chip-delete"
-                [attr.aria-label]="'Delete the tangent ' + branchTitle(b)"
-                title="Delete this tangent"
-                (click)="remove(b.id)"
-              >
-                <app-icon name="trash" [size]="13" />
-              </button>
-            </span>
-          }
-        </nav>
-      }
 
       <app-related-links
         class="connections"
@@ -234,11 +204,6 @@ export class MessageItem {
     () => !!this.store.branchOf(this.node().id)?.parentBranchId,
   );
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
-  /** Tangents that don't follow a suggestion (those show among the suggestions). */
-  protected readonly otherChildren = computed(() => {
-    const suggested = new Set(groupTangents(this.suggestions()).tangent.map((t) => t.title));
-    return this.children().filter((b) => !suggested.has(b.title));
-  });
   protected readonly depth = computed(() => this.store.depthOf(this.node().branchId));
   /** A finished reply on a provider that can search, while nothing else is generating. */
   protected readonly canCheck = computed(
@@ -274,10 +239,6 @@ export class MessageItem {
     void this.store.updateLinkNote(edit.linkId, edit.note);
   }
 
-  protected async remove(branchId: string): Promise<void> {
-    await confirmDeleteSideQuestion(this.store, branchId);
-  }
-
   /** Sends a "Keep going" suggestion as the next message of the open thread, unmarking any message first. */
   protected readonly keepGoingWith = (title: string) => {
     const n = this.node();
@@ -286,4 +247,7 @@ export class MessageItem {
   };
   protected readonly openTangent = (title: string) =>
     this.store.followTangent(this.node().id, title);
+  /** A tangent opens at its first message. */
+  protected readonly openBranch = (b: Branch) => this.store.openAtStart(b.id);
+  protected readonly removeBranch = (b: Branch) => confirmDeleteSideQuestion(this.store, b.id);
 }

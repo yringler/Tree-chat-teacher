@@ -361,12 +361,39 @@ describe('Learn: finding your way around a lesson', () => {
     expect(within(path).getByText('Duality').getAttribute('aria-current')).toBe('page');
   });
 
-  it('a tangent opens at its first message', async () => {
+  it('a tangent opens at its first message, from under the message it started from', async () => {
     const p = await page(branchyLesson());
     const go = vi.spyOn(p.store, 'go').mockImplementation(() => undefined);
-    const list = screen.getByRole('navigation', { name: 'Tangents from this message' });
-    await p.user.click(within(list).getByRole('button', { name: 'Particles' }));
+    const reply = within(document.getElementById('msg-a1')!);
+    const yours = within(reply.getByRole('group', { name: 'Your tangents' }));
+    // In the sidebar's order.
+    const rows = yours.getAllByRole('button', { name: /^Open tangent/ });
+    expect(rows.map((b) => b.textContent?.trim())).toEqual([
+      'Open tangent: Why waves',
+      'Open tangent: Particles',
+    ]);
+    await p.user.click(yours.getByRole('button', { name: 'Open tangent: Particles' }));
     expect(go).toHaveBeenLastCalledWith('side', 'u2');
+  });
+
+  it('a tangent is deleted from under its message, once the learner says so', async () => {
+    const p = await page(branchyLesson());
+    const del = vi.spyOn(p.store, 'deleteSideQuestion').mockResolvedValue(true);
+    const ask = vi.fn(() => false);
+    vi.stubGlobal('confirm', ask);
+    try {
+      const trash = screen.getByRole('button', { name: 'Delete the tangent Why waves' });
+      await p.user.click(trash);
+      expect(ask).toHaveBeenCalledWith(
+        'Delete “Why waves” (1 message)? Replies still being written there are stopped. This cannot be undone.',
+      );
+      expect(del).not.toHaveBeenCalled();
+      ask.mockReturnValue(true);
+      await p.user.click(trash);
+      expect(del).toHaveBeenCalledWith('other');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('clicking a message marks it; clicking a control in it does not', async () => {
@@ -396,16 +423,15 @@ const SUGGESTED = [
 /** A reply suggesting one next step, with no reason given. */
 const ONE_STEP = 'A wave.\n\n<tangents>\n- [continue] Next\n</tangents>';
 const nextStep = () =>
-  within(screen.getByRole('navigation', { name: 'Keep going' })).getByRole<HTMLButtonElement>(
-    'button',
-    { name: 'Next' },
-  );
+  within(screen.getByRole('group', { name: 'Keep going' })).getByRole<HTMLButtonElement>('button', {
+    name: 'Next',
+  });
 
 describe('Learn: suggestions after a reply', () => {
-  it('come in two labelled groups, an untagged one under Tangents', async () => {
+  it('come in two labelled groups, an untagged one under Suggested tangents', async () => {
     await page(lesson('normal-model', { content: SUGGESTED }));
-    const keep = screen.getByRole('navigation', { name: 'Keep going' });
-    const side = screen.getByRole('navigation', { name: 'Tangents' });
+    const keep = screen.getByRole('group', { name: 'Keep going' });
+    const side = screen.getByRole('group', { name: 'Suggested tangents' });
     expect(within(keep).getByText('Keep going')).toBeTruthy();
     const titles = (group: HTMLElement) =>
       within(group)
@@ -419,7 +445,7 @@ describe('Learn: suggestions after a reply', () => {
     const p = await page(lesson('normal-model', { content: SUGGESTED }));
     const continueWith = vi.spyOn(p.store, 'continueWith').mockResolvedValue(true);
     const follow = vi.spyOn(p.store, 'followTangent').mockResolvedValue(null);
-    const keep = screen.getByRole('navigation', { name: 'Keep going' });
+    const keep = screen.getByRole('group', { name: 'Keep going' });
     await p.user.click(within(keep).getByRole('button', { name: /Colour/ }));
     expect(continueWith).toHaveBeenCalledWith('a1', 'Colour');
     expect(follow).not.toHaveBeenCalled();
@@ -428,9 +454,35 @@ describe('Learn: suggestions after a reply', () => {
   it('a tangent suggestion opens a tangent of its own', async () => {
     const p = await page(lesson('normal-model', { content: SUGGESTED }));
     const follow = vi.spyOn(p.store, 'followTangent').mockResolvedValue(null);
-    const side = screen.getByRole('navigation', { name: 'Tangents' });
+    const side = screen.getByRole('group', { name: 'Suggested tangents' });
     await p.user.click(within(side).getByRole('button', { name: /Photons/ }));
     expect(follow).toHaveBeenCalledWith('a1', 'Photons');
+  });
+
+  it('a followed one shows once, under Your tangents, and the rest fold away', async () => {
+    const d = lesson('normal-model', { content: SUGGESTED });
+    d.branches.push(
+      branch('photons', {
+        title: 'Photons',
+        titleSource: 'user',
+        parentBranchId: 'trunk',
+        branchPointNodeId: 'a1',
+      }),
+    );
+    const p = await page(d);
+    const go = vi.spyOn(p.store, 'go').mockImplementation(() => undefined);
+    const yours = within(screen.getByRole('group', { name: 'Your tangents' }));
+    const photons = yours.getByRole('button', { name: 'Open tangent: Photons' });
+    expect(photons.title).toBe('the particle side');
+    const more = screen.getByRole('button', { name: '1 more suggested' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('button', { name: /Photons the particle side/ })).toBeNull();
+    await p.user.click(more);
+    within(screen.getByRole('group', { name: 'Suggested tangents' })).getByRole('button', {
+      name: /^Start a tangent: Diffraction/,
+    });
+    await p.user.click(photons);
+    expect(go).toHaveBeenLastCalledWith('photons', null);
   });
 
   it('Keep going shows only on the latest reply; older ones keep their tangents', async () => {
@@ -441,8 +493,8 @@ describe('Learn: suggestions after a reply', () => {
     );
     await page(d);
     const older = document.getElementById('msg-a1')!;
-    expect(within(older).queryByRole('navigation', { name: 'Keep going' })).toBeNull();
-    within(older).getByRole('navigation', { name: 'Tangents' });
+    expect(within(older).queryByRole('group', { name: 'Keep going' })).toBeNull();
+    within(older).getByRole('group', { name: 'Suggested tangents' });
   });
 
   it('Keep going says it keeps the lesson moving', async () => {

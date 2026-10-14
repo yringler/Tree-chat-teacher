@@ -33,8 +33,8 @@ export interface LinkNoteEdit {
  *   `relatedLinks(index, linksByNode, nodeId, titleOf)` from ./links-view,
  *   with the app's own `titleOf`. Renders nothing while empty.
  * - `canEdit` (false): show "Edit note" and "Remove" on each chip.
- * - `collapsible` (true): a toggle shows the chips (like the power app's
- *   "N tangents"); false lists them under a label (Learn's tangents).
+ * - `collapsible` (true): a toggle ("N related" in the power app) shows the
+ *   chips; false lists them under a label (Learn's "Connected to N").
  * - `expanded` (false, two-way `[(expanded)]`): the toggle's state.
  * - `compact` (false): title only, no breadcrumb or note (Canvas cards);
  *   both stay in the chip's tooltip.

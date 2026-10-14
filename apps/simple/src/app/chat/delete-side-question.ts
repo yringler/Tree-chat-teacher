@@ -4,8 +4,8 @@ import { branchTitle } from './titles';
 
 /**
  * Asks, then deletes a tangent with every tangent below it.
- * Shared by the lesson header (the open tangent) and each message's
- * tangent chips. Resolves true if it was deleted.
+ * Shared by the lesson header (the open tangent) and the tangents listed
+ * under each message. Resolves true if it was deleted.
  */
 export async function confirmDeleteSideQuestion(
   store: LessonStore,

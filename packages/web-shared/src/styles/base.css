@@ -1070,11 +1070,17 @@ app-android-app-banner {
 }
 
 /*
- * Suggestions under an assistant reply (every app): a "Keep going" group of
- * next steps and a "Tangents" group of side trips, labelled alike so neither
- * outranks the other.
+ * The footer under a message (every app, ui/suggestion-groups.ts). "Your
+ * tangents" comes first and looks taken rather than offered (a solid border,
+ * an accent bar and a chevron to open): it is the only place a message says
+ * the user left from here, so the way back must not hide among the offers.
+ * Then the offers: a "Keep going" group of next steps and a "Suggested
+ * tangents" group of side trips, labelled alike so neither outranks the
+ * other.
  */
 .tangents {
+  /* Holds its visually hidden labels, so they stay inside the scrolling message list. */
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1147,14 +1153,130 @@ app-android-app-banner {
   opacity: 0.7;
 }
 
-.tangent.is-followed {
-  border-style: dashed;
-}
-
 .tangent.is-on {
-  border-style: solid;
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* One of the user's tangents: the row holds its open button and, in some apps, a trash button. */
+.tangent.tangent-yours {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border-left: 3px solid var(--accent);
+  cursor: default;
+}
+
+.tangent-yours-open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 7px 9px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tangent-yours-open > * {
+  flex: none;
+}
+
+.tangent-yours-open > app-icon:first-child {
+  color: var(--accent);
+}
+
+/* One line: the row is a way back, read at a glance. */
+.tangent-yours-open .tangent-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* Shown on hover or keyboard focus, always on touch. */
+.tangent-delete {
+  width: 26px;
+  height: 26px;
+  margin-right: 4px;
+  opacity: 0;
+}
+
+.tangent-yours:hover .tangent-delete,
+.tangent-delete:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .tangent-delete {
+    opacity: 1;
+  }
+}
+
+/* The user's tangents on a narrow card (`compact`): chips that wrap. */
+.tangent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.tangent-chip {
+  max-width: 100%;
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  font-size: calc(0.78 * var(--chat-rem, 1rem));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tangent-chip:hover {
+  background: var(--bg-hover);
+}
+
+.tangent-chip.is-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The suggested tangents folded behind one button once the user has a tangent here. */
+.tangents-fold {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.tangents-fold:hover {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.tangents-offers-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.tangents-offers-list[hidden] {
+  display: none;
 }
 
 /*

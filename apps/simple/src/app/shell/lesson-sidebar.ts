@@ -10,8 +10,8 @@ import { confirmDeleteLesson } from './delete-lesson';
 /**
  * Learn's sidebar: the shared conversation sidebar over the learner's
  * lessons, the open one's tangents nested under the one each came
- * from. A tangent opens at its first message, as from its chip; the
- * lesson where it continues.
+ * from. A tangent opens at its first message, as from its row under
+ * "Your tangents"; the lesson where it continues.
  */
 @Component({
   selector: 'app-lesson-sidebar',
