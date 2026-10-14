@@ -75,6 +75,9 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **No standalone `/help` page.** `/welcome#how-tangents` is the one public entry point. A page would reuse `TangentHelpCard`.
 - **The Play Store listing text isn't in the repository,** so it still needs the tangent wording by hand in the Play Console; only the feature graphic (`apps/flutter/store/`) changed.
 - **The send buttons' long-press tooltips and the coach marks are checked in widget tests and the browser only,** like the rest of the Flutter app (see [Not yet run on a phone](#the-flutter-app-appsflutter)).
+- **A renamed tangent loses its suggestion.** A tangent follows a suggestion by carrying its title ([DECISIONS](DECISIONS.md#reply-or-tangent)), so renaming one in power or Canvas puts the suggestion back among the offers, and clicking it starts a second tangent. Keeping the match needs the suggestion stored on the branch (a column on `branches`).
+- **Flutter shows only the first suggested tangent at every width** while a reply has no tangent of the learner's, a fold meant for phones; the web shows them all. A width check (`MediaQuery`) would match the web on tablets and the `/app/` build.
+- **Going back in Flutter doesn't scroll to the reply a tangent started from.** The web's path returns to that message (`?m=`); Flutter opens the main thread at its end and a parent tangent at its start, so the highlighted row under **Your tangents** can be out of view. Passing the branch point along and revealing it (`Scrollable.ensureVisible`) would match the web.
 - **The e2e scripted upstream emits no suggestions.** `apps/e2e/serve.mjs` answers without a `<tangents>` block, so grouped suggestions are covered end to end only through `/learn/demo`, whose generator emits tagged blocks.
 
 ## Links between messages
