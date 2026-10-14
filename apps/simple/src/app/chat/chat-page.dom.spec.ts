@@ -376,6 +376,19 @@ describe('Learn: finding your way around a lesson', () => {
     expect(go).toHaveBeenLastCalledWith('side', 'u2');
   });
 
+  it('back from a tangent, it is lit under the message it started from', async () => {
+    const p = await page(branchyLesson(), {}, 'side');
+    p.store.setRoute('t1', null, 'a1');
+    await p.fixture.whenStable();
+    const yours = within(screen.getByRole('group', { name: 'Your tangents' }));
+    const particles = yours.getByRole('button', {
+      name: 'Open tangent: Particles (you were just here)',
+    });
+    expect(particles.closest('.tangent-yours')?.classList).toContain('is-back');
+    const other = yours.getByRole('button', { name: 'Open tangent: Why waves' });
+    expect(other.closest('.tangent-yours')?.classList).not.toContain('is-back');
+  });
+
   it('a tangent is deleted from under its message, once the learner says so', async () => {
     const p = await page(branchyLesson());
     const del = vi.spyOn(p.store, 'deleteSideQuestion').mockResolvedValue(true);

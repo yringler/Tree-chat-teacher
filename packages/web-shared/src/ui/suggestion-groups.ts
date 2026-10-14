@@ -26,8 +26,10 @@ let uid = 0;
  * The footer under a message (every app), sorted by where the user went
  * (`tangentFooter`). "Your tangents": every tangent started from the
  * message (`children`), first and never folded, because this is the only
- * place a message says the user left from here; each opens (`openBranch`)
- * and, where the app deletes from here, has a trash button (`remove`).
+ * place a message says the user left from here; each opens (`openBranch`),
+ * is lit while on the open thread's chain (`chainIds`) or just come back
+ * from (`cameFromIds`), and, where the app deletes from here, has a trash
+ * button (`remove`).
  * "Keep going": next steps in the thread's topic, each sent as the next
  * message here (`send`), so only the newest reply of the thread on screen
  * (`latest`) offers them. "Suggested tangents": the side trips no tangent
@@ -70,18 +72,26 @@ let uid = 0;
                     type="button"
                     class="tangent-chip mode-chip-{{ b.contextMode }}"
                     [class.is-on]="chainIds().has(b.id)"
+                    [class.is-back]="cameFromIds().has(b.id)"
                     [attr.aria-current]="chainIds().has(b.id) ? 'true' : null"
                     [attr.title]="tipOf(b)"
                     (click)="openYours($event, b)"
                   >
                     <span class="sr-only">{{ labels.open }}</span
                     ><span [attr.title]="fullTitleOf(b)">{{ titleOf()(b) }}</span>
+                    @if (cameFromIds().has(b.id)) {
+                      <span class="sr-only">{{ labels.back }}</span>
+                    }
                   </button>
                 }
               </div>
             } @else {
               @for (b of f.yours; track b.id) {
-                <div class="tangent tangent-yours" [class.is-on]="chainIds().has(b.id)">
+                <div
+                  class="tangent tangent-yours"
+                  [class.is-on]="chainIds().has(b.id)"
+                  [class.is-back]="cameFromIds().has(b.id)"
+                >
                   <button
                     type="button"
                     class="tangent-yours-open"
@@ -94,6 +104,9 @@ let uid = 0;
                     <span class="tangent-title" [attr.title]="fullTitleOf(b)">{{
                       titleOf()(b)
                     }}</span>
+                    @if (cameFromIds().has(b.id)) {
+                      <span class="sr-only">{{ labels.back }}</span>
+                    }
                     @if (rowExtra(); as extra) {
                       <ng-container
                         [ngTemplateOutlet]="extra"
@@ -210,6 +223,8 @@ export class SuggestionGroups {
   readonly children = input<readonly Branch[]>([]);
   /** The selected branch's chain: a tangent of the user's on it is lit. */
   readonly chainIds = input<ReadonlySet<string>>(new Set());
+  /** The tangents the user just came back from: lit too, as the way back in. */
+  readonly cameFromIds = input<ReadonlySet<string>>(new Set());
   readonly locked = input(false);
   readonly noun = input<'thread' | 'lane'>('thread');
   /** Something else is generating, so a next step waits. */
@@ -236,6 +251,7 @@ export class SuggestionGroups {
     next: KEEP_GOING_LABEL,
     offers: SUGGESTED_TANGENTS_LABEL,
     open: 'Open tangent: ',
+    back: ' (you were just here)',
     start: 'Start a tangent: ',
   };
   protected readonly ids = {

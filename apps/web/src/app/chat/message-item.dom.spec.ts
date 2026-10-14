@@ -297,6 +297,15 @@ describe('TangentNav: Your tangents', () => {
     }
   });
 
+  it('back from one, it is lit', async () => {
+    const m = await message('a1', { d: withTangents('a1') });
+    m.store.setRoute('t1', 'optics', null);
+    m.store.setRoute('t1', null, 'a1');
+    await m.fixture.whenStable();
+    const optics = button(/^Open tangent: Optics \(you were just here\)/);
+    expect(optics.closest('.tangent-yours')?.classList).toContain('is-back');
+  });
+
   it('one on the selected branch’s chain is lit and current', async () => {
     const r = await message('a1', { d: withTangents('a1') });
     await r.set({ chainIds: new Set(['trunk', 'colour']) });

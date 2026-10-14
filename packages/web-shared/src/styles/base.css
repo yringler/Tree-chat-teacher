@@ -1153,7 +1153,9 @@ app-android-app-banner {
   opacity: 0.7;
 }
 
-.tangent.is-on {
+/* On the way to the open thread, or (`is-back`) the tangent the user just came back from. */
+.tangent.is-on,
+.tangent.is-back {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
@@ -1244,7 +1246,8 @@ app-android-app-banner {
   background: var(--bg-hover);
 }
 
-.tangent-chip.is-on {
+.tangent-chip.is-on,
+.tangent-chip.is-back {
   border-color: var(--accent);
   background: var(--accent-soft);
 }

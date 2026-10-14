@@ -202,6 +202,15 @@ describe('SuggestionGroups: your tangents', () => {
     expect(yours('Why is the sky blue').getAttribute('aria-current')).toBeNull();
   });
 
+  it('the one just come back from is lit too, and says so to a screen reader', async () => {
+    await groups({ children: [OWN, PHOTONS], cameFromIds: new Set(['b-photons']) });
+    const photons = yours('Photons (you were just here)');
+    expect(photons.closest('.tangent-yours')?.classList).toContain('is-back');
+    expect(photons.getAttribute('aria-current')).toBeNull();
+    const own = yours('Why is the sky blue');
+    expect(own.closest('.tangent-yours')?.classList).not.toContain('is-back');
+  });
+
   it('open while the reply is locked', async () => {
     await groups({ locked: true, children: [PHOTONS] });
     expect(yours('Photons').disabled).toBe(false);
@@ -232,6 +241,8 @@ describe('SuggestionGroups: your tangents', () => {
     expect(chip.getAttribute('aria-current')).toBe('true');
     await g.user.click(yours('Why is the sky blue'));
     expect(g.openBranch).toHaveBeenCalledWith(OWN);
+    await g.set({ chainIds: new Set(), cameFromIds: new Set(['b-sum']) });
+    expect(yours('Sum (you were just here)').classList).toContain('is-back');
   });
 });
 

@@ -24,6 +24,7 @@ import { ModeBadge } from '../ui/mode-badge';
       [inTangent]="inTangent()"
       [children]="children()"
       [chainIds]="chainIds()"
+      [cameFromIds]="store.cameFromIds()"
       [locked]="locked()"
       [withAsk]="canAsk()"
       [send]="sendStep"

@@ -116,6 +116,7 @@ import { branchTitle } from './titles';
         [inTangent]="inTangent()"
         [children]="children()"
         [chainIds]="store.chainIds()"
+        [cameFromIds]="store.cameFromIds()"
         [busy]="store.busy()"
         [titleOf]="branchTitle"
         [send]="keepGoingWith"

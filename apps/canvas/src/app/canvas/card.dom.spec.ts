@@ -114,6 +114,29 @@ describe('Card', () => {
     expect(photons.getAttribute('aria-current')).toBe('true');
   });
 
+  it('the lane just come back from is lit', async () => {
+    const c = await card('a1');
+    c.store.setRoute('t1', 'photons', null);
+    c.store.setRoute('t1', 'trunk', null);
+    await c.fixture.whenStable();
+    const photons = within(lanes()).getByRole('button', {
+      name: 'Open tangent: Photons (you were just here)',
+    });
+    expect(photons.classList).toContain('is-back');
+  });
+
+  it('pressing a lane off it opens it without selecting the card’s own lane first', async () => {
+    // The lane around the card selects itself on pointer down, which would
+    // make the card's lane the one just come back from instead.
+    const c = await card('a1');
+    const laneDown = vi.fn();
+    c.host.addEventListener('pointerdown', laneDown);
+    const go = vi.spyOn(c.store, 'go').mockImplementation(() => undefined);
+    await c.user.click(within(lanes()).getByRole('button', { name: 'Open tangent: Photons' }));
+    expect(laneDown).not.toHaveBeenCalled();
+    expect(go).toHaveBeenCalledWith('photons');
+  });
+
   it('a question card lists the lanes off it too', async () => {
     const d = tree();
     d.branches.push(

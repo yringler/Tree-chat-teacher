@@ -124,12 +124,19 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
         </div>
       }
 
+      <!--
+        Pressing in here doesn't select the card's lane first: on one of the
+        lanes off the card, that would make the card's lane the one just come
+        back from instead of the lane being left.
+      -->
       <app-suggestion-groups
+        (pointerdown)="$event.stopPropagation()"
         [tangents]="tangents()"
         [latest]="latest()"
         [inTangent]="inTangent()"
         [children]="children()"
         [chainIds]="store.chainIds()"
+        [cameFromIds]="store.cameFromIds()"
         [locked]="locked()"
         noun="lane"
         [withAsk]="complete()"
