@@ -150,6 +150,7 @@ describe('fail closed', () => {
       },
       // The dev bypass requires no membership: nothing is ever read-only.
       membershipNeededFor: [],
+      androidAppId: 'com.tangentailearning.tangent',
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -188,7 +189,13 @@ describe('fail closed', () => {
         priceCents: 1000,
       },
       membershipNeededFor: [],
+      androidAppId: 'com.tangentailearning.tangent',
     } satisfies MeResponse);
+  });
+
+  it('/api/me names no Android app while ANDROID_APP_ID is unset', async () => {
+    const { call } = setup(authEnv({ BETTER_AUTH_SECRET: '', ANDROID_APP_ID: '' }));
+    expect(await (await call('/api/me')).json()).toMatchObject({ androidAppId: null });
   });
 });
 

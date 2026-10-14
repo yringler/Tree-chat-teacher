@@ -2,6 +2,7 @@ import { DEFAULT_SYSTEM_PROMPT } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  androidAppIdVar,
   appConfig,
   boolVar,
   ConfigError,
@@ -49,6 +50,21 @@ describe('config parsers', () => {
       expect(() => reviewerSignInVar(bad)).toThrow(
         /^Invalid REVIEWER_SIGN_IN: expected <email>:<6 digits>$/,
       );
+  });
+
+  it('androidAppIdVar: a dotted application id, trimmed; empty is null; anything else throws', () => {
+    expect(androidAppIdVar(undefined)).toBeNull();
+    expect(androidAppIdVar(' ')).toBeNull();
+    expect(androidAppIdVar(' com.example.my_app2 ')).toBe('com.example.my_app2');
+    for (const bad of [
+      'app',
+      'com..app',
+      'com.1app',
+      'com.example/app',
+      'https://x.com',
+      'com.app.',
+    ])
+      expect(() => androidAppIdVar(bad)).toThrow(/^Invalid ANDROID_APP_ID/);
   });
 
   it('intVar: empty is the default; anything but an integer in range throws', () => {

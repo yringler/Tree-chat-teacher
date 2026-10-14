@@ -147,6 +147,15 @@ describe('landingRoutes', () => {
     expect(emailOnly).toContain('<a href="/privacy">Privacy policy</a>');
   });
 
+  it("links the Android app's store page only when the deployment has one", async () => {
+    const html = async (appId: string) =>
+      expectLanding(await setup({ env: { ANDROID_APP_ID: appId } }).request('/'), 'no-cache');
+    expect(await html('com.example.app')).toContain(
+      'href="https://play.google.com/store/apps/details?id=com.example.app&amp;referrer=utm_source%3Dweb%26utm_medium%3Dlanding"',
+    );
+    expect(await html('')).not.toContain('play.google.com');
+  });
+
   it('leaves other methods and paths alone', async () => {
     const { request, seen } = setup();
     for (const [path, method] of [

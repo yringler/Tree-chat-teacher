@@ -15,7 +15,10 @@
           <a class="demo-banner-cta" [href]="signupUrl">Sign in for real</a>
         </p>
       } @else {
-        <app-beta-banner />
+        <app-android-app-banner placement="power" />
+        @if (!androidApp.holdsBannerSlot()) {
+          <app-beta-banner />
+        }
       }
       <router-outlet />
     </main>

@@ -10,6 +10,8 @@ Power, Learn and Canvas share one account: a conversation started in one is list
 
 Tangent is in beta: a notice at the top of each app asks you to report problems to `admin@` the site's domain. Closing it hides it for a day in that browser.
 
+On an Android phone, Learn and power offer the Android app, Learn made for a phone on the same account, in a notice at the top from your second visit in that browser (the landing page links it too). It shows in place of the beta notice. **Get it on Google Play** opens its store page; following it or closing the notice hides it in that browser for good.
+
 Signing in by email sends one email with a link and a 6-digit code. The link signs you in wherever you open it. Every app also takes the code: type or paste it on the **Check your email** screen, which helps when the email is on another device. Google and GitHub sign you in too, creating your account the first time, as the email does. The phone apps sign in by code, and the Android app also with Google, from the phone's own account picker; the link in the email signs in only a browser. If the app is closed while you read the email, Learn reopens on **Check your email** for that address until the code expires, so you don't need another email. Each works once and expires in 15 minutes; after three wrong codes, ask for a new email. In the web apps, opening a link to a conversation (or any page that needs you signed in) while signed out takes you to sign in and then back to that page, whichever way you sign in, an email link opened in another browser included.
 
 When Tangent is full (a deployment can cap its number of users), the login page still signs existing users in, and offers new people **Join the waitlist**: you get one email when there's room.
