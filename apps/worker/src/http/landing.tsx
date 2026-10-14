@@ -1,4 +1,5 @@
 import {
+  androidAppStoreUrl,
   formatBps,
   formatCents,
   formatMicros,
@@ -57,6 +58,8 @@ interface Landing extends Offer {
   pool?: PoolStatusResponse;
   /** Which OAuth providers this deployment signs in with. */
   social: SocialProviderFlags;
+  /** The Play Store id of this deployment's Android app (`ANDROID_APP_ID`); null = none. */
+  androidAppId: string | null;
 }
 
 /** True when the pool is on and can cover at least one more learning session: only then is "free" promised. */
@@ -260,6 +263,12 @@ function LandingBody(props: { page: Landing }) {
             The demo needs no sign-up and no AI: its replies are playful nonsense that show how
             tangents work.
           </p>
+          {page.androidAppId && (
+            <p class="note">
+              On Android? Learn is an app too, made for your phone.{' '}
+              <a href={androidAppStoreUrl(page.androidAppId, 'landing')}>Get it on Google Play</a>
+            </p>
+          )}
         </div>
         <LandingDemo />
       </div>
@@ -323,6 +332,7 @@ async function landingResponse(
     ...offerOf(c.env, info.sharing),
     pool: await landingPool(c),
     social: socialProviderFlags(c.env),
+    androidAppId: appConfig(c.env).site.androidAppId,
   };
   return pageResponse(
     {

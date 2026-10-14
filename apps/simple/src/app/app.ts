@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import {
+  AndroidAppBanner,
+  AndroidAppNotice,
   ApiClient,
   APP_PATHS,
   BetaBanner,
@@ -37,6 +39,7 @@ import { LearnFunding } from './state/learn-funding';
   imports: [
     RouterOutlet,
     AppHeader,
+    AndroidAppBanner,
     BetaBanner,
     ModelAccessDialog,
     PasskeysDialog,
@@ -65,7 +68,10 @@ import { LearnFunding } from './state/learn-funding';
             <a class="demo-banner-cta" [href]="signupUrl">Start learning for real</a>
           </p>
         } @else {
-          <app-beta-banner />
+          <app-android-app-banner placement="learn" />
+          @if (!androidApp.holdsBannerSlot()) {
+            <app-beta-banner />
+          }
         }
         <div class="shell-body">
           <aside class="sidebar" id="sidebar" aria-label="Lessons">
@@ -136,6 +142,7 @@ export class App {
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
   private readonly walkthrough = inject(Walkthrough);
+  protected readonly androidApp = inject(AndroidAppNotice);
   /** `/learn/demo/`: an in-browser backend, no sign-in (see @tangent/web-shared/demo). */
   protected readonly demo = inject(DEMO_MODE);
   protected readonly signupUrl = DEMO_SIGNUP_URL;
@@ -164,6 +171,7 @@ export class App {
       const me = this.demo ? await this.api.me() : await this.auth.requireUser();
       if (!me) return;
       this.account.me.set(me);
+      this.androidApp.known(me.androidAppId);
       // The first-run tour, unless this account has had it (the demo answers for its visitor).
       void this.walkthrough.start(this.api);
       await Promise.all([

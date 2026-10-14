@@ -3,6 +3,8 @@ import { RouterOutlet } from '@angular/router';
 import {
   ApiClient,
   APP_PATHS,
+  AndroidAppBanner,
+  AndroidAppNotice,
   AuthService,
   BetaBanner,
   DEMO_MODE,
@@ -17,7 +19,7 @@ import { TreeStore } from './state/tree-store';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, BetaBanner, Sidebar, DialogHost, Toasts],
+  imports: [RouterOutlet, AndroidAppBanner, BetaBanner, Sidebar, DialogHost, Toasts],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
   host: { '(document:keydown)': 'loginPage || keyboard.handle($event)' },
@@ -28,6 +30,7 @@ export class App {
   protected readonly keyboard = inject(Keyboard);
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
+  protected readonly androidApp = inject(AndroidAppNotice);
   /** `/demo/`: an in-browser backend, no sign-in (see @tangent/web-shared/demo). */
   protected readonly demo = inject(DEMO_MODE);
   /** Where the demo banner's call to action goes (the real sign-in page). */
@@ -50,6 +53,7 @@ export class App {
       // The demo's caller always exists; nothing to redirect to.
       const me = this.demo ? await this.api.me() : await this.auth.requireUser();
       if (!me) return;
+      this.androidApp.known(me.androidAppId);
       await this.store.init(me);
     } catch (err) {
       this.store.fail(err);

@@ -103,6 +103,7 @@ export {
 } from './sse/stream-runner';
 
 // UI
+export { AndroidAppBanner, AndroidAppNotice } from './ui/android-app-banner';
 export { BetaBanner } from './ui/beta-banner';
 export { Compare, type CompareCandidate } from './ui/compare';
 export { Composer, ComposerController, type ComposerAction } from './ui/composer';

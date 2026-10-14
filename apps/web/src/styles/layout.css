@@ -85,7 +85,8 @@ app-root {
 }
 
 .demo-banner ~ .page,
-app-beta-banner ~ .page {
+app-beta-banner ~ .page,
+app-android-app-banner ~ .page {
   flex: 1 1 0;
   height: auto;
 }

@@ -63,6 +63,7 @@ const ME: MeResponse = {
     priceCents: 1000,
   },
   membershipNeededFor: [],
+  androidAppId: null,
 };
 
 describe('AuthService with APP_PATHS', () => {

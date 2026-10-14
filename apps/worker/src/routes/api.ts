@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { builtInAvailable, canShare } from '../availability.js';
+import { appConfig } from '../config.js';
 import { membershipFor, membershipNeededFor } from '../billing/membership.js';
 import { readKeys } from '../byok/keys.js';
 import { callPayer, type AppBindings } from '../env.js';
@@ -55,6 +56,7 @@ export function apiRoutes(): Hono<AppBindings> {
       isAdmin: isAdmin(c.env, identity),
       membership,
       membershipNeededFor: membershipNeededFor(account, membership),
+      androidAppId: appConfig(c.env).site.androidAppId,
     } satisfies MeResponse);
   });
 

@@ -50,6 +50,7 @@ export function me(over: Partial<MeResponse> = {}): MeResponse {
     isAdmin: false,
     membership: membership(),
     membershipNeededFor: ['own-key'],
+    androidAppId: null,
     ...over,
   };
 }
