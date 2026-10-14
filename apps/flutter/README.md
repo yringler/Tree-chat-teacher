@@ -62,6 +62,13 @@ Sign-in needs no browser on a phone:
 Driver's extension, for a driver or an agent's flutter_driver tool to tap,
 type and take screenshots.
 
+`pnpm --filter @tangent/flutter screenshots` renders the Play Store
+screenshots headlessly, with no emulator: `flutter test` lays the app out at
+a phone's and two tablets' sizes on the scripted backend in
+`test_driver/screen_api.dart`, and writes opaque 9:16 PNGs to
+`store/screenshots/<device>/` (not committed). The devices and screens are
+listed at the top of `screenshots/store_screenshots_test.dart`.
+
 The icons on every platform come from `assets/icon/` (the brand mark at
 1024px); `dart run flutter_launcher_icons` regenerates them after a change.
 
