@@ -259,6 +259,54 @@ void main() {
     expect(find.text('Why does it pull?'), findsOneWidget);
   });
 
+  testWidgets('every tangent from a reply opens at its start', (tester) async {
+    final long = List.filled(60, 'The moon pulls the sea.').join('\n\n');
+    ChatNode answer(String id, String branchId) => node(
+      id,
+      branch: branchId,
+      seq: 1,
+      role: Role.assistant,
+      content: '$long\n\n$reply',
+    );
+    api.details['t1'] = treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        branch('spring', parent: 'trunk', fork: 'a1', title: 'Spring tides'),
+        branch('locking', parent: 'trunk', fork: 'a1', title: 'Tidal locking'),
+      ],
+      nodes: [
+        userNode,
+        node(
+          'a1',
+          branch: 'trunk',
+          seq: 1,
+          role: Role.assistant,
+          content: reply,
+        ),
+        node('s1', branch: 'spring', seq: 0, content: 'Spring tides'),
+        answer('s2', 'spring'),
+        node('l1', branch: 'locking', seq: 0, content: 'Tidal locking'),
+        answer('l2', 'locking'),
+      ],
+    );
+    await pumpApp(tester, api, location: '/t/t1');
+    final list = find.byType(Scrollable).first;
+
+    for (final title in ['Spring tides', 'Tidal locking']) {
+      await tester.tap(find.text(title));
+      await settle(tester);
+      final top = tester.getRect(list).top;
+      expect(
+        tester.getTopLeft(find.text('Tangent · $title')).dy,
+        inInclusiveRange(top, top + 64),
+        reason: title,
+      );
+      await tester.tap(find.text('Main thread'));
+      await settle(tester);
+    }
+  });
+
   group('the composer', () {
     final answered = node(
       'a1',

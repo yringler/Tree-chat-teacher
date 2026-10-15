@@ -127,12 +127,14 @@ class _ChatPageState extends State<ChatPage> {
 
   /// The main thread opens at its end, a tangent at its start.
   void _showBranch() {
-    _stickToBottom = !_chat.isSideBranch;
+    // Decided now: a jump made before the frame ends moves the flag.
+    final atEnd = !_chat.isSideBranch;
+    _stickToBottom = atEnd;
     _headerShown = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
       final position = _scroll.position;
-      _scroll.jumpTo(_stickToBottom ? position.maxScrollExtent : 0);
+      _scroll.jumpTo(atEnd ? position.maxScrollExtent : 0);
     });
   }
 
@@ -160,7 +162,8 @@ class _ChatPageState extends State<ChatPage> {
   void _followEnd() {
     if (!_stickToBottom) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
+      // Asked again: opening a tangent in the meantime stops the following.
+      if (!_stickToBottom || !_scroll.hasClients) return;
       final position = _scroll.position;
       final top = _replyTop();
       if (top != null &&
