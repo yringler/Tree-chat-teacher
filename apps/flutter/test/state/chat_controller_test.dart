@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tangent/api/models.dart';
 import 'package:tangent/state/chat_controller.dart';
 import 'package:tangent/state/lessons_controller.dart';
 import 'package:tangent/state/session_controller.dart';
@@ -77,6 +78,41 @@ void main() {
         ..selectBranch(null)
         ..selectBranch('moon');
       expect(chat.cameFromIds, isEmpty);
+    });
+  });
+
+  group('startTangent', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+    final reply = node('a1', branch: 'trunk', seq: 1, role: Role.assistant);
+
+    setUp(() async {
+      api = FakeTangentApi()..details['t1'] = treeDetail(nodes: [reply]);
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+      await chat.load();
+    });
+
+    tearDown(() => chat.dispose());
+
+    test('makes the tangent with its question as the first message', () async {
+      final started = await chat.startTangent(reply, 'Why?', anchorQuote: 'w');
+      expect(started?.id, 'side-1');
+      expect(api.createdBranches.single.anchorQuote, 'w');
+      expect(chat.branchId, 'side-1');
+      expect(api.sends.single.target, 'side-1');
+      expect(api.sends.single.content, 'Why?');
+    });
+
+    test('makes nothing without a question', () async {
+      expect(await chat.startTangent(reply, '  '), isNull);
+      expect(api.createdBranches, isEmpty);
+      expect(api.sends, isEmpty);
     });
   });
 }

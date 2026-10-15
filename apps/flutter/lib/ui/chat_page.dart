@@ -294,11 +294,17 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Sends [text]. A refused message stays (or lands) in the composer, so it
   /// can be sent again.
-  Future<void> _send(String text) async {
+  Future<void> _send(String text) {
     _stickToBottom = true;
-    final accepted = await _chat.send(text);
+    return _settle(text, _chat.send(text));
+  }
+
+  /// Clears the composer once [text] is [accepted]; a refused one stays (or
+  /// lands) there.
+  Future<void> _settle(String text, Future<bool> accepted) async {
+    final ok = await accepted;
     if (!mounted) return;
-    if (accepted) {
+    if (ok) {
       if (_composer.text.trim() == text) _composer.clear();
     } else if (_composer.text.trim().isEmpty) {
       _composer.text = text;
@@ -331,10 +337,11 @@ class _ChatPageState extends State<ChatPage> {
   /// Asks [text] in a new tangent from [node], about [quote] if given.
   /// The text stays in the composer if it can't be made.
   Future<void> _ask(ChatNode node, String text, String? quote) async {
-    final id = await _chat.startTangent(node, anchorQuote: quote);
-    if (id == null || !mounted) return;
-    context.go('/t/${widget.treeId}/b/$id');
-    await _send(text);
+    final started = await _chat.startTangent(node, text, anchorQuote: quote);
+    if (started == null || !mounted) return;
+    context.go('/t/${widget.treeId}/b/${started.id}');
+    _stickToBottom = true;
+    await _settle(text, started.accepted);
   }
 
   void _askAbout(ChatNode node, String text) {
@@ -393,10 +400,15 @@ class _ChatPageState extends State<ChatPage> {
   /// asks it. A suggestion a tangent already follows is under Your tangents
   /// instead, so this always starts a new one.
   Future<void> _follow(ChatNode node, Tangent tangent) async {
-    final id = await _chat.startTangent(node, title: tangent.title);
-    if (id == null || !mounted) return;
-    context.go('/t/${widget.treeId}/b/$id');
-    await _send(tangent.title);
+    final started = await _chat.startTangent(
+      node,
+      tangent.title,
+      title: tangent.title,
+    );
+    if (started == null || !mounted) return;
+    context.go('/t/${widget.treeId}/b/${started.id}');
+    _stickToBottom = true;
+    await _settle(tangent.title, started.accepted);
   }
 
   /// Tells the walkthrough what the frame just drawn shows: a tangent, or
