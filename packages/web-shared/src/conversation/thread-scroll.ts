@@ -75,6 +75,9 @@ export class ThreadScroll {
   /** The view is at the end of the thread: new text keeps it there. */
   private pinned = true;
 
+  /** Counts the moves to another branch or message: a follow asked for before the last one is dropped. */
+  private moves = 0;
+
   /** The end is far enough below to offer the jump to it. */
   private readonly far = signal(false);
   readonly farFromEnd = this.far.asReadonly();
@@ -108,7 +111,10 @@ export class ThreadScroll {
         const moved = opened || focus !== lastFocus;
         lastBranch = branchId;
         lastFocus = focus;
-        if (moved) o.moved?.();
+        if (moved) {
+          this.moves++;
+          o.moved?.();
+        }
         if (opened && focus !== null && focus === store.firstNodeOf(branchId)?.id) {
           // Decided here: a follow of the old thread's end, asked for before
           // the frame, finds the view no longer following.
@@ -120,8 +126,10 @@ export class ThreadScroll {
               .getElementById(`msg-${focus}`)
               ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
           );
+        } else if (moved) {
+          this.pinned = true;
+          this.followSoon(true);
         } else {
-          if (moved) this.pinned = true;
           this.followSoon();
         }
       });
@@ -190,13 +198,21 @@ export class ThreadScroll {
     return below > Math.max(FAR_FROM_END, el.clientHeight / 2);
   }
 
-  /** On the next frame, once the thread is laid out, if the view still follows the end. */
-  private followSoon(): void {
+  /**
+   * On the next frame, once the thread is laid out, if the view still
+   * follows the end and is still where it was asked for. `opened`: the move
+   * to this thread asked, and its end is followed even if the view no
+   * longer is by then, since the old thread giving way to the new one
+   * scrolls the view without the reader.
+   */
+  private followSoon(opened = false): void {
     if (!this.pinned) return;
+    const move = this.moves;
     requestAnimationFrame(() => {
-      // Asked again: opening a tangent in the meantime stops the following.
+      // Asked again: another move since, or the reader scrolling away from
+      // a reply being written, stops the following.
       const el = this.o.scroller();
-      if (this.pinned && el) this.followEnd(el);
+      if (el && move === this.moves && (opened || this.pinned)) this.followEnd(el);
     });
   }
 
