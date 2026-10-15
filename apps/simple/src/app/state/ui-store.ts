@@ -6,9 +6,7 @@ import { Overlays, SidebarState } from '@tangent/web-shared';
  * paid for" (own OpenRouter key, credit or the pool); `pool-verify`: the
  * human check before a first pool message (PoolFirstUseDialog); `connect`:
  * the Connect sheet (ConnectDialog) for the message a connection is made
- * from; `compare`: the Compare sheet (CompareDialog), the question to ask
- * Normal and Max in `branchId` (it stays in the composer meanwhile);
- * `shortcuts`: the keyboard shortcuts; `instructions`: the open lesson's
+ * from; `shortcuts`: the keyboard shortcuts; `instructions`: the open lesson's
  * own instructions (InstructionsDialog); `help`: "How tangents work"
  * (HelpDialog).
  */
@@ -18,7 +16,6 @@ export type Dialog =
   | { kind: 'access' }
   | { kind: 'pool-verify' }
   | { kind: 'connect'; sourceNodeId: string }
-  | { kind: 'compare'; branchId: string; content: string }
   | { kind: 'shortcuts' }
   | { kind: 'instructions' }
   | { kind: 'help' };

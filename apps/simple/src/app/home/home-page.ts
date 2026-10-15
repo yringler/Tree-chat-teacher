@@ -2,17 +2,13 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
-  maxUsageNote,
   POOL_FUNDING_TEXT,
   poolModelText,
-  tierModel,
-  tierOf,
   type PoolStatusResponse,
   type TreeSummary,
 } from '@tangent/shared';
-import { Composer, Icon, PoolMeter, Segmented } from '@tangent/web-shared';
+import { Composer, Icon, PoolMeter } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
-import { tierSwitch } from '../chat/switches';
 import { KeyLockedNotice } from '../chat/key-locked-notice';
 import { ImportLessonButton } from './import-lesson-button';
 import { confirmDeleteLesson } from '../shell/delete-lesson';
@@ -26,7 +22,6 @@ import { LearnFunding } from '../state/learn-funding';
   selector: 'app-home-page',
   imports: [
     Composer,
-    Segmented,
     PoolMeter,
     RouterLink,
     Icon,
@@ -72,33 +67,12 @@ import { LearnFunding } from '../state/learn-funding';
             <!-- The own key needs a membership the learner lacks: the ways out, not Start. -->
             <app-key-locked-notice />
           } @else {
-            <div class="new-lesson-actions">
-              @if (store.models().length > 1) {
-                @if (tiers(); as t) {
-                  @if (t.unlisted; as hint) {
-                    <span class="model-locked muted small">{{ hint }}</span>
-                  } @else {
-                    <app-segmented
-                      label="Tutor"
-                      [options]="t.options"
-                      [value]="t.value"
-                      [disabled]="starting() || t.lockedHint !== null"
-                      [description]="t.lockedHint"
-                      (changed)="pickedModel.set($event)"
-                    />
-                  }
-                }
-              }
-              <div class="start-group">
-                <app-paid-by />
-                <button type="submit" class="btn btn-primary" [disabled]="starting()">
-                  <app-icon name="plus" /> Start lesson
-                </button>
-              </div>
+            <div class="start-group">
+              <app-paid-by />
+              <button type="submit" class="btn btn-primary" [disabled]="starting()">
+                <app-icon name="plus" /> Start lesson
+              </button>
             </div>
-            @if (maxNote(); as note) {
-              <p class="tier-note" role="status">{{ note }}</p>
-            }
           }
         </form>
       </section>
@@ -170,24 +144,7 @@ export class HomePage {
   protected readonly ui = inject(UiStore);
   protected readonly lessonTitle = lessonTitle;
   protected readonly topic = signal('');
-  protected readonly pickedModel = signal<string | null>(null);
   protected readonly starting = signal(false);
-  /** The learner's pick, else the provider's default (Normal). */
-  protected readonly model = computed(() => this.pickedModel() ?? this.store.defaultModel());
-  /** The Normal/Max switch for the new lesson (locked to the pool's model on the pool). */
-  protected readonly tiers = computed(() =>
-    tierSwitch(
-      this.store.models(),
-      this.funding.poolModel()?.id ?? this.model(),
-      this.funding.poolModelHint(),
-    ),
-  );
-  /** "Max uses about 14× as much as Normal." while Max is picked (not on the pool, which picks for them). */
-  protected readonly maxNote = computed(() => {
-    const models = this.store.models();
-    if (this.funding.poolModel() || tierOf(models, this.model()) !== 'max') return null;
-    return maxUsageNote(tierModel(models, 'max')?.usageFactor);
-  });
   /** The open pool's meter while the pool is on (never in the demo, where it is off). */
   protected readonly pool = computed(() => {
     const status = this.funding.poolStatus();
@@ -207,7 +164,7 @@ export class HomePage {
     if (this.starting() || this.funding.membershipBlocked()) return;
     this.starting.set(true);
     try {
-      await this.store.startLesson(this.model(), this.topic());
+      await this.store.startLesson(this.topic());
     } finally {
       this.starting.set(false);
     }

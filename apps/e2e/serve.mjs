@@ -190,7 +190,7 @@ const vars = {
     label: 'Tangent',
     baseUrl: upstreamUrl,
     apiKeySecret: 'BUILT_IN_API_KEY',
-    // Learn's tiers: Normal is the default.
+    // Normal, the default and Learn's one model, and power's Max (Learn lists only Normal).
     defaultModel: 'normal',
     models: [
       { id: 'normal', label: 'Normal', tier: 'normal' },
