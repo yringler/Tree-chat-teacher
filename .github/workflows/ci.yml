@@ -47,7 +47,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       # Turbo's task cache (turbo.json). A run restores the newest one this branch or master saved,
       # so packages nothing changed skip their tests, typechecks and builds.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .turbo/cache
           key: turbo-checks-${{ github.sha }}
@@ -91,7 +91,7 @@ jobs:
           cache: true
       - run: pnpm install --frozen-lockfile
       # The apps' builds, from this job's last run or the Checks job's.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .turbo/cache
           key: turbo-e2e-${{ github.sha }}
