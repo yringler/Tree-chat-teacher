@@ -86,6 +86,17 @@ async function page(opts: { branchId?: string; lapsed?: boolean; d?: TreeDetail 
 
 const composer = () => screen.queryByRole<HTMLTextAreaElement>('textbox', { name: 'Message' });
 
+/** Selects "wave" in reply a1 ("A wave."), as the user would. */
+function selectWave(): void {
+  const text = screen.getByText('A wave.').firstChild!;
+  const range = document.createRange();
+  range.setStart(text, 2);
+  range.setEnd(text, 6);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  document.dispatchEvent(new Event('selectionchange'));
+}
+
 describe('ChatPage', () => {
   it('shows the open branch’s messages, and a composer that continues it', async () => {
     const p = await page();
@@ -197,6 +208,39 @@ describe('ChatPage', () => {
     expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
       'Next ➜: Got it, what’s next? Keeps this tangent moving.',
     );
+  });
+
+  it('"Ask about this" puts the words on the composer; the tangent is made when it is sent', async () => {
+    const p = await page();
+    const startBranch = vi.spyOn(p.store, 'startBranch');
+    selectWave();
+    await p.fixture.whenStable();
+    await p.user.click(screen.getByRole('button', { name: 'Ask about this' }));
+    // Nothing is made until the question is sent.
+    expect(startBranch).not.toHaveBeenCalled();
+    expect(screen.getByText('“wave”')).toBeTruthy();
+    expect(composer()?.placeholder).toBe('Ask about this…');
+    expect(document.activeElement).toBe(composer());
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('new'));
+    await p.user.type(composer()!, 'Of what?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'Of what?', 'wave');
+    await p.fixture.whenStable();
+    expect(screen.queryByText('“wave”')).toBeNull();
+  });
+
+  it('a quote dropped from the composer leaves nothing behind', async () => {
+    const p = await page();
+    const startBranch = vi.spyOn(p.store, 'startBranch');
+    selectWave();
+    await p.fixture.whenStable();
+    await p.user.click(screen.getByRole('button', { name: 'Ask about this' }));
+    await p.user.click(screen.getByRole('button', { name: 'Don’t ask about “wave”' }));
+    expect(screen.queryByText('“wave”')).toBeNull();
+    expect(composer()?.placeholder).toBe('Continue this thread…');
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'And?{Enter}');
+    expect(send).toHaveBeenCalledWith('trunk', 'And?');
+    expect(startBranch).not.toHaveBeenCalled();
   });
 
   it('the header names the open thread: the main thread is not called a tangent', async () => {

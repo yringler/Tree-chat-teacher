@@ -539,7 +539,7 @@ test('power demo: ask your own question under a reply, inline or through the tan
   expect(errors).toEqual([]);
 });
 
-test('power demo: "Ask about this" on selected text starts a tangent at once, ready to type', async ({
+test('power demo: "Ask about this" puts the words on the composer; the tangent starts when asked', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -549,7 +549,6 @@ test('power demo: "Ask about this" on selected text starts a tangent at once, re
   const body = reply.locator('.msg-body');
   await expect(body).toBeVisible();
   const url = page.url();
-  const users = await page.locator('.msg-user').count();
   const bar = page.locator('app-selection-ask');
   await expect(bar).toHaveCount(0);
 
@@ -557,18 +556,31 @@ test('power demo: "Ask about this" on selected text starts a tangent at once, re
   await selectText(body, 'a careful hamster in disguise');
   await expect(bar.getByRole('button', { name: 'Ask about this' })).toBeVisible();
   await bar.getByRole('button', { name: 'Ask about this' }).click();
-  // A new tangent quoting it, opened with the composer focused, nothing sent yet.
+  // The words go on the composer, focused; nothing is made yet.
+  const composer = page.locator('#composer-input');
+  const quote = page.locator('.composer-quote');
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveAttribute('placeholder', 'Ask about this…');
+  await expect(quote).toContainText('a careful hamster in disguise');
+  await expect(bar).toHaveCount(0);
+  expect(page.url()).toBe(url);
+
+  // Dropped, they leave nothing behind.
+  await quote.getByRole('button', { name: /^Don’t ask about/ }).click();
+  await expect(quote).toHaveCount(0);
+  await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
+  expect(page.url()).toBe(url);
+
+  // Asked, the tangent starts with the question, quoting the words.
+  await selectText(body, 'a careful hamster in disguise');
+  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  await composer.fill('Why a hamster?');
+  await composer.press('Enter');
   await expect.poll(() => page.url()).not.toBe(url);
   await expect(page.locator('.fork-divider.fork-current')).toContainText(/full path/i);
   await expect(page.locator('.anchor-quote').last()).toHaveText('a careful hamster in disguise');
-  const composer = page.locator('#composer-input');
-  await expect(composer).toBeFocused();
-  await expect(composer).toHaveAttribute('placeholder', 'Ask your question…');
-  expect(await page.locator('.msg-user').count()).toBeLessThanOrEqual(users);
-  await expect(bar).toHaveCount(0);
-  await composer.fill('Why a hamster?');
-  await composer.press('Enter');
   await expect(page.locator('.msg-user').last()).toContainText('Why a hamster?');
+  await expect(quote).toHaveCount(0);
   await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
 
   // Its gear: "Tangent from here" with the quote filled in.

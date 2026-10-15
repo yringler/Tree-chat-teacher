@@ -59,9 +59,7 @@ async function open(state: Partial<BranchDialogState> = {}, opts: { lapsed?: boo
     inputs: { state: { fromNodeId: 'a1', quote: 'a wave', ...state } },
   });
   const store = TestBed.inject(TreeStore);
-  const created = vi.fn(async () => branch('new'));
-  vi.spyOn(store, 'createBranch').mockImplementation(created);
-  vi.spyOn(store, 'startBranch').mockImplementation(created);
+  vi.spyOn(store, 'startBranch').mockImplementation(async () => branch('new'));
   return { ...r, store, ui: TestBed.inject(UiStore), user: userEvent.setup() };
 }
 
@@ -76,27 +74,36 @@ describe('Tangent from here (power)', () => {
     expect(field(/Anchor quote/).value).toBe('a wave');
   });
 
-  it('creates the branch on the parent’s route, and closes', async () => {
+  it('creates the branch on the parent’s route with its first message, and closes', async () => {
     const d = await open();
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Provider' }).value).toBe(
       'openrouter',
     );
     await d.user.click(screen.getByRole('radio', { name: /Independent/ }));
-    await d.user.click(screen.getByRole('button', { name: 'Start tangent' }));
-    expect(d.store.createBranch).toHaveBeenCalledWith({
-      fromNodeId: 'a1',
-      contextMode: 'independent',
-      anchorQuote: 'a wave',
-      isPrivate: false,
-    });
+    await d.user.type(field(/Starting message/), 'Why?');
+    await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
+    expect(d.store.startBranch).toHaveBeenCalledWith(
+      { fromNodeId: 'a1', contextMode: 'independent', anchorQuote: 'a wave', isPrivate: false },
+      'Why?',
+    );
     expect(d.ui.dialogs.get('branch')).toBeNull();
+  });
+
+  it('makes nothing without a starting message: Create waits for one, Ctrl+Enter too', async () => {
+    const d = await open();
+    const create = screen.getByRole<HTMLButtonElement>('button', { name: 'Create and ask' });
+    expect(create.disabled).toBe(true);
+    await d.user.type(field(/Starting message/), '   ');
+    expect(create.disabled).toBe(true);
+    await d.user.keyboard('{Control>}{Enter}{/Control}');
+    expect(d.store.startBranch).not.toHaveBeenCalled();
+    expect(d.ui.dialogs.get('branch')).not.toBeNull();
   });
 
   it('with a starting message, creates and asks (Ctrl+Enter too)', async () => {
     const d = await open();
     await d.user.click(screen.getByRole('button', { name: 'Remove quote' }));
     await d.user.type(field(/Starting message/), 'Why?');
-    expect(screen.getByRole('button', { name: 'Create and ask' })).toBeTruthy();
     await d.user.keyboard('{Control>}{Enter}{/Control}');
     expect(d.store.startBranch).toHaveBeenCalledWith(
       expect.objectContaining({ fromNodeId: 'a1', anchorQuote: null }),
@@ -119,9 +126,26 @@ describe('Tangent from here (power)', () => {
     const route = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Provider' });
     expect(route.value).toBe('openrouter@credit');
     expect(route.selectedOptions[0]?.textContent?.trim()).toBe('Tangent credit');
-    await d.user.click(screen.getByRole('button', { name: 'Start tangent' }));
-    expect(d.store.createBranch).toHaveBeenCalledWith(
+    await d.user.type(field(/Starting message/), 'Why?');
+    await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
+    expect(d.store.startBranch).toHaveBeenCalledWith(
       expect.objectContaining({ providerId: 'openrouter', funding: 'credit', model: 'vendor/x' }),
+      'Why?',
+    );
+  });
+
+  it('opened on a route (a reviewer’s model), starts the tangent there', async () => {
+    const d = await open({
+      route: { providerId: 'openrouter', funding: 'credit', model: 'vendor/m' },
+    });
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Provider' }).value).toBe(
+      'openrouter@credit',
+    );
+    await d.user.type(field(/Starting message/), 'Is it right?');
+    await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
+    expect(d.store.startBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'openrouter', funding: 'credit', model: 'vendor/m' }),
+      'Is it right?',
     );
   });
 
@@ -129,6 +153,6 @@ describe('Tangent from here (power)', () => {
     const d = await open();
     await d.user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(d.ui.dialogs.get('branch')).toBeNull();
-    expect(d.store.createBranch).not.toHaveBeenCalled();
+    expect(d.store.startBranch).not.toHaveBeenCalled();
   });
 });

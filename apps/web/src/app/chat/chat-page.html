@@ -102,7 +102,6 @@
                   : 'Go on a tangent quoting the selection, keeping the conversation so far'
               "
               [moreLabel]="selectionLocked() ? null : 'More: Tangent from here with this quote…'"
-              [busy]="asking()"
               (ask)="askAbout(q)"
               (more)="moreAbout(q)"
             />
@@ -131,7 +130,12 @@
             (send)="send($event)"
             (stop)="stop()"
             (compare)="compare($event)"
-          />
+          >
+            <!-- The words the message asks about; dropping them leaves the focus in the box. -->
+            @if (quote(); as q) {
+              <app-composer-quote composerLead [quote]="q.quote" (dropped)="dropQuote()" />
+            }
+          </app-composer>
           <!-- The branch's provider, payer and model: changeable before any send. -->
           <app-route-bar />
         }

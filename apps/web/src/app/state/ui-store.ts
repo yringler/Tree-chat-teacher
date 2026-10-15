@@ -1,5 +1,6 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { Overlays, SidebarState } from '@tangent/web-shared';
+import type { BranchFunding } from '@tangent/shared';
 
 export interface BranchDialogState {
   fromNodeId: string;
@@ -10,6 +11,8 @@ export interface BranchDialogState {
    * gear): the dialog sends it and asks for no starting message of its own.
    */
   message?: string;
+  /** The route the tangent starts on (a reviewer's model), instead of the parent's. */
+  route?: { providerId: string; funding: BranchFunding; model: string };
   /** Called once the branch exists (e.g. to clear the field the message came from). */
   onCreated?: () => void;
 }

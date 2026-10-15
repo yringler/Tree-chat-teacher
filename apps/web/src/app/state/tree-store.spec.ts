@@ -709,23 +709,21 @@ describe('TreeStore branching with a first message', () => {
     expect(s.go).toHaveBeenLastCalledWith('side', null);
   });
 
-  it('"Ask about this" opens a path branch quoting the selection, ready to type and unsent', async () => {
+  it('"Ask about this" makes a path branch quoting the selection, with its question', async () => {
     const s = open();
-    vi.mocked(s.composer.focus).mockClear();
-    const branch = await s.store.createBranch({
-      fromNodeId: 'a1',
-      contextMode: 'path',
-      anchorQuote: 'a wave',
-    });
+    const branch = await s.store.askFrom('a1', 'Of what?', 'a wave');
     expect(branch?.id).toBe('side');
-    expect(s.createBranch).toHaveBeenCalledWith({
-      fromNodeId: 'a1',
-      contextMode: 'path',
-      anchorQuote: 'a wave',
-    });
+    expect(s.createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ fromNodeId: 'a1', contextMode: 'path', anchorQuote: 'a wave' }),
+    );
     expect(s.go).toHaveBeenCalledWith('side');
-    expect(s.composer.focus).toHaveBeenCalledTimes(1);
-    expect(s.sendMessage).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(s.sendMessage).toHaveBeenCalledWith(
+        'side',
+        { content: 'Of what?' },
+        expect.any(AbortSignal),
+      ),
+    );
   });
 
   it('a branch that cannot be created sends nothing (the caller keeps the text)', async () => {
