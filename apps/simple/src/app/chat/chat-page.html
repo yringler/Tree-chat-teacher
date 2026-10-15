@@ -146,8 +146,11 @@
   }
 
   <div class="composer-dock">
-    <!-- Not while a coach mark has the learner's attention. -->
-    <app-jump-to-end [shown]="thread.farFromEnd() && !coachShowing()" (jump)="thread.toEnd()" />
+    <!-- Not while a coach mark has the learner's attention, nor over "Ask about this" just above. -->
+    <app-jump-to-end
+      [shown]="thread.farFromEnd() && !coachShowing() && !pendingAsk.value()"
+      (jump)="thread.toEnd()"
+    />
     @if (poolBlock(); as block) {
       <app-pool-block-notice
         [block]="block"

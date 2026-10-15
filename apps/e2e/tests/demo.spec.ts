@@ -332,6 +332,57 @@ test('Learn demo: tangents open where they start; the path, sidebar and keys fin
   expect(errors).toEqual([]);
 });
 
+/** `el` lies wholly inside the thread's scrolled view (the page's viewport also holds the header and composer). */
+function inThreadView(el: Locator): Promise<boolean> {
+  return el.evaluate((node) => {
+    const view = node.closest('.messages')?.getBoundingClientRect();
+    const r = node.getBoundingClientRect();
+    return !!view && r.top >= view.top && r.bottom <= view.bottom;
+  });
+}
+
+test('Learn demo: each tangent started from a reply shows its question, not only the first', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  await skipTour(page);
+  const reply = page.locator('.msg-assistant').last();
+  await expect(reply).toBeVisible();
+  for (const round of [1, 2]) {
+    // After the first, the rest of the suggestions are folded under the tangent taken.
+    const more = reply.getByRole('button', { name: /more suggested/ });
+    if (round > 1) await more.click();
+    const suggestion = reply.getByRole('button', { name: /^Start a tangent: / }).first();
+    await suggestion.click();
+    await expect(page).toHaveURL(/\/b\//);
+    const question = page.locator('.msg-user:not(.msg-ancestor)').first();
+    await expect.poll(() => inThreadView(question)).toBe(true);
+    await page.goBack();
+    await expect(page).not.toHaveURL(/\/b\//);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('Learn demo: "Ask about this" on an earlier reply takes the tap, not the jump to the end', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  await skipTour(page);
+  // Read back up to the first reply, far from the end.
+  const first = page.locator('.msg-assistant').first();
+  await first.scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: 'Jump to the end' })).toBeVisible();
+  await selectText(first, 'By copying owls');
+  await page.getByRole('button', { name: 'Ask about this' }).click();
+  await expect(page.getByRole('textbox').last()).toHaveAttribute('placeholder', 'Ask about this…');
+  expect(errors).toEqual([]);
+});
+
 test('Learn demo: the lesson text size scales the messages only, and is remembered', async ({
   page,
 }) => {

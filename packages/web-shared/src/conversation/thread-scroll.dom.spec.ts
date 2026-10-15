@@ -91,6 +91,23 @@ describe('ThreadScroll', () => {
     expect(p.view.scrollTop).toBe(2900);
   });
 
+  it('a tangent just started opens at its end, though the thread changing under the view scrolls it first', async () => {
+    const p = await page();
+    // Read up the main thread, away from its end, then a tangent is started there.
+    source.selectedBranchId.set('side');
+    source.path.set([
+      ...source.path(),
+      node('u2', { branchId: 'side', parentId: 'a1', seq: 2, role: 'user', content: 'Why?' }),
+    ]);
+    TestBed.tick();
+    // The thread on screen is now shorter: the browser moves the view and
+    // tells the page before the next frame, which no reader did.
+    p.view.height = 2000;
+    p.view.scrollBy(0);
+    await new Promise(requestAnimationFrame);
+    expect(p.view.scrollTop).toBe(1500);
+  });
+
   it('a short way glides, unless the reader asked for less motion', async () => {
     lessMotion(false);
     const p = await page();
