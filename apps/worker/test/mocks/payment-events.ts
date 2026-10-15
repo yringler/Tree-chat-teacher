@@ -18,30 +18,27 @@ export function fakeRef(object: string): ProviderRef {
   return `fake:${object}:${uniq(object)}` as ProviderRef;
 }
 
-/** A credits payment: a $10 personal top-up with an 80¢ fee unless told otherwise. */
+/** A credits payment: $10 paid for $9.20 of credit unless told otherwise. */
 export function paid(
   o: {
     userId?: string | null;
     netCents?: number;
-    feeCents?: number | null;
-    estimated?: boolean;
+    creditCents?: number;
     currency?: string;
     customerRef?: string | null;
     paymentRef?: ProviderRef;
   } = {},
 ): PaymentSucceeded {
-  const fee = o.feeCents === null ? null : { cents: o.feeCents ?? 80, estimated: !!o.estimated };
   return {
     type: 'payment.succeeded',
     provider: 'fake',
     occurredAt: NOW,
     paymentRef: o.paymentRef ?? fakeRef('order'),
-    purpose: { kind: 'credits' },
+    purpose: { kind: 'credits', creditCents: o.creditCents ?? 920 },
     userId: o.userId === undefined ? null : o.userId,
     customerRef: o.customerRef ?? null,
     currency: o.currency ?? 'usd',
     netCents: o.netCents ?? 1000,
-    fee,
   };
 }
 
@@ -60,14 +57,13 @@ export function membershipPaid(
     customerRef: null,
     currency: 'usd',
     netCents: o.netCents ?? 1000,
-    fee: { cents: 100, estimated: false },
   };
 }
 
 /** The facts `getPayment` reports for `event` (the fake provider's `payments` option). */
 export function factsOf(event: PaymentSucceeded): PaymentFacts {
-  const { paymentRef, purpose, userId, customerRef, currency, netCents, fee } = event;
-  return { paymentRef, purpose, userId, customerRef, currency, netCents, fee };
+  const { paymentRef, purpose, userId, customerRef, currency, netCents } = event;
+  return { paymentRef, purpose, userId, customerRef, currency, netCents };
 }
 
 export function refunded(

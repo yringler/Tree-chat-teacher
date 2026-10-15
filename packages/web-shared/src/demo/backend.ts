@@ -27,8 +27,7 @@ import {
   chargeMicros,
   costUsdToNanos,
   DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
-  DEFAULT_MARKUP_BPS,
-  DEFAULT_OPENROUTER_FEE_BPS,
+  DEFAULT_SERVICE_FEE,
   DEFAULT_SYSTEM_PROMPT,
   MAX_TOP_UP_CENTS,
   MICROS_PER_USD,
@@ -765,7 +764,7 @@ export class DemoBackend {
     return this.mode === 'simple' && this.balanceMicros - this.heldMicros <= 0;
   }
 
-  /** Meters every provider call like the Worker's usage meter: hold, then settle at the default fee and markup. */
+  /** Meters every provider call like the Worker's usage meter: hold, then settle at the list price. */
   private async *meter(
     inner: LlmProvider,
     request: GenerateRequest,
@@ -801,11 +800,8 @@ export class DemoBackend {
       if (costUsd === null) {
         entry.status = 'unresolved'; // cancelled or failed: not charged
       } else {
-        const charge = chargeMicros(
-          costUsdToNanos(costUsd),
-          DEFAULT_MARKUP_BPS,
-          DEFAULT_OPENROUTER_FEE_BPS,
-        );
+        // Credit pays the list price, as on the server.
+        const charge = chargeMicros(costUsdToNanos(costUsd), 0, 0);
         entry.status = 'settled';
         entry.chargeMicros = charge;
         this.balanceMicros -= charge;
@@ -823,8 +819,7 @@ export class DemoBackend {
       balanceMicros: this.balanceMicros,
       heldMicros: this.heldMicros,
       availableMicros: this.balanceMicros - this.heldMicros,
-      markupBps: DEFAULT_MARKUP_BPS,
-      openRouterFeeBps: DEFAULT_OPENROUTER_FEE_BPS,
+      serviceFee: DEFAULT_SERVICE_FEE,
       lastPurchase: null,
       minTopUpCents: MIN_TOP_UP_CENTS,
       maxTopUpCents: MAX_TOP_UP_CENTS,

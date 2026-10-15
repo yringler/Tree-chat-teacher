@@ -14,7 +14,6 @@ const CONFIG: PolarConfig = {
   server: 'sandbox',
   creditsProductId: 'prod_credits',
   membershipProductId: 'prod_membership',
-  feeEstimate: { bps: 500, fixedCents: 50 },
 };
 const polar = createPolarProvider(CONFIG);
 const MOCK = 'https://sandbox-api.polar.sh';
@@ -44,7 +43,8 @@ describe('Polar checkouts', () => {
     const b = buyer();
     const session = await polar.createTopUpCheckout({
       buyer: b,
-      amountCents: 2500,
+      creditCents: 2000,
+      amountCents: 2450,
       successUrl: 'https://app.example/learn/billing?checkout=success',
       cancelUrl: 'https://app.example/learn/billing?checkout=cancel',
     });
@@ -59,7 +59,7 @@ describe('Polar checkouts', () => {
         prod_credits: [
           {
             amount_type: 'fixed',
-            price_amount: 2500,
+            price_amount: 2450,
             price_currency: 'usd',
             tax_behavior: 'exclusive',
           },
@@ -73,7 +73,8 @@ describe('Polar checkouts', () => {
         kind: 'credits',
         target: 'personal',
         userId: b.userId,
-        v: 1,
+        creditCents: 2000,
+        v: 2,
       },
       success_url: 'https://app.example/learn/billing?checkout=success',
       return_url: 'https://app.example/learn/billing?checkout=cancel',
@@ -96,7 +97,7 @@ describe('Polar checkouts', () => {
       external_customer_id: b.userId,
       customer_email: b.email,
       customer_name: 'Ada',
-      metadata: { kind: 'membership', userId: b.userId, v: 1 },
+      metadata: { kind: 'membership', userId: b.userId, v: 2 },
       success_url: 'https://s',
       return_url: 'https://c',
     });

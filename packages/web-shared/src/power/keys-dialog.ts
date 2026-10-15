@@ -27,10 +27,8 @@ import { ToastStore } from '../ui/toasts';
 import { PowerConversationStore } from './power-conversation-store';
 
 /** The one line that says what a call on Tangent credit costs. */
-export function creditFeeSentence(
-  b: Pick<BillingSummary, 'openRouterFeeBps' | 'markupBps'>,
-): string {
-  return `Each call costs ${creditFeeText(b.markupBps, b.openRouterFeeBps)}, taken from your credit.`;
+export function creditFeeSentence(b: Pick<BillingSummary, 'serviceFee'>): string {
+  return `Each call costs ${creditFeeText(b.serviceFee)}, taken from your credit.`;
 }
 
 /**

@@ -534,15 +534,14 @@ export const creditGrants = sqliteTable(
     kind: text('kind', {
       enum: ['purchase', 'refund', 'adjustment'],
     }).notNull(),
-    /** Signed: refunds are negative. For purchases, the credit net of the processing fee. */
+    /** Signed: refunds are negative. For purchases, the credit bought. */
     amountMicros: integer('amount_micros').notNull(),
     /**
-     * Purchases: the pre-tax amount paid (`amount + fee` for personal credit); refunds and
-     * disputes: minus the refunded pre-tax amount, unclamped. Null for adjustments and the
-     * oldest refunds.
+     * Purchases: the pre-tax amount paid (`amount + fee`); refunds and disputes: minus the
+     * credit they take back, unclamped. Null for adjustments and the oldest refunds.
      */
     grossMicros: integer('gross_micros'),
-    /** Purchases: the payment provider's actual processing fee, deducted from the credit. */
+    /** Purchases: the service fee paid on top of the credit. */
     feeMicros: integer('fee_micros').notNull().default(0),
     /** The buyer or beneficiary (Better Auth user id); null on the oldest rows and pool adjustments. */
     userId: text('user_id'),

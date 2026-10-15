@@ -79,14 +79,14 @@ The built-in provider is OpenRouter on the operator's key (the endpoint `openrou
 - `LEARN_SYSTEM_PROMPT`: var; default `DEFAULT_SYSTEM_PROMPT` (`packages/shared`). Built-in prompt of new Learn trees, the tutor prompt every Learn reply sends first, and of the pool when `POOL_SYSTEM_PROMPT` is empty. Power users set their own. An override should ask for the suggestions block as the built-in prompt does, each line tagged `[continue]` or `[tangent]`: an untagged suggestion shows under **Tangents**, never **Keep going**.
 - `BACKGROUND_MODEL`: var; default `deepseek/deepseek-v4.1-flash`. Learn's summaries and titles, and the pool's model when `POOL_MODEL` is empty. Not a tier: today it is Normal's model, asked differently.
 - `BACKGROUND_EFFORT`: var; default `low` on the default background model, else the model's own. The effort of summaries and titles, in Learn and on the pool. They run on Normal's (or the pool's) listing of the model, so they share its pinned providers.
-- `MODEL_PRICES`: var; default the built-in table (`DEFAULT_MODEL_PRICES` in `config.ts`). JSON merged over the price table, micro-USD per million tokens: `{"<model>": {"in": 150000, "out": 600000, "context": 1048576, "feeBps": 550, "cacheRead": 3000, "cacheWrite": 0}}` (`feeBps` defaults to `OPENROUTER_FEE_BPS`, the cache prices to the input price). A daily cron syncs OpenRouter's list prices; an entry here wins over the synced price. Credit and the pool hold each call at its model's price, so a model without one can't run on either. The shipped `wrangler.jsonc` pins V4.1 Flash at its pinned providers' price ($0.15 / $0.60): OpenRouter's model-level list price is no route's price, and as the pool's `max_price` it would admit only fp4 endpoints.
+- `MODEL_PRICES`: var; default the built-in table (`DEFAULT_MODEL_PRICES` in `config.ts`). JSON merged over the price table, micro-USD per million tokens: `{"<model>": {"in": 150000, "out": 600000, "context": 1048576, "feeBps": 550, "cacheRead": 3000, "cacheWrite": 0}}` (`feeBps`, which only the open pool's costs use, defaults to `OPENROUTER_FEE_BPS`; the cache prices to the input price). A daily cron syncs OpenRouter's list prices; an entry here wins over the synced price. Credit and the pool hold each call at its model's price, so a model without one can't run on either. The shipped `wrangler.jsonc` pins V4.1 Flash at its pinned providers' price ($0.15 / $0.60): OpenRouter's model-level list price is no route's price, and as the pool's `max_price` it would admit only fp4 endpoints.
 
 ## Credit, membership and payments
 
 How pricing works is in [operating.md](operating.md#how-pricing-works).
 
-- `MARKUP_BPS`: var; default `1000` (+10%). Margin on the true provider cost of a call on Tangent credit.
-- `OPENROUTER_FEE_BPS`: var; default `550` (5.5%). OpenRouter's fee on credit purchases, added to each call's reported cost before the markup. Raise it if you top OpenRouter up in amounts under ~$15, where its $0.80 minimum fee is more than 5.5%.
+- `SERVICE_FEE_BPS`, `SERVICE_FEE_FIXED_CENTS`: vars; default `2000` and `50` (20% + 50¢). The fee on a credit purchase, added to the credit bought: $5 of credit costs $6.50 before tax. Calls on credit cost the model's list price, so this fee is Tangent's margin and pays OpenRouter's and Polar's fees; at Polar's Starter rate (5% + 50¢) the defaults earn about what a 10% markup on usage did.
+- `OPENROUTER_FEE_BPS`: var; default `550` (5.5%). OpenRouter's fee on credit purchases, added to each open pool call's reported cost, as what the call truly costs the operator. Raise it if you top OpenRouter up in amounts under ~$15, where its $0.80 minimum fee is more than 5.5%.
 - `PERSONAL_CREDIT_ENABLED`: var; default `false`. `true` lets personal credit (e.g. granted by an admin) be spent before payments are configured; with payments it always may.
 - `ANNUAL_FEE_ENABLED`: var; default `false`. `true` charges the yearly membership: with `POLAR_MEMBERSHIP_PRODUCT_ID` and `KEY_ENCRYPTION_SECRET` set, generating on the user's own keys needs one, in Learn, power and Canvas alike. Tangent credit and the pool never do.
 - `MEMBERSHIP_PRICE_CENTS`: var; default `1000` ($10.00). The yearly price users are shown; Polar charges its product's price.
@@ -97,7 +97,6 @@ How pricing works is in [operating.md](operating.md#how-pricing-works).
 - `POLAR_SERVER`: var; default `sandbox`. `production` or `sandbox`. The default means a missing value never charges real cards.
 - `POLAR_CREDITS_PRODUCT_ID`: var; default none (no top-ups). The one-time product credit top-ups are sold as; each checkout sets its own USD price, tax exclusive.
 - `POLAR_MEMBERSHIP_PRODUCT_ID`: var; default none (no membership sold). The yearly membership product ($10, tax exclusive).
-- `POLAR_FEE_BPS`, `POLAR_FEE_FIXED_CENTS`: vars; default `500` and `50` (Polar's Starter plan, 5% + 50¢). Polar's fee as an estimate, used only when an order reports no usable fee (logged `fee_estimated`).
 
 ## The open pool
 

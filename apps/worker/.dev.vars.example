@@ -59,7 +59,7 @@ DEV_ALLOW_NO_AUTH=true
 # ANNUAL_FEE_ENABLED=false
 # A code that waives the membership fee for whoever enters it (empty = no code redemption):
 # MEMBERSHIP_WAIVER_CODE=
-# The markup is MARKUP_BPS (default 1000 = +10%).
+# The service fee on a top-up is SERVICE_FEE_BPS + SERVICE_FEE_FIXED_CENTS (default 2000 + 50 = 20% + 50¢).
 
 # --- Option C: the built-in provider on credit, offline (no OpenRouter, no payments). Works with Option A or B.
 # A fake built-in provider (Learn's Normal and Max tiers) that reports a fixed cost per call (the shape the worker tests use):

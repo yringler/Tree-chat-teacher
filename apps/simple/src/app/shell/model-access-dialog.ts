@@ -26,8 +26,8 @@ import { LearnFunding } from '../state/learn-funding';
  * How replies are paid for: the learner's own OpenRouter key (they pay
  * OpenRouter directly; where the membership is required, it needs one, so a
  * non-member sees it disabled with a link to the billing page), Tangent
- * credit (prepaid, on the built-in provider: the model's price plus the
- * markup, open to anyone, offered only when the server sells it), or the
+ * credit (prepaid, on the built-in provider: the model's list price, bought
+ * with a service fee, open to anyone, offered only when the server sells it), or the
  * open pool, while it is on. The key is read from the input only at submit
  * time, posted once and the field cleared: the server seals it into an
  * HttpOnly cookie this code can't read (the same cookie as power mode's
@@ -240,10 +240,10 @@ export class ModelAccessDialog {
   protected readonly price = computed(() =>
     formatCents(this.funding.membership()?.priceCents ?? 0),
   );
-  /** "the model's OpenRouter price + 5.5% OpenRouter fee + 10%", once billing is loaded. */
+  /** "the model's OpenRouter list price (each top-up adds a 20% + 50¢ service fee)", once billing is loaded. */
   protected readonly feeText = computed(() => {
     const b = this.funding.billing();
-    return b ? creditFeeText(b.markupBps, b.openRouterFeeBps) : null;
+    return b ? creditFeeText(b.serviceFee) : null;
   });
   /** "3 of 30 replies used today", once the learner's pool caps are loaded. */
   protected readonly poolUse = computed(() => {

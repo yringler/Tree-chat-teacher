@@ -16,11 +16,12 @@ import { DEFAULT_GROUNDING_POLICY, GROUNDING_POLICIES, type GroundingPolicy } fr
 import {
   BUILT_IN_MAX_OUTPUT_TOKENS,
   DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
-  DEFAULT_MARKUP_BPS,
   DEFAULT_OPENROUTER_FEE_BPS,
+  DEFAULT_SERVICE_FEE,
   DEFAULT_SYSTEM_PROMPT,
   isReasoningEffort,
   type ReasoningEffort,
+  type ServiceFee,
   SHARING_MODES,
   type SharingMode,
 } from '@tangent/shared';
@@ -90,7 +91,8 @@ export const CONFIG_VARS = [
   'BACKGROUND_EFFORT',
   'MODEL_PRICES',
   // Credit, membership and payments
-  'MARKUP_BPS',
+  'SERVICE_FEE_BPS',
+  'SERVICE_FEE_FIXED_CENTS',
   'OPENROUTER_FEE_BPS',
   'PERSONAL_CREDIT_ENABLED',
   'ANNUAL_FEE_ENABLED',
@@ -102,8 +104,6 @@ export const CONFIG_VARS = [
   'POLAR_SERVER',
   'POLAR_CREDITS_PRODUCT_ID',
   'POLAR_MEMBERSHIP_PRODUCT_ID',
-  'POLAR_FEE_BPS',
-  'POLAR_FEE_FIXED_CENTS',
   // The open pool
   'POOL_ENABLED',
   'POOL_MODEL',
@@ -182,9 +182,6 @@ const DEFAULT_GROUNDING_MAX_RESULTS = 5;
 const DEFAULT_GROUNDING_ENGINE = 'exa';
 /** OpenRouter accepts 1–25 results per search. */
 const MAX_GROUNDING_RESULTS = 25;
-/** Polar's Starter plan, 5% + 50¢ (international cards add 1.5% that this can't know). */
-const DEFAULT_POLAR_FEE_BPS = 500;
-const DEFAULT_POLAR_FEE_FIXED_CENTS = 50;
 /** Turnstile's published test secrets: always pass, always fail, token already spent. */
 const TURNSTILE_TEST_SECRETS: readonly string[] = [
   '1x0000000000000000000000000000000AA',
@@ -535,7 +532,9 @@ export interface AppConfig {
   /** The models `MODEL_PRICES` prices explicitly: their entry wins over a synced price. */
   priceOverrides: readonly string[];
   billing: {
-    markupBps: number;
+    /** The fee on a credit purchase (`SERVICE_FEE_BPS`, `SERVICE_FEE_FIXED_CENTS`). */
+    serviceFee: ServiceFee;
+    /** OpenRouter's credit-purchase fee: part of what the open pool's calls truly cost. */
     openRouterFeeBps: number;
     membershipPriceCents: number;
     /** `MEMBERSHIP_WAIVER_CODE`; null = no code redemption. */
@@ -784,10 +783,6 @@ function parse(env: AppEnv): AppConfig {
     server: enumVar('POLAR_SERVER', v('POLAR_SERVER'), ['sandbox', 'production'], 'sandbox'),
     creditsProductId: text('POLAR_CREDITS_PRODUCT_ID'),
     membershipProductId: text('POLAR_MEMBERSHIP_PRODUCT_ID'),
-    feeEstimate: {
-      bps: int('POLAR_FEE_BPS', DEFAULT_POLAR_FEE_BPS),
-      fixedCents: int('POLAR_FEE_FIXED_CENTS', DEFAULT_POLAR_FEE_FIXED_CENTS),
-    },
   };
   const turnstileSecretKey = text('TURNSTILE_SECRET_KEY');
   const turnstileTestSecret =
@@ -859,7 +854,10 @@ function parse(env: AppEnv): AppConfig {
     prices: prices.prices,
     priceOverrides: prices.overrides,
     billing: {
-      markupBps: int('MARKUP_BPS', DEFAULT_MARKUP_BPS),
+      serviceFee: {
+        bps: int('SERVICE_FEE_BPS', DEFAULT_SERVICE_FEE.bps),
+        fixedCents: int('SERVICE_FEE_FIXED_CENTS', DEFAULT_SERVICE_FEE.fixedCents),
+      },
       openRouterFeeBps: int('OPENROUTER_FEE_BPS', DEFAULT_OPENROUTER_FEE_BPS),
       membershipPriceCents: int('MEMBERSHIP_PRICE_CENTS', DEFAULT_MEMBERSHIP_PRICE_CENTS),
       membershipWaiverCode: text('MEMBERSHIP_WAIVER_CODE'),

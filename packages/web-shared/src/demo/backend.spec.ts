@@ -287,8 +287,8 @@ describe('demo backend', () => {
   it("charges a call what the Worker would: nothing when it cost nothing, never float drift's extra micro", async () => {
     for (const [costUsd, charge] of [
       [0, 0],
-      // 300_000_000 nano-USD × 1.055 × 1.10 is exactly 348_150 micro-USD; float math says 348_150.00…01.
-      [0.1 + 0.2, 348_150],
+      // 0.1 + 0.2 is 0.30000000000000004 in floats: exactly 300_000 micro-USD, not 300_001.
+      [0.1 + 0.2, 300_000],
     ] as const) {
       const lorem = createLoremProvider({ random: seededRandom(7), sleep: async () => undefined });
       const provider: LlmProvider = {

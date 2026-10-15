@@ -1,5 +1,5 @@
 import type { GroundingPolicy } from '@tangent/core';
-import { MAX_TOP_UP_CENTS, MIN_TOP_UP_CENTS } from '@tangent/shared';
+import { MAX_TOP_UP_CENTS, MIN_TOP_UP_CENTS, type ServiceFee } from '@tangent/shared';
 import { creditSold, ownKeyProviders } from '../availability.js';
 import { groundingDailyCap, groundingPolicy } from '../billing/grounding.js';
 import { membershipRequired } from '../billing/membership.js';
@@ -18,7 +18,7 @@ export interface Offer {
   membership: { priceCents: number } | null;
   /** Prepaid credit, while it is sold (`creditSold`): on OpenRouter, to anyone, member or not. */
   credit: {
-    markupBps: number;
+    serviceFee: ServiceFee;
     openRouterFeeBps: number;
     minTopUpCents: number;
     maxTopUpCents: number;
@@ -44,7 +44,7 @@ export function offerOf(env: AppEnv, sharing: boolean): Offer {
     membership: membershipRequired(env) ? { priceCents: billing.membershipPriceCents } : null,
     credit: creditSold(env)
       ? {
-          markupBps: billing.markupBps,
+          serviceFee: billing.serviceFee,
           openRouterFeeBps: billing.openRouterFeeBps,
           minTopUpCents: MIN_TOP_UP_CENTS,
           maxTopUpCents: MAX_TOP_UP_CENTS,

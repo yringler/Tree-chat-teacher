@@ -158,7 +158,7 @@ const tag: UsageTag = {
 };
 
 describe('usage meter', () => {
-  it('settles cost × 1.055 (OpenRouter fee) × 1.10 inline (no subscription), with tokens, tag and generation id', async () => {
+  it('settles the reported cost, the list price, inline (no subscription), with tokens, tag and generation id', async () => {
     const h = await harness();
     const gen = uniq('gen');
     const events = await h.run(
@@ -190,10 +190,10 @@ describe('usage meter', () => {
       provider_id: 'openrouter',
       model: 'max',
       hold_micros: 20_000,
-      markup_bps: 1000,
-      fee_bps: 550,
+      markup_bps: 0,
+      fee_bps: 0,
       cost_nanos: 1_234_000,
-      charge_micros: 1433, // ceil(1234 × 1.055 × 1.10 = 1432.057)
+      charge_micros: 1234,
       input_tokens: 12,
       output_tokens: 34,
     });
@@ -202,7 +202,7 @@ describe('usage meter', () => {
     expect((await h.rows())[0]!.generation_id).toBe(gen);
   });
 
-  it('settles at MARKUP_BPS, the same with a membership (no plan discounts)', async () => {
+  it('settles at the list price with a membership too, whatever the service fee', async () => {
     const account = simpleAccount();
     await insertSubscription(env, account.userId!, 'active');
     const h = await harness(account);
@@ -215,16 +215,16 @@ describe('usage meter', () => {
       {
         env: {
           ...env,
-          MARKUP_BPS: '500',
+          SERVICE_FEE_BPS: '500',
           ANNUAL_FEE_ENABLED: 'true',
         },
       },
     );
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
-      markup_bps: 500,
-      fee_bps: 550,
-      charge_micros: 1367, // ceil(1234 × 1.055 × 1.05 = 1366.96)
+      markup_bps: 0,
+      fee_bps: 0,
+      charge_micros: 1234,
     });
   });
 
@@ -255,7 +255,7 @@ describe('usage meter', () => {
     });
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
-      charge_micros: chargeMicros(costUsdToNanos(0.5), 1000, 550),
+      charge_micros: chargeMicros(costUsdToNanos(0.5), 0, 0),
     });
   });
 
@@ -293,8 +293,8 @@ describe('usage meter', () => {
       status: 'settled',
       generation_id: gen,
       cost_nanos: 2_000_000,
-      fee_bps: 550,
-      charge_micros: 2321, // 2000 × 1.055 × 1.10
+      fee_bps: 0,
+      charge_micros: 2000,
       input_tokens: 100,
       output_tokens: 7,
     });
@@ -303,7 +303,7 @@ describe('usage meter', () => {
     expect(calls.authorizations.every((a) => a === 'Bearer sk-or-simple-test')).toBe(true);
   });
 
-  it('records OPENROUTER_FEE_BPS on the row and reconciles an aborted run at it', async () => {
+  it('charges credit the list price whatever OPENROUTER_FEE_BPS is, reconciled too', async () => {
     const h = await harness();
     const gen = uniq('gen-fee');
     await scriptGeneration(gen, [{ costUsd: 0.001 }]);
@@ -315,12 +315,12 @@ describe('usage meter', () => {
       ],
       { env: custom },
     );
-    expect((await h.rows())[0]).toMatchObject({ status: 'pending', fee_bps: 800 });
+    expect((await h.rows())[0]).toMatchObject({ status: 'pending', fee_bps: 0 });
     await h.settleBackground();
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
-      fee_bps: 800,
-      charge_micros: 1188, // 1000 × 1.08 × 1.10
+      fee_bps: 0,
+      charge_micros: 1000,
     });
   });
 
@@ -360,7 +360,7 @@ describe('usage meter', () => {
       { env: custom },
     );
     await h.settleBackground();
-    expect((await h.rows())[0]).toMatchObject({ status: 'settled', charge_micros: 1161 });
+    expect((await h.rows())[0]).toMatchObject({ status: 'settled', charge_micros: 1000 });
     expect((await generationCalls(gen)).authorizations).toEqual(['Bearer sk-or-custom']);
   });
 
@@ -492,16 +492,16 @@ describe('usage meter holds on credit', () => {
       .get('openrouter')!
       .stream(request()))
       void _;
-    // 'hi' is 1 estimated token (chars / 3.5), + 4 for the message: 5 in, 100 out, with the fee
-    // and the markup.
+    // 'hi' is 1 estimated token (chars / 3.5), + 4 for the message: 5 in, 100 out, at the list
+    // price.
     const worst = chargeMicros(
       costFromTokensNanos(
         { inMicrosPerMTok: 150_000_000, outMicrosPerMTok: 600_000_000, contextTokens: 200_000 },
         5,
         100,
       ),
-      1000,
-      550,
+      0,
+      0,
     );
     expect(worst).toBeGreaterThan(USAGE_HOLD_MICROS);
     expect(held).toEqual([expect.objectContaining({ status: 'pending', hold_micros: worst })]);
@@ -598,7 +598,7 @@ describe('usage meter web searches', () => {
       status: 'settled',
       web_searches: 1,
       cost_nanos: 8_000_000,
-      charge_micros: chargeMicros(costUsdToNanos(0.008), 1000, 550),
+      charge_micros: 8000,
     });
   });
 

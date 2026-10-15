@@ -182,7 +182,7 @@ describe('GET /api/branches/:id/input-budget', () => {
     });
 
     // `simple` is priced at 1 µ$ a token each way (vitest.config.ts MODEL_PRICES); credit
-    // charges it with OpenRouter's fee (5.5%) and the markup (10%), as billing does.
+    // charges that list price, as billing does.
     const credit = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'normal' });
     const body = (await (
       await call(`/api/branches/${credit}/input-budget`)
@@ -191,7 +191,7 @@ describe('GET /api/branches/:id/input-budget', () => {
       model: 'normal',
       funding: 'credit',
       serverMaxInputTokens: CREDIT_CAP,
-      price: { inputUsdPerMTok: 1.1605, cacheReadUsdPerMTok: null, basis: 'credit' },
+      price: { inputUsdPerMTok: 1, cacheReadUsdPerMTok: null, basis: 'credit' },
     });
   });
 });

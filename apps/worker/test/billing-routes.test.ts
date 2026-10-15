@@ -99,7 +99,7 @@ describe('billing routes', () => {
       enabled: true,
       balanceMicros: 5_000_000,
       availableMicros: 5_000_000,
-      markupBps: 1000,
+      serviceFee: { bps: 2000, fixedCents: 50 },
     });
   });
 

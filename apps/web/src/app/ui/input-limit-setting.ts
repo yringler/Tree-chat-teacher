@@ -73,12 +73,11 @@ export function inputLimitNotes(
   if (info.price) {
     const { inputUsdPerMTok, cacheReadUsdPerMTok, basis } = info.price;
     const full = formatUsdEstimate(inputCostUsd(budget.tokens, inputUsdPerMTok));
-    // On credit: what the user pays (billing's list price × fee × markup); on the own key: the
-    // list price, which OpenRouter bills directly.
+    // Both are the list price: credit pays it, and OpenRouter bills the own key it directly.
     const at =
       basis === 'credit'
-        ? `on Tangent credit, which charges ${perMillion(inputUsdPerMTok)} per million tokens ` +
-          `of ${info.model}'s input (OpenRouter's price with its fee and Tangent's markup)`
+        ? `on Tangent credit, which charges ${info.model}'s OpenRouter list price ` +
+          `(${perMillion(inputUsdPerMTok)} per million tokens)`
         : `at ${info.model}'s OpenRouter list price (${perMillion(inputUsdPerMTok)} per million tokens)`;
     cost =
       `A message that sends all ${n(budget.tokens)} tokens costs about ${full} in input ${at}` +

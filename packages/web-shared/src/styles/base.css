@@ -1944,15 +1944,62 @@ app-node-picker {
   margin: 8px 0 12px;
 }
 
-.billing-custom {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px;
+.billing-preset[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
 }
 
-.billing-custom .field {
-  flex: 1 1 180px;
+.billing-custom {
+  max-width: 240px;
+}
+
+/* The top-up's price before checkout: credit, service fee, subtotal. */
+.billing-breakdown {
+  display: grid;
+  gap: 4px;
+  max-width: 360px;
+  margin: 16px 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.billing-breakdown > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.billing-breakdown dt {
+  color: var(--fg-muted);
+}
+
+.billing-breakdown dd {
+  margin: 0;
+}
+
+.billing-breakdown .billing-subtotal {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.billing-breakdown .billing-subtotal dt {
+  color: var(--fg);
+}
+
+.billing-checkout-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.billing-checkout-row .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .billing-amount {

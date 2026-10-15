@@ -61,10 +61,9 @@ export interface InputBudgetResponse {
    * What a million input tokens cost, and a million read from the prompt
    * cache (null when unknown), in USD; null when the server has no price for
    * the model (or, on the own key, the route isn't OpenRouter's, whose prices
-   * the table holds). `basis` says which price it is: `credit`, what Tangent
-   * credit charges (OpenRouter's list price with its credit-purchase fee and
-   * Tangent's markup, as billing works it out); `list`, OpenRouter's list
-   * price, which it bills the user's own key directly.
+   * the table holds). Either way it is OpenRouter's list price; `basis` says
+   * who charges it: `credit`, Tangent credit; `list`, OpenRouter, which bills
+   * the user's own key directly.
    */
   price: {
     inputUsdPerMTok: number;

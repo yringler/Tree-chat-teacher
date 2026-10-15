@@ -108,10 +108,9 @@ describe('membership copy', () => {
   });
 
   it('spells out the price of a call on credit', () => {
-    expect(creditFeeText(1000, 550)).toBe(
-      "the model's OpenRouter price + 5.5% OpenRouter fee + 10%",
+    expect(creditFeeText({ bps: 2000, fixedCents: 50 })).toBe(
+      "the model's OpenRouter list price (each top-up adds a 20% + 50¢ service fee)",
     );
-    expect(creditFeeText(0, 0)).toBe("the model's OpenRouter price");
   });
 });
 

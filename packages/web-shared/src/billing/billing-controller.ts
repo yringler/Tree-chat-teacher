@@ -6,11 +6,12 @@ import type {
   UsageEntry,
   UsageListResponse,
 } from '@tangent/shared';
-import { MAX_TOP_UP_CENTS, MIN_TOP_UP_CENTS } from '@tangent/shared';
+import { MAX_TOP_UP_CENTS, MIN_TOP_UP_CENTS, serviceFeeCents } from '@tangent/shared';
+import type { PortalTab } from '../core/billing-client';
 import { parseDollarsToCents, topUpError } from './format';
 import { type MembershipUpgrader, subscribeToMembership } from './membership';
 
-/** One-click top-up amounts, in cents. */
+/** The top-up amounts offered as buttons, in cents of credit. */
 export const TOP_UP_PRESETS_CENTS: readonly number[] = [500, 1000, 2000, 5000];
 
 /** After `?checkout=success`, poll `GET /api/billing` this often, this many times. */
@@ -30,10 +31,12 @@ export interface BillingDeps {
     usage(cursor?: string | null, limit?: number): Promise<UsageListResponse>;
     createCheckout(amountCents: number): Promise<CheckoutResponse>;
   };
-  /** `BillingClient`: `upgrade` subscribes to the membership, `portal` manages it. */
+  /** `BillingClient`: `upgrade` subscribes to the membership, `portal` manages it in a tab. */
   billing: MembershipUpgrader & {
-    portal(): Promise<void>;
+    portal(tab: PortalTab): Promise<void>;
   };
+  /** Opens the tab the portal shows in (`openPortalTab`); called during the click that asks for it. */
+  openTab(): PortalTab;
   /** Leaves the app for the payment provider's checkout (`location.assign`). */
   navigate(url: string): void;
   /** Drops `?checkout=...` from the address bar so a reload doesn't poll again. */
@@ -50,11 +53,16 @@ export interface BillingDeps {
  */
 export type CheckoutNotice = 'waiting' | 'activated' | 'credited' | 'slow' | 'cancelled';
 
+/** A top-up before checkout: the credit chosen, the service fee on it, and their sum before tax. */
+export interface TopUpBreakdown {
+  creditCents: number;
+  feeCents: number;
+  subtotalCents: number;
+}
+
 /** Which action is talking to the payment provider (every action button is disabled meanwhile). */
 export type PendingAction =
-  | { kind: 'top-up'; cents: number; source: 'preset' | 'custom' }
-  | { kind: 'subscribe' }
-  | { kind: 'portal' };
+  { kind: 'top-up'; cents: number } | { kind: 'subscribe' } | { kind: 'portal' };
 
 /** State and actions of the billing page, framework-light so it can be unit tested. */
 export class BillingController {
@@ -72,7 +80,9 @@ export class BillingController {
   readonly actionError = signal<string | null>(null);
   readonly notice = signal<CheckoutNotice | null>(null);
 
-  /** Raw text of the custom amount field; `customTouched` delays the error until a submit. */
+  /** The preset amount picked, if any; typing an amount of their own clears it. */
+  readonly selectedPreset = signal<number | null>(null);
+  /** Raw text of the custom amount field; `customTouched` delays the error until a blur or submit. */
   readonly customInput = signal('');
   readonly customTouched = signal(false);
 
@@ -86,6 +96,18 @@ export class BillingController {
     topUpError(this.customCents(), this.minCents(), this.maxCents()),
   );
   readonly busy = computed(() => this.pending() !== null);
+  /** The credit to buy: the preset picked, else a valid typed amount; null = nothing to buy yet. */
+  readonly selectedCents = computed(
+    () => this.selectedPreset() ?? (this.customError() === null ? this.customCents() : null),
+  );
+  /** What the chosen credit costs before tax, once the summary (with its service fee) is loaded. */
+  readonly breakdown = computed((): TopUpBreakdown | null => {
+    const creditCents = this.selectedCents();
+    const fee = this.summary()?.serviceFee;
+    if (creditCents === null || !fee) return null;
+    const feeCents = serviceFeeCents(creditCents, fee);
+    return { creditCents, feeCents, subtotalCents: creditCents + feeCents };
+  });
 
   private readonly sleep: (ms: number) => Promise<void>;
   private destroyed = false;
@@ -174,29 +196,31 @@ export class BillingController {
     this.notice.set(null);
   }
 
-  async topUp(cents: number, source: 'preset' | 'custom' = 'preset'): Promise<void> {
-    if (this.busy()) return;
-    const error = topUpError(cents, this.minCents(), this.maxCents());
-    if (error) {
-      this.actionError.set(error);
-      return;
-    }
-    await this.leaveFor({ kind: 'top-up', cents, source }, async () => {
-      const { url } = await this.deps.api.createCheckout(cents);
-      this.deps.navigate(url);
-    });
-  }
-
-  async topUpCustom(): Promise<void> {
-    this.customTouched.set(true);
-    const cents = this.customCents();
-    if (this.customError() || cents === null) return;
-    await this.topUp(cents, 'custom');
+  selectPreset(cents: number): void {
+    this.selectedPreset.set(cents);
+    this.customInput.set('');
+    this.customTouched.set(false);
+    this.actionError.set(null);
   }
 
   setCustomInput(value: string): void {
+    this.selectedPreset.set(null);
     this.customInput.set(value);
     this.actionError.set(null);
+  }
+
+  /** Add credit: the secure checkout for the amount chosen, back to this page. */
+  async addCredit(): Promise<void> {
+    if (this.busy()) return;
+    const cents = this.selectedCents();
+    if (cents === null) {
+      this.customTouched.set(true);
+      return;
+    }
+    await this.leaveFor({ kind: 'top-up', cents }, async () => {
+      const { url } = await this.deps.api.createCheckout(cents);
+      this.deps.navigate(url);
+    });
   }
 
   /** Subscribe: the secure checkout for the yearly membership, back to this page. */
@@ -205,10 +229,22 @@ export class BillingController {
     await this.leaveFor({ kind: 'subscribe' }, () => subscribeToMembership(this.deps.billing));
   }
 
-  /** Manage billing: the billing portal, back to this page. */
+  /**
+   * Manage billing: the portal opens in a new tab, so this page stays. The tab is
+   * opened here, synchronously, so the click still allows it.
+   */
   async manage(): Promise<void> {
     if (this.busy()) return;
-    await this.leaveFor({ kind: 'portal' }, () => this.deps.billing.portal(), portalMessage);
+    const tab = this.deps.openTab();
+    this.pending.set({ kind: 'portal' });
+    this.actionError.set(null);
+    try {
+      await this.deps.billing.portal(tab);
+    } catch (err) {
+      this.actionError.set(portalMessage(err));
+    } finally {
+      this.pending.set(null);
+    }
   }
 
   /** A redeemed code changed the membership (no reload needed). */
@@ -229,17 +265,13 @@ export class BillingController {
    * Runs a step that ends in a navigation to the payment provider. On success the page is
    * unloading, so `pending` stays set (no double clicks while it goes).
    */
-  private async leaveFor(
-    action: PendingAction,
-    step: () => Promise<void>,
-    describe: (err: unknown) => string = messageOf,
-  ): Promise<void> {
+  private async leaveFor(action: PendingAction, step: () => Promise<void>): Promise<void> {
     this.pending.set(action);
     this.actionError.set(null);
     try {
       await step();
     } catch (err) {
-      this.actionError.set(describe(err));
+      this.actionError.set(messageOf(err));
       this.pending.set(null);
     }
   }

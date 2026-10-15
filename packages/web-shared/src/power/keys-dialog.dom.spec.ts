@@ -31,7 +31,10 @@ async function open(opts: { builtInCredit?: boolean; keysEnabled?: boolean } = {
   const api = {
     billing: vi.fn(
       async () =>
-        ({ availableMicros: 1_500_000, markupBps: 1000, openRouterFeeBps: 550 }) as BillingSummary,
+        ({
+          availableMicros: 1_500_000,
+          serviceFee: { bps: 2000, fixedCents: 50 },
+        }) as BillingSummary,
     ),
     saveKey: vi.fn(async (_provider: string, _key: string) => undefined),
     forgetKey: vi.fn(async (_provider?: string) => undefined),

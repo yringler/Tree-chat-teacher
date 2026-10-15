@@ -47,13 +47,13 @@ async function newUser(): Promise<string> {
 describe('disputes', () => {
   it('debits a disputed top-up once and credits it back once when won', async () => {
     const userId = await newUser();
-    const payment = paid({ userId, netCents: 1000, feeCents: 80 });
+    const payment = paid({ userId, netCents: 1000, creditCents: 920 });
     await apply(payment);
     const ref = fakeRef('dispute');
     const opened = disputed('dispute.opened', payment.paymentRef, 1000, ref);
     expect(await apply(opened)).toBe('applied');
     expect(await apply(opened)).toBe('duplicate');
-    expect(await balance(`u_${userId}`)).toBe(-800_000);
+    expect(await balance(`u_${userId}`)).toBe(0);
     const won = disputed('dispute.won', payment.paymentRef, 1000, ref);
     expect(await apply(won)).toBe('applied');
     expect(await apply(won)).toBe('duplicate');
@@ -64,13 +64,13 @@ describe('disputes', () => {
   it('a dispute first seen as lost debits once and suspends the buyer once', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();
-    const payment = paid({ userId, netCents: 1000, feeCents: 80 });
+    const payment = paid({ userId, netCents: 1000, creditCents: 920 });
     await apply(payment);
     const lost = disputed('dispute.lost', payment.paymentRef, 1000);
     expect(await apply(lost)).toBe('applied');
     expect(
       (await grantDetailsFor(env, `u_${userId}`)).find((g) => g.provider_ref === lost.disputeRef),
-    ).toMatchObject({ kind: 'refund', amount_micros: -10_000_000, gross_micros: -10_000_000 });
+    ).toMatchObject({ kind: 'refund', amount_micros: -9_200_000, gross_micros: -9_200_000 });
     expect((await poolAccess(userId))?.pool_suspended).toBe(1);
     // An admin lifts the suspension; the poller keeps seeing the dispute as lost.
     await env.DB.prepare('UPDATE auth_users SET pool_suspended = 0 WHERE id = ?')
@@ -78,7 +78,7 @@ describe('disputes', () => {
       .run();
     expect(await apply(lost)).toBe('duplicate');
     expect((await poolAccess(userId))?.pool_suspended).toBe(0);
-    expect(await balance(`u_${userId}`)).toBe(-800_000);
+    expect(await balance(`u_${userId}`)).toBe(0);
     // The suspension is remembered as a marker, not as a zero-amount ledger row.
     expect(await markersOf(lost.disputeRef)).toEqual({
       markers: [`${lost.disputeRef}:lost`],
@@ -138,43 +138,43 @@ describe('disputes', () => {
 });
 
 describe('refunds and disputes of the same purchase', () => {
-  it('take back at most what the purchase paid, together, in either order', async () => {
+  it('take back at most what the purchase credited, together, in either order', async () => {
     const userId = await newUser();
     // Refunded in full, then disputed: the dispute finds nothing left to take.
-    const a = paid({ userId, netCents: 1000, feeCents: 80 });
+    const a = paid({ userId, netCents: 1000, creditCents: 920 });
     await apply(a);
     await apply(refunded(a.paymentRef, 1000));
     const lateDispute = disputed('dispute.opened', a.paymentRef, 1000);
     expect(await apply(lateDispute)).toBe('applied');
-    expect(await balance(`u_${userId}`)).toBe(-800_000);
-    await apply(paid({ userId, netCents: 500, feeCents: 0 }));
+    expect(await balance(`u_${userId}`)).toBe(0);
+    await apply(paid({ userId, netCents: 500, creditCents: 500 }));
     // Won: it took nothing, so it gives nothing back.
     const lateWon = disputed('dispute.won', a.paymentRef, 1000, lateDispute.disputeRef);
     expect(await apply(lateWon)).toBe('applied');
-    expect(await balance(`u_${userId}`)).toBe(4_200_000);
+    expect(await balance(`u_${userId}`)).toBe(5_000_000);
 
     // Disputed, then 40% refunded (nothing more to take), then the dispute is won:
-    // the refund's $4 stays taken.
+    // the refund's 40% of the credit ($3.68) stays taken.
     const other = await newUser();
-    const b = paid({ userId: other, netCents: 1000, feeCents: 80 });
+    const b = paid({ userId: other, netCents: 1000, creditCents: 920 });
     await apply(b);
     const ref = fakeRef('dispute');
     await apply(disputed('dispute.opened', b.paymentRef, 1000, ref));
     await apply(refunded(b.paymentRef, 400));
-    expect(await balance(`u_${other}`)).toBe(-800_000);
+    expect(await balance(`u_${other}`)).toBe(0);
     await apply(disputed('dispute.won', b.paymentRef, 1000, ref));
-    expect(await balance(`u_${other}`)).toBe(5_200_000);
+    expect(await balance(`u_${other}`)).toBe(5_520_000);
     // Replays change nothing.
     await apply(disputed('dispute.won', b.paymentRef, 1000, ref));
     await apply(disputed('dispute.opened', b.paymentRef, 1000, ref));
-    expect(await balance(`u_${other}`)).toBe(5_200_000);
+    expect(await balance(`u_${other}`)).toBe(5_520_000);
   });
 });
 
 describe('pollDisputes', () => {
   it('applies each polled dispute, and a second poll is a no-op', async () => {
     const userId = await newUser();
-    const payment = paid({ userId, netCents: 1000, feeCents: 80 });
+    const payment = paid({ userId, netCents: 1000, creditCents: 920 });
     await apply(payment);
     const provider = createFakeProvider({
       disputes: [disputed('dispute.opened', payment.paymentRef, 1000)],
@@ -189,7 +189,7 @@ describe('pollDisputes', () => {
       applied: 0,
       failed: 0,
     });
-    expect(await balance(`u_${userId}`)).toBe(-800_000);
+    expect(await balance(`u_${userId}`)).toBe(0);
   });
 
   it('logs a dispute that can’t be applied yet and goes on with the rest', async () => {

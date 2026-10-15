@@ -23,8 +23,8 @@ const CREDIT: InputBudgetResponse = {
   maxOutputTokens: 16_384,
   reasoning: true,
   serverMaxInputTokens: 60_000,
-  // $0.15 a million with OpenRouter's 5.5% and a 10% markup.
-  price: { inputUsdPerMTok: 0.174075, cacheReadUsdPerMTok: null, basis: 'credit' },
+  // Credit charges the list price, $0.15 a million.
+  price: { inputUsdPerMTok: 0.15, cacheReadUsdPerMTok: null, basis: 'credit' },
 };
 
 describe('inputLimitNotes', () => {
@@ -71,9 +71,9 @@ describe('inputLimitNotes', () => {
         'On Tangent credit, a message sends at most 60,000 tokens (on deepseek/deepseek-v4.1-flash); ' +
         'a limit of yours can only lower that. Your limit is above that, so 60,000 applies.',
       cost:
-        'A message that sends all 60,000 tokens costs about $0.010 in input on Tangent credit, ' +
-        "which charges $0.1741 per million tokens of deepseek/deepseek-v4.1-flash's input " +
-        "(OpenRouter's price with its fee and Tangent's markup).",
+        'A message that sends all 60,000 tokens costs about $0.0090 in input on Tangent credit, ' +
+        "which charges deepseek/deepseek-v4.1-flash's OpenRouter list price " +
+        '($0.15 per million tokens).',
     });
     expect(
       inputLimitNotes(CREDIT, { maxInputTokens: 16_000, maxOutputTokens: null }).route,

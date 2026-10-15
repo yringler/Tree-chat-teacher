@@ -16,6 +16,7 @@ import {
   type AdminWaitlistResponse,
   ADMIN_WAITLIST_LIMIT,
   centsToMicros,
+  serviceFeeCents,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { ACCOUNT_PREFIX, accountIdForUser, billingAccountIdFor } from '../auth/account.js';
@@ -386,8 +387,8 @@ export function adminRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
       ref = `dev:${req.idempotencyKey}`;
       credited = await fulfilPurchase(c.env, {
         userId: req.userId,
-        grossCents: req.amountCents,
-        processorFeeCents: 0,
+        paidCents: req.amountCents + serviceFeeCents(req.amountCents, config.billing.serviceFee),
+        creditCents: req.amountCents,
         ref,
         note: req.note ?? 'Simulated purchase',
       });

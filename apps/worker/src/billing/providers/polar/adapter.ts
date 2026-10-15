@@ -34,7 +34,7 @@ import {
 import { logEvent } from '../../../log.js';
 
 /** Bumped when the checkout metadata this adapter writes changes shape. */
-const METADATA_VERSION = 1;
+const METADATA_VERSION = 2;
 /** Disputes the poller reads per run: the newest pages, up to this many (100 each). */
 const DISPUTE_POLL_PAGES = 3;
 /** The dispute states worth an event (prevented and early-warning disputes end in refunds). */
@@ -133,7 +133,7 @@ export function createPolarProvider(config: PolarConfig): PaymentProvider {
       try {
         const checkout = await polar().checkouts.create({
           products: [productId],
-          // An ad-hoc price for this checkout only: the amount the buyer chose, before tax.
+          // An ad-hoc price for this checkout only: the credit plus the service fee, before tax.
           prices: {
             [productId]: [
               {
@@ -153,6 +153,7 @@ export function createPolarProvider(config: PolarConfig): PaymentProvider {
             kind: CREDITS_KIND,
             target: 'personal',
             userId: input.buyer.userId,
+            creditCents: input.creditCents,
             v: METADATA_VERSION,
           },
           success_url: input.successUrl,

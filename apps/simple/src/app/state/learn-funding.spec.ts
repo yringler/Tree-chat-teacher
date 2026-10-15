@@ -57,8 +57,7 @@ function summary(m: MembershipInfo, availableMicros = 2_000_000): BillingSummary
     balanceMicros: availableMicros,
     heldMicros: 0,
     availableMicros,
-    markupBps: 1000,
-    openRouterFeeBps: 550,
+    serviceFee: { bps: 2000, fixedCents: 50 },
     minTopUpCents: 500,
     maxTopUpCents: 50_000,
   };

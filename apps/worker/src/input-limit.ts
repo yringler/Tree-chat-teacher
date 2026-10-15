@@ -8,23 +8,15 @@
 // Learn ignores the settings: its own caps apply (simple-mode.ts).
 import type { ChatService, GenerationLimits } from '@tangent/core';
 import { isOpenRouterBaseUrl } from '@tangent/providers';
-import {
-  chargeMicros,
-  type BranchFunding,
-  type ContextLimitsQuery,
-  type InputBudgetResponse,
-} from '@tangent/shared';
+import type { BranchFunding, ContextLimitsQuery, InputBudgetResponse } from '@tangent/shared';
 import type { AccountContext, AppEnv } from './env.js';
 import { modelPrice } from './pool/price-table.js';
-import { markupFor, openRouterFeeBps } from './billing/service.js';
 import { providerConfigs } from './provider-configs.js';
 import { simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
 import { logEvent } from './log.js';
 
 /** USD per million tokens, from the price table's micro-USD per million. */
 const MICROS_PER_USD = 1_000_000;
-/** `chargeMicros` takes nano-USD. */
-const NANOS_PER_MICRO = 1000;
 
 /**
  * The most input the server sends on a route whatever the user's setting:
@@ -87,11 +79,8 @@ export async function inputBudgetResponse(
         return null;
       })
     : null;
-  /** USD per million tokens of a list price in micro-USD per million: as charged on credit, or as listed. */
-  const usd = (microsPerMTok: number) =>
-    (credit
-      ? chargeMicros(microsPerMTok * NANOS_PER_MICRO, markupFor(env), openRouterFeeBps(env))
-      : microsPerMTok) / MICROS_PER_USD;
+  /** USD per million tokens of a list price in micro-USD per million (credit pays the listed price). */
+  const usd = (microsPerMTok: number) => microsPerMTok / MICROS_PER_USD;
   return {
     model: budget.model,
     funding: budget.funding,
