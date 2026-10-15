@@ -2,6 +2,14 @@
 
 Tangent: a branching LLM chat for learning. pnpm workspace; a Cloudflare Worker (Hono, D1 with Drizzle, Durable Objects) serves four Angular 22 apps and a Flutter one. Almost all code here is written by AI sessions, and the owner reviews it, so keep changes easy to review. Read [docs/DECISIONS.md](docs/DECISIONS.md) for the rules the code follows before changing an area.
 
+## Product principles
+
+What Tangent is for, so a case no rule covers can still be decided. The rules that follow from each are in docs/DECISIONS.md.
+
+- **A tangent is a choice.** Every tangent can be skipped, from the reply's footer or the outline, so the one the learner opens is the one they decided is relevant. Show it from its start, with its context in view, and make its end one step away rather than the place they land.
+- **Depth is not length.** A long chat buries what came first; a deep path doesn't, because at each level the learner picked that tangent over the others. Don't treat nesting as clutter to flatten, collapse or summarize away.
+- **The learner's place is theirs.** Nothing moves the view, reflows text above what they're reading, or takes the focus (on a phone, the keyboard) unless they asked for it.
+
 ## Commands
 
 ```bash
