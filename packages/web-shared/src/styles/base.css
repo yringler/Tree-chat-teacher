@@ -2610,3 +2610,84 @@ app-node-picker {
     animation: none;
   }
 }
+
+/* Words that take the reader back to the start of the thread on screen: the title, a current path step. */
+.to-start {
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.to-start:hover {
+  background: var(--bg-hover);
+}
+
+/*
+ * The jump to the end of a thread (JumpToEnd): centred just above the
+ * message box, over the end of the thread. Its dock is `position: relative`.
+ */
+.jump-to-end {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  padding-bottom: 12px;
+  pointer-events: none;
+}
+
+.jump-to-end-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-elev);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.8);
+  visibility: hidden;
+  transition:
+    opacity 150ms ease-out,
+    transform 150ms ease-out,
+    visibility 0s linear 150ms;
+}
+
+.jump-to-end-btn.is-shown {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity 150ms ease-out,
+    transform 150ms ease-out;
+}
+
+.jump-to-end-btn:hover {
+  background: var(--bg-hover);
+}
+
+.jump-to-end-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jump-to-end-btn,
+  .jump-to-end-btn.is-shown {
+    transition: none;
+  }
+}

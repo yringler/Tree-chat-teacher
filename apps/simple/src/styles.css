@@ -369,12 +369,16 @@ body {
   flex: 1 1 100%;
   min-width: 0;
   font-size: 1rem;
+}
+
+.lesson-title .to-start {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
+  max-width: calc(100% + 8px);
 }
 
 .lesson-tools {
@@ -387,6 +391,9 @@ body {
 @media (min-width: 480px) {
   .lesson-title {
     flex: 1 1 0;
+  }
+
+  .lesson-title .to-start {
     display: block;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -436,7 +443,6 @@ button.crumb:hover {
 .crumb-current {
   color: var(--fg);
   font-weight: 600;
-  cursor: default;
 }
 
 /* "Back to …" after following a connection. */
@@ -476,8 +482,11 @@ button.crumb:hover {
     min-width: 0;
   }
 
+  /* All of it is the way back to the tangent's start, so it is easy to hit. */
   .crumb-current {
+    flex: 1;
     max-width: 100%;
+    text-align: left;
   }
 }
 
@@ -738,6 +747,7 @@ app-related-links.connections {
 }
 
 .composer-dock {
+  position: relative;
   border-top: 1px solid var(--border);
   padding: 8px var(--gutter) max(10px, env(safe-area-inset-bottom));
   background: var(--bg);

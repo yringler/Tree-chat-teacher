@@ -32,7 +32,7 @@ export {
   type PathEntry,
   type SendOptions,
 } from './conversation/conversation-store';
-export { ThreadScroll, type ThreadScrollOptions } from './conversation/thread-scroll';
+export { ThreadEnds, ThreadScroll, type ThreadScrollOptions } from './conversation/thread-scroll';
 export {
   PowerAccountStore,
   type AccountRefusal,
@@ -110,6 +110,7 @@ export { Compare, type CompareCandidate } from './ui/compare';
 export { Composer, ComposerController, type ComposerAction } from './ui/composer';
 export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
+export { JumpToEnd } from './ui/jump-to-end';
 export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';

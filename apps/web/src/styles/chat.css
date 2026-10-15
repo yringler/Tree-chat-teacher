@@ -48,6 +48,11 @@
 .tree-name {
   flex: 1;
   min-width: 0;
+}
+
+.tree-name .to-start {
+  display: block;
+  max-width: calc(100% + 8px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -109,7 +114,6 @@ button.crumb:hover {
 .crumb-current {
   color: var(--fg);
   font-weight: 600;
-  cursor: default;
 }
 
 .crumb-sep {

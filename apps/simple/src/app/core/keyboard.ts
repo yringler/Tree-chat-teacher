@@ -3,6 +3,7 @@ import {
   ComposerController,
   dispatchShortcut,
   pathKeys,
+  ThreadEnds,
   type ShortcutHelp,
 } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
@@ -13,6 +14,7 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+←', 'Alt+→'], label: 'Previous / next tangent beside this one' },
   { keys: ['Alt+↓', ']'], label: 'Into the first tangent from here' },
   { keys: ['j', 'k'], label: 'Next / previous message' },
+  { keys: ['Home', 'End'], label: 'Start / end of the thread' },
   { keys: ['/'], label: 'Focus the message box' },
   { keys: ['Enter'], label: 'Send as a tangent' },
   { keys: ['Ctrl+Enter'], label: 'Send as Next' },
@@ -26,9 +28,13 @@ export class Keyboard {
   private readonly store = inject(LessonStore);
   private readonly ui = inject(UiStore);
   private readonly composer = inject(ComposerController);
+  private readonly threadEnds = inject(ThreadEnds);
 
   private readonly keys: Readonly<Record<string, () => unknown>> = {
     ...pathKeys(this.store),
+    // Taken only with a thread on screen; the start is the open tangent's.
+    Home: () => this.threadEnds.toStart(),
+    End: () => this.threadEnds.toEnd(),
     '/': () => this.composer.focus(),
   };
 

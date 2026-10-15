@@ -147,6 +147,48 @@ describe('ChatPage', () => {
     expect(view.scrollTop).toBe(1200);
   });
 
+  it('from a tangent’s start, the down arrow jumps to its end, and goes once there', async () => {
+    const p = await page({ d: branchy() });
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    const jump = () => screen.getByRole('button', { name: 'Jump to the end' });
+    view.scrollBy(3000);
+    await p.fixture.whenStable();
+    expect(jump().hasAttribute('inert')).toBe(true);
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    await p.fixture.whenStable();
+    expect(jump().hasAttribute('inert')).toBe(false);
+    await p.user.click(jump());
+    expect(view.scrollTop).toBe(2500);
+    await p.fixture.whenStable();
+    expect(jump().hasAttribute('inert')).toBe(true);
+  });
+
+  it('the title, and the open thread’s step in the path, go back to its start', async () => {
+    const p = await page({ d: branchy() });
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    view.scrollBy(3000);
+    const path = () => screen.getByRole('navigation', { name: 'Tangent path' });
+    const main = within(path()).getByRole('button', { name: 'Main thread' });
+    expect(main.getAttribute('aria-current')).toBe('page');
+    expect(main.title).toBe('Back to the start');
+    await p.user.click(main);
+    await vi.waitFor(() => expect(view.scrollTop).toBe(0));
+
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    view.scrollBy(800);
+    const title = within(screen.getByRole('heading', { name: 'Light' })).getByRole('button');
+    expect(title.title).toBe('Back to the start');
+    await p.user.click(title);
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    view.scrollBy(800);
+    const current = within(path()).getByRole('button', { name: 'Particles' });
+    expect(current.title).toBe('Back to the start of this tangent');
+    await p.user.click(current);
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+  });
+
   it('a new tangent shows where it starts, and asks for its first question', async () => {
     await page({ branchId: 'side' });
     expect(screen.getByText('New tangent. Your next message starts it.')).toBeTruthy();

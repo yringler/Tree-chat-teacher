@@ -19,12 +19,14 @@ import {
   MAIN_THREAD_LABEL,
   REPLY_ACTION,
   TANGENT_ACTION,
+  THREAD_ENDS,
   type ChatNode,
 } from '@tangent/shared';
 import {
   Composer,
   ComposerController,
   Icon,
+  JumpToEnd,
   PendingQuote,
   PoolBlockNotice,
   Segmented,
@@ -55,6 +57,7 @@ import { LearnFunding } from '../state/learn-funding';
     MessageItem,
     Segmented,
     Icon,
+    JumpToEnd,
     PoolBlockNotice,
     RouterLink,
     NgTemplateOutlet,
@@ -83,6 +86,7 @@ export class ChatPage implements OnDestroy {
   /** The first crumb: the lesson's trunk, the way back from any tangent. */
   protected readonly mainThreadLabel = MAIN_THREAD_LABEL;
   protected readonly mainThreadBack = MAIN_THREAD_BACK;
+  protected readonly threadEnds = THREAD_ENDS;
   /** Text selected inside one finished message: offers "Ask about this". */
   protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
   /** Words "Ask about this" put on the composer: the next message asks about them. */
@@ -97,6 +101,9 @@ export class ChatPage implements OnDestroy {
       this.quote.set(null);
     },
   });
+
+  /** A coach mark of the first-run walkthrough is showing. */
+  protected readonly coachShowing = computed(() => this.walkthrough.current() !== null);
 
   protected readonly branchTitle = branchTitle;
   /** The lesson's title in the learner's words ("New lesson" until the first reply names it). */

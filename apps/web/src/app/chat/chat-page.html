@@ -86,6 +86,11 @@
       </div>
 
       <div class="composer-dock">
+        <!-- Gives way to "Ask about this", which floats in the same place. -->
+        <app-jump-to-end
+          [shown]="thread.farFromEnd() && !selection.value()"
+          (jump)="thread.toEnd()"
+        />
         @if (selection.value(); as q) {
           <!-- Floats above the composer, over the end of the messages. -->
           <div class="selection-float">
