@@ -911,7 +911,7 @@ describe('ConversationStore branches', () => {
       providerId: 'anthropic',
       model: 'claude',
     } as const;
-    await s.store.createBranch(req);
+    await s.store.startBranch(req, 'Why?');
     expect(s.api.createBranch).toHaveBeenCalledWith(req);
     expect(s.go).toHaveBeenCalledWith('new');
   });

@@ -39,6 +39,8 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **The billing page isn't in its lazy chunk.** `/billing` is a lazy route, but `BillingPage` comes through the `@tangent/web-shared` barrel the shell already imports. A secondary entry point (`@tangent/web-shared/billing`) would move it out of the initial bundle.
 - **The sidebar's Billing entry has no icon.** The shared icon set has nothing for billing.
 
+- **The API can still make an empty tangent.** `POST /api/branches` takes no first message, so a tangent is made, then sent to; a send refused in between (credit, the pool, the network) leaves it empty. Refusing it server-side needs one route that creates the branch and its first message together: the branch's route resolved before it exists for the gate and the credit hold, the branch written inside `TreeSession.send` after the pool or credit reservation, in the same D1 batch as the two nodes, and a way for Compare and the context preview to plan a branch that doesn't exist yet.
+
 ## Canvas (`apps/canvas`)
 
 - **Fan-out creates branches one after another.** `CanvasStore.fanOut` awaits each `addBranch` in a loop and sends once all exist, so the first reply waits for N−1 round trips. Keep creating in order (the outline sorts by `createdAt`) but start each variant's send as soon as it exists.

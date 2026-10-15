@@ -346,9 +346,6 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** Branches and their messages were deleted: what the app keeps about them goes. */
   protected branchesRemoved(_branchIds: ReadonlySet<string>, _nodeIds: ReadonlySet<string>): void {}
 
-  /** A branch made here was opened (`createBranch`): its composer takes the focus. */
-  protected branchOpened(_branchId: string): void {}
-
   /** A branch may be made from `nodeId` (power's: not from a branch the user can't generate on). */
   protected canBranchFrom(_nodeId: string): boolean {
     return true;
@@ -598,16 +595,6 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
       this.fail(err);
       return null;
     }
-  }
-
-  /** A branch from the branch dialog or a selection: made, opened, ready to type in (`branchOpened`). */
-  async createBranch(req: CreateBranchRequest): Promise<Branch | null> {
-    const branch = await this.addBranch(req);
-    if (branch) {
-      this.go(branch.id);
-      this.branchOpened(branch.id);
-    }
-    return branch;
   }
 
   /**

@@ -228,10 +228,6 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
 
   // Branches
 
-  protected override branchOpened(branchId: string): void {
-    this.composer.focus(branchId);
-  }
-
   /**
    * The canvas's signature move: one message, asked several ways at once.
    * Every variant becomes a sibling lane off the same message (its own
