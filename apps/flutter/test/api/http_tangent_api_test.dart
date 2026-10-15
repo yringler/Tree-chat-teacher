@@ -190,13 +190,13 @@ void main() {
 
     test('send JSON bodies with their content type', () async {
       final f = fake((_) => json(treeDetail, 201));
-      final detail = await f.api.createTree(model: 'm2');
+      final detail = await f.api.createTree(providerId: 'p2');
       expect(detail.tree.trunkBranchId, 'b1');
       final request = f.seen.single;
       expect(request.method, 'POST');
       expect(request.url.path, '/api/trees');
       expect(request.headers['content-type'], 'application/json');
-      expect(request.json, {'model': 'm2'});
+      expect(request.json, {'providerId': 'p2'});
     });
 
     test('keep a base path and encode ids', () async {
@@ -259,16 +259,9 @@ void main() {
             },
           ]),
           ('GET', '/api/providers') => json([
-            {
-              'id': 'p',
-              'defaultModel': 'm',
-              'models': [
-                {'id': 'm', 'tier': 'normal'},
-                {'id': 'M', 'label': 'Big', 'tier': 'max'},
-              ],
-            },
+            {'id': 'p', 'defaultModel': 'm', 'models': <Json>[]},
           ]),
-          ('POST', '/api/branches') || ('PATCH', '/api/branches/b2') => json({
+          ('POST', '/api/branches') => json({
             ...branch,
             'id': 'b2',
             'title': 'Tangent: Why',
@@ -278,7 +271,7 @@ void main() {
         },
       );
       expect((await f.api.trees()).single.title, 'Ice');
-      expect((await f.api.providers()).single.modelFor(Tier.max)?.label, 'Big');
+      expect((await f.api.providers()).single.id, 'p');
       await f.api.deleteTree('t1');
       expect(f.seen.last.method, 'DELETE');
       expect(f.seen.last.url.path, '/api/trees/t1');
@@ -292,8 +285,6 @@ void main() {
         'anchorQuote': null,
         'title': 'Why',
       });
-      await f.api.setBranchModel('b2', 'M');
-      expect(f.seen.last.json, {'model': 'M'});
 
       await f.api.cancel('a1');
       expect(f.seen.last.method, 'POST');

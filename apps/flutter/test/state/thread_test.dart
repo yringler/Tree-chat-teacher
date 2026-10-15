@@ -76,14 +76,6 @@ void main() {
     expect(ids(path), ['a1', 'a2', 'a3', 's1']);
   });
 
-  test('a branch without a model runs on its nearest ancestor’s', () {
-    final branches = byId([
-      branch('trunk', model: 'max-model'),
-      branch('side', parent: 'trunk', fork: 'a1'),
-    ]);
-    expect(effectiveModel('side', branches), 'max-model');
-  });
-
   final tree = byId([
     branch('trunk'),
     branch('tides', parent: 'trunk', fork: 'a1'),

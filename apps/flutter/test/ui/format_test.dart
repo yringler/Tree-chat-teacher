@@ -32,7 +32,6 @@ void main() {
           branchPointNodeId: parent == null ? null : 'n',
           title: title,
           titleSource: titleSource,
-          model: null,
         );
 
     test('the placeholder prefix goes, as on Learn web', () {

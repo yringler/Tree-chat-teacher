@@ -40,9 +40,6 @@ const _withTangent = {
 /// The screens with tangents beyond that one, some of them nested.
 const _withMoreTangents = {'tangents'};
 
-const _normal = ModelInfo(id: 'normal', label: 'Normal', tier: Tier.normal);
-const _max = ModelInfo(id: 'max', label: 'Max', tier: Tier.max);
-
 const _trunkReply = '''
 Tides are the sea rising and falling twice a day, and the **Moon** does most of the work.
 
@@ -144,7 +141,6 @@ class ScreenApi implements TangentApi {
     parentBranchId: parent,
     branchPointNodeId: fork,
     title: title,
-    model: 'normal',
     anchorQuote: anchorQuote,
   );
 
@@ -258,11 +254,7 @@ class ScreenApi implements TangentApi {
 
   @override
   Future<List<ProviderInfo>> providers() async => const [
-    ProviderInfo(
-      id: 'openrouter',
-      defaultModel: 'normal',
-      models: [_normal, _max],
-    ),
+    ProviderInfo(id: 'openrouter'),
   ];
 
   @override
@@ -276,8 +268,7 @@ class ScreenApi implements TangentApi {
   ];
 
   @override
-  Future<TreeDetail> createTree({String? providerId, String? model}) =>
-      tree(_treeId);
+  Future<TreeDetail> createTree({String? providerId}) => tree(_treeId);
 
   @override
   Future<TreeDetail> tree(String treeId) async => TreeDetail(
@@ -309,20 +300,6 @@ class ScreenApi implements TangentApi {
     );
     _branches[created.id] = created;
     return created;
-  }
-
-  @override
-  Future<Branch> setBranchModel(String branchId, String model) async {
-    final b = _branches[branchId]!;
-    return _branches[branchId] = Branch(
-      id: b.id,
-      treeId: b.treeId,
-      parentBranchId: b.parentBranchId,
-      branchPointNodeId: b.branchPointNodeId,
-      title: b.title,
-      model: model,
-      anchorQuote: b.anchorQuote,
-    );
   }
 
   /// Writes a canned reply a few words at a time.

@@ -173,53 +173,13 @@ class KeyStatus {
 /// The provider Learn runs on (`OPENROUTER_PROVIDER_ID` in packages/shared).
 const openRouterProviderId = 'openrouter';
 
-/// The model tiers Learn offers: Normal and Max.
-enum Tier { normal, max }
-
-class ModelInfo {
-  const ModelInfo({required this.id, required this.label, required this.tier});
-
-  factory ModelInfo.fromJson(Json json) => ModelInfo(
-    id: json.str('id'),
-    label: json.strOrNull('label') ?? json.str('id'),
-    tier: switch (json.strOrNull('tier')) {
-      'normal' => Tier.normal,
-      'max' => Tier.max,
-      _ => null,
-    },
-  );
-
-  final String id;
-  final String label;
-  final Tier? tier;
-}
-
 /// An entry of `GET /api/providers`.
 class ProviderInfo {
-  const ProviderInfo({
-    required this.id,
-    required this.defaultModel,
-    required this.models,
-  });
+  const ProviderInfo({required this.id});
 
-  factory ProviderInfo.fromJson(Json json) => ProviderInfo(
-    id: json.str('id'),
-    defaultModel: json.strOrNull('defaultModel'),
-    models: (json.objListOrNull('models') ?? const [])
-        .map(ModelInfo.fromJson)
-        .toList(),
-  );
+  factory ProviderInfo.fromJson(Json json) => ProviderInfo(id: json.str('id'));
 
   final String id;
-  final String? defaultModel;
-  final List<ModelInfo> models;
-
-  ModelInfo? modelFor(Tier tier) {
-    for (final model in models) {
-      if (model.tier == tier) return model;
-    }
-    return null;
-  }
 }
 
 /// An entry of `GET /api/trees`. A tree is a lesson.
@@ -281,7 +241,6 @@ class Branch {
     required this.parentBranchId,
     required this.branchPointNodeId,
     required this.title,
-    required this.model,
     this.titleSource = 'user',
     this.anchorQuote,
   });
@@ -292,7 +251,6 @@ class Branch {
     parentBranchId: json.strOrNull('parentBranchId'),
     branchPointNodeId: json.strOrNull('branchPointNodeId'),
     title: json.strOrNull('title') ?? '',
-    model: json.strOrNull('model'),
     titleSource: json.str('titleSource'),
     anchorQuote: json.strOrNull('anchorQuote'),
   );
@@ -306,7 +264,6 @@ class Branch {
   /// The node in the parent branch this branch forks from; null on the trunk.
   final String? branchPointNodeId;
   final String title;
-  final String? model;
 
   /// Who named the branch: 'default' while it carries the server's
   /// placeholder ("Tangent: " and the first words), 'auto' once the tutor's
