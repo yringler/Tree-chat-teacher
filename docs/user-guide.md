@@ -6,7 +6,7 @@ Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in
 - **Learn** (`/learn/`): a tutor with nothing to configure.
 - **Canvas** (`/canvas/`): experimental. Your conversations as lanes on one surface.
 
-Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. They are views of the same conversations, so a conversation can be opened in any of them: with one open, the switch opens it, on the same thread, in the other app. Learn replies on its own models: a thread on a provider or model Learn doesn't offer is answered by Normal there (or the open pool's model), and keeps its own model in power. Picking a model in Learn moves the thread onto it.
+Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. They are views of the same conversations, so a conversation can be opened in any of them: with one open, the switch opens it, on the same thread, in the other app. Learn replies on its one model, Normal: a thread on another provider or model, power's Max included, is answered by Normal there (or the open pool's model), and keeps its own model in power.
 
 Tangent is in beta: a notice at the top of each app asks you to report problems to `admin@` the site's domain. Closing it hides it for a day in that browser.
 
@@ -96,7 +96,7 @@ Where the operator charges a membership, replies on your own keys need one. With
 Learn keeps only the essentials:
 
 - a list of lessons, with **Import** above it and **Export** (the download icon) on each lesson;
-- a chat with a **Normal | Max** toggle (while Max is on, a note says about how many times as much it uses) and **Compare** next to Send: Normal and Max both answer, side by side on a wide screen; only the answer you keep enters the lesson;
+- a chat on one model, Normal, with no model to pick;
 - the tutor's **Keep going** and **Suggested tangents** under each reply, below **Your tangents** ([How Tangent answers](#how-tangent-answers));
 - two buttons under the message box after a reply: **Tangent ↳** ("Wait, what's that?") sends your message as a new tangent from that reply, and **Next ➜** ("Got it, what's next?") sends it as the next message of the thread you're in, the main thread or, inside a tangent, that tangent. Their tooltips (a long press in the Flutter and phone apps) say when to pick each. `Enter` sends as a tangent and `Ctrl`/`Cmd+Enter` as Next (`Shift+Enter` for a new line). With nothing to go on a tangent from (a new lesson, a reply that failed, a tangent with no message yet) there is just **Send**. The box grows to three lines while you type in it. The Flutter and phone apps work the same way;
 - **Ask about this** on selected text (above the message box on the web, in the selection menu in the Flutter and phone apps) puts the words on the message box ("Ask about this…"). Your next message asks about them in a new tangent, which shows the quote under its title, so only **Tangent ↳** shows; **×** takes them off;

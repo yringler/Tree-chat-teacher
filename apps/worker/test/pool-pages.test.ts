@@ -6,7 +6,7 @@ import type { PoolMeResponse, PoolModelInfo, PoolStatusResponse } from '@tangent
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
-import { appConfig, DEFAULT_BACKGROUND_MODEL, DEFAULT_LEARN_MAX_MODEL } from '../src/config.js';
+import { appConfig, DEFAULT_BACKGROUND_MODEL, DEFAULT_POWER_MAX_MODEL } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { POOL_SESSION_ESTIMATE_MICROS } from '../src/pool/params.js';
 import { poolModelInfo, poolStatus } from '../src/pool/status.js';
@@ -171,9 +171,9 @@ describe('poolModelInfo', () => {
       { id: 'deepseek/deepseek-v4-flash', label: 'Lite' },
     ],
     [
-      "Max's model, asked like Max",
-      { POOL_MODEL: DEFAULT_LEARN_MAX_MODEL, POOL_EFFORT: '', POOL_MAX_OUTPUT_TOKENS: '16384' },
-      { id: DEFAULT_LEARN_MAX_MODEL, label: 'Max' },
+      "power's Max, which Learn doesn't list",
+      { POOL_MODEL: DEFAULT_POWER_MAX_MODEL, POOL_EFFORT: '', POOL_MAX_OUTPUT_TOKENS: '16384' },
+      { id: DEFAULT_POWER_MAX_MODEL, label: 'Lite' },
     ],
   ])('%s', (_, overrides, expected) => {
     expect(info(overrides)).toEqual(expected);

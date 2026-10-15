@@ -8,7 +8,7 @@ import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
 /**
  * Who handles the text of a request paid by Tangent (credit or the open
  * pool), as the privacy policy names them: worked out from the deployment's
- * config (the built-in provider, its tier models and pinned hosts, the pool
+ * config (the built-in provider, Learn's models and pinned hosts, the pool
  * model), so the policy stays true when the operator changes a model or a
  * host. Nothing here is a claim about how a host treats the data.
  */
@@ -30,7 +30,7 @@ export interface HostedModel {
   id: string;
   /** Who made it (from the id's vendor prefix), or null when the id has none. */
   maker: string | null;
-  /** What uses it, e.g. "Learn's Normal tier", in the order they are listed. */
+  /** What uses it, e.g. "Learn's Normal model", in the order they are listed. */
   uses: string[];
   /** The hosts it is pinned to, first choice first (OpenRouter's `provider.order`); empty = OpenRouter picks. */
   hosts: string[];
@@ -131,11 +131,7 @@ export function hostedAi(env: AppEnv): HostedAi | null {
   const pool = poolAvailable(env);
   if (credit) {
     for (const m of config.models) {
-      add(
-        m.id,
-        m.tier ? `Learn's ${m.label} tier` : `Learn's ${m.label} model`,
-        m.providerOrder ?? [],
-      );
+      add(m.id, `Learn's ${m.label} model`, m.providerOrder ?? []);
     }
   }
   if (pool) {

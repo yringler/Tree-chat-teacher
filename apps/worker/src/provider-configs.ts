@@ -31,8 +31,8 @@ export function providerConfigs(env: AppEnv): ProviderConfig[] {
 }
 
 /**
- * The default `openrouter` config with the suggested models (Learn's Normal and
- * Max, tagged with their tier) first, Normal as its default, and any model id
+ * The default `openrouter` config with the suggested models (Normal and Max,
+ * tagged with their tier) first, Normal as its default, and any model id
  * allowed: the easy way to use the suggested defaults on one's own OpenRouter key.
  */
 function openrouterWithSuggestions(env: AppEnv, config: ProviderConfig): ProviderConfig {

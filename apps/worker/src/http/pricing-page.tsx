@@ -433,8 +433,8 @@ function PricingBody(props: { facts: PricingFacts }) {
       <ul>
         <li>Everything in Free</li>
         <li>
-          {f.tiers ? `The ${f.tiers.max} tier in Learn` : 'Learn on credit'}, and any OpenRouter
-          model in power mode
+          Learn on credit, and any OpenRouter model in power mode
+          {f.powerMax && `, ${f.powerMax} included`}
         </li>
         {searches && (
           <li>
@@ -513,13 +513,6 @@ function PricingBody(props: { facts: PricingFacts }) {
     credit: keysFree,
     key: true,
   });
-  if (f.tiers)
-    learn.push({
-      label: `The ${f.tiers.max} tier, for the hardest questions`,
-      free: keysFree && 'On your key',
-      credit: true,
-      key: true,
-    });
   if (searches)
     learn.push({
       label: (
@@ -561,7 +554,9 @@ function PricingBody(props: { facts: PricingFacts }) {
   ];
   if (credit)
     power.push({
-      label: 'Any OpenRouter model, on prepaid credit',
+      label: f.powerMax
+        ? `Any OpenRouter model on prepaid credit, with ${f.powerMax} suggested for the hardest questions`
+        : 'Any OpenRouter model, on prepaid credit',
       free: false,
       credit: true,
       // Credit is anyone's to buy: the membership neither includes it nor is needed for it.

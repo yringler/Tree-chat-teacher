@@ -8,8 +8,8 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_BACKGROUND_MODEL,
-  DEFAULT_LEARN_MAX_MODEL,
   DEFAULT_LEARN_NORMAL_MODEL,
+  DEFAULT_POWER_MAX_MODEL,
 } from '../src/config.js';
 import type { AppBindings, AppEnv } from '../src/env.js';
 import { hostedAi } from '../src/http/hosted-ai.js';
@@ -165,7 +165,7 @@ describe('the terms on share links', () => {
 });
 
 describe('who handles Tangent-paid requests (hostedAi)', () => {
-  it('as shipped: Normal, the pool and summaries on their pinned hosts; Max and power on OpenRouter’s choice', async () => {
+  it('as shipped: Normal, the pool and summaries on their pinned hosts; power on OpenRouter’s choice', async () => {
     const ai = hostedAi(deployment());
     expect(ai).toMatchObject({ openRouter: true, gateway: false, powerCredit: true });
     expect(DEFAULT_BACKGROUND_MODEL).toBe(DEFAULT_LEARN_NORMAL_MODEL);
@@ -173,15 +173,8 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
       {
         id: DEFAULT_LEARN_NORMAL_MODEL,
         maker: 'DeepSeek',
-        uses: ["Learn's Normal tier", 'the open pool', 'summaries and titles of conversations'],
+        uses: ["Learn's Normal model", 'the open pool', 'summaries and titles of conversations'],
         hosts: ['StreamLake', 'DeepInfra'],
-        fallbacks: true,
-      },
-      {
-        id: DEFAULT_LEARN_MAX_MODEL,
-        maker: 'Anthropic',
-        uses: ["Learn's Max tier"],
-        hosts: [],
         fallbacks: true,
       },
     ]);
@@ -199,7 +192,7 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
       deployment({
         LEARN_NORMAL_PROVIDER_ORDER: 'deepinfra/fp8',
         POOL_PROVIDER_ORDER: '',
-        POOL_MODEL: DEFAULT_LEARN_MAX_MODEL,
+        POOL_MODEL: DEFAULT_POWER_MAX_MODEL,
         // Caps that admit a Max reply's ceiling hold, or the pool is off.
         POOL_SPEND_MICROS_PER_DAY: '5000000',
         POOL_IP_SPEND_MICROS_PER_DAY: '5000000',
@@ -208,10 +201,10 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
     expect(ai?.models.map((m) => [m.id, m.uses, m.hosts])).toEqual([
       [
         DEFAULT_LEARN_NORMAL_MODEL,
-        ["Learn's Normal tier", 'summaries and titles of conversations'],
+        ["Learn's Normal model", 'summaries and titles of conversations'],
         ['DeepInfra'],
       ],
-      [DEFAULT_LEARN_MAX_MODEL, ["Learn's Max tier", 'the open pool'], []],
+      [DEFAULT_POWER_MAX_MODEL, ['the open pool'], []],
     ]);
   });
 

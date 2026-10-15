@@ -185,7 +185,7 @@ describe('power provider configs', () => {
       withEnv({
         PROVIDERS: '',
         LEARN_NORMAL_MODEL: 'a/normal',
-        LEARN_MAX_MODEL: 'b/max',
+        POWER_MAX_MODEL: 'b/max',
         BACKGROUND_MODEL: 'c/fast',
       }),
     ).find((c) => c.id === 'openrouter')!;

@@ -178,7 +178,7 @@ export function generationRoutes(): Hono<AppBindings> {
     if (learn && route.providerId !== branch.providerId)
       throw new ValidationError("Compare runs on the lesson's own provider");
     if (learn) route.funding = branch.funding;
-    // The client picks the model, so the allowlist is what bounds it (Learn: its tiers).
+    // The client picks the model, so the allowlist is what bounds it (Learn: its one model).
     // The context is resolved like a send on the branch, so missing summaries are
     // generated on the branch's route: its credit is checked too. Never on the pool (403).
     await assertCanGenerate(c, {
