@@ -10,7 +10,7 @@ import type { SqlRow } from '../db/rows.js';
 import type { creditGrants } from '../db/schema.js';
 
 /**
- * - `purchase`: credit bought (net of the processing fee); `refund`: a refund
+ * - `purchase`: credit bought; `refund`: a refund
  *   or dispute taking credit back; `adjustment`: an admin's or the operator's.
  */
 export type CreditGrantKind = SqlRow<typeof creditGrants>['kind'];
@@ -18,14 +18,14 @@ export type CreditGrantKind = SqlRow<typeof creditGrants>['kind'];
 export interface CreditGrantInput {
   accountId: string;
   kind: CreditGrantKind;
-  /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee. */
+  /** Signed micro-USD (refunds are negative); for purchases, the credit bought. */
   amountMicros: number;
   /**
-   * Purchases: the pre-tax amount paid, before the processing fee. Refunds: minus the refunded
-   * pre-tax amount.
+   * Purchases: the pre-tax amount paid, the credit plus the service fee. Refunds: minus the
+   * credit they take back.
    */
   grossMicros?: number | null;
-  /** Purchases: the payment provider's actual processing fee (`grossMicros - amountMicros` for personal credit). */
+  /** Purchases: the service fee paid (`grossMicros - amountMicros`). */
   feeMicros?: number;
   /** The buyer or beneficiary. */
   userId?: string | null;
@@ -146,7 +146,7 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
  * or dispute of a personal purchase, or a won dispute's reinstatement) so
  * that all of that payment's rows there together take back
  * `min(capMicros, what they ask)`. Each row's gross is what it asks: minus
- * the refunded or disputed pre-tax amount, or, for a reinstatement, plus
+ * the credit a refund or dispute takes back, or, for a reinstatement, plus
  * what its dispute asked. Its amount is what moves the payment's net
  * clawback to that target: a debit never adds credit and a reinstatement
  * never takes any. One statement, so concurrent writers for one payment

@@ -93,17 +93,17 @@ describe('no pool purchases through the payment webhook', () => {
 });
 
 describe('fulfilPurchase', () => {
-  it('credits the buyer’s own ledger gross minus the fee, once per ref', async () => {
+  it('credits the buyer’s own ledger the credit bought, once per ref', async () => {
     const buyer = uniq('user');
-    const p = { userId: buyer, grossCents: 1000, processorFeeCents: 59, ref: `dev:${uniq('key')}` };
+    const p = { userId: buyer, paidCents: 1250, creditCents: 1000, ref: `dev:${uniq('key')}` };
     expect(await fulfilPurchase(env, p)).toBe(true);
     expect(await fulfilPurchase(env, p)).toBe(false);
     expect(await grants(`u_${buyer}`)).toMatchObject([
       {
         kind: 'purchase',
-        amount_micros: 9_410_000,
-        gross_micros: 10_000_000,
-        fee_micros: 590_000,
+        amount_micros: 10_000_000,
+        gross_micros: 12_500_000,
+        fee_micros: 2_500_000,
         user_id: buyer,
         note: 'Credit top-up',
       },
@@ -123,9 +123,11 @@ describe('POST /api/billing/checkout', () => {
     for (const target of ['pool', 'personal', 'charity'])
       await ok<ApiError>(await checkout(1000, target), 400);
     const personal = decodeFakeUrl((await ok<CheckoutResponse>(await checkout(500))).url);
+    // $5 of credit for $6.50 with the default 20% + 50¢ service fee.
     expect(personal.input).toMatchObject({
       buyer: { userId },
-      amountCents: 500,
+      creditCents: 500,
+      amountCents: 650,
       successUrl: `${BASE}/learn/billing?checkout=success`,
       cancelUrl: `${BASE}/learn/billing?checkout=cancel`,
     });
@@ -276,7 +278,8 @@ describe('POST /api/admin/credit', () => {
       {
         kind: 'purchase',
         amount_micros: 10_000_000,
-        gross_micros: 10_000_000,
+        gross_micros: 12_500_000,
+        fee_micros: 2_500_000,
         user_id: on.user.userId,
         provider_ref: `dev:${personal.idempotencyKey}`,
       },

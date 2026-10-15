@@ -2,7 +2,6 @@ import { chargeMicros } from '@tangent/shared';
 import { renderOverheadBytes, utf8Bytes } from '@tangent/core';
 import { describe, expect, it } from 'vitest';
 import type { ModelPrice } from '../src/config.js';
-import { netOfFee } from '../src/billing/purchases.js';
 import { ipKey, ipPrefix } from '../src/pool/ids.js';
 import {
   ceilingHoldMicros,
@@ -116,15 +115,6 @@ describe('pool pricing', () => {
         expect(hold, `${inTok}/${outTok} at fee ${fee}`).toBeGreaterThanOrEqual(settle);
       }
     }
-  });
-
-  it('credits a pool purchase what was paid minus the processing fee, like a top-up', () => {
-    // $10 with an 80¢ fee adds $9.20; no margin is taken at purchase.
-    expect(netOfFee(1000, 80)).toEqual({
-      amountMicros: 9_200_000,
-      grossMicros: 10_000_000,
-      feeMicros: 800_000,
-    });
   });
 });
 

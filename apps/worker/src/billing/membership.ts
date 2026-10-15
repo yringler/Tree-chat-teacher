@@ -3,7 +3,7 @@
 // is "true", the payment provider sells it and the server stores user keys
 // (KEY_ENCRYPTION_SECRET; without it there is nothing for the membership to
 // unlock, so it is neither required nor shown). Nothing else needs it: Tangent
-// credit is bought and spent without one (it carries the markup instead), and
+// credit is bought and spent without one (it carries the service fee instead), and
 // the open pool has one set of caps for everyone (`needsMembership`). The
 // flag defaults to off, so a self-hosted deployment charges nothing unless its
 // operator opts in. Its subscription is a snapshot in `billing_subscriptions`, kept by
@@ -240,9 +240,9 @@ export async function redeemWaiverCode(
  * branch's summaries (`alsoSpendsOn`), so any own-key call in it needs the
  * membership, and a context resolve checks the branch's funding. Tangent
  * credit never needs it, to buy (`startTopUpCheckout`) or to spend, in either
- * app (it carries the markup instead), and neither does the open pool, which
+ * app (it carries the service fee instead), and neither does the open pool, which
  * returns before this is asked. One rule for both apps: the membership is
- * what own keys pay Tangent, as the markup is what credit pays.
+ * what own keys pay Tangent, as the service fee is what credit pays.
  */
 export function needsMembership(
   account: AccountContext,

@@ -9,7 +9,13 @@ import {
   type OnInit,
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import type { BillingSummary, MembershipInfo, UsageEntry, UsagePurpose } from '@tangent/shared';
+import {
+  formatServiceFee,
+  type BillingSummary,
+  type MembershipInfo,
+  type UsageEntry,
+  type UsagePurpose,
+} from '@tangent/shared';
 import { ApiClient } from '../core/api-client';
 import { BillingClient, openPortalTab } from '../core/billing-client';
 import { DEMO_MODE } from '../core/demo';
@@ -149,9 +155,8 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
             <p class="muted small">Each call costs {{ feeText(s) }}.</p>
             @if (s.lastPurchase; as p) {
               <p class="muted small billing-last-purchase">
-                Last top-up: paid
-                {{ money(p.grossMicros) }}, credit {{ money(p.creditMicros) }} after payment
-                processing.
+                Last top-up: {{ money(p.creditMicros) }} of credit for
+                {{ money(p.grossMicros) }} before tax.
               </p>
             }
           </section>
@@ -207,9 +212,8 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
                 <p id="billing-custom-err" class="small billing-error">{{ ctl.customError() }}</p>
               }
               <p class="muted small">
-                Payment processing fees are deducted from each top-up, so the credit added is
-                slightly less than the amount paid. Prices exclude tax; tax is calculated at
-                checkout.
+                Each top-up adds a {{ serviceFeeText(s) }} service fee, and you get the full amount
+                of credit. Prices exclude tax; tax is calculated at checkout.
               </p>
             }
           </section>
@@ -388,8 +392,12 @@ export class BillingPage implements OnInit, OnDestroy {
     return membershipPriceText(m);
   }
 
+  protected serviceFeeText(s: BillingSummary): string {
+    return formatServiceFee(s.serviceFee);
+  }
+
   protected feeText(s: BillingSummary): string {
-    return creditFeeText(s.markupBps, s.openRouterFeeBps);
+    return creditFeeText(s.serviceFee);
   }
 
   protected money(micros: number): string {

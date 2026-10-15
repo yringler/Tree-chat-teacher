@@ -592,7 +592,7 @@ describe('ownership across users', () => {
 });
 
 describe('Learn mode on paid credit', () => {
-  it('402 without credit; after a grant the send streams and is charged cost + fee + 10%', async () => {
+  it('402 without credit; after a grant the send streams and is charged the reported cost', async () => {
     // With the pool off: a send on spent credit would otherwise move to the pool
     // (pool-routing.test.ts); a review never does.
     const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
@@ -641,10 +641,8 @@ describe('Learn mode on paid credit', () => {
       .bind(u.learn.accountId)
       .all<{ status: string; cost_nanos: number; charge_micros: number; provider_id: string }>();
     expect(rows.results.length).toBeGreaterThan(0);
-    // The fake provider reports $0.001234 per call: 1,234,000 nano-USD; + OpenRouter's 5.5%
-    // purchase fee, then +10%, rounded up to micro-USD (1432.057 → 1433).
-    const charge = Math.ceil((1_234_000 * 10_550 * 11_000) / 100_000_000_000);
-    expect(charge).toBe(1433);
+    // The fake provider reports $0.001234 per call: 1,234,000 nano-USD, charged as is.
+    const charge = 1234;
     for (const row of rows.results) {
       expect(row).toEqual({
         status: 'settled',

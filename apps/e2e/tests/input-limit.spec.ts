@@ -189,9 +189,9 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
 
   await reviewDialog.getByRole('button', { name: 'Close' }).first().click();
 
-  // On Tangent credit the cost is what credit charges: OpenRouter's price with its fee and
-  // Tangent's markup (V4.1 Flash is priced at $0.15 a million; a model the server has no
-  // price for, like the tiers here, shows none).
+  // On Tangent credit the cost is what credit charges: OpenRouter's list price (V4.1 Flash
+  // is priced at $0.15 a million; a model the server has no price for, like the tiers here,
+  // shows none).
   const onCredit = await request.post('/api/trees', {
     headers,
     data: {
@@ -209,6 +209,6 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
       'a limit of yours can only lower that.',
   );
   await expect(section.locator('.input-limit-cost')).toHaveText(
-    /^A message that sends all 3,000 tokens costs about \$0\.\d+ in input on Tangent credit, which charges \$0\.1\d+ per million tokens of deepseek\/deepseek-v4\.1-flash's input \(OpenRouter's price with its fee and Tangent's markup\)/,
+    /^A message that sends all 3,000 tokens costs about \$0\.\d+ in input on Tangent credit, which charges deepseek\/deepseek-v4\.1-flash's OpenRouter list price \(\$0\.15 per million tokens\)/,
   );
 });

@@ -75,7 +75,7 @@ describe('POST /api/webhooks/:provider (fake provider)', () => {
     ]);
     // A redelivery changes nothing.
     expect((await deliverFake([payment], fakeEnv())).status).toBe(200);
-    expect(await balance(`u_${userId}`)).toBe(9_200_000 - 4_000_000);
+    expect(await balance(`u_${userId}`)).toBe(9_200_000 - 3_680_000);
   });
 
   it('answers 403 to a bad signature and writes nothing', async () => {
@@ -134,27 +134,28 @@ describe('POST /api/webhooks/polar (smoke, signed synthetic deliveries)', () => 
     const paidOrder = order({
       id: orderId,
       externalId: userId,
-      metadata: { kind: 'credits', target: 'personal', userId, v: 1 },
+      metadata: { kind: 'credits', target: 'personal', userId, creditCents: 750, v: 2 },
     });
     expect((await deliverPolar(envelope('order.paid', paidOrder))).status).toBe(200);
     expect(await grantDetailsFor(base, `u_${userId}`)).toEqual([
       {
         kind: 'purchase',
-        amount_micros: (1000 - 104) * 10_000,
+        amount_micros: 7_500_000,
         gross_micros: 10_000_000,
-        fee_micros: 1_040_000,
+        fee_micros: 2_500_000,
         provider_ref: `polar:order:${orderId}`,
       },
     ]);
     const refundId = uniq('ref');
     const settled = refund({ id: refundId, order_id: orderId, amount: 500, status: 'succeeded' });
     expect((await deliverPolar(envelope('refund.updated', settled))).status).toBe(200);
+    // Half of what was paid takes back half of the credit.
     expect((await grantDetailsFor(base, `u_${userId}`))[1]).toMatchObject({
       kind: 'refund',
-      amount_micros: -5_000_000,
+      amount_micros: -3_750_000,
       provider_ref: `polar:refund:${refundId}`,
     });
-    expect(await balance(`u_${userId}`)).toBe(8_960_000 - 5_000_000);
+    expect(await balance(`u_${userId}`)).toBe(3_750_000);
   });
 
   it('rejects an unsigned delivery', async () => {

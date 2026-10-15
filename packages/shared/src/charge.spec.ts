@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { centsToMicros, chargeMicros, costUsdToNanos } from './charge.js';
+import {
+  centsToMicros,
+  chargeMicros,
+  costUsdToNanos,
+  DEFAULT_SERVICE_FEE,
+  serviceFeeCents,
+} from './charge.js';
 
 describe('billing pricing', () => {
   it('converts USD cost to integer nano-USD, rounding to nearest', () => {
@@ -60,5 +66,26 @@ describe('billing pricing', () => {
     expect(centsToMicros(50_000)).toBe(500_000_000);
     expect(centsToMicros(-1100)).toBe(-11_000_000);
     expect(centsToMicros(0)).toBe(0);
+  });
+});
+
+describe('serviceFeeCents', () => {
+  it('is the percentage plus the fixed part, at the defaults 20% + 50¢', () => {
+    expect(serviceFeeCents(500, DEFAULT_SERVICE_FEE)).toBe(150);
+    expect(serviceFeeCents(1000, DEFAULT_SERVICE_FEE)).toBe(250);
+    expect(serviceFeeCents(50_000, DEFAULT_SERVICE_FEE)).toBe(10_050);
+  });
+
+  it('rounds the percentage up to a whole cent', () => {
+    // 20% of $7.33 is 146.6¢.
+    expect(serviceFeeCents(733, { bps: 2000, fixedCents: 0 })).toBe(147);
+    expect(serviceFeeCents(733, { bps: 2000, fixedCents: 50 })).toBe(197);
+  });
+
+  it('charges nothing for nothing, and counts nonsense rates as 0', () => {
+    expect(serviceFeeCents(0, DEFAULT_SERVICE_FEE)).toBe(0);
+    expect(serviceFeeCents(-500, DEFAULT_SERVICE_FEE)).toBe(0);
+    expect(serviceFeeCents(500, { bps: -5, fixedCents: Number.NaN })).toBe(0);
+    expect(serviceFeeCents(500, { bps: 0, fixedCents: 0 })).toBe(0);
   });
 });

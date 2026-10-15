@@ -186,7 +186,7 @@ describe('appConfig', () => {
       ip: { requestsPerDay: 60, spendMicrosPerDay: 300_000 },
     });
     expect(c.billing).toEqual({
-      markupBps: 1000,
+      serviceFee: { bps: 2000, fixedCents: 50 },
       openRouterFeeBps: 550,
       membershipPriceCents: 1000,
       membershipWaiverCode: null,

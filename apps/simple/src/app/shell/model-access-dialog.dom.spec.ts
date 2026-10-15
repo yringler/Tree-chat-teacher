@@ -63,7 +63,7 @@ describe('How replies are paid for', () => {
       'Free here: you pay OpenRouter directly.',
     );
     expect(radio(CREDIT).closest('label')?.textContent).toContain(
-      "Prepaid credit: each reply costs the model's OpenRouter price + 5.5% OpenRouter fee + 10%.",
+      "Prepaid credit: each reply costs the model's OpenRouter list price (each top-up adds a 20% + 50¢ service fee).",
     );
     // Tangent provides the pool's credit; nobody sells it.
     expect(radio(POOL).closest('label')?.textContent).toMatch(

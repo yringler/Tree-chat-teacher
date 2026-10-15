@@ -1,4 +1,5 @@
 import { MICROS_PER_USD } from './billing.js';
+import type { ServiceFee } from './charge.js';
 
 /*
  * Money as people read it, shared by the apps and the Worker's server-rendered
@@ -28,6 +29,18 @@ export function formatCents(cents: number): string {
 /** Basis points as a percentage: `1000` → `10%`, `750` → `7.5%`. */
 export function formatBps(bps: number): string {
   return `${Number((bps / 100).toFixed(2))}%`;
+}
+
+/** `20% + 50¢`, `12.5% + $1`; a zero part is left out (`20%`, `50¢`). */
+export function formatServiceFee(fee: ServiceFee): string {
+  const fixed =
+    fee.fixedCents <= 0
+      ? null
+      : fee.fixedCents < 100
+        ? `${fee.fixedCents}¢`
+        : formatCents(fee.fixedCents);
+  if (fee.bps <= 0) return fixed ?? '0%';
+  return fixed ? `${formatBps(fee.bps)} + ${fixed}` : formatBps(fee.bps);
 }
 
 function dollars(cents: number): string {

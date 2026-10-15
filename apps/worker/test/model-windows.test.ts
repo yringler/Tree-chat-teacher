@@ -3,16 +3,10 @@
 // OpenRouter model whose provider config names no window, never above a
 // configured one (Tangent credit's, the pool's).
 import { createProviderRegistry } from '@tangent/providers';
-import {
-  chargeMicros,
-  type InputBudgetResponse,
-  type ProviderConfig,
-  type TreeDetail,
-} from '@tangent/shared';
+import type { InputBudgetResponse, ProviderConfig, TreeDetail } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
-import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
   modelWindow,
@@ -313,16 +307,12 @@ describe('the input budget of an OpenRouter branch', () => {
       await budget({ providerId: 'openrouter', funding: 'credit', model: 'x/small' }),
     ).toMatchObject({ contextTokens: 32_000 });
 
-    const { markupBps, openRouterFeeBps } = appConfig(e).billing;
-    const charged = (micros: number) =>
-      chargeMicros(micros * 1000, markupBps, openRouterFeeBps) / 1e6;
+    // Credit charges the list price.
     const priced = await budget({ providerId: 'openrouter', funding: 'credit', model: 'x/priced' });
     expect(priced.price).toEqual({
-      inputUsdPerMTok: charged(2_000_000),
-      cacheReadUsdPerMTok: charged(200_000),
+      inputUsdPerMTok: 2,
+      cacheReadUsdPerMTok: 0.2,
       basis: 'credit',
     });
-    // The list price × (1 + fee) × (1 + markup): 10% and 5.5% here.
-    expect(priced.price?.inputUsdPerMTok).toBeCloseTo(2 * 1.055 * 1.1, 6);
   });
 });

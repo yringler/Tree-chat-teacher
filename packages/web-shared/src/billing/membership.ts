@@ -1,7 +1,12 @@
 import { signal } from '@angular/core';
-import type { BillingSummary, MembershipInfo } from '@tangent/shared';
+import {
+  formatServiceFee,
+  type BillingSummary,
+  type MembershipInfo,
+  type ServiceFee,
+} from '@tangent/shared';
 import { ApiError } from '../core/api-client';
-import { formatBps, formatCents } from './format';
+import { formatCents } from './format';
 
 /*
  * The yearly membership as the apps show it: the locked-key notices, the billing page's
@@ -103,15 +108,11 @@ export function membershipStatusText(m: MembershipInfo): string {
 }
 
 /**
- * What one call on credit costs, as a phrase:
- * `the model's OpenRouter price + 5.5% OpenRouter fee + 10%`.
- * (charge = price × (1 + fee) × (1 + markup); a zero part is left out.)
+ * What one call on credit costs, as a phrase: `the model's OpenRouter list
+ * price (each top-up adds a 20% + 50¢ service fee)`.
  */
-export function creditFeeText(markupBps: number, openRouterFeeBps: number): string {
-  let text = "the model's OpenRouter price";
-  if (openRouterFeeBps > 0) text += ` + ${formatBps(openRouterFeeBps)} OpenRouter fee`;
-  if (markupBps > 0) text += ` + ${formatBps(markupBps)}`;
-  return text;
+export function creditFeeText(fee: ServiceFee): string {
+  return `the model's OpenRouter list price (each top-up adds a ${formatServiceFee(fee)} service fee)`;
 }
 
 /** A failed code redemption, in words fit for the form. */

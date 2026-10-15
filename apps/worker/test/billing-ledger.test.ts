@@ -2,7 +2,7 @@ import { DomainError, PaymentRequiredError, ValidationError } from '@tangent/cor
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { getBalance, grantCredit, hasGrant } from '../src/billing/ledger.js';
-import { assertCanSpend, getBillingSummary, listUsage, markupFor } from '../src/billing/service.js';
+import { assertCanSpend, getBillingSummary, listUsage } from '../src/billing/service.js';
 import { paymentsConfigured } from '../src/billing/payments/index.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
@@ -91,16 +91,20 @@ describe('ledger', () => {
   });
 });
 
-describe('markupFor', () => {
-  it('is MARKUP_BPS, the same for every user (1000 by default)', () => {
-    expect(markupFor(env)).toBe(1000);
-    expect(markupFor({ ...env, MARKUP_BPS: '2500' })).toBe(2500);
-    expect(markupFor({ ...env, MARKUP_BPS: '0' })).toBe(0);
-  });
-
-  it('is 1000 while MARKUP_BPS is empty, and refuses a malformed one', () => {
-    expect(markupFor({ ...env, MARKUP_BPS: '' })).toBe(1000);
-    expect(() => markupFor({ ...env, MARKUP_BPS: 'oops' })).toThrow('Invalid MARKUP_BPS="oops"');
+describe('the service fee', () => {
+  it('is SERVICE_FEE_BPS + SERVICE_FEE_FIXED_CENTS, 20% + 50¢ by default', async () => {
+    expect((await getBillingSummary(env, simpleAccount())).serviceFee).toEqual({
+      bps: 2000,
+      fixedCents: 50,
+    });
+    const custom = { ...env, SERVICE_FEE_BPS: '1500', SERVICE_FEE_FIXED_CENTS: '0' };
+    expect((await getBillingSummary(custom, simpleAccount())).serviceFee).toEqual({
+      bps: 1500,
+      fixedCents: 0,
+    });
+    await expect(
+      getBillingSummary({ ...env, SERVICE_FEE_BPS: 'oops' }, simpleAccount()),
+    ).rejects.toThrow('Invalid SERVICE_FEE_BPS="oops"');
   });
 });
 
@@ -185,7 +189,7 @@ describe('assertCanSpend', () => {
 });
 
 describe('billing summary', () => {
-  it('reports balance, holds, markup, fee, last purchase and the membership', async () => {
+  it('reports balance, holds, the service fee, last purchase and the membership', async () => {
     const account = simpleAccount();
     await grantCredit(env.DB, {
       accountId: account.id,
@@ -231,8 +235,7 @@ describe('billing summary', () => {
       balanceMicros: 11_000_000,
       heldMicros: 20_000,
       availableMicros: 10_980_000,
-      markupBps: 1000,
-      openRouterFeeBps: 550,
+      serviceFee: { bps: 2000, fixedCents: 50 },
       lastPurchase: {
         grossMicros: 10_670_000,
         feeMicros: 670_000,
@@ -252,15 +255,10 @@ describe('billing summary', () => {
       topUpsEnabled: false,
       balanceMicros: 0,
       availableMicros: 0,
-      markupBps: 1000,
-      openRouterFeeBps: 550,
+      serviceFee: { bps: 2000, fixedCents: 50 },
       lastPurchase: null,
       membership: { required: false },
     });
-    const custom = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '700' }, simpleAccount());
-    expect(custom.openRouterFeeBps).toBe(700);
-    const unset = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '' }, simpleAccount());
-    expect(unset.openRouterFeeBps).toBe(550);
   });
 
   it('reports top-ups as unavailable without a credits product, though billing is enabled', async () => {

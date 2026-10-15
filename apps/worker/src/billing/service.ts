@@ -1,5 +1,5 @@
-// Billing for the built-in provider: markup and fee pass-through, spend gate, summary, usage
-// history and credit top-ups, sold through the payment provider's port
+// Billing for the built-in provider: credit at the list price, spend gate, summary, usage
+// history and credit top-ups (priced with the service fee), sold through the payment provider's port
 // (billing/payments). The membership is in membership.ts. Credit is per user: every ledger read and
 // write goes to `AccountContext.billingAccountId`, the same in both modes.
 import {
@@ -14,6 +14,7 @@ import {
   formatMicros,
   MAX_TOP_UP_CENTS,
   MIN_TOP_UP_CENTS,
+  serviceFeeCents,
   type BillingSummary,
   type BranchFunding,
   type CheckoutResponse,
@@ -81,7 +82,7 @@ export function replyInputTokens(maxInputTokens: number): number {
 /**
  * What a credit call on a model at `price` holds: its worst case,
  * `inputTokens` at the most an input token can cost plus `maxOutputTokens`
- * out, with the fee and the markup, rounded up; never below
+ * out at `rates`, rounded up; never below
  * `USAGE_HOLD_MICROS`. Web searches are not priced in: the floor covers one.
  */
 export function creditHoldMicros(
@@ -101,10 +102,15 @@ export function creditHoldMicros(
   return Math.max(USAGE_HOLD_MICROS, worst);
 }
 
-/** The markup and OpenRouter fee a credit call is charged at now. */
-export function creditRates(env: AppEnv): { markupBps: number; feeBps: number } {
-  return { markupBps: markupFor(env), feeBps: openRouterFeeBps(env) };
-}
+/**
+ * The markup and fee a credit call is charged at: none, so credit pays the
+ * listed price OpenRouter reports. Tangent's margin and OpenRouter's fee are
+ * in the service fee on the purchase.
+ */
+export const CREDIT_RATES: Readonly<{ markupBps: number; feeBps: number }> = {
+  markupBps: 0,
+  feeBps: 0,
+};
 
 const TOO_MANY_PENDING =
   'Too many replies are still running on Tangent credit. Wait for one to finish and try again.';
@@ -151,7 +157,7 @@ export async function replyHoldMicros(
     price,
     replyInputTokens(budget.maxInputTokens),
     budget.maxOutputTokens,
-    creditRates(env),
+    CREDIT_RATES,
   );
 }
 
@@ -215,26 +221,13 @@ export async function reserveCreditReply(
       providerId: target.providerId,
       model: target.model,
       holdMicros,
-      ...creditRates(env),
+      ...CREDIT_RATES,
       createdAt: new Date().toISOString(),
     },
     USAGE_MAX_PENDING,
   );
   if (!reserved) throw await creditRefusal(env, account.billingAccountId, holdMicros);
   return id;
-}
-
-/** OpenRouter's credit-purchase fee in bps (`OPENROUTER_FEE_BPS`), part of the provider cost. */
-export function openRouterFeeBps(env: AppEnv): number {
-  return appConfig(env).billing.openRouterFeeBps;
-}
-
-/**
- * Markup on the true provider cost, in bps: `MARKUP_BPS`, else 1000 (+10%).
- * The same for every user: there are no plan discounts.
- */
-export function markupFor(env: AppEnv): number {
-  return appConfig(env).billing.markupBps;
 }
 
 function notConfigured(): DomainError {
@@ -272,7 +265,7 @@ type PurchaseRow = Pick<
   'amount_micros' | 'gross_micros' | 'fee_micros' | 'created_at'
 > & { gross_micros: number };
 
-/** The latest top-up recorded with its gross amount and processing fee. */
+/** The latest top-up recorded with its amount paid and service fee. */
 async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInfo | null> {
   const row = await env.DB.prepare(
     `SELECT amount_micros, gross_micros, fee_micros, created_at FROM credit_grants
@@ -313,8 +306,7 @@ export async function getBillingSummary(
     balanceMicros,
     heldMicros,
     availableMicros: balanceMicros - heldMicros,
-    markupBps: markupFor(env),
-    openRouterFeeBps: openRouterFeeBps(env),
+    serviceFee: appConfig(env).billing.serviceFee,
     lastPurchase: purchase,
     minTopUpCents: MIN_TOP_UP_CENTS,
     maxTopUpCents: MAX_TOP_UP_CENTS,
@@ -395,10 +387,11 @@ export async function listUsage(
 }
 
 /**
- * Opens the payment provider's hosted checkout for a top-up of the user's
- * own credit, in either mode. Anyone signed in may buy credit, member or not
- * (the membership is only for the user's own keys; credit carries the
- * markup instead). The provider carries the buyer to its webhook
+ * Opens the payment provider's hosted checkout for `amountCents` of the
+ * user's own credit, in either mode, priced at that plus the service fee
+ * before tax. Anyone signed in may buy credit, member or not (the membership
+ * is only for the user's own keys; credit carries the service fee instead).
+ * The provider carries the buyer to its webhook
  * (billing/payments/apply.ts), which credits the buyer's own ledger,
  * whichever app the top-up was bought from.
  */
@@ -424,7 +417,8 @@ export async function startTopUpCheckout(
   if (!buyer) throw new DomainError('unauthorized', 'Sign in to add credit');
   const session = await provider.createTopUpCheckout({
     buyer,
-    amountCents,
+    creditCents: amountCents,
+    amountCents: amountCents + serviceFeeCents(amountCents, appConfig(env).billing.serviceFee),
     successUrl: checkoutReturnUrl(baseUrl, account, 'success'),
     cancelUrl: checkoutReturnUrl(baseUrl, account, 'cancel'),
   });

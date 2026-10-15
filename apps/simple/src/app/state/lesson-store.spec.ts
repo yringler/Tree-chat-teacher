@@ -80,8 +80,7 @@ const BILLING: BillingSummary = {
   balanceMicros: 0,
   heldMicros: 0,
   availableMicros: 0,
-  markupBps: 0,
-  openRouterFeeBps: 0,
+  serviceFee: { bps: 0, fixedCents: 0 },
   minTopUpCents: 500,
   maxTopUpCents: 50_000,
 };

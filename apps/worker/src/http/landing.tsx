@@ -1,8 +1,8 @@
 import {
   androidAppStoreUrl,
-  formatBps,
   formatCents,
   formatMicros,
+  formatServiceFee,
   HELP_TITLE,
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
@@ -124,7 +124,7 @@ function CostSection(props: { page: Landing }) {
   ];
   if (credit)
     parts.push(
-      `Or buy prepaid credit and pay for each reply at what it costs Tangent, plus ${formatBps(credit.markupBps)}${membership ? ', with no membership needed' : ''}.`,
+      `Or buy prepaid credit${membership ? ', with no membership needed,' : ''} and pay each reply’s list price, plus a ${formatServiceFee(credit.serviceFee)} service fee on each top-up.`,
     );
   const others = (
     <>

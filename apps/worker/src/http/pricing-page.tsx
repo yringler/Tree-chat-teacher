@@ -2,12 +2,14 @@ import {
   formatBps,
   formatCents,
   formatMicros,
+  formatServiceFee,
   OPENROUTER_PROVIDER_ID,
   POOL_FUNDING_TEXT,
   POOL_MOTTO,
   poolModelDifferences,
   poolModelText,
   roughWords,
+  serviceFeeCents,
   type PoolModelInfo,
 } from '@tangent/shared';
 import { Hono, type Context } from 'hono';
@@ -126,9 +128,14 @@ function footnotes(texts: Partial<Record<NoteId, Child>>) {
   };
 }
 
-/** What the reader pays per 1¢ of the provider's price on credit: `1.16` for a 5.5% fee and a 10% markup. */
-function perCent(credit: NonNullable<PricingFacts['credit']>): string {
-  return (((10_000 + credit.openRouterFeeBps) * (10_000 + credit.markupBps)) / 1e8).toFixed(2);
+/** `$5 of credit costs $6.50, $20 costs $24.50`: what top-ups cost with the service fee. */
+function topUpExamples(credit: NonNullable<PricingFacts['credit']>): string {
+  const cost = (cents: number) => formatCents(cents + serviceFeeCents(cents, credit.serviceFee));
+  const small = Math.max(credit.minTopUpCents, 500);
+  const large = Math.min(credit.maxTopUpCents, 2000);
+  return large > small
+    ? `${formatCents(small)} of credit costs ${cost(small)}, and ${formatCents(large)} costs ${cost(large)}`
+    : `${formatCents(small)} of credit costs ${cost(small)}`;
 }
 
 /** The notes' fine print, for the features this deployment offers. */
@@ -158,19 +165,22 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, Child>> {
     );
   }
   if (credit) {
-    const fee =
+    const openRouterFee =
       credit.openRouterFeeBps > 0
-        ? ` plus the ${formatBps(credit.openRouterFeeBps)} fee OpenRouter charges on credit purchases`
+        ? `OpenRouter’s ${formatBps(credit.openRouterFeeBps)} fee on the credit Tangent buys from it, and `
         : '';
-    texts.credit = `You pay what each reply costs Tangent, plus Tangent’s ${formatBps(credit.markupBps)} markup. Tangent’s cost is OpenRouter’s price${fee}. So for every 1¢ OpenRouter charges, you pay about ${perCent(credit)}¢. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.`;
+    texts.credit = `Credit pays each reply’s OpenRouter list price, exactly what OpenRouter reports the reply cost, with nothing added. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.`;
     texts['top-up'] = (
       <>
-        Top up {formatCents(credit.minTopUpCents)} to {formatCents(credit.maxTopUpCents)} at a time.
-        Tax is added at checkout. The payment processor’s fee (a percentage plus a fixed amount)
-        comes out of the credit you receive, so larger top-ups lose a smaller share to it. Credit
-        doesn’t expire while your account exists. It can’t be transferred, and it isn’t refundable,
-        except where the law requires it or Polar’s terms for buyers allow it. Polar, our merchant
-        of record, handles checkout, tax and receipts (<a href="/terms">terms</a>, section 7).
+        Buy {formatCents(credit.minTopUpCents)} to {formatCents(credit.maxTopUpCents)} of credit at
+        a time. Each purchase adds a service fee of {formatServiceFee(credit.serviceFee)}:{' '}
+        {topUpExamples(credit)}, before tax. You see the fee and the total before you pay, and tax
+        is added at checkout. The service fee is Tangent’s margin, and it also pays the fees others
+        charge along the way: {openRouterFee}the payment processor’s fee (a percentage plus a fixed
+        amount, which is why the service fee has a fixed part too). Credit doesn’t expire while your
+        account exists. It can’t be transferred, and it isn’t refundable, except where the law
+        requires it or Polar’s terms for buyers allow it. Polar, our merchant of record, handles
+        checkout, tax and receipts (<a href="/terms">terms</a>, section 7).
         {membership && ' Buying and spending credit never needs a membership.'}
       </>
     );
@@ -327,13 +337,14 @@ function headline(f: PricingFacts): string {
 }
 
 /**
- * The yearly AI spend above which the membership costs less than the markup
- * on credit (the membership's price over the markup: $100 for $10 and 10%);
- * null unless both are offered and the markup is above 0.
+ * The yearly AI spend above which the membership costs less than the service
+ * fee on credit (the membership's price over the fee's percentage: $50 for
+ * $10 and 20%, a little less with the fee's fixed part); null unless both
+ * are offered and the percentage is above 0.
  */
 export function breakEvenCents(f: PricingFacts): number | null {
-  if (!f.credit || !f.membership || f.credit.markupBps <= 0) return null;
-  return Math.round((f.membership.priceCents * 10_000) / f.credit.markupBps);
+  if (!f.credit || !f.membership || f.credit.serviceFee.bps <= 0) return null;
+  return Math.round((f.membership.priceCents * 10_000) / f.credit.serviceFee.bps);
 }
 
 /** The friendly overview: the ways to pay, no fine print. */
@@ -346,7 +357,7 @@ function lede(f: PricingFacts): string {
     );
   if (credit)
     parts.push(
-      `${pool ? 'For more replies or power mode, buy' : 'Buy'} prepaid credit${membership ? ', with no subscription,' : ''} and pay for each reply at what it costs Tangent, plus ${formatBps(credit.markupBps)}.`,
+      `${pool ? 'For more replies or power mode, buy' : 'Buy'} prepaid credit${membership ? ', with no subscription,' : ''} and pay each reply’s list price. Each top-up adds a ${formatServiceFee(credit.serviceFee)} service fee.`,
     );
   if (membership)
     parts.push(
@@ -424,7 +435,7 @@ function PricingBody(props: { facts: PricingFacts }) {
     <article class="plan">
       <h3>Pay as you go</h3>
       <p class="price">
-        At cost<small> + {formatBps(credit.markupBps)} a reply</small>
+        List price<small> + {formatServiceFee(credit.serviceFee)} a top-up</small>
         <Ref id="credit" />
       </p>
       <p class="for">
@@ -577,7 +588,7 @@ function PricingBody(props: { facts: PricingFacts }) {
       free: '$0',
       credit: credit && (
         <>
-          At cost + {formatBps(credit.markupBps)}
+          List price + {formatServiceFee(credit.serviceFee)} a top-up
           <Ref id="credit" />
         </>
       ),
