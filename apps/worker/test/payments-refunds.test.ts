@@ -22,20 +22,30 @@ async function newUser(): Promise<string> {
 }
 
 describe('refund.succeeded: personal purchases', () => {
-  it('debits the refunded pre-tax amount in full, once per refund', async () => {
+  it('debits the refunded share of the credit, once per refund', async () => {
     const userId = await newUser();
-    const payment = paid({ userId, netCents: 1000, feeCents: 80 });
+    // $5 of credit bought for $6.50 before tax.
+    const payment = paid({ userId, netCents: 650, creditCents: 500 });
     await apply(payment);
-    const partial = refunded(payment.paymentRef, 400);
+    const partial = refunded(payment.paymentRef, 260);
     expect(await apply(partial)).toBe('applied');
     expect(await apply(partial)).toBe('duplicate');
-    expect(await apply(refunded(payment.paymentRef, 600))).toBe('applied');
-    // Credited 9.20 (net of the fee), refunded 10.00: the fee is the user's to bear.
-    expect(await balance(`u_${userId}`)).toBe(-800_000);
+    expect(await apply(refunded(payment.paymentRef, 390))).toBe('applied');
+    // 40% of what was paid takes back 40% of the credit; the whole refund takes all of it.
+    expect(await balance(`u_${userId}`)).toBe(0);
     expect((await grantDetailsFor(env, `u_${userId}`)).slice(1)).toMatchObject([
-      { kind: 'refund', amount_micros: -4_000_000, gross_micros: -4_000_000 },
-      { kind: 'refund', amount_micros: -6_000_000, gross_micros: -6_000_000 },
+      { kind: 'refund', amount_micros: -2_000_000, gross_micros: -2_000_000 },
+      { kind: 'refund', amount_micros: -3_000_000, gross_micros: -3_000_000 },
     ]);
+  });
+
+  it('rounds a share of the credit up to a whole micro-dollar', async () => {
+    const userId = await newUser();
+    const payment = paid({ userId, netCents: 650, creditCents: 500 });
+    await apply(payment);
+    // 1¢ of $6.50 is 1/650 of $5: 7692.3 micro-dollars.
+    expect(await apply(refunded(payment.paymentRef, 1))).toBe('applied');
+    expect(await balance(`u_${userId}`)).toBe(5_000_000 - 7693);
   });
 
   it('ignores refunds in another currency', async () => {
@@ -87,7 +97,7 @@ describe('refund.succeeded before (or without) its payment', () => {
     );
     await apply(payment);
     expect(await applyPaymentEvent(env, refund, { provider })).toBe('applied');
-    expect(await balance(`u_${userId}`)).toBe(-800_000);
+    expect(await balance(`u_${userId}`)).toBe(0);
   });
 
   it('acknowledges a refund of a credits payment that was never credited, and never will be', async () => {

@@ -57,8 +57,7 @@ function summary(m: MembershipInfo, availableMicros = 2_000_000): BillingSummary
     balanceMicros: availableMicros,
     heldMicros: 0,
     availableMicros,
-    markupBps: 1000,
-    openRouterFeeBps: 550,
+    serviceFee: { bps: 2000, fixedCents: 50 },
     minTopUpCents: 500,
     maxTopUpCents: 50_000,
   };
@@ -443,9 +442,8 @@ describe('LearnFunding open pool', () => {
     await funding.refreshBalance();
     expect(funding.poolOn()).toBe(true);
     expect(api.poolMe).toHaveBeenCalled();
-    // Credit with a balance is the default: no pool pill, no model lock.
+    // Credit with a balance is the default: no pool pill.
     expect(funding.paidBy().payer).toBe('credit');
-    expect(funding.poolModelHint()).toBeNull();
     pick(funding, 'pool');
     expect(funding.paidBy()).toEqual({
       payer: 'pool',
@@ -455,22 +453,6 @@ describe('LearnFunding open pool', () => {
       warn: false,
     });
     expect(funding.poolLow()).toBe(false);
-    expect(funding.poolModel()).toEqual({ id: 'lite', label: 'Lite' });
-    expect(funding.poolModelHint()).toBe('The open pool uses Lite.');
-  });
-
-  it("names how the pool asks a tier's model when it asks it differently", async () => {
-    const pool: PoolStatusResponse = {
-      ...POOL,
-      model: { id: 'n', label: 'Normal', thinking: 'lighter', replies: 'shorter' },
-    };
-    const { funding } = setup(async () => summary(membership()), pool);
-    signIn(funding, me(membership({ required: false })));
-    await funding.refreshPool();
-    pick(funding, 'pool');
-    expect(funding.poolModelHint()).toBe(
-      "The open pool uses Normal's model with lighter thinking and shorter replies.",
-    );
   });
 
   it('offers the funding toggle only while both own credit and the pool can pay', async () => {
@@ -506,7 +488,6 @@ describe('LearnFunding open pool', () => {
     expect(funding.hasOwnKey()).toBe(true);
     expect(funding.payer()).toBe('own-key');
     expect(funding.paidBy().label).toBe('Your OpenRouter key');
-    expect(funding.poolModel()).toBeNull();
     expect(funding.fundingChoice()).toBe(false);
   });
 

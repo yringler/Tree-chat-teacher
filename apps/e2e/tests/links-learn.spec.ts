@@ -123,7 +123,7 @@ test('Learn: connect two messages, follow the connection, come back, remove it',
   await expect(page.locator('.toast').filter({ hasText: 'Connection removed' })).toBeVisible();
 
   // The tangent's first message has no chip either.
-  await firstReply.locator('.side-questions .chip', { hasText: 'Why the owl hums first' }).click();
+  await firstReply.getByRole('button', { name: 'Open tangent: Why the owl hums first' }).click();
   await expect(page).toHaveURL(/\/b\/[^/?]+\?m=/);
   await expect(message(page, 'Why does the owl hum first?')).toBeVisible();
   await expect(

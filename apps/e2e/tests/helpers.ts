@@ -137,19 +137,17 @@ export function membership(userId: string, status: 'active' | 'canceled', versio
   };
 }
 
-/** A paid personal top-up of `cents` (no fee), credited to the user's balance. */
+/** A paid personal top-up of `cents` of credit (its service fee left out), credited to the user's balance. */
 export function topUp(userId: string, cents: number) {
   return {
     type: 'payment.succeeded',
     provider: 'fake',
     occurredAt: new Date().toISOString(),
     paymentRef: `fake:order:${userId}:${Date.now()}`,
-    purpose: { kind: 'credits' },
+    purpose: { kind: 'credits', creditCents: cents },
     userId,
     customerRef: null,
     currency: 'usd',
     netCents: cents,
-    taxCents: 0,
-    fee: { cents: 0, estimated: false },
   };
 }

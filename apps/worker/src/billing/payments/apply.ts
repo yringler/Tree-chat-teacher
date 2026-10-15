@@ -7,14 +7,13 @@
 // events are safe:
 //
 // - payment.succeeded, credits → `fulfilPurchase` (the buyer's own credit,
-//   net of the processing fee), once per payment ref. Non-USD payments and
-//   payments naming no user are logged and never credited; an unknown fee
-//   throws RetryLaterError.
+//   the amount the checkout recorded), once per payment ref. Non-USD payments
+//   and payments naming no user are logged and never credited.
 // - payment.succeeded, membership → nothing on the ledger: the membership is
 //   its subscription snapshot (membership.changed below).
-// - refund.succeeded → a purchase on a user's ledger: − the refunded pre-tax
-//   amount in full (the processor keeps its fee, so the refund passes it on).
-//   A purchase on any other ledger is logged and left alone. A refund (or dispute) of
+// - refund.succeeded → a purchase on a user's ledger: − the refunded share of
+//   its credit (a full refund takes back all of it, the service fee being
+//   refunded too). A purchase on any other ledger is logged and left alone. A refund (or dispute) of
 //   a payment not applied yet throws RetryLaterError only while that payment
 //   will grant something once applied (`grantsOnPayment`); a refund of one
 //   that never grants (a membership payment) is logged (`refund_not_debited`)
@@ -53,8 +52,8 @@ import { reinstatedRef } from './refs.js';
 import { logEvent } from '../../log.js';
 
 /**
- * Thrown when the provider should deliver the event again later (a fee not
- * known yet, a refund that arrived before its payment): the webhook route
+ * Thrown when the provider should deliver the event again later (a refund
+ * that arrived before its payment): the webhook route
  * answers 500, and a dispute poll retries on its next run.
  */
 export class RetryLaterError extends Error {
@@ -118,18 +117,15 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
   }
   if (!(e.netCents > 0)) return 'skipped';
   if (await hasGrant(env.DB, e.paymentRef)) return 'duplicate';
-  if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
   if (!e.userId) {
     log('payment_not_credited', { reason: 'no_account', paymentRef: e.paymentRef });
     return 'skipped';
   }
-  if (e.fee.estimated)
-    log('fee_estimated', { paymentRef: e.paymentRef, feeCents: e.fee.cents, netCents: e.netCents });
   return written(
     await fulfilPurchase(env, {
       userId: e.userId,
-      grossCents: e.netCents,
-      processorFeeCents: e.fee.cents,
+      paidCents: e.netCents,
+      creditCents: purpose.creditCents,
       ref: e.paymentRef,
     }),
   );
@@ -214,35 +210,37 @@ function onUserLedger(grant: GrantRow): boolean {
 }
 
 /**
- * What a personal purchase's refunds and disputes may take back together:
- * the pre-tax amount paid (the fee is the buyer's to bear), or what it
- * credited for an old row without its gross amount.
+ * The credit a refund or dispute of `refundedMicros` (pre-tax) takes back
+ * from a purchase: the same share of its credit as of what was paid, rounded
+ * up, so a full refund takes back all the credit and a partial one its part
+ * of the service fee too. A grant without its amount paid (an admin
+ * adjustment) gives back what it asks.
  */
-function personalCapMicros(grant: GrantRow): number {
-  return grant.gross_micros !== null && grant.gross_micros > 0
-    ? grant.gross_micros
-    : grant.amount_micros;
+function creditShareMicros(grant: GrantRow, refundedMicros: number): number {
+  const paid = grant.gross_micros;
+  if (paid === null || paid <= 0) return refundedMicros;
+  const share = BigInt(refundedMicros) * BigInt(grant.amount_micros);
+  return Number((share + BigInt(paid) - 1n) / BigInt(paid));
 }
 
 /**
- * Debits a purchase being refunded or disputed by the refunded pre-tax amount
- * in full (it may go negative; the processor keeps its fee, so the refund
- * passes it on). Keyed on `ref`. All of a purchase's refunds and disputes
- * together (net of won disputes) never take back more than it paid: each row
- * is linked to `paymentRef`.
+ * Debits a purchase being refunded or disputed by the refunded share of its
+ * credit (`creditShareMicros`; the balance may go negative). Keyed on `ref`.
+ * All of a purchase's refunds and disputes together (net of won disputes)
+ * never take back more than it credited: each row is linked to `paymentRef`.
  */
 async function debitPurchase(
   env: AppEnv,
   grant: GrantRow,
   debit: { paymentRef: ProviderRef; ref: ProviderRef; netCents: number; note: string },
 ): Promise<ApplyResult> {
-  const micros = centsToMicros(debit.netCents);
+  const micros = creditShareMicros(grant, centsToMicros(debit.netCents));
   if (micros <= 0) return 'skipped';
   return written(
     await grantTowardCap(env.DB, {
       accountId: grant.account_id,
       grossMicros: -micros,
-      capMicros: personalCapMicros(grant),
+      capMicros: grant.amount_micros,
       paymentRef: debit.paymentRef,
       userId: grant.user_id ?? userIdOfAccount(grant.account_id),
       providerRef: debit.ref,
@@ -347,7 +345,7 @@ async function disputeWon(env: AppEnv, e: DisputeEvent): Promise<ApplyResult> {
     await grantTowardCap(env.DB, {
       accountId: debited.account_id,
       grossMicros: -debited.gross_micros,
-      capMicros: personalCapMicros(purchase),
+      capMicros: purchase.amount_micros,
       paymentRef: e.paymentRef,
       userId: debited.user_id,
       providerRef: reinstatedRef(e.disputeRef),

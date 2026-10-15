@@ -39,21 +39,16 @@ void main() {
     expect(find.text('No lessons yet. Start one above.'), findsOneWidget);
   });
 
-  testWidgets('starts a lesson on the picked tier with its topic', (
-    tester,
-  ) async {
+  testWidgets('starts a lesson with its topic', (tester) async {
     await pumpApp(tester, api);
     await tester.enterText(
       find.widgetWithText(TextField, 'Topic or first question'),
       'Tides',
     );
-    await tester.tap(find.text('Max'));
-    await tester.pump();
     await tester.tap(find.text('Start lesson'));
     await settle(tester);
 
-    expect(api.createdTrees.single.providerId, 'openrouter');
-    expect(api.createdTrees.single.model, 'max-model');
+    expect(api.createdTrees.single, 'openrouter');
     expect(api.sends.single.target, 'trunk');
     expect(api.sends.single.content, 'Tides');
     expect(find.text('Start lesson'), findsNothing, reason: 'on the chat');
@@ -67,14 +62,6 @@ void main() {
     );
     final topic = find.widgetWithText(TextField, 'Topic or first question');
     expect(tester.getTopRight(button).dx, tester.getTopRight(topic).dx);
-  });
-
-  testWidgets('on the pool there is no tier to pick', (tester) async {
-    api.poolStatusAnswer = const PoolStatus(enabled: true, modelLabel: 'M');
-    await pumpApp(tester, api);
-    expect(api.payerSet, Payer.pool);
-    expect(find.text('The open pool uses one model'), findsOneWidget);
-    expect(find.text('Max'), findsNothing);
   });
 
   testWidgets('deletes a lesson after asking', (tester) async {

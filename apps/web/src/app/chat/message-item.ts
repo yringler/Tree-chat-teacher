@@ -12,7 +12,6 @@ import {
 } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { ForkList } from './fork-list';
 import { MessageActions, type PickState } from './message-actions';
 import { MessageStatus } from './message-status';
 import { ReviewChip } from './review-chip';
@@ -21,12 +20,11 @@ import { TangentNav } from './tangent-nav';
 /**
  * One message of the linear branch view: its header (role, model, actions),
  * its text, then what hangs off it: the review, why it isn't whole, its
- * sources, where to go next, the branches started from it and its links.
+ * sources, the tangents started from it and where to go next, and its links.
  */
 @Component({
   selector: 'app-message-item',
   imports: [
-    ForkList,
     MessageActions,
     MessageStatus,
     RelatedLinks,
@@ -87,15 +85,13 @@ import { TangentNav } from './tangent-nav';
         (click)="$event.stopPropagation()"
       />
 
-      @if (complete()) {
-        <app-tangent-nav
-          [node]="n"
-          [tangents]="split().tangents"
-          [children]="children()"
-          [chainIds]="chainIds()"
-        />
-      }
-      <app-fork-list [branches]="children()" [chainIds]="chainIds()" />
+      <app-tangent-nav
+        [node]="n"
+        [finished]="complete()"
+        [tangents]="split().tangents"
+        [children]="children()"
+        [chainIds]="chainIds()"
+      />
 
       <app-related-links
         [entries]="related()"

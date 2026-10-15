@@ -151,10 +151,6 @@ app-android-app-banner ~ .page {
   gap: 4px;
 }
 
-.fork-row:hover .row-actions {
-  opacity: 1;
-}
-
 .home-list .tree-row .card {
   flex: 1;
   min-width: 0;

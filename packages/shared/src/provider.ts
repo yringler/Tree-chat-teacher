@@ -54,7 +54,7 @@ export interface ModelInfo {
   maxContextTokens?: number;
   maxOutputTokens?: number;
   /**
-   * The tier this model is (Learn's Normal/Max, power's suggested pair).
+   * The tier this model is (power's suggested Normal and Max; Learn's one model is Normal).
    * Clients key on this, never on `label`. Absent = not a tier.
    */
   tier?: ModelTier;

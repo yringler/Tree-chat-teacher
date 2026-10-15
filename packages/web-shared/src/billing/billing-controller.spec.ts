@@ -1,5 +1,6 @@
 import type { BillingSummary, UsageEntry, UsageListResponse } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
+import type { PortalTab } from '../core/billing-client';
 import {
   BillingController,
   POLL_ATTEMPTS,
@@ -23,8 +24,7 @@ function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
     balanceMicros: 1_000_000,
     heldMicros: 0,
     availableMicros: 1_000_000,
-    markupBps: 1000,
-    openRouterFeeBps: 550,
+    serviceFee: { bps: 2000, fixedCents: 50 },
     minTopUpCents: 500,
     maxTopUpCents: 50_000,
     ...overrides,
@@ -65,19 +65,22 @@ function setup(summaries: BillingSummary[] = [summary()]) {
   };
   const billing = {
     upgrade: vi.fn(async () => undefined),
-    portal: vi.fn(async () => undefined),
+    portal: vi.fn(async (_tab: PortalTab) => undefined),
   };
+  const tab = { show: vi.fn((_url: string) => undefined), close: vi.fn(() => undefined) };
+  const openTab = vi.fn((): PortalTab => tab);
   const navigate = vi.fn((_url: string) => undefined);
   const clearCheckoutParam = vi.fn(() => undefined);
   const sleep = vi.fn(async (_ms: number) => undefined);
   const ctl = new BillingController({
     api,
     billing,
+    openTab,
     navigate,
     clearCheckoutParam,
     sleep,
   });
-  return { ctl, api, billing, navigate, clearCheckoutParam, sleep };
+  return { ctl, api, billing, tab, openTab, navigate, clearCheckoutParam, sleep };
 }
 
 describe('BillingController: loading', () => {
@@ -215,19 +218,51 @@ describe('BillingController: ?checkout=cancel', () => {
 });
 
 describe('BillingController: top-ups', () => {
-  it('a preset opens Checkout for that many cents', async () => {
+  it('Add credit waits for an amount; a preset selects one and prices it', async () => {
     const { ctl, api, navigate } = setup();
     await ctl.load();
     expect(ctl.presets()).toEqual([500, 1000, 2000, 5000]);
-    await ctl.topUp(2000);
-    expect(api.createCheckout).toHaveBeenCalledWith(2000);
-    expect(navigate).toHaveBeenCalledWith('https://pay.example/checkout/2000');
+    expect(ctl.selectedCents()).toBeNull();
+    expect(ctl.breakdown()).toBeNull();
+    await ctl.addCredit();
+    expect(api.createCheckout).not.toHaveBeenCalled();
+
+    ctl.selectPreset(500);
+    expect(ctl.selectedPreset()).toBe(500);
+    // 20% + 50¢ of $5.
+    expect(ctl.breakdown()).toEqual({ creditCents: 500, feeCents: 150, subtotalCents: 650 });
+    await ctl.addCredit();
+    expect(api.createCheckout).toHaveBeenCalledWith(500);
+    expect(navigate).toHaveBeenCalledWith('https://pay.example/checkout/500');
+    expect(ctl.pending()).toEqual({ kind: 'top-up', cents: 500 });
     // The page is leaving: everything stays disabled.
     expect(ctl.busy()).toBe(true);
-    await ctl.topUp(500);
+    await ctl.addCredit();
     expect(api.createCheckout).toHaveBeenCalledTimes(1);
     ctl.resetPending();
     expect(ctl.busy()).toBe(false);
+  });
+
+  it('typing an amount replaces the preset, and the breakdown follows it', async () => {
+    const { ctl } = setup();
+    await ctl.load();
+    ctl.selectPreset(2000);
+    ctl.setCustomInput('$12.34');
+    expect(ctl.selectedPreset()).toBeNull();
+    // 20% of $12.34 is 246.8¢, rounded up, + 50¢.
+    expect(ctl.breakdown()).toEqual({ creditCents: 1234, feeCents: 297, subtotalCents: 1531 });
+    ctl.setCustomInput('abc');
+    expect(ctl.breakdown()).toBeNull();
+    ctl.selectPreset(1000);
+    expect(ctl.customInput()).toBe('');
+    expect(ctl.breakdown()).toEqual({ creditCents: 1000, feeCents: 250, subtotalCents: 1250 });
+  });
+
+  it('prices with the server’s service fee', async () => {
+    const { ctl } = setup([summary({ serviceFee: { bps: 1500, fixedCents: 0 } })]);
+    await ctl.load();
+    ctl.selectPreset(2000);
+    expect(ctl.breakdown()).toEqual({ creditCents: 2000, feeCents: 300, subtotalCents: 2300 });
   });
 
   it('validates the custom amount against the server limits', async () => {
@@ -238,47 +273,30 @@ describe('BillingController: top-ups', () => {
     ctl.setCustomInput('abc');
     expect(ctl.customCents()).toBeNull();
     expect(ctl.customError()).toMatch(/Enter an amount/);
-    await ctl.topUpCustom();
+    await ctl.addCredit();
     expect(ctl.customTouched()).toBe(true);
 
     ctl.setCustomInput('9.99');
     expect(ctl.customError()).toBe('The smallest top-up is $10.');
-    await ctl.topUpCustom();
+    expect(ctl.breakdown()).toBeNull();
+    await ctl.addCredit();
 
     ctl.setCustomInput('200.01');
     expect(ctl.customError()).toBe('The largest top-up is $200.');
-    await ctl.topUpCustom();
+    await ctl.addCredit();
 
     expect(api.createCheckout).not.toHaveBeenCalled();
-  });
-
-  it('a valid custom amount opens Checkout with the right cents', async () => {
-    const { ctl, api, navigate } = setup();
-    await ctl.load();
-    ctl.setCustomInput('$12.34');
-    expect(ctl.customError()).toBeNull();
-    await ctl.topUpCustom();
-    expect(api.createCheckout).toHaveBeenCalledWith(1234);
-    expect(navigate).toHaveBeenCalledWith('https://pay.example/checkout/1234');
-    expect(ctl.pending()).toEqual({ kind: 'top-up', cents: 1234, source: 'custom' });
   });
 
   it('shows a checkout error inline and re-enables the buttons', async () => {
     const { ctl, api, navigate } = setup();
     await ctl.load();
     api.createCheckout.mockRejectedValueOnce(new Error('Billing is not configured'));
-    await ctl.topUp(1000);
+    ctl.selectPreset(1000);
+    await ctl.addCredit();
     expect(navigate).not.toHaveBeenCalled();
     expect(ctl.actionError()).toBe('Billing is not configured');
     expect(ctl.busy()).toBe(false);
-  });
-
-  it('refuses an out-of-range preset without calling the server', async () => {
-    const { ctl, api } = setup();
-    await ctl.load();
-    await ctl.topUp(100);
-    expect(api.createCheckout).not.toHaveBeenCalled();
-    expect(ctl.actionError()).toBe('The smallest top-up is $5.');
   });
 });
 
@@ -290,7 +308,8 @@ describe('BillingController: the membership', () => {
     expect(billing.upgrade).toHaveBeenCalledOnce();
     expect(ctl.pending()).toEqual({ kind: 'subscribe' });
     // Leaving for the checkout: nothing else can start meanwhile.
-    await ctl.topUp(500);
+    ctl.selectPreset(500);
+    await ctl.addCredit();
     expect(ctl.pending()).toEqual({ kind: 'subscribe' });
   });
 
@@ -313,11 +332,27 @@ describe('BillingController: the membership', () => {
 });
 
 describe('BillingController: the portal', () => {
-  it('"Manage billing" opens the portal', async () => {
-    const { ctl, billing } = setup();
-    await ctl.manage();
-    expect(billing.portal).toHaveBeenCalledOnce();
+  it('"Manage billing" opens its tab during the click, before the portal URL arrives', () => {
+    const { ctl, openTab } = setup();
+    void ctl.manage();
+    expect(openTab).toHaveBeenCalledOnce();
     expect(ctl.pending()).toEqual({ kind: 'portal' });
+  });
+
+  it('hands the tab to the portal and leaves this page where it is', async () => {
+    const { ctl, billing, tab, navigate } = setup();
+    await ctl.manage();
+    expect(billing.portal).toHaveBeenCalledWith(tab);
+    expect(tab.close).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('clears "Opening…" once the tab is pointed, so the button works again', async () => {
+    const { ctl } = setup();
+    await ctl.manage();
+    expect(ctl.pending()).toBeNull();
+    expect(ctl.busy()).toBe(false);
+    expect(ctl.actionError()).toBeNull();
   });
 
   it('a portal error without a customer yet reads kindly', async () => {
@@ -332,5 +367,13 @@ describe('BillingController: the portal', () => {
     await ctl.manage();
     expect(ctl.actionError()).toMatch(/nothing to manage yet/);
     expect(ctl.busy()).toBe(false);
+  });
+
+  it('a second click while the tab is being pointed opens no second tab', async () => {
+    const { ctl, openTab } = setup();
+    const first = ctl.manage();
+    void ctl.manage();
+    await first;
+    expect(openTab).toHaveBeenCalledOnce();
   });
 });

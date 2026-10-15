@@ -12,10 +12,4 @@ export interface PolarConfig {
   creditsProductId: string | null;
   /** The yearly membership product; null = no membership is sold. */
   membershipProductId: string | null;
-  /**
-   * Polar's fee as an estimate, for an order that reports no usable fee:
-   * `bps` of the total charged plus `fixedCents` (`POLAR_FEE_BPS`,
-   * `POLAR_FEE_FIXED_CENTS`).
-   */
-  feeEstimate: { bps: number; fixedCents: number };
 }

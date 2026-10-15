@@ -63,6 +63,7 @@
         "lib/**",
         "test/**",
         "test_driver/**",
+        "screenshots/**",
         "web/**",
         "assets/**",
         "pubspec.yaml",

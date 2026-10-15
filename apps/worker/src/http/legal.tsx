@@ -23,7 +23,7 @@ import { DOC_STYLE } from './page-styles.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '13 October 2026';
+export const LEGAL_UPDATED = '15 October 2026';
 
 /** A long-form public page (the legal pages, `/pool`), cacheable for five minutes. */
 export function docResponse(
@@ -653,9 +653,9 @@ function TermsOfService(props: { info: LegalInfo }) {
           also apply to your purchase.
         </li>
         <li>
-          Prices for paid replies are the AI provider's cost (including its credit-purchase fee)
-          plus a markup shown in the app. Polar's processing fee comes out of each purchase, and tax
-          is added at checkout.
+          Paid replies cost the AI provider's listed price, taken from your credit. Each credit
+          purchase adds a service fee, shown in the app with the total before you pay, and tax is
+          added at checkout. You get the full amount of credit you buy.
         </li>
         <li>
           Credit is prepaid and is used up as you send messages. It has no cash value and can't be

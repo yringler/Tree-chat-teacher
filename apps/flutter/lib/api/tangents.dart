@@ -8,8 +8,9 @@
 //   </tangents>
 //
 // This mirrors packages/shared/src/tangents.ts (splitTangents,
-// parseTangentLine and groupTangents), which the server's prompt and the web
-// apps use; the two must change together.
+// parseTangentLine, groupTangents, tangentFooter and suggestedFoldLabel),
+// which the server's prompt and the web apps use; the two must change
+// together.
 
 /// What following a suggestion does. [continueOn] advances the thread's main
 /// topic to its next step, so it is sent as a reply ("continue" is a Dart
@@ -191,3 +192,60 @@ SplitTangents splitTangents(String content) {
       if (t.kind == TangentKind.tangent) t,
   ],
 );
+
+/// What a finished reply's tangents footer shows, in every app.
+class TangentFooter<B> {
+  const TangentFooter({
+    required this.yours,
+    required this.offers,
+    required this.folded,
+    required this.followed,
+  });
+
+  /// The tangents started from the reply, in the order given: shown first.
+  final List<B> yours;
+
+  /// The tangent suggestions no tangent follows yet, in their order.
+  final List<Tangent> offers;
+
+  /// The offers start hidden behind one row ([suggestedFoldLabel]).
+  final bool folded;
+
+  /// How many tangent suggestions a tangent follows.
+  final int followed;
+}
+
+/// Sorts a reply's tangents footer by where the learner went, not by where
+/// an idea came from. Every tangent started from the reply ([children], each
+/// titled by [titleOf]) is the learner's, whether it follows a suggestion or
+/// was asked in their own words; one that carries a suggestion's title
+/// follows it, so that suggestion leaves the offers rather than showing
+/// twice. Once the reply has a tangent of the learner's, its offers fold:
+/// the learner has read them (they picked from them), and a reply's footer
+/// then changes only when the learner starts a tangent (and moves to it) or
+/// deletes one, never while they read or a reply streams in.
+TangentFooter<B> tangentFooter<B>(
+  List<Tangent> tangents,
+  List<B> children, {
+  required String Function(B) titleOf,
+}) {
+  final taken = {for (final b in children) titleOf(b)};
+  final suggested = groupTangents(tangents).tangent;
+  final offers = [
+    for (final t in suggested)
+      if (!taken.contains(t.title)) t,
+  ];
+  return TangentFooter(
+    yours: List.of(children),
+    offers: offers,
+    folded: children.isNotEmpty && offers.isNotEmpty,
+    followed: suggested.length - offers.length,
+  );
+}
+
+/// The row folded suggestions hide behind: "4 suggested tangents", or
+/// "3 more suggested" when one is already in view or followed ([more]).
+String suggestedFoldLabel(int hidden, {required bool more}) {
+  if (more) return '$hidden more suggested';
+  return hidden == 1 ? '1 suggested tangent' : '$hidden suggested tangents';
+}

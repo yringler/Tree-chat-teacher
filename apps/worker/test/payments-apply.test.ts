@@ -2,7 +2,7 @@
 // on neutral events: no provider wire format, so a provider switch leaves these as they are.
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
-import { applyPaymentEvent, RetryLaterError } from '../src/billing/payments/apply.js';
+import { applyPaymentEvent } from '../src/billing/payments/apply.js';
 import { customerRefFor } from '../src/billing/payments/customers.js';
 import { getBalance } from '../src/billing/ledger.js';
 import type { AppEnv } from '../src/env.js';
@@ -32,32 +32,26 @@ async function subscriptionRows(userId: string) {
 }
 
 describe('payment.succeeded: credit purchases', () => {
-  it('credits a personal top-up once, net of the fee, to the buyer’s ledger', async () => {
+  it('credits a personal top-up once, the credit bought, to the buyer’s ledger', async () => {
     const userId = await newUser();
-    const e = paid({ userId, netCents: 1000, feeCents: 80 });
+    const e = paid({ userId, netCents: 1000, creditCents: 750 });
     expect(await apply(e)).toBe('applied');
     expect(await apply(e)).toBe('duplicate');
     expect(await grantDetailsFor(env, `u_${userId}`)).toEqual([
       {
         kind: 'purchase',
-        amount_micros: 9_200_000,
+        amount_micros: 7_500_000,
         gross_micros: 10_000_000,
-        fee_micros: 800_000,
+        fee_micros: 2_500_000,
         provider_ref: e.paymentRef,
       },
     ]);
   });
 
-  it('asks for a retry while the fee is unknown, and logs an estimated fee', async () => {
+  it('never credits more than was paid when a discount took more than the fee', async () => {
     const userId = await newUser();
-    const e = paid({ userId, feeCents: null });
-    await expect(apply(e)).rejects.toBeInstanceOf(RetryLaterError);
-    expect(await balance(`u_${userId}`)).toBe(0);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    expect(await apply({ ...e, fee: { cents: 90, estimated: true } })).toBe('applied');
-    expect(warn.mock.calls.some(([m]) => String(m).includes('"fee_estimated"'))).toBe(true);
-    warn.mockRestore();
-    expect(await balance(`u_${userId}`)).toBe(9_100_000);
+    expect(await apply(paid({ userId, netCents: 600, creditCents: 750 }))).toBe('applied');
+    expect(await balance(`u_${userId}`)).toBe(6_000_000);
   });
 
   it('never credits another currency or a payment with no user', async () => {

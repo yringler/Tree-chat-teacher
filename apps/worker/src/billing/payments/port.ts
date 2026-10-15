@@ -38,7 +38,9 @@ export interface Buyer {
 export interface TopUpCheckoutInput {
   /** Credit is bought for the buyer's own ledger only. */
   buyer: Buyer;
-  /** Pre-tax, whole USD cents. The domain has already validated the bounds. */
+  /** The credit bought, whole USD cents. The domain has already validated the bounds. */
+  creditCents: number;
+  /** What the checkout charges before tax: the credit plus the service fee, whole USD cents. */
   amountCents: number;
   successUrl: string;
   /** Where the provider's back/cancel link goes. */
@@ -132,8 +134,8 @@ interface EventBase {
 
 /** What a payment was for, as the checkout metadata (or the product) says. */
 export type PaymentPurpose =
-  /** A top-up of the buyer's own credit. */
-  | { kind: 'credits' }
+  /** A top-up of the buyer's own credit: `creditCents` of credit, as the checkout recorded it. */
+  | { kind: 'credits'; creditCents: number }
   /** A paid membership year, the first or a renewal. */
   | { kind: 'membership' }
   /** Anything else on the provider account: logged, never credited. */
@@ -150,11 +152,6 @@ export interface PaymentFacts {
   currency: string;
   /** Pre-tax, after discounts: what the goods cost. Enters the ledger as gross. Never includes tax. */
   netCents: number;
-  /**
-   * The processor's or MoR's fee in USD cents; `estimated` when the adapter
-   * fell back to its fee formula. null = unknown, so retry.
-   */
-  fee: { cents: number; estimated: boolean } | null;
 }
 
 /** Money arrived (a top-up, the membership's first year or a renewal). */

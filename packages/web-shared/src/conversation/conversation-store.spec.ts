@@ -675,6 +675,51 @@ describe('ConversationStore moving around the tree', () => {
   });
 });
 
+describe('ConversationStore coming back from a tangent', () => {
+  const cameFrom = (s: ReturnType<typeof showing>) => [...s.store.cameFromIds()].sort();
+
+  it('going deeper leaves nothing behind', () => {
+    const s = showing('side');
+    s.store.setRoute('t1', 'deep', 'u3');
+    expect(cameFrom(s)).toEqual([]);
+  });
+
+  it('back to the parent: the tangent just left', () => {
+    const s = showing('side');
+    s.store.setRoute('t1', null, 'a1');
+    expect(cameFrom(s)).toEqual(['side']);
+  });
+
+  it('back two levels through a crumb: both tangents left', () => {
+    const s = showing('deep');
+    s.store.setRoute('t1', 'trunk', 'a1');
+    expect(cameFrom(s)).toEqual(['deep', 'side']);
+  });
+
+  it('sideways to a sibling: the one left', () => {
+    const s = showing('side');
+    s.store.setRoute('t1', 'other', 'u4');
+    expect(cameFrom(s)).toEqual(['side']);
+  });
+
+  it('focusing another message keeps it; the next move replaces it', () => {
+    const s = showing('side');
+    s.store.setRoute('t1', null, 'a1');
+    s.store.setRoute('t1', null, 'u1');
+    s.store.setRoute('t1', 'trunk', null);
+    expect(cameFrom(s)).toEqual(['side']);
+    s.store.setRoute('t1', 'other', null);
+    expect(cameFrom(s)).toEqual([]);
+  });
+
+  it('another tree clears it', () => {
+    const s = showing('side');
+    s.store.setRoute('t1', null, 'a1');
+    s.store.setRoute('t2', null, null);
+    expect(cameFrom(s)).toEqual([]);
+  });
+});
+
 describe('ConversationStore the tree list', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);

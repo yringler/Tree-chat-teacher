@@ -277,7 +277,7 @@ describe('compare candidates', () => {
 });
 
 describe('compare in Learn', () => {
-  it('on credit: both candidates are metered replies, on the lesson’s provider and tiers only', async () => {
+  it('on credit: both candidates are metered replies, on the lesson’s provider and models only', async () => {
     const c = client(authEnv());
     await c.signIn(`compare-${uniq('u')}@example.org`);
     const me = (await (await c.call('/api/me')).json()) as { userId: string };
@@ -315,9 +315,10 @@ describe('compare in Learn', () => {
       ]);
     });
 
-    // Learn compares on its own provider, and only its tiers.
+    // Learn compares on its own provider, and only its models: never power's Max.
     expect((await ask({ content: 'Q', providerId: 'fake', model: 'fake-1' })).status).toBe(400);
     expect((await ask({ content: 'Q', model: 'some/other-model' })).status).toBe(400);
+    expect((await ask({ content: 'Q', model: 'strong' })).status).toBe(400);
 
     const res = await c.call(
       `/api/branches/${branchId}/candidates/${dones[1]!.candidateId}/commit`,

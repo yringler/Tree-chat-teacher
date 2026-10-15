@@ -1,5 +1,5 @@
 // How each hosted tier asks its model: the `*_EFFORT`, `*_REPLY_TOKENS` and `*_PROVIDER_ORDER` vars of
-// Learn's Normal and Max, the open pool and the background calls, and the
+// Learn's Normal, the open pool and the background calls, and the
 // request each one sends upstream. An empty var is the default model's
 // evaluated setting while the tier runs that model (a setting tuned for one
 // model says nothing about another), else the model's own: no effort, the default caps,
@@ -15,8 +15,8 @@ import { poolModel, resolvePoolParams } from '../src/pool/params.js';
 import {
   builtInPowerConfig,
   DEFAULT_BACKGROUND_MODEL,
-  DEFAULT_LEARN_MAX_MODEL,
   DEFAULT_LEARN_NORMAL_MODEL,
+  DEFAULT_POWER_MAX_MODEL,
   poolChatSettings,
   poolProviderConfig,
   simpleChatSettings,
@@ -33,9 +33,6 @@ const TIER_VARS = [
   'LEARN_NORMAL_EFFORT',
   'LEARN_NORMAL_REPLY_TOKENS',
   'LEARN_NORMAL_PROVIDER_ORDER',
-  'LEARN_MAX_EFFORT',
-  'LEARN_MAX_REPLY_TOKENS',
-  'LEARN_MAX_PROVIDER_ORDER',
   'BACKGROUND_EFFORT',
   'POOL_EFFORT',
   'POOL_PROVIDER_ORDER',
@@ -46,7 +43,7 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
     ...env,
     BUILT_IN_PROVIDER: '',
     LEARN_NORMAL_MODEL: '',
-    LEARN_MAX_MODEL: '',
+    POWER_MAX_MODEL: '',
     BACKGROUND_MODEL: '',
     POOL_MODEL: '',
     MODEL_PRICES: '',
@@ -97,7 +94,6 @@ describe('tier config vars', () => {
     const c = appConfig(deployed());
     const none = { effort: null, maxOutputTokens: null, providerOrder: [] };
     expect(c.learn.normal).toEqual(none);
-    expect(c.learn.max).toEqual(none);
     expect(c.background.effort).toBeNull();
     expect(c.pool).toMatchObject({ effort: null, providerOrder: [] });
     // What an empty var means on each default model.
@@ -105,10 +101,6 @@ describe('tier config vars', () => {
       normal: {
         model: 'deepseek/deepseek-v4.1-flash',
         request: { effort: 'high', maxOutputTokens: 16_384, providerOrder: PINNED },
-      },
-      max: {
-        model: 'anthropic/claude-sonnet-5.5',
-        request: { effort: null, maxOutputTokens: 16_384, providerOrder: [] },
       },
       pool: {
         model: 'deepseek/deepseek-v4.1-flash',
@@ -149,17 +141,13 @@ describe('tier config vars', () => {
       contextTokens: 1_048_576,
       cacheReadMicrosPerMTok: 3_000,
     });
-    // The Max note as deployed: about 14×.
+    // Power's Max note as deployed: about 14×.
     const [info] = await withUsageFactors(live, [
       {
         id: 'openrouter',
         kind: 'openai-compatible',
-        label: 'Tangent',
-        models: simpleProviderConfig(live).models.map(({ id, label, tier }) => ({
-          id,
-          label,
-          ...(tier ? { tier } : {}),
-        })),
+        label: 'Tangent credit',
+        models: builtInPowerConfig(live).models,
         defaultModel: DEFAULT_LEARN_NORMAL_MODEL,
         openModels: false,
         available: true,
@@ -176,7 +164,6 @@ describe('tier config vars', () => {
         LEARN_NORMAL_EFFORT: ' High ',
         LEARN_NORMAL_REPLY_TOKENS: '12000',
         LEARN_NORMAL_PROVIDER_ORDER: 'deepseek, novita ,',
-        LEARN_MAX_EFFORT: 'low',
         BACKGROUND_EFFORT: 'none',
         POOL_EFFORT: 'low',
         POOL_PROVIDER_ORDER: 'deepseek',
@@ -187,7 +174,6 @@ describe('tier config vars', () => {
       maxOutputTokens: 12_000,
       providerOrder: ['deepseek', 'novita'],
     });
-    expect(c.learn.max).toEqual({ effort: 'low', maxOutputTokens: null, providerOrder: [] });
     expect(c.background.effort).toBe('none');
     expect(c.pool).toMatchObject({ effort: 'low', providerOrder: ['deepseek'] });
   });
@@ -202,27 +188,26 @@ describe('tier config vars', () => {
   });
 
   it('refuses a reply cap above the per-call bound (16,384), or a malformed one', () => {
-    expect(appConfig(deployed({ LEARN_MAX_REPLY_TOKENS: '16384' })).learn.max.maxOutputTokens).toBe(
-      16_384,
-    );
+    expect(
+      appConfig(deployed({ LEARN_NORMAL_REPLY_TOKENS: '16384' })).learn.normal.maxOutputTokens,
+    ).toBe(16_384);
     for (const bad of ['40000', '0', '-5', '1.5', 'lots'])
-      expect(() => appConfig(deployed({ LEARN_MAX_REPLY_TOKENS: bad }))).toThrow(
-        'Invalid LEARN_MAX_REPLY_TOKENS=',
+      expect(() => appConfig(deployed({ LEARN_NORMAL_REPLY_TOKENS: bad }))).toThrow(
+        'Invalid LEARN_NORMAL_REPLY_TOKENS=',
       );
   });
 });
 
-describe("Learn's tiers with request settings", () => {
+describe("Learn's Normal with request settings", () => {
   const tuned = () =>
     deployed({
       LEARN_NORMAL_EFFORT: 'high',
       LEARN_NORMAL_REPLY_TOKENS: '12000',
       LEARN_NORMAL_PROVIDER_ORDER: 'deepseek',
-      LEARN_MAX_EFFORT: 'low',
       BACKGROUND_EFFORT: 'none',
     });
 
-  it("put each tier's settings on its model only", () => {
+  it("put Normal's settings on its model", () => {
     expect(simpleProviderConfig(tuned()).models).toEqual([
       {
         id: DEFAULT_LEARN_NORMAL_MODEL,
@@ -232,18 +217,12 @@ describe("Learn's tiers with request settings", () => {
         maxOutputTokens: 12_000,
         providerOrder: ['deepseek'],
       },
-      // An empty reply cap is still the default model's.
-      {
-        id: DEFAULT_LEARN_MAX_MODEL,
-        label: 'Max',
-        tier: 'max',
-        effort: 'low',
-        maxOutputTokens: 16_384,
-      },
     ]);
-    // Power's suggestions and Tangent credit don't take them (the user picks there).
+    // Power's suggestions and Tangent credit, Normal and Max, don't take them (the user picks there).
     expect(suggestedModels(tuned()).every((m) => !('effort' in m))).toBe(true);
-    expect(builtInPowerConfig(tuned()).models.every((m) => !('effort' in m))).toBe(true);
+    const credit = builtInPowerConfig(tuned()).models;
+    expect(credit.map((m) => m.id)).toEqual([DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_POWER_MAX_MODEL]);
+    expect(credit.every((m) => !('effort' in m || 'providerOrder' in m))).toBe(true);
   });
 
   it('cap the reply at the tier cap and send the effort and pinning upstream', async () => {
@@ -257,9 +236,6 @@ describe("Learn's tiers with request settings", () => {
       reasoning: { effort: 'high' },
       provider: { order: ['deepseek'], allow_fallbacks: true },
     });
-    const max = await sentBody(config, { model: DEFAULT_LEARN_MAX_MODEL });
-    expect(max['reasoning']).toEqual({ effort: 'low' });
-    expect(max).not.toHaveProperty('provider');
   });
 
   it('are server-side: the providers list never shows them', () => {
@@ -278,7 +254,7 @@ describe("Learn's tiers with request settings", () => {
     expect(simpleChatSettings(deployed()).summaryEffort).toBe('low');
   });
 
-  it('ask the default models as evaluated by default', async () => {
+  it('ask the default model as evaluated by default', async () => {
     const config = simpleProviderConfig(deployed());
     expect(config.models).toEqual([
       {
@@ -289,26 +265,17 @@ describe("Learn's tiers with request settings", () => {
         maxOutputTokens: 16_384,
         providerOrder: PINNED,
       },
-      { id: DEFAULT_LEARN_MAX_MODEL, label: 'Max', tier: 'max', maxOutputTokens: 16_384 },
     ]);
     const normal = await sentBody(config, { model: DEFAULT_LEARN_NORMAL_MODEL });
     expect(normal).toMatchObject({
       reasoning: { effort: 'high' },
       provider: { order: PINNED, allow_fallbacks: true },
     });
-    const max = await sentBody(config, { model: DEFAULT_LEARN_MAX_MODEL });
-    expect(max).not.toHaveProperty('reasoning');
-    expect(max).not.toHaveProperty('provider');
   });
 
   it("ask another model with its own defaults: the default model's settings stay with it", async () => {
-    const config = simpleProviderConfig(
-      deployed({ LEARN_NORMAL_MODEL: 'minimax/minimax-m3', LEARN_MAX_MODEL: 'x/other-max' }),
-    );
-    expect(config.models).toEqual([
-      { id: 'minimax/minimax-m3', label: 'Normal', tier: 'normal' },
-      { id: 'x/other-max', label: 'Max', tier: 'max' },
-    ]);
+    const config = simpleProviderConfig(deployed({ LEARN_NORMAL_MODEL: 'minimax/minimax-m3' }));
+    expect(config.models).toEqual([{ id: 'minimax/minimax-m3', label: 'Normal', tier: 'normal' }]);
     const body = await sentBody(config, { model: 'minimax/minimax-m3' });
     expect(body).not.toHaveProperty('reasoning');
     expect(body).not.toHaveProperty('provider');

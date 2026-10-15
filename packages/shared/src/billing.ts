@@ -1,3 +1,4 @@
+import type { ServiceFee } from './charge.js';
 import { z } from './zod.js';
 import type { UsagePurpose } from './provider.js';
 
@@ -10,7 +11,8 @@ import type { UsagePurpose } from './provider.js';
  *
  * Units: the ledger is integer micro-USD (`MICROS_PER_USD`); top-ups are whole
  * US cents. Every amount shown to users is pre-tax (the payment provider adds
- * tax at checkout).
+ * tax at checkout). Credit pays the models' listed prices; a purchase pays
+ * the credit plus a service fee (`serviceFeeCents`).
  */
 
 /**
@@ -28,17 +30,17 @@ export const MODE_HEADER = 'x-tangent-mode';
 /** Request header with the `Payer` of a `simple` request; absent = `own-key`. */
 export const PAYMENT_HEADER = 'x-tangent-payment';
 
-/** Smallest one-time top-up ($5.00). */
+/** Smallest one-time top-up ($5.00 of credit). */
 export const MIN_TOP_UP_CENTS = 500;
-/** Largest one-time top-up ($500.00). */
+/** Largest one-time top-up ($500.00 of credit). */
 export const MAX_TOP_UP_CENTS = 50_000;
 /** Ledger units per US dollar. */
 export const MICROS_PER_USD = 1_000_000;
 
 /**
- * `POST /api/billing/checkout`: credit for the buyer's own account. The
- * purchase adds what was paid (pre-tax) minus the processing fee; the
- * operator earns a markup on usage instead (`MARKUP_BPS`). Nobody buys credit
+ * `POST /api/billing/checkout`: `amountCents` of credit for the buyer's own
+ * account. The checkout charges that plus the service fee (`serviceFeeCents`),
+ * before tax, and the purchase adds exactly `amountCents`. Nobody buys credit
  * for the open pool (`POOL_FUNDING_TEXT`, pool.ts), so a body naming any other
  * field, such as a `target`, is refused.
  */
@@ -114,11 +116,11 @@ export interface MembershipInfo {
   priceCents: number;
 }
 
-/** The latest top-up with a known processing fee. */
+/** The latest top-up. */
 export interface PurchaseInfo {
-  /** Pre-tax amount paid. */
+  /** Pre-tax amount paid: the credit plus the service fee. */
   grossMicros: number;
-  /** The payment provider's processing fee, deducted from the credit. */
+  /** The service fee paid. */
   feeMicros: number;
   /** Credit added: `grossMicros - feeMicros`. */
   creditMicros: number;
@@ -148,14 +150,9 @@ export interface BillingSummary {
   heldMicros: number;
   /** `balanceMicros - heldMicros`. */
   availableMicros: number;
-  /** Markup applied to the true provider cost, in basis points (1000 = +10%). */
-  markupBps: number;
-  /**
-   * OpenRouter's credit-purchase fee, in basis points (550 = 5.5%), included in
-   * the provider cost before the markup: charge = price × (1 + fee) × (1 + markup).
-   */
-  openRouterFeeBps: number;
-  /** The latest purchase whose processing fee is known; absent or null when none. */
+  /** The fee on a top-up, added to the credit bought (`serviceFeeCents`); calls on credit cost the model's listed price. */
+  serviceFee: ServiceFee;
+  /** The latest purchase; absent or null when none. */
   lastPurchase?: PurchaseInfo | null;
   minTopUpCents: number;
   maxTopUpCents: number;

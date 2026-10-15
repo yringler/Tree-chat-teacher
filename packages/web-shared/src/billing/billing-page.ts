@@ -9,9 +9,16 @@ import {
   type OnInit,
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import type { BillingSummary, MembershipInfo, UsageEntry, UsagePurpose } from '@tangent/shared';
+import {
+  centsToMicros,
+  formatServiceFee,
+  type BillingSummary,
+  type MembershipInfo,
+  type UsageEntry,
+  type UsagePurpose,
+} from '@tangent/shared';
 import { ApiClient } from '../core/api-client';
-import { BillingClient } from '../core/billing-client';
+import { BillingClient, openPortalTab } from '../core/billing-client';
 import { DEMO_MODE } from '../core/demo';
 import { Icon } from '../ui/icon';
 import { BillingController } from './billing-controller';
@@ -149,9 +156,8 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
             <p class="muted small">Each call costs {{ feeText(s) }}.</p>
             @if (s.lastPurchase; as p) {
               <p class="muted small billing-last-purchase">
-                Last top-up: paid
-                {{ money(p.grossMicros) }}, credit {{ money(p.creditMicros) }} after payment
-                processing.
+                Last top-up: {{ money(p.creditMicros) }} of credit for
+                {{ money(p.grossMicros) }} before tax.
               </p>
             }
           </section>
@@ -163,25 +169,25 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
             } @else if (s.topUpsEnabled === false) {
               <p class="muted small">One-time top-ups aren't available on this server right now.</p>
             } @else {
-              <div class="billing-presets" role="group" aria-label="Top-up amounts">
-                @for (cents of ctl.presets(); track cents) {
-                  <button
-                    type="button"
-                    class="btn"
-                    [disabled]="ctl.busy()"
-                    [attr.aria-busy]="isPendingTopUp(cents) || null"
-                    (click)="ctl.topUp(cents)"
-                  >
-                    {{ isPendingTopUp(cents) ? 'Opening…' : cents_(cents) }}
-                  </button>
-                }
-              </div>
               <form
-                class="billing-custom"
+                class="billing-topup"
                 novalidate
-                (submit)="$event.preventDefault(); ctl.topUpCustom()"
+                (submit)="$event.preventDefault(); ctl.addCredit()"
               >
-                <label class="field">
+                <div class="billing-presets" role="group" aria-label="Amount of credit">
+                  @for (cents of ctl.presets(); track cents) {
+                    <button
+                      type="button"
+                      class="btn billing-preset"
+                      [attr.aria-pressed]="ctl.selectedPreset() === cents"
+                      [disabled]="ctl.busy()"
+                      (click)="ctl.selectPreset(cents)"
+                    >
+                      {{ cents_(cents) }}
+                    </button>
+                  }
+                </div>
+                <label class="field billing-custom">
                   <span class="field-label">
                     Other amount ({{ cents_(ctl.minCents()) }} to {{ cents_(ctl.maxCents()) }})
                   </span>
@@ -193,23 +199,46 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
                       autocomplete="off"
                       placeholder="25.00"
                       [value]="ctl.customInput()"
+                      [disabled]="ctl.busy()"
                       [attr.aria-invalid]="showCustomError() ? 'true' : null"
                       [attr.aria-describedby]="showCustomError() ? 'billing-custom-err' : null"
                       (input)="ctl.setCustomInput(inputValue($event))"
+                      (blur)="touchCustom()"
                     />
                   </span>
                 </label>
-                <button type="submit" class="btn btn-primary" [disabled]="ctl.busy()">
-                  {{ customPending() ? 'Opening…' : 'Add credit' }}
-                </button>
+                @if (showCustomError()) {
+                  <p id="billing-custom-err" class="small billing-error">{{ ctl.customError() }}</p>
+                }
+                <dl class="billing-breakdown" aria-live="polite">
+                  <div>
+                    <dt>Credit</dt>
+                    <dd>{{ line(ctl.breakdown()?.creditCents) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Service fee ({{ serviceFeeText(s) }})</dt>
+                    <dd>{{ line(ctl.breakdown()?.feeCents) }}</dd>
+                  </div>
+                  <div class="billing-subtotal">
+                    <dt>Subtotal (before tax)</dt>
+                    <dd>{{ line(ctl.breakdown()?.subtotalCents) }}</dd>
+                  </div>
+                </dl>
+                <div class="billing-checkout-row">
+                  <button
+                    type="submit"
+                    class="btn btn-primary"
+                    [disabled]="ctl.busy() || !ctl.breakdown()"
+                  >
+                    {{ ctl.pending()?.kind === 'top-up' ? 'Opening…' : 'Add credit' }}
+                    <app-icon name="external" [size]="14" />
+                  </button>
+                  <span class="muted small">Opens secure checkout, where tax is added.</span>
+                </div>
               </form>
-              @if (showCustomError()) {
-                <p id="billing-custom-err" class="small billing-error">{{ ctl.customError() }}</p>
-              }
               <p class="muted small">
-                Payment processing fees are deducted from each top-up, so the credit added is
-                slightly less than the amount paid. Prices exclude tax; tax is calculated at
-                checkout.
+                You get the full amount of credit, and each reply takes its model's list price from
+                it. <a href="/pricing">Where the service fee goes</a>.
               </p>
             }
           </section>
@@ -347,6 +376,7 @@ export class BillingPage implements OnInit, OnDestroy {
   protected readonly ctl = new BillingController({
     api: inject(ApiClient),
     billing: inject(BillingClient),
+    openTab: () => openPortalTab(),
     navigate: (url) => location.assign(url),
     clearCheckoutParam: () => this.clearCheckoutParam(),
   });
@@ -387,8 +417,12 @@ export class BillingPage implements OnInit, OnDestroy {
     return membershipPriceText(m);
   }
 
+  protected serviceFeeText(s: BillingSummary): string {
+    return formatServiceFee(s.serviceFee);
+  }
+
   protected feeText(s: BillingSummary): string {
-    return creditFeeText(s.markupBps, s.openRouterFeeBps);
+    return creditFeeText(s.serviceFee);
   }
 
   protected money(micros: number): string {
@@ -408,17 +442,18 @@ export class BillingPage implements OnInit, OnDestroy {
   }
 
   protected showCustomError(): boolean {
-    return this.ctl.customTouched() && this.ctl.customError() !== null;
+    return (
+      this.ctl.customTouched() && this.ctl.customInput() !== '' && this.ctl.customError() !== null
+    );
   }
 
-  protected isPendingTopUp(cents: number): boolean {
-    const p = this.ctl.pending();
-    return p?.kind === 'top-up' && p.source === 'preset' && p.cents === cents;
+  protected touchCustom(): void {
+    this.ctl.customTouched.set(true);
   }
 
-  protected customPending(): boolean {
-    const p = this.ctl.pending();
-    return p?.kind === 'top-up' && p.source === 'custom';
+  /** A breakdown amount with its cents (`$6.50`), or a dash before an amount is chosen. */
+  protected line(cents: number | undefined): string {
+    return cents === undefined ? '—' : formatMicros(centsToMicros(cents));
   }
 
   protected purposeLabel(u: UsageEntry): string {

@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
 import '../api/tangent_api.dart';
-import '../api/tangents.dart';
 import 'lessons_controller.dart';
 import 'notice.dart';
 import 'session_controller.dart';
@@ -49,9 +48,6 @@ class ChatController extends ChangeNotifier {
   bool _sending = false;
   bool get sending => _sending;
 
-  bool _switching = false;
-  bool get switching => _switching;
-
   String get title => lessons.titleOf(treeId) ?? _tree?.title ?? '';
 
   /// The branch on screen: the one asked for, else the trunk.
@@ -76,6 +72,14 @@ class ChatController extends ChangeNotifier {
     final id = branchId;
     return id == null ? const [] : branchChain(id, _branches);
   }
+
+  /// The tangents the learner just came back from: on the way to the branch
+  /// they left, not on the way to the one on screen. Going deeper leaves
+  /// none; back to the parent, the tangent left. Coming back is when the
+  /// learner looks for where they were, so its row under the reply is lit.
+  /// A controller holds one lesson, so another lesson starts with none.
+  Set<String> get cameFromIds => _cameFromIds;
+  Set<String> _cameFromIds = const {};
 
   /// Every branch of the lesson, tangents nested under their parents.
   List<OutlineEntry> get outline {
@@ -118,32 +122,11 @@ class ChatController extends ChangeNotifier {
   /// Transient progress text of a reply being written ("Searching…").
   String? statusOf(String nodeId) => _status[nodeId];
 
-  /// The tier this branch runs on, when its model is one of Learn's tiers.
-  Tier? get tier {
-    final id = branchId;
-    return id == null ? null : lessons.tierOf(effectiveModel(id, _branches));
-  }
-
-  /// The open pool runs one model, so the learner can't pick a tier on it.
-  bool get canSwitchTier =>
-      session.payer != Payer.pool &&
-      lessons.hasTiers &&
-      !_switching &&
-      streamingNode == null;
-
   /// The tangents that start from [node], in the server's order.
-  List<Branch> sideQuestionsAt(ChatNode node) => [
+  List<Branch> tangentsAt(ChatNode node) => [
     for (final b in _branches.values)
       if (b.branchPointNodeId == node.id) b,
   ];
-
-  /// The tangent from [node] titled [title], if one was opened before.
-  Branch? branchFor(ChatNode node, String title) {
-    for (final b in sideQuestionsAt(node)) {
-      if (b.title == title) return b;
-    }
-    return null;
-  }
 
   Future<void> load() async {
     try {
@@ -168,7 +151,9 @@ class ChatController extends ChangeNotifier {
 
   void selectBranch(String? branchId) {
     if (branchId == _requestedBranchId) return;
+    final left = {for (final b in chain) b.id};
     _requestedBranchId = branchId;
+    _cameFromIds = left.difference({for (final b in chain) b.id});
     _notice = null;
     _notify();
   }
@@ -197,43 +182,11 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  Future<void> setTier(Tier tier) async {
-    final id = branchId;
-    final model = lessons.modelFor(tier);
-    if (id == null || model == null || !canSwitchTier) return;
-    _switching = true;
-    _notice = null;
-    _notify();
-    try {
-      final updated = await api.setBranchModel(id, model);
-      _branches[updated.id] = updated;
-    } on Object catch (error) {
-      _fail(error);
-    }
-    _switching = false;
-    _notify();
-  }
-
-  /// Opens the side branch that follows [tangent] from [node], creating it
-  /// when it's new. Returns its id and whether it was created (its first
-  /// message, the tangent's title, is then still to send), or null on error.
-  Future<({String branchId, bool created})?> followTangent(
-    ChatNode node,
-    Tangent tangent,
-  ) async {
-    final existing = branchFor(node, tangent.title);
-    if (existing != null) {
-      selectBranch(existing.id);
-      return (branchId: existing.id, created: false);
-    }
-    final created = await openSideQuestion(node, title: tangent.title);
-    return created == null ? null : (branchId: created, created: true);
-  }
-
-  /// Creates a tangent from [node] and puts it on screen, about
-  /// [anchorQuote] when the learner selected words in it. Returns its id
-  /// (its first message is still to send), or null on error (see [notice]).
-  Future<String?> openSideQuestion(
+  /// Creates a tangent from [node] and puts it on screen, titled [title]
+  /// when it follows a suggestion, about [anchorQuote] when the learner
+  /// selected words in it. Returns its id (its first message is still to
+  /// send), or null on error (see [notice]).
+  Future<String?> startTangent(
     ChatNode node, {
     String? title,
     String? anchorQuote,

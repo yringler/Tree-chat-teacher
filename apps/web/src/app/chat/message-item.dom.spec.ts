@@ -130,17 +130,18 @@ describe('MessageItem: a finished reply', () => {
   });
 });
 
-const group = (name: string) => screen.getByRole('navigation', { name });
+const group = (name: string) => screen.getByRole('group', { name });
+const start = (title: string) => new RegExp(`^Start a tangent: ${title}`);
 
-describe('TangentNav: Keep going and Tangents', () => {
-  it('splits the suggestions into Keep going and Tangents; an untagged one is a tangent', async () => {
+describe('TangentNav: Keep going and Suggested tangents', () => {
+  it('splits the suggestions into Keep going and Suggested tangents; an untagged one is a tangent', async () => {
     await message('a1');
     const next = within(group('Keep going'));
     expect(next.getAllByRole('button')).toHaveLength(1);
     next.getByRole('button', { name: /^Diffraction/ });
-    const side = within(group('Tangents'));
-    side.getByRole('button', { name: /^Interference/ });
-    side.getByRole('button', { name: 'Photons' });
+    const side = within(group('Suggested tangents'));
+    side.getByRole('button', { name: start('Interference') });
+    side.getByRole('button', { name: 'Start a tangent: Photons' });
     // "Ask your own" stays last, among the tangents.
     side.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
   });
@@ -167,14 +168,16 @@ describe('TangentNav: Keep going and Tangents', () => {
       },
     );
     await message('a1', { d });
-    expect(screen.queryByRole('navigation', { name: 'Keep going' })).toBeNull();
-    within(group('Tangents')).getByRole('button', { name: /^Interference/ });
+    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
+    within(group('Suggested tangents')).getByRole('button', { name: start('Interference') });
   });
 
   it('each tangent is a tangent to follow', async () => {
     const m = await message('a1');
     const follow = vi.spyOn(m.store, 'followTangent').mockResolvedValue(null);
-    await m.user.click(within(group('Tangents')).getByRole('button', { name: /^Interference/ }));
+    await m.user.click(
+      within(group('Suggested tangents')).getByRole('button', { name: start('Interference') }),
+    );
     expect(follow).toHaveBeenCalledWith('a1', 'Interference');
   });
 
@@ -190,7 +193,7 @@ describe('TangentNav: Keep going and Tangents', () => {
     await vi.waitFor(() => expect(field.value).toBe(''));
   });
 
-  it('on a thread the membership locks, suggestions are disabled and say why; one followed still opens', async () => {
+  it('on a thread the membership locks, suggestions fold and say why; one followed still opens', async () => {
     const d = tree(
       {},
       {
@@ -204,20 +207,21 @@ describe('TangentNav: Keep going and Tangents', () => {
         ],
       },
     );
-    await message('a1', { d, lapsed: true, credit: true });
+    const m = await message('a1', { d, lapsed: true, credit: true });
     const step = button(/^Diffraction/);
     expect(step.disabled).toBe(true);
     expect(step.title).toBe('Continuing needs a membership (this thread is on your own key)');
-    const interference = button(/^Interference/);
+    const why = 'Starting a tangent needs a membership (this thread is on your own key)';
+    const more = button('1 more suggested');
+    expect(more.title).toBe(why);
+    await m.user.click(more);
+    const interference = button(start('Interference'));
     expect(interference.disabled).toBe(true);
-    expect(interference.title).toBe(
-      'Starting a tangent needs a membership (this thread is on your own key)',
-    );
-    const photons = within(group('Tangents')).getByRole<HTMLButtonElement>('button', {
-      name: 'Photons',
+    expect(interference.title).toBe(why);
+    const photons = within(group('Your tangents')).getByRole<HTMLButtonElement>('button', {
+      name: /^Open tangent: Photons/,
     });
     expect(photons.disabled).toBe(false);
-    expect(photons.title).toBe('Open tangent');
     expect(
       screen.getByRole<HTMLTextAreaElement>('textbox', { name: /Ask your own/ }).disabled,
     ).toBe(true);
@@ -225,9 +229,89 @@ describe('TangentNav: Keep going and Tangents', () => {
 
   it('a reply still being written offers no suggestions yet', async () => {
     await message('a1', { d: tree({ status: 'streaming', content: 'Light is' }) });
-    expect(screen.queryByRole('navigation', { name: 'Keep going' })).toBeNull();
-    expect(screen.queryByRole('navigation', { name: 'Tangents' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Suggested tangents' })).toBeNull();
     expect(screen.getByText('Generating…')).toBeTruthy();
+  });
+});
+
+/** Tangents from `from`: "Optics" (a summary, private, with two messages) and "Colour". */
+function withTangents(from: string, reply: Partial<ChatNode> = {}): TreeDetail {
+  return tree(reply, {
+    branches: [
+      branch('optics', {
+        parentBranchId: 'trunk',
+        branchPointNodeId: from,
+        title: 'Optics',
+        contextMode: 'summary',
+        isPrivate: true,
+      }),
+      branch('colour', { parentBranchId: 'trunk', branchPointNodeId: from, title: 'Colour' }),
+    ],
+    nodes: [
+      node('o1', { branchId: 'optics', parentId: from, seq: 2, role: 'user', content: 'Lenses?' }),
+      node('o2', { branchId: 'optics', parentId: 'o1', seq: 3, content: 'They bend light.' }),
+    ],
+  });
+}
+
+describe('TangentNav: Your tangents', () => {
+  it('lists the tangents from a question too, with their mode, privacy and size', async () => {
+    const m = await message('u1', { d: withTangents('u1') });
+    const yours = within(group('Your tangents'));
+    const optics = yours.getByRole('button', { name: /^Open tangent: Optics/ });
+    const colour = yours.getByRole('button', { name: /^Open tangent: Colour/ });
+    expect(optics.querySelector('.mode-summary')).not.toBeNull();
+    expect(optics.querySelector('app-icon[name="lock"]')).not.toBeNull();
+    expect(colour.querySelector('app-icon[name="lock"]')).toBeNull();
+    expect(optics.querySelector('.count')?.textContent).toBe('2');
+    expect(colour.querySelector('.count')?.textContent).toBe('0');
+    expect(screen.queryByRole('group', { name: 'Suggested tangents' })).toBeNull();
+    const go = vi.spyOn(m.store, 'go').mockImplementation(() => undefined);
+    await m.user.click(optics);
+    expect(go).toHaveBeenCalledWith('optics', 'o1');
+  });
+
+  it('lists the tangents from a failed reply', async () => {
+    await message('a1', {
+      d: withTangents('a1', { status: 'error', errorKind: 'provider', error: 'Rate limited.' }),
+    });
+    within(group('Your tangents')).getByRole('button', { name: /^Open tangent: Optics/ });
+  });
+
+  it('deletes one from here, once the user says so', async () => {
+    const m = await message('u1', { d: withTangents('u1') });
+    const del = vi.spyOn(m.store, 'deleteBranch').mockResolvedValue(true);
+    const ask = vi.fn(() => false);
+    vi.stubGlobal('confirm', ask);
+    try {
+      const trash = button('Delete the tangent Colour');
+      await m.user.click(trash);
+      expect(ask).toHaveBeenCalledWith(expect.stringMatching(/^Delete “Colour”/));
+      expect(del).not.toHaveBeenCalled();
+      ask.mockReturnValue(true);
+      await m.user.click(trash);
+      expect(del).toHaveBeenCalledWith('colour');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('back from one, it is lit', async () => {
+    const m = await message('a1', { d: withTangents('a1') });
+    m.store.setRoute('t1', 'optics', null);
+    m.store.setRoute('t1', null, 'a1');
+    await m.fixture.whenStable();
+    const optics = button(/^Open tangent: Optics \(you were just here\)/);
+    expect(optics.closest('.tangent-yours')?.classList).toContain('is-back');
+  });
+
+  it('one on the selected branch’s chain is lit and current', async () => {
+    const r = await message('a1', { d: withTangents('a1') });
+    await r.set({ chainIds: new Set(['trunk', 'colour']) });
+    const colour = button(/^Open tangent: Colour/);
+    expect(colour.getAttribute('aria-current')).toBe('true');
+    expect(button(/^Open tangent: Optics/).getAttribute('aria-current')).toBeNull();
   });
 });
 

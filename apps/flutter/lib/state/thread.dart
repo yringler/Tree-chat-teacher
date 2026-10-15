@@ -35,19 +35,6 @@ List<ChatNode> _path(
   return [...(fork < 0 ? parent : parent.sublist(0, fork + 1)), ...own];
 }
 
-/// The model a branch runs on: its own, else the nearest ancestor's.
-String? effectiveModel(String branchId, Map<String, Branch> branches) {
-  final seen = <String>{};
-  String? id = branchId;
-  while (id != null && seen.add(id)) {
-    final branch = branches[id];
-    if (branch == null) return null;
-    if (branch.model != null) return branch.model;
-    id = branch.parentBranchId;
-  }
-  return null;
-}
-
 /// The branches from the trunk down to [branchId], trunk first.
 List<Branch> branchChain(String branchId, Map<String, Branch> branches) {
   final chain = <Branch>[];

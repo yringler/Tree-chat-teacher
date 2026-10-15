@@ -224,13 +224,9 @@ class HttpTangentApi implements TangentApi {
       (await _list('GET', ['trees'])).map(TreeSummary.fromJson).toList();
 
   @override
-  Future<TreeDetail> createTree({String? providerId, String? model}) async =>
+  Future<TreeDetail> createTree({String? providerId}) async =>
       TreeDetail.fromJson(
-        await _object(
-          'POST',
-          ['trees'],
-          body: {'providerId': ?providerId, 'model': ?model},
-        ),
+        await _object('POST', ['trees'], body: {'providerId': ?providerId}),
       );
 
   @override
@@ -259,12 +255,6 @@ class HttpTangentApi implements TangentApi {
       },
     ),
   );
-
-  @override
-  Future<Branch> setBranchModel(String branchId, String model) async =>
-      Branch.fromJson(
-        await _object('PATCH', ['branches', branchId], body: {'model': model}),
-      );
 
   // Replies.
 

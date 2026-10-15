@@ -20,16 +20,25 @@ const screenLocations = {
   'coach3': '/t/tides/b/bulge',
   // The lessons, for the "?" in the app bar and the help it opens.
   'help': '/',
+  // Two levels deep in a lesson with several tangents, for the tangents
+  // drawer the app bar's list button opens.
+  'tangents': '/t/tides/b/far-side',
 };
 
 /// The screens shot for an account that hasn't had the walkthrough.
 const _firstRun = {'coach1', 'coach2', 'coach3'};
 
 /// The screens with a tangent from the first reply.
-const _withTangent = {'in-tangent', 'back-on-trunk', 'coach2', 'coach3'};
+const _withTangent = {
+  'in-tangent',
+  'back-on-trunk',
+  'coach2',
+  'coach3',
+  'tangents',
+};
 
-const _normal = ModelInfo(id: 'normal', label: 'Normal', tier: Tier.normal);
-const _max = ModelInfo(id: 'max', label: 'Max', tier: Tier.max);
+/// The screens with tangents beyond that one, some of them nested.
+const _withMoreTangents = {'tangents'};
 
 const _trunkReply = '''
 Tides are the sea rising and falling twice a day, and the **Moon** does most of the work.
@@ -59,7 +68,27 @@ Here is the next step: the bulge on the far side forms because the Moon pulls th
 - [tangent] Inertia — what “left behind” really means
 </tangents>''';
 
-/// A [TangentApi] for the screenshot harness (screens.dart): a learner who
+const _farSideReply = '''
+The Moon pulls hardest on the side of the Earth facing it, less on the Earth's centre, and least on the far side. So the far ocean is left behind as the Earth is pulled away from it, and it heaps up too.
+
+Two bulges, one on each side, and every coast turns through both of them a day: two high tides.
+
+<tangents>
+- [continue] Why not exactly 12 hours apart? — the Moon moves on
+- [tangent] Is it really "left behind"? — the stretch, not a push
+</tangents>''';
+
+/// The tangents of the 'tangents' screen beyond the first: id, the branch
+/// and reply it forks from, and its title.
+const _moreTangents = [
+  ('far-side', 'bulge', 's2', 'Why away from the Moon too?'),
+  ('spring', 'trunk', 'a1', 'Spring and neap tides'),
+  ('sun', 'spring', 'spring-a', 'Why does the Sun pull less?'),
+  ('locking', 'trunk', 'a1', 'Tidal locking'),
+];
+
+/// A [TangentApi] for the screenshot harnesses (screens.dart in a browser,
+/// screenshots/store_screenshots_test.dart headlessly): a learner who
 /// is signed in, one lesson about tides, and replies that write themselves.
 /// It stands in for the Worker so the screens look the same on every run;
 /// the widget tests use test/fakes.dart instead.
@@ -79,6 +108,15 @@ class ScreenApi implements TangentApi {
       _nodes
         ..add(_node('s1', 'bulge', 0, Role.user, 'What is a tidal bulge?'))
         ..add(_node('s2', 'bulge', 1, Role.assistant, _tangentReply));
+    }
+    if (_withMoreTangents.contains(screen)) {
+      for (final (id, parent, fork, title) in _moreTangents) {
+        _branches[id] = _branch(id, parent: parent, fork: fork, title: title);
+        final reply = id == 'far-side' ? _farSideReply : _tangentReply;
+        _nodes
+          ..add(_node('$id-u', id, 0, Role.user, title))
+          ..add(_node('$id-a', id, 1, Role.assistant, reply));
+      }
     }
   }
 
@@ -103,7 +141,6 @@ class ScreenApi implements TangentApi {
     parentBranchId: parent,
     branchPointNodeId: fork,
     title: title,
-    model: 'normal',
     anchorQuote: anchorQuote,
   );
 
@@ -217,11 +254,7 @@ class ScreenApi implements TangentApi {
 
   @override
   Future<List<ProviderInfo>> providers() async => const [
-    ProviderInfo(
-      id: 'openrouter',
-      defaultModel: 'normal',
-      models: [_normal, _max],
-    ),
+    ProviderInfo(id: 'openrouter'),
   ];
 
   @override
@@ -235,8 +268,7 @@ class ScreenApi implements TangentApi {
   ];
 
   @override
-  Future<TreeDetail> createTree({String? providerId, String? model}) =>
-      tree(_treeId);
+  Future<TreeDetail> createTree({String? providerId}) => tree(_treeId);
 
   @override
   Future<TreeDetail> tree(String treeId) async => TreeDetail(
@@ -268,20 +300,6 @@ class ScreenApi implements TangentApi {
     );
     _branches[created.id] = created;
     return created;
-  }
-
-  @override
-  Future<Branch> setBranchModel(String branchId, String model) async {
-    final b = _branches[branchId]!;
-    return _branches[branchId] = Branch(
-      id: b.id,
-      treeId: b.treeId,
-      parentBranchId: b.parentBranchId,
-      branchPointNodeId: b.branchPointNodeId,
-      title: b.title,
-      model: model,
-      anchorQuote: b.anchorQuote,
-    );
   }
 
   /// Writes a canned reply a few words at a time.

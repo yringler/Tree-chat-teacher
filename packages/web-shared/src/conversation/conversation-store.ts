@@ -217,6 +217,16 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** Ids of the branches on the chain, to mark the way to the open branch. */
   readonly chainIds = computed<ReadonlySet<string>>(() => new Set(this.chain().map((b) => b.id)));
 
+  private readonly cameFrom = signal<ReadonlySet<string>>(new Set());
+  /**
+   * The tangents the user just came back from: the branches the last move
+   * within the tree took off the chain (none after going deeper; the
+   * tangent left after going back to its parent), so the footer that lists
+   * them can light the way back in. Focusing another message keeps it;
+   * opening another tree clears it.
+   */
+  readonly cameFromIds = this.cameFrom.asReadonly();
+
   /** The chain as breadcrumbs: each goes back to where the branch after it forks off. */
   readonly crumbs = computed<Crumb[]>(() => {
     const chain = this.chain();
@@ -390,9 +400,18 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
 
   /** Called by the routed page whenever the URL changes. */
   setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
+    // Read before the route changes: the computed chain is the old branch's until then.
+    const from = this.selectedBranchId();
+    const left = this.chainIds();
     this.routeBranchId.set(branchId);
     this.focusedNodeId.set(focusNodeId);
-    if (treeId !== this.selectedTreeId()) {
+    if (treeId === this.selectedTreeId()) {
+      if (this.selectedBranchId() !== from) {
+        const chain = this.chainIds();
+        this.cameFrom.set(new Set([...left].filter((id) => !chain.has(id))));
+      }
+    } else {
+      this.cameFrom.set(new Set());
       this.selectedTreeId.set(treeId);
       this.treeChanged();
       if (treeId) void this.loadTree(treeId);

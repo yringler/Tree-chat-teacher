@@ -142,7 +142,7 @@ test('Learn demo: Keep going replies on the open thread, a suggested tangent ope
   const before = await users.count();
 
   // Only the newest reply offers Keep going; its suggestion is the next message here.
-  const keepGoing = page.getByRole('navigation', { name: 'Keep going' });
+  const keepGoing = page.getByRole('group', { name: 'Keep going' });
   await expect(keepGoing).toHaveCount(1);
   const step = keepGoing.getByRole('button').first();
   const title = (await step.locator('.tangent-title').innerText()).trim();
@@ -155,9 +155,8 @@ test('Learn demo: Keep going replies on the open thread, a suggested tangent ope
   expect(page.url().split('?')[0]).toBe(url.split('?')[0]);
   await expect(page).not.toHaveURL(/\/b\//);
 
-  // A suggestion under Tangents starts a tangent named after it.
-  const tangents = page.getByRole('navigation', { name: 'Tangents', exact: true }).first();
-  const side = tangents.getByRole('button').first();
+  // A suggestion under Suggested tangents starts a tangent named after it.
+  const side = page.getByRole('button', { name: /^Start a tangent: / }).first();
   const sideTitle = (await side.locator('.tangent-title').innerText()).trim();
   await side.click();
   await expect(page).toHaveURL(/\/b\//);

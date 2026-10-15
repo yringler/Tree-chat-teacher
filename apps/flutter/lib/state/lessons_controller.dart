@@ -5,7 +5,7 @@ import '../api/tangent_api.dart';
 import 'notice.dart';
 import 'session_controller.dart';
 
-/// The learner's lessons, and the provider and models new ones run on.
+/// The learner's lessons, and the provider new ones run on.
 class LessonsController extends ChangeNotifier {
   LessonsController({required this.api, required this.session}) {
     session.addListener(_onSession);
@@ -35,22 +35,6 @@ class LessonsController extends ChangeNotifier {
       if (p.id == openRouterProviderId) return p;
     }
     return _providers.isEmpty ? null : _providers.first;
-  }
-
-  List<ModelInfo> get models => provider?.models ?? const [];
-
-  /// Both tiers are on offer, so the Normal/Max switch has a choice.
-  bool get hasTiers =>
-      provider?.modelFor(Tier.normal) != null &&
-      provider?.modelFor(Tier.max) != null;
-
-  String? modelFor(Tier tier) => provider?.modelFor(tier)?.id;
-
-  Tier? tierOf(String? modelId) {
-    for (final m in models) {
-      if (m.id == modelId) return m.tier;
-    }
-    return null;
   }
 
   String? titleOf(String treeId) {
@@ -92,14 +76,11 @@ class LessonsController extends ChangeNotifier {
   /// Creates a lesson and returns its id, or null when that failed (see
   /// [notice]). A non-empty [topic] becomes its first message, which the
   /// chat page sends (see [takeFirstMessage]).
-  Future<String?> start(String topic, Tier tier) async {
+  Future<String?> start(String topic) async {
     _notice = null;
     notifyListeners();
     try {
-      final detail = await api.createTree(
-        providerId: provider?.id,
-        model: modelFor(tier),
-      );
+      final detail = await api.createTree(providerId: provider?.id);
       final tree = detail.tree;
       _trees = [
         TreeSummary(

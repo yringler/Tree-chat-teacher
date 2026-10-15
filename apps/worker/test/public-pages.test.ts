@@ -9,6 +9,7 @@ import {
   formatBps,
   formatCents,
   formatMicros,
+  formatServiceFee,
   HELP_DEFAULT,
   HELP_TITLE,
   POOL_EMPTY_TEXT,
@@ -291,22 +292,32 @@ describe('/pricing', () => {
     const page = text(html);
     expect(row(html, 'Price')).toEqual([
       '$0',
-      `At cost + ${formatBps(billing.markupBps)}`,
+      `List price + ${formatServiceFee(billing.serviceFee)} a top-up`,
       `${formatCents(billing.membershipPriceCents)} a year`,
     ]);
-    // 5.5% fee and 10% markup: 1.16¢ per 1¢; $10 over 10%: $100 a year.
-    expect(notes(html).get('credit')).toContain('you pay about 1.16¢');
-    expect(page).toContain('less than about $100 a year on AI');
-    expect(notes(html).get('top-up')).toMatch(/^Top up \$5 to \$500 at a time/);
+    // Credit pays the list price; the 20% + 50¢ service fee is on top-ups; $10 over 20%: $50 a year.
+    expect(notes(html).get('credit')).toContain('with nothing added');
+    const topUp = notes(html).get('top-up');
+    expect(topUp).toMatch(/^Buy \$5 to \$500 of credit at a time/);
+    expect(topUp).toContain(
+      'a service fee of 20% + 50¢: $5 of credit costs $6.50, and $20 costs $24.50',
+    );
+    expect(topUp).toContain('OpenRouter’s 5.5% fee on the credit Tangent buys from it');
+    expect(page).toContain('less than about $50 a year on AI');
 
     const repriced = await get(
-      deployment({ MARKUP_BPS: '2000', OPENROUTER_FEE_BPS: '0', MEMBERSHIP_PRICE_CENTS: '1500' }),
+      deployment({
+        SERVICE_FEE_BPS: '1500',
+        SERVICE_FEE_FIXED_CENTS: '0',
+        OPENROUTER_FEE_BPS: '0',
+        MEMBERSHIP_PRICE_CENTS: '1500',
+      }),
       '/pricing',
     );
-    expect(row(repriced.html, 'Price')).toEqual(['$0', 'At cost + 20%', '$15 a year']);
-    expect(notes(repriced.html).get('credit')).toContain('you pay about 1.20¢');
-    expect(notes(repriced.html).get('credit')).not.toContain('fee');
-    expect(text(repriced.html)).toContain('less than about $75 a year on AI');
+    expect(row(repriced.html, 'Price')).toEqual(['$0', 'List price + 15% a top-up', '$15 a year']);
+    expect(notes(repriced.html).get('top-up')).toContain('$5 of credit costs $5.75');
+    expect(notes(repriced.html).get('top-up')).not.toContain('OpenRouter');
+    expect(text(repriced.html)).toContain('less than about $100 a year on AI');
     // No break-even without both the membership and credit.
     for (const overrides of [NO_CREDIT, NO_MEMBERSHIP])
       expect(text((await get(deployment(overrides), '/pricing')).html)).not.toContain(
@@ -329,10 +340,9 @@ describe('/pricing', () => {
   it('includes, per column, what each way to pay covers', async () => {
     const member = (await get(deployment(), '/pricing')).html;
     expect(row(member, 'Your own OpenRouter key')).toEqual(['—', '—', '✓']);
-    expect(row(member, 'The Max tier')).toEqual(['—', '✓', '✓']);
     expect(row(member, 'Web search')).toEqual(['—', '✓', '✓']);
     expect(row(member, 'Every control')).toEqual(['Read and export', '✓', '✓']);
-    expect(row(member, 'Any OpenRouter model, on prepaid credit')).toEqual([
+    expect(row(member, 'Any OpenRouter model on prepaid credit')).toEqual([
       '—',
       '✓',
       'Bought separately',
@@ -346,15 +356,25 @@ describe('/pricing', () => {
 
     const free = (await get(deployment(NO_MEMBERSHIP), '/pricing')).html;
     expect(row(free, 'Your own OpenRouter key')).toEqual(['✓', '✓']);
-    expect(row(free, 'The Max tier')).toEqual(['On your key', '✓']);
     expect(row(free, 'Web search')).toEqual(['On your key', '✓']);
     expect(row(free, 'Every control')).toEqual(['On your keys', '✓']);
     expect(row(free, 'Tangent’s charge on your own key')).toEqual(['Nothing', 'Nothing']);
 
-    // Learn with one model has no tier to choose.
-    const one = (await get(deployment({ LEARN_MAX_MODEL: DEFAULT_BACKGROUND_MODEL }), '/pricing'))
+    // Learn has one model: Max is power's, suggested on credit.
+    const rows = [...chart(member).rows.keys()];
+    expect(rows.filter((k) => k.includes('Max'))).toEqual([
+      'Any OpenRouter model on prepaid credit, with Max suggested for the hardest questions',
+    ]);
+    expect(text(member)).toContain('any OpenRouter model in power mode, Max included');
+    // Without a Max of its own, power's credit row names none.
+    const one = (await get(deployment({ POWER_MAX_MODEL: DEFAULT_BACKGROUND_MODEL }), '/pricing'))
       .html;
-    expect([...chart(one).rows.keys()].some((k) => k.includes('tier'))).toBe(false);
+    expect(row(one, 'Any OpenRouter model, on prepaid credit')).toEqual([
+      '—',
+      '✓',
+      'Bought separately',
+    ]);
+    expect(text(one)).not.toContain('Max');
   });
 
   it('states the pool’s caps, model and reply length from the config, the same in every column', async () => {
@@ -433,6 +453,34 @@ describe('the landing page', () => {
     );
   });
 
+  it('answers in order: why, how, what it costs, what else, the account, where to start', async () => {
+    for (const [name, overrides] of Object.entries(CONFIGS)) {
+      const { html } = await get(deployment(overrides), '/welcome');
+      const cost = overrides.POOL_ENABLED === 'false' ? 'cost' : 'pool';
+      expect(
+        [...html.matchAll(/<h2 id="([a-z-]+)"/g)].map((m) => m[1]),
+        name,
+      ).toEqual(['fix', 'how-tangents-h', cost, 'modes', 'account', 'start']);
+      // Every way to pay is in the one cost section; the other ways in are Power and Canvas.
+      const section = (id: string) =>
+        text(new RegExp(`<section aria-labelledby="${id}">[^]*?</section>`).exec(html)?.[0] ?? '');
+      expect(section(cost), name).toContain('your own OpenRouter key');
+      expect(section('modes'), name).not.toMatch(/own OpenRouter key|open pool|prepaid credit/);
+    }
+  });
+
+  it('says once that the pool is free, and offers the Android app at the end, not in the hero', async () => {
+    const e = deployment({ ANDROID_APP_ID: 'com.example.app' });
+    await fundPool(e.TEST_POOL_ACCOUNT_ID!, 1_000_000);
+    const { html } = await get(e, '/welcome');
+    expect(text(html).match(/Learn free on the open pool/g)).toHaveLength(1);
+    const hero = /<div class="wrap hero">[^]*?<section/.exec(html)?.[0] ?? '';
+    const start = /<section aria-labelledby="start">[^]*?<\/section>/.exec(html)?.[0] ?? '';
+    expect(hero).not.toContain('play.google.com');
+    expect(start).toContain('play.google.com');
+    expect(text(start)).toContain('Start learning free');
+  });
+
   it('leaves the pool out while it is off or can’t be read', async () => {
     const off = await get(deployment(NO_POOL), '/welcome');
     expect(off.html).not.toContain('aria-labelledby="pool"');
@@ -444,11 +492,11 @@ describe('the landing page', () => {
     expect(broken.html).not.toContain('aria-labelledby="pool"');
   });
 
-  it('states the membership’s price and the markup from the config', async () => {
-    const e = deployment({ MEMBERSHIP_PRICE_CENTS: '1500', MARKUP_BPS: '2000' });
+  it('states the membership’s price and the service fee from the config', async () => {
+    const e = deployment({ MEMBERSHIP_PRICE_CENTS: '1500', SERVICE_FEE_BPS: '1500' });
     const page = text((await get(e, '/welcome')).html);
     expect(page).toContain('$15 yearly membership');
-    expect(page).toContain('plus 20%');
+    expect(page).toContain('a 15% + 50¢ service fee on each top-up');
   });
 
   it('wires the demo for CSS alone: the gate switches to Tangent, and each branch chip opens its pane', async () => {

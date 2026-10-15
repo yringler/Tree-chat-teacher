@@ -4,12 +4,8 @@ import { Router } from '@angular/router';
 import { linkTarget } from '@tangent/core/links';
 import {
   OPENROUTER_PROVIDER_ID,
-  TIER_LABELS,
-  tierModel,
   type Branch,
-  type CommitCandidateResponse,
   type CreateBranchRequest,
-  type ModelInfo,
   type Payer,
   type ProviderInfo,
   type TreeBackupInput,
@@ -18,7 +14,6 @@ import {
   ApiClient,
   ApiError,
   backupFile,
-  CompareRun,
   ComposerController,
   ConversationStore,
   errorMessage,
@@ -59,26 +54,11 @@ export interface LinkReturn {
 }
 
 export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
-/** A Compare pick the server no longer accepts (409 the lesson moved on, 410 expired). */
-export const COMPARE_OUT_OF_DATE_MESSAGE =
-  'That comparison is out of date. Your question is still in the box.';
-/**
- * Refusals that end a Compare outright, as they would a send: no key (401),
- * no credit or membership (402), the pool's checks (403).
- */
-export const COMPARE_BLOCKING_STATUSES: ReadonlySet<number> = new Set([401, 402, 403]);
-/** Commit refusals that mean the comparison no longer fits the lesson (gone, moved on, expired). */
-const COMPARE_GONE_STATUSES: ReadonlySet<number> = new Set([404, 409, 410]);
-/**
- * How a Compare pick ended (`commitCompare`): only `failed` leaves the
- * answers worth keeping on screen, for another try.
- */
-export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed';
 
 /**
  * Learner state: the shared conversation engine (`ConversationStore`), with
- * what Learn adds: its one provider and the Normal/Max models, the lesson
- * library (export, import), connections' "Back to …", Compare, and who pays.
+ * what Learn adds: its one provider, the lesson library (export, import),
+ * connections' "Back to …", and who pays.
  * A 402 `payment_required` (out of credit) sends the learner to the billing
  * page; a 402 `membership_required` locks the own key (`KeyLockedNotice`). The open
  * pool's refusals are states, not errors: empty (402 `pool_empty`) and cap
@@ -108,7 +88,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
     this.funding.whenSwitched((payer) => this.paymentSwitched(payer));
   }
 
-  // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`).
+  // Providers (Learn accounts: one provider, whose default model every lesson runs on).
   // Learn's endpoint is the built-in provider's, else the first; Learn pays per request
   // (its payment header), never per branch, so it names no funding.
   readonly providers = signal<ProviderInfo[]>([]);
@@ -116,8 +96,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
     () =>
       this.providers().find((p) => p.id === OPENROUTER_PROVIDER_ID) ?? this.providers()[0] ?? null,
   );
-  readonly models = computed<readonly ModelInfo[]>(() => this.provider()?.models ?? []);
-  readonly defaultModel = computed<string | null>(() => this.provider()?.defaultModel ?? null);
   /** The lesson whose backup is being downloaded (Export). */
   readonly exportingId = signal<string | null>(null);
   readonly importing = signal(false);
@@ -130,14 +108,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
     return d && !d.ground && d.branchId === this.selectedBranchId() ? d.text : '';
   });
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
-  /** The Compare sheet is open (its answers stream): the composer waits. */
-  readonly comparing = signal(false);
-  override readonly busy = computed(() => {
-    const id = this.selectedBranchId();
-    return (
-      this.comparing() || this.streamingNode() !== null || (id !== null && this.sending().has(id))
-    );
-  });
 
   // Loading
 
@@ -225,14 +195,14 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   // Lessons
 
-  /** Creates a lesson, opens it, and sends `topic` as the first message when there is one. */
-  async startLesson(model: string | null, topic: string): Promise<boolean> {
+  /**
+   * Creates a lesson on the provider's default model, opens it, and sends
+   * `topic` as the first message when there is one.
+   */
+  async startLesson(topic: string): Promise<boolean> {
     const providerId = this.provider()?.id;
     try {
-      const detail = await this.openNewTree({
-        ...(providerId ? { providerId } : {}),
-        ...(model ? { model } : {}),
-      });
+      const detail = await this.openNewTree(providerId ? { providerId } : {});
       const first = topic.trim();
       if (first) void this.send(detail.tree.trunkBranchId, first);
       else this.composer.focus();
@@ -292,7 +262,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
     this.composer.focus();
   }
 
-  /** Tangents keep the model of the thread they come from (Normal or Max). */
+  /** Tangents keep the provider and model of the thread they come from. */
   protected override newBranchRoute(from: Branch | null): Partial<CreateBranchRequest> {
     return from ? { providerId: from.providerId, model: from.model } : {};
   }
@@ -313,13 +283,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
     // The open pool can't pay for searches (its holds are priced from tokens alone).
     if (!branch || this.funding.payer() === 'pool') return false;
     return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
-  }
-
-  /** The Normal/Max toggle. */
-  async setModel(branchId: string, model: string): Promise<boolean> {
-    const before = this.index()?.branches.get(branchId);
-    if (before?.model === model) return true;
-    return this.updateBranch(branchId, { model });
   }
 
   // Messages and replies
@@ -354,59 +317,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
       // is kept only to be resumed once the key is settled.
       this.keepUnsent(s.branchId, s.content, s.options, needsKey);
     }
-    this.fail(err);
-  }
-
-  // Compare (Normal and Max answer the same question; one is kept)
-
-  /**
-   * A Compare of `content` in `branchId`: Normal, then Max (CompareRun
-   * staggers them). Null unless the provider lists both tiers.
-   */
-  newCompare(branchId: string, content: string): CompareRun | null {
-    const models = this.models();
-    const normal = tierModel(models, 'normal');
-    const max = tierModel(models, 'max');
-    if (!normal || !max) return null;
-    return new CompareRun(this.api, branchId, content, [
-      { id: 'normal', label: TIER_LABELS.normal, request: { content, model: normal.id } },
-      { id: 'max', label: TIER_LABELS.max, request: { content, model: max.id } },
-    ]);
-  }
-
-  /**
-   * Keeps answer `id` of a Compare: the question and that answer join the
-   * lesson as if sent (the branch keeps its own model), the composer lets the
-   * question go, and the lesson list is refreshed (a first reply titles it).
-   * A comparison the server no longer takes (404, 409, 410) says so and
-   * keeps the question (`out-of-date`); a refusal a send would also get (401,
-   * 402, 403) is reported like a send's (`refused`); anything else (a network
-   * failure, a 5xx, a 429) is reported and `failed`: both answers are still
-   * held, so the pick can be tried again.
-   */
-  async commitCompare(run: CompareRun, id: string): Promise<CompareCommitOutcome> {
-    let res: CommitCandidateResponse;
-    try {
-      res = await run.commit(id);
-    } catch (err) {
-      if (err instanceof ApiError && COMPARE_GONE_STATUSES.has(err.status)) {
-        this.toast.notify(COMPARE_OUT_OF_DATE_MESSAGE, 'error');
-        return 'out-of-date';
-      }
-      this.fail(err);
-      return err instanceof ApiError && COMPARE_BLOCKING_STATUSES.has(err.status)
-        ? 'refused'
-        : 'failed';
-    }
-    if (this.unsentDraft()?.branchId === run.branchId) this.setUnsent(null);
-    if (this.poolBlock()?.branchId === run.branchId) this.poolBlock.set(null);
-    this.composer.sent(run.branchId, run.question);
-    this.applyCommitted(res);
-    return 'kept';
-  }
-
-  /** A Compare refused before any answer (no credit, no key, the pool…): reported like a send's. */
-  compareRefused(err: ApiError): void {
     this.fail(err);
   }
 

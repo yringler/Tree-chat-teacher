@@ -248,4 +248,95 @@ void main() {
       expect(groups.tangent, const [a, c]);
     });
   });
+
+  group('tangentFooter', () {
+    const a = Tangent(title: 'A', why: 'why a', kind: _t);
+    const b = Tangent(title: 'B', why: null, kind: _c);
+    const c = Tangent(title: 'C', why: null, kind: _t);
+    const d = Tangent(title: 'D', why: null, kind: _t);
+    String titleOf(({String id, String title}) b) => b.title;
+
+    test('offers every suggested tangent, open, while the reply has none of '
+        'the learner’s', () {
+      final footer = tangentFooter(
+        const [a, b, c],
+        const <({String id, String title})>[],
+        titleOf: titleOf,
+      );
+      expect(footer.yours, isEmpty);
+      expect(footer.offers, const [a, c]);
+      expect(footer.folded, isFalse);
+      expect(footer.followed, 0);
+    });
+
+    test('lists a tangent following a suggestion once, as the learner’s, and '
+        'folds the rest', () {
+      const followed = (id: 'x', title: 'C');
+      final footer = tangentFooter(
+        const [a, b, c, d],
+        const [followed],
+        titleOf: titleOf,
+      );
+      expect(footer.yours, const [followed]);
+      expect(footer.offers, const [a, d]);
+      expect(footer.folded, isTrue);
+      expect(footer.followed, 1);
+    });
+
+    test('folds the offers behind a tangent asked in the learner’s own words '
+        'too', () {
+      const own = (id: 'y', title: 'Neural networks explained');
+      final footer = tangentFooter(const [a, c], const [own], titleOf: titleOf);
+      expect(footer.yours, const [own]);
+      expect(footer.offers, const [a, c]);
+      expect(footer.folded, isTrue);
+      expect(footer.followed, 0);
+    });
+
+    test('keeps the tangents’ order, followed or not', () {
+      const own = (id: 'o', title: 'Own');
+      const followed = (id: 'f', title: 'A');
+      final footer = tangentFooter(
+        const [a, c],
+        const [own, followed],
+        titleOf: titleOf,
+      );
+      expect(footer.yours, const [own, followed]);
+    });
+
+    test('has nothing to fold once every suggestion is followed', () {
+      final footer = tangentFooter(
+        const [a, c],
+        const [(id: 'a', title: 'A'), (id: 'c', title: 'C')],
+        titleOf: titleOf,
+      );
+      expect(footer.offers, isEmpty);
+      expect(footer.folded, isFalse);
+      expect(footer.followed, 2);
+    });
+
+    test('matches only tangent suggestions: a next step is sent as a reply, '
+        'never followed', () {
+      final footer = tangentFooter(
+        const [b],
+        const [(id: 'b', title: 'B')],
+        titleOf: titleOf,
+      );
+      expect(footer.offers, isEmpty);
+      expect(footer.folded, isFalse);
+      expect(footer.followed, 0);
+    });
+  });
+
+  group('suggestedFoldLabel', () {
+    test('counts the hidden suggestions', () {
+      expect(suggestedFoldLabel(1, more: false), '1 suggested tangent');
+      expect(suggestedFoldLabel(4, more: false), '4 suggested tangents');
+    });
+
+    test('says "more" when one is already in view or followed', () {
+      expect(suggestedFoldLabel(1, more: true), '1 more suggested');
+      expect(suggestedFoldLabel(3, more: true), '3 more suggested');
+    });
+  });
 }

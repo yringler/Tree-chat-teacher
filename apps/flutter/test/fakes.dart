@@ -14,13 +14,6 @@ const unauthorized = ApiException(
   message: 'Sign in first',
 );
 
-const normalModel = ModelInfo(
-  id: 'normal-model',
-  label: 'Normal',
-  tier: Tier.normal,
-);
-const maxModel = ModelInfo(id: 'max-model', label: 'Max', tier: Tier.max);
-
 const signedInMe = Me(
   userId: 'u1',
   email: 'ada@example.com',
@@ -54,7 +47,6 @@ Branch branch(
   String? parent,
   String? fork,
   String title = '',
-  String? model,
   String? anchorQuote,
 }) => Branch(
   id: id,
@@ -62,7 +54,6 @@ Branch branch(
   parentBranchId: parent,
   branchPointNodeId: fork,
   title: title,
-  model: model,
   anchorQuote: anchorQuote,
 );
 
@@ -73,7 +64,7 @@ TreeDetail treeDetail({
   List<ChatNode> nodes = const [],
 }) => TreeDetail(
   tree: Tree(id: id, title: title, trunkBranchId: 'trunk'),
-  branches: branches ?? [branch('trunk', treeId: id, model: 'normal-model')],
+  branches: branches ?? [branch('trunk', treeId: id)],
   nodes: nodes,
 );
 
@@ -119,16 +110,8 @@ class FakeTangentApi implements TangentApi {
   /// The keys `saveKey` was given.
   final savedKeys = <String>[];
   List<ProviderInfo> providersAnswer = const [
-    ProviderInfo(
-      id: 'other',
-      defaultModel: null,
-      models: [ModelInfo(id: 'x', label: 'X', tier: null)],
-    ),
-    ProviderInfo(
-      id: 'openrouter',
-      defaultModel: 'normal-model',
-      models: [normalModel, maxModel],
-    ),
+    ProviderInfo(id: 'other'),
+    ProviderInfo(id: 'openrouter'),
   ];
   List<TreeSummary> treesAnswer = const [];
 
@@ -157,14 +140,15 @@ class FakeTangentApi implements TangentApi {
 
   /// Thrown by `signInWithGoogle`, when set; otherwise the token signs in.
   ApiException? refuseGoogle;
-  final createdTrees = <({String? providerId, String? model})>[];
+
+  /// The provider ids `createTree` was given.
+  final createdTrees = <String?>[];
   final createdBranches =
       <({String fromNodeId, String? title, String? anchorQuote})>[];
   final deletedTrees = <String>[];
 
   /// The emails `deleteAccount` was confirmed with.
   final deletedAccounts = <String>[];
-  final modelSwitches = <({String branchId, String model})>[];
   final sends = <ScriptedStream>[];
   final resumes = <ScriptedStream>[];
   final cancelled = <String>[];
@@ -276,8 +260,8 @@ class FakeTangentApi implements TangentApi {
   Future<List<TreeSummary>> trees() async => treesAnswer;
 
   @override
-  Future<TreeDetail> createTree({String? providerId, String? model}) async {
-    createdTrees.add((providerId: providerId, model: model));
+  Future<TreeDetail> createTree({String? providerId}) async {
+    createdTrees.add(providerId);
     final detail = treeDetail(id: 'new-tree');
     details[detail.tree.id] = detail;
     return detail;
@@ -317,12 +301,6 @@ class FakeTangentApi implements TangentApi {
       title: title ?? '',
       anchorQuote: anchorQuote,
     );
-  }
-
-  @override
-  Future<Branch> setBranchModel(String branchId, String model) async {
-    modelSwitches.add((branchId: branchId, model: model));
-    return branch(branchId, model: model);
   }
 
   @override

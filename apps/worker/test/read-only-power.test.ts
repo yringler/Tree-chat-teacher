@@ -253,7 +253,7 @@ describe('the default route of a new power tree', () => {
       apiKeySecret: 'BUILT_IN_API_KEY',
       defaultModel: 'max',
       models: [
-        { id: 'max', label: 'Max', tier: 'max' },
+        { id: 'max', label: 'Default' },
         { id: 'normal', label: 'Normal', tier: 'normal' },
       ],
     }),

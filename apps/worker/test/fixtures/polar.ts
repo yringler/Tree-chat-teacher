@@ -31,7 +31,7 @@ export function customer(externalId: string | null): models.OrderCustomer {
   };
 }
 
-/** A paid order: by default a $10.00 personal credit top-up, $0.87 tax, Polar fee 104¢. */
+/** A paid order: by default $7.50 of personal credit for $10.00 (20% + 50¢ fee), $0.87 tax, Polar fee 104¢. */
 export function order(
   o: Partial<models.Order> & { externalId?: string | null } = {},
 ): models.Order {
@@ -71,7 +71,8 @@ export function order(
       target: 'personal',
       accountId: `u_${externalId}`,
       userId: externalId ?? '',
-      v: 1,
+      creditCents: 750,
+      v: 2,
     },
     platform_fee_amount: 104,
     platform_fee_currency: 'usd',

@@ -88,9 +88,9 @@ abstract interface class TangentApi {
   Future<List<ProviderInfo>> providers();
   Future<List<TreeSummary>> trees();
 
-  /// A new lesson on [providerId] and [model] (the server's defaults when
-  /// null). Its trunk is empty.
-  Future<TreeDetail> createTree({String? providerId, String? model});
+  /// A new lesson on [providerId] (the server's default when null) and that
+  /// provider's default model. Its trunk is empty.
+  Future<TreeDetail> createTree({String? providerId});
   Future<TreeDetail> tree(String treeId);
   Future<void> deleteTree(String treeId);
 
@@ -100,9 +100,6 @@ abstract interface class TangentApi {
     String? title,
     String? anchorQuote,
   });
-
-  /// Switches a branch's model (Normal/Max).
-  Future<Branch> setBranchModel(String branchId, String model);
 
   // Replies.
 

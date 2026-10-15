@@ -174,7 +174,7 @@ export async function usageRow(env: AppEnv, id: string): Promise<UsageRow> {
   return row;
 }
 
-/** Grants with their gross amount and processing fee. */
+/** Grants with their amount paid and service fee. */
 export async function grantDetailsFor(
   env: AppEnv,
   accountId: string,

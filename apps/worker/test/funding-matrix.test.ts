@@ -42,7 +42,7 @@ import { MOCK_UPSTREAM } from './bindings.js';
 const env = rawEnv as unknown as AppEnv;
 const USER_KEY = 'sk-ant-goodUSER-0123456789';
 const MODELS = [
-  { id: 'max', label: 'Max', tier: 'max' },
+  { id: 'max', label: 'Default' },
   { id: 'normal', label: 'Normal', tier: 'normal' },
 ];
 

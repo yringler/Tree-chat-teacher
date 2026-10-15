@@ -46,11 +46,17 @@ footer a{color:var(--muted)}
 /**
  * The landing page: the hero, its demo, the problem/fix pairs (one card
  * each, labeled when stacked on a phone), the "How tangents work" card
- * (highlighted when a link targets it), the pool and the ways in. The demo plays in CSS alone (the page runs no script): the
- * regular chat fills in on timed animations and stops at a gate, a checkbox
- * whose label is the gate's button switches to the Tangent view, and radio
- * chips pick its branch. Every animation only delays a final state, so
- * reduced motion shows the finished chat and its gate at once.
+ * (highlighted when a link targets it), the cost, the ways in and the
+ * closing call to action. The demo plays in CSS alone (the page runs no
+ * script): the regular chat fills in on timed animations and stops at a gate,
+ * a checkbox whose label is the gate's button switches to the Tangent view,
+ * and radio chips pick its branch. Every animation only delays a final state,
+ * so reduced motion shows the finished chat and its gate at once. Where the
+ * browser has scroll-triggered animations, the regular chat starts once the
+ * whole demo has scrolled into view, so a phone visitor who reads the hero
+ * first still sees it from its first message; elsewhere it starts on load.
+ * The trigger rules come after the `animation` shorthands and outrank them,
+ * because the shorthand resets `animation-trigger`.
  */
 export const LANDING_STYLE =
   BASE_STYLE +
@@ -135,6 +141,7 @@ label.chip{cursor:pointer}
 .dm-fork::before,.dm-fork::after{content:"";flex:1;height:1px;background:var(--border)}
 .dm-forks{flex:none;margin:6px 0 0;color:var(--muted);font-size:.8rem}
 .dm-note{flex:none;margin:12px 0 0}
+@supports (timeline-trigger:--dm-start view()){.dm-wrap{timeline-trigger:--dm-start view() entry 100% exit 100%}.dm-tangle .dm-msg,.dm-tangle .dm-cap,.dm-tangle .dm-gate,.dm-wrap .dm-solve{animation-trigger:--dm-start play-once}}
 .pairs-head{display:none}
 .pairs{display:grid;gap:14px;margin:0}
 .pair{display:grid;border:1px solid var(--border);border-radius:12px;background:var(--bg-elev);overflow:hidden}
@@ -182,7 +189,7 @@ label.chip{cursor:pointer}
 .th-label.side{fill:var(--accent)}
 @media (min-width:600px){.th-items{grid-template-columns:max-content 1fr;column-gap:20px}.th-item{grid-column:1/-1;grid-template-columns:subgrid;gap:inherit}}
 @media (min-width:720px){.th-card{grid-template-columns:1fr 260px;align-items:center;padding:32px}}
-@media (min-width:720px){.hero{grid-template-columns:1fr 1.1fr;align-items:center;padding-top:48px;padding-bottom:72px}.pairs-head,.pair{grid-template-columns:1fr 1fr}.pairs-head{display:grid;margin-bottom:8px;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.pairs-head span{padding:0 17px}.pairs-head span+span{padding-left:29px;color:var(--accent)}.pair dd{padding-left:28px;border-top:0;border-left:1px solid var(--border)}.pair dd::before{content:'→';top:calc(50% - 12px);right:auto;left:-12px}.pair .tag{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.grid.three{grid-template-columns:repeat(3,1fr)}}
+@media (min-width:720px){.hero{grid-template-columns:1fr 1.1fr;align-items:center;padding-top:48px;padding-bottom:72px}.pairs-head,.pair{grid-template-columns:1fr 1fr}.pairs-head{display:grid;margin-bottom:8px;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.pairs-head span{padding:0 17px}.pairs-head span+span{padding-left:29px;color:var(--accent)}.pair dd{padding-left:28px;border-top:0;border-left:1px solid var(--border)}.pair dd::before{content:'→';top:calc(50% - 12px);right:auto;left:-12px}.pair .tag{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.grid.two{grid-template-columns:repeat(2,1fr)}}
 @media (prefers-reduced-motion:reduce){.dm *,.dm-solve{animation:none!important}.th-card{transition:none}}
 `;
 

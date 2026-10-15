@@ -17,7 +17,7 @@ export interface UserCreditForm {
 /**
  * The `POST /api/admin/credit` request adding credit to (or, negative, taking
  * it from) `userId`'s own ledger, or the reason it can't be sent. An
- * adjustment: no payment, no processing fee, the full amount moves.
+ * adjustment: no payment, no service fee, the full amount moves.
  * `idempotencyKey` is the form's current key, so a retried submit is a no-op.
  */
 export function userCreditRequest(
@@ -224,7 +224,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
                   </form>
                   <p class="muted small">
                     Adds to {{ u.email }}'s own credit, usable in both apps. No payment and no
-                    processing fee: the full amount is credited.
+                    service fee: the full amount is credited.
                   </p>
                   @if (creditResult(); as r) {
                     <p class="muted small" role="status">{{ r }}</p>

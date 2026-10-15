@@ -1,5 +1,5 @@
 import type { GroundingPolicy } from '@tangent/core';
-import { MAX_TOP_UP_CENTS, MIN_TOP_UP_CENTS } from '@tangent/shared';
+import { MAX_TOP_UP_CENTS, MIN_TOP_UP_CENTS, type ServiceFee } from '@tangent/shared';
 import { creditSold, ownKeyProviders } from '../availability.js';
 import { groundingDailyCap, groundingPolicy } from '../billing/grounding.js';
 import { membershipRequired } from '../billing/membership.js';
@@ -18,7 +18,7 @@ export interface Offer {
   membership: { priceCents: number } | null;
   /** Prepaid credit, while it is sold (`creditSold`): on OpenRouter, to anyone, member or not. */
   credit: {
-    markupBps: number;
+    serviceFee: ServiceFee;
     openRouterFeeBps: number;
     minTopUpCents: number;
     maxTopUpCents: number;
@@ -29,8 +29,8 @@ export interface Offer {
   searchAboutOneCent: boolean;
   /** Automatic web searches a user may run per UTC day on credit (`GROUNDING_AUTO_DAILY_CAP`); 0 = no cap. */
   searchDailyCap: number;
-  /** Learn's two tiers' labels; null when Learn has one model. */
-  tiers: { normal: string; max: string } | null;
+  /** The label of power's Max on Tangent credit (`LearnOffer.powerMax`); Learn has one model. */
+  powerMax: string | null;
   /** Who power mode takes the user's own keys for, and which can search (`ownKeyProviders`). */
   providers: { id: string; label: string; search: boolean }[];
   /** Share links are offered to everyone (`LegalInfo.sharing`). */
@@ -40,13 +40,11 @@ export interface Offer {
 export function offerOf(env: AppEnv, sharing: boolean): Offer {
   const { billing } = appConfig(env);
   const learn = learnOffer(env);
-  const normal = learn?.tiers.find((t) => t.tier === 'normal');
-  const max = learn?.tiers.find((t) => t.tier === 'max');
   return {
     membership: membershipRequired(env) ? { priceCents: billing.membershipPriceCents } : null,
     credit: creditSold(env)
       ? {
-          markupBps: billing.markupBps,
+          serviceFee: billing.serviceFee,
           openRouterFeeBps: billing.openRouterFeeBps,
           minTopUpCents: MIN_TOP_UP_CENTS,
           maxTopUpCents: MAX_TOP_UP_CENTS,
@@ -55,7 +53,7 @@ export function offerOf(env: AppEnv, sharing: boolean): Offer {
     grounding: learn?.search ? groundingPolicy(env) : 'off',
     searchAboutOneCent: learn?.searchAboutOneCent ?? false,
     searchDailyCap: groundingDailyCap(env),
-    tiers: normal && max ? { normal: normal.label, max: max.label } : null,
+    powerMax: learn?.powerMax ?? null,
     providers: ownKeyProviders(env),
     sharing,
   };

@@ -2,7 +2,7 @@
 // (`AccountContext.billingAccountId`) pays for each call.
 //   1. Before the upstream call: hold the call's worst case at its model's
 //      price (`creditHoldMicros`; a model without a known price is refused) at
-//      the markup and OpenRouter fee in force now: a pending row inserted only
+//      the list price (`CREDIT_RATES`): a pending row inserted only
 //      while the balance covers it (and, for a call a user starts, fewer than
 //      USAGE_MAX_PENDING are in flight), in one statement, or, for a reply
 //      reserved before its nodes were written (`UsageTag.reservationId`), that
@@ -23,7 +23,7 @@ import { creditPrice } from '../pool/model-prices.js';
 import { ObservedRun, type UsageMeter, type UsageMeterOptions } from './meter-run.js';
 import {
   creditHoldMicros,
-  creditRates,
+  CREDIT_RATES,
   creditRefusal,
   estimatedInputTokens,
   unpricedOnCredit,
@@ -99,7 +99,7 @@ export function createUsageMeter(
         throw e instanceof DomainError ? new CreditRefusedError(e.message, 'server') : e;
       });
       if (!price) throw new CreditRefusedError(unpricedOnCredit(model).message, 'config');
-      const rates = creditRates(env);
+      const rates = CREDIT_RATES;
       // The hold bounds the output: a request without a cap gets the provider's.
       const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
       const holdMicros = creditHoldMicros(

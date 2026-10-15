@@ -6,7 +6,7 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
  * (`normal`) and Max (`max`) as the built-in provider's tiers, which power
  * offers on Tangent credit. The switch under the message box moves the branch
  * between them; Compare asks both and keeps nothing until one is picked
- * (closed here, so nothing is kept; learn-compare.spec.ts keeps one).
+ * (closed here, so nothing is kept).
  */
 
 interface TreeDetail {

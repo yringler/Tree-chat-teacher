@@ -13,22 +13,6 @@
     <div class="lesson-head-row">
       <h1 class="lesson-title" [attr.title]="lessonTitle()">{{ lessonTitle() }}</h1>
       <div class="lesson-tools">
-        @if (store.models().length > 1 && store.selectedBranch(); as b) {
-          @if (tiers(b.model); as t) {
-            @if (t.unlisted; as hint) {
-              <span class="model-locked muted small">{{ hint }}</span>
-            } @else {
-              <app-segmented
-                label="Tutor"
-                [options]="t.options"
-                [value]="t.value"
-                [disabled]="store.busy() || switching() || t.lockedHint !== null"
-                [description]="t.lockedHint"
-                (changed)="setModel(b.id, $event)"
-              />
-            }
-          }
-        }
         @if (funding.payer() !== 'pool') {
           <button
             type="button"
@@ -158,14 +142,11 @@
       <!-- The own key needs a membership the learner lacks: the ways out, not a composer. -->
       <app-key-locked-notice />
     } @else {
-      @if (maxNote(); as note) {
-        <p class="tier-note" role="status">{{ note }}</p>
-      }
       @if (funding.creditWaiting()) {
         <!-- Credit was picked but is used up: replies run on the pool meanwhile, without its extras. -->
         <p class="tier-note" role="status">
-          Your credit is used up, so replies use the open pool, which can't compare answers or check
-          sources. <a routerLink="/billing">Add credit</a>
+          Your credit is used up, so replies use the open pool, which can't check sources.
+          <a routerLink="/billing">Add credit</a>
         </p>
       }
       @if (funding.fundingChoice()) {
@@ -184,11 +165,9 @@
         [initial]="initialDraft()"
         [disabled]="store.busy()"
         [busy]="store.streamingNode() !== null"
-        [canCompare]="canCompare()"
         [actions]="actions()"
         (send)="send($event)"
         (act)="act($event)"
-        (compare)="compare($event)"
         (stop)="stop()"
       >
         <!-- The words the message asks about; dropping them leaves the focus in the box. -->

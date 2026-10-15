@@ -16,10 +16,11 @@ import {
 import { Icon } from './icon';
 
 /**
- * "Ask your own": the last item of a reply's "Tangents" group, styled like
- * the suggested tangents but with a field for the user's own question, sent
- * as the first message of a new branch. The parent owns the text (`text`,
- * cleared once the branch is created) and the branching (`ask`).
+ * "Ask your own": the last item of a reply's "Suggested tangents" group,
+ * outside its fold, styled like the suggested tangents but with a field for
+ * the user's own question, sent as the first message of a new branch. The
+ * parent owns the text (`text`, cleared once the branch is created) and the
+ * branching (`ask`).
  *
  * `expandable` (power, canvas): a one-line field that grows into a few lines
  * on focus, with Send and a gear (`settings`: the branch dialog, carrying the

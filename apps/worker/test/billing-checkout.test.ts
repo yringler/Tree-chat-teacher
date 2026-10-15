@@ -45,7 +45,9 @@ describe('credit checkout', () => {
       page: 'checkout',
       input: {
         buyer: { userId: user.id, email: user.email, name: 'Ada', customerRef: null },
-        amountCents: 500,
+        // $5 of credit, $6.50 with the 20% + 50¢ service fee.
+        creditCents: 500,
+        amountCents: 650,
         successUrl: `${BASE}/learn/billing?checkout=success`,
         cancelUrl: `${BASE}/learn/billing?checkout=cancel`,
       },

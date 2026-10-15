@@ -4,8 +4,9 @@
 // Field choices (some read from Polar's docs rather than seen on a live
 // order, so check them against a sandbox order when the API version changes):
 // - an order's pre-tax amount is `net_amount` (after discounts, before tax),
-//   never `total_amount`; its fee is `platform_fee_amount` (in
-//   `platform_fee_currency`), else the configured estimate;
+//   never `total_amount`;
+// - a top-up's credit is the checkout metadata's `creditCents`, set by the
+//   server (buyers can't change metadata);
 // - a refund's `amount` is pre-tax (its tax is `tax_amount`);
 // - a dispute's `amount` includes its `tax_amount`, which is taken off;
 // - a subscription's `modified_at` orders its snapshots.
@@ -31,6 +32,12 @@ type Metadata = Record<string, string | number | boolean>;
 function text(metadata: Metadata | null | undefined, key: string): string | null {
   const value = metadata?.[key];
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** A positive whole number of cents; null for anything else. */
+function cents(metadata: Metadata, key: string): number | null {
+  const value = metadata[key];
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 /** An ISO timestamp in one canonical form, so versions compare as strings. */
@@ -84,34 +91,12 @@ function purposeOf(order: models.Order, config: PolarConfig): PaymentPurpose {
   if (order.billing_reason === 'purchase' && text(metadata, 'kind') === CREDITS_KIND) {
     // Credit is sold only for the buyer's own ledger: an order for any other target is not credited.
     const target = text(metadata, 'target');
-    return target === null || target === 'personal' ? { kind: 'credits' } : { kind: 'other' };
+    const creditCents = cents(metadata, 'creditCents');
+    return (target === null || target === 'personal') && creditCents !== null
+      ? { kind: 'credits', creditCents }
+      : { kind: 'other' };
   }
   return { kind: 'other' };
-}
-
-/**
- * Polar's fee on an order, in USD cents: `platform_fee_amount` when it is a
- * USD fee Polar has set, else the configured estimate on the total
- * charged, rather than a retry that could disable the webhook endpoint.
- */
-export function orderFee(
-  order: models.Order,
-  config: PolarConfig,
-): { cents: number; estimated: boolean } {
-  const currency = order.platform_fee_currency?.toLowerCase() ?? 'usd';
-  const fee = order.platform_fee_amount;
-  if (
-    currency === 'usd' &&
-    Number.isSafeInteger(fee) &&
-    fee >= 0 &&
-    (fee > 0 || order.total_amount === 0)
-  )
-    return { cents: fee, estimated: false };
-  const { bps, fixedCents } = config.feeEstimate;
-  return {
-    cents: Math.ceil((Math.max(0, order.total_amount) * bps) / 10_000) + fixedCents,
-    estimated: true,
-  };
 }
 
 /** The facts of a paid order (`payment.succeeded`, or `getPayment`). */
@@ -124,7 +109,6 @@ export function orderFacts(order: models.Order, config: PolarConfig): PaymentFac
     customerRef: order.customer_id || null,
     currency: order.currency.toLowerCase(),
     netCents: order.net_amount,
-    fee: orderFee(order, config),
   };
 }
 

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { WebhookSignatureError, type PaymentEvent } from '../src/billing/payments/port.js';
 import { createPolarProvider } from '../src/billing/providers/polar/adapter.js';
 import type { PolarConfig } from '../src/billing/providers/polar/config.js';
-import { disputeEvent, membershipEvent, orderFee } from '../src/billing/providers/polar/map.js';
+import { disputeEvent, membershipEvent } from '../src/billing/providers/polar/map.js';
 import {
   dispute,
   envelope,
@@ -22,7 +22,6 @@ const CONFIG: PolarConfig = {
   server: 'sandbox',
   creditsProductId: 'prod_credits',
   membershipProductId: 'prod_membership',
-  feeEstimate: { bps: 500, fixedCents: 50 },
 };
 const polar = createPolarProvider(CONFIG);
 const T0 = '2026-10-05T12:00:00.000Z';
@@ -44,46 +43,62 @@ async function eventsOf(payload: unknown): Promise<readonly PaymentEvent[]> {
 }
 
 describe('Polar webhooks: orders', () => {
-  it('maps a paid credits order to payment.succeeded, pre-tax, with Polar’s fee', async () => {
+  it('maps a paid credits order to payment.succeeded, pre-tax, with the credit bought', async () => {
     expect(await eventsOf(envelope('order.paid', order({ id: 'ord_a' })))).toEqual([
       {
         type: 'payment.succeeded',
         provider: 'polar',
         occurredAt: T0,
         paymentRef: 'polar:order:ord_a',
-        purpose: { kind: 'credits' },
+        purpose: { kind: 'credits', creditCents: 750 },
         userId: 'user_1',
         customerRef: 'cus_of_user_1',
         currency: 'usd',
         netCents: 1000,
-        fee: { cents: 104, estimated: false },
       },
     ]);
   });
 
   it('reads a personal top-up from the metadata; an order for any other target is other', async () => {
     const personal = order({
-      metadata: { kind: 'credits', target: 'personal', userId: 'user_1' },
+      metadata: { kind: 'credits', target: 'personal', userId: 'user_1', creditCents: 500 },
     });
     expect((await eventsOf(envelope('order.paid', personal)))[0]).toMatchObject({
-      purpose: { kind: 'credits' },
+      purpose: { kind: 'credits', creditCents: 500 },
     });
     // Nobody buys pool credit: such an order is never credited.
-    const pool = order({ metadata: { kind: 'credits', target: 'pool', userId: 'user_1', v: 1 } });
+    const pool = order({
+      metadata: { kind: 'credits', target: 'pool', userId: 'user_1', creditCents: 500, v: 2 },
+    });
     expect((await eventsOf(envelope('order.paid', pool)))[0]).toMatchObject({
       purpose: { kind: 'other' },
     });
-    const odd = order({ metadata: { kind: 'credits', target: 'charity' } });
+    const odd = order({ metadata: { kind: 'credits', target: 'charity', creditCents: 500 } });
     expect((await eventsOf(envelope('order.paid', odd)))[0]).toMatchObject({
       purpose: { kind: 'other' },
     });
   });
 
+  it('credits nothing for an order whose metadata names no credit amount', async () => {
+    for (const creditCents of [undefined, 0, -500, 12.5, '500']) {
+      const metadata = { kind: 'credits', target: 'personal', userId: 'user_1' };
+      const o = order({
+        metadata: creditCents === undefined ? metadata : { ...metadata, creditCents },
+      });
+      expect((await eventsOf(envelope('order.paid', o)))[0]).toMatchObject({
+        purpose: { kind: 'other' },
+      });
+    }
+  });
+
   it('falls back to metadata.userId when the customer has no external id', async () => {
-    const o = order({ externalId: null, metadata: { kind: 'credits', userId: 'user_9' } });
+    const o = order({
+      externalId: null,
+      metadata: { kind: 'credits', userId: 'user_9', creditCents: 500 },
+    });
     expect((await eventsOf(envelope('order.paid', o)))[0]).toMatchObject({
       userId: 'user_9',
-      purpose: { kind: 'credits' },
+      purpose: { kind: 'credits', creditCents: 500 },
     });
   });
 
@@ -122,27 +137,6 @@ describe('Polar webhooks: orders', () => {
       kind: 'ignored',
       reason: 'order.created',
     });
-  });
-});
-
-describe('Polar fees', () => {
-  it('uses platform_fee_amount, else the configured estimate on the total', () => {
-    expect(orderFee(order({ platform_fee_amount: 104 }), CONFIG)).toEqual({
-      cents: 104,
-      estimated: false,
-    });
-    // 1087 × 5% = 54.35 → 55, + 50¢.
-    expect(orderFee(order({ platform_fee_amount: 0 }), CONFIG)).toEqual({
-      cents: 105,
-      estimated: true,
-    });
-    expect(orderFee(order({ platform_fee_currency: 'eur' }), CONFIG)).toMatchObject({
-      estimated: true,
-    });
-    // A free order has no fee.
-    expect(
-      orderFee(order({ net_amount: 0, tax_amount: 0, platform_fee_amount: 0 }), CONFIG),
-    ).toEqual({ cents: 0, estimated: false });
   });
 });
 

@@ -2,19 +2,19 @@ import type { TreeBackupInput } from '@tangent/shared';
 
 /**
  * What a backup imported into Learn is adapted to: Learn's one provider and
- * the models it offers there (Normal and Max).
+ * the models it offers there (Normal).
  */
 export interface LearnImportTarget {
   /** Learn's provider: the built-in endpoint (`openrouter`). */
   providerId: string;
-  /** The model ids Learn offers on it (the Normal/Max toggle). */
+  /** The model ids Learn offers on it. */
   models: readonly string[];
   /** The model of a branch Learn can't run as it is: Learn's default (Normal). */
   defaultModel: string;
 }
 
 /**
- * A backup as Learn imports it. Learn runs on one provider with two models, shows each branch as
+ * A backup as Learn imports it. Learn runs on one provider and one model, shows each branch as
  * its whole path and has no system-prompt editor, so a tree made in power
  * mode is adapted to what Learn can show and continue:
  *

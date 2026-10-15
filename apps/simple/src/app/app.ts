@@ -16,7 +16,6 @@ import {
   Toasts,
   Walkthrough,
 } from '@tangent/web-shared';
-import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
 import { InstructionsDialog } from './chat/instructions-dialog';
 import { Keyboard, SHORTCUTS } from './core/keyboard';
@@ -46,7 +45,6 @@ import { LearnFunding } from './state/learn-funding';
     DeleteAccountDialog,
     PoolFirstUseDialog,
     ConnectDialog,
-    CompareDialog,
     LessonSidebar,
     InstructionsDialog,
     Modal,
@@ -103,9 +101,6 @@ import { LearnFunding } from './state/learn-funding';
           }
           @case ('connect') {
             <app-connect-dialog [sourceNodeId]="d.sourceNodeId" />
-          }
-          @case ('compare') {
-            <app-compare-dialog [branchId]="d.branchId" [content]="d.content" />
           }
           @case ('instructions') {
             <app-instructions-dialog />
