@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/ui/message_view.dart';
@@ -1328,5 +1329,288 @@ void main() {
   testWidgets('an unknown lesson can’t be opened', (tester) async {
     await pumpApp(tester, api, location: '/t/nope');
     expect(find.text('Can’t open this lesson'), findsOneWidget);
+  });
+
+  group('the ends of the thread', () {
+    final long = List.filled(60, 'The moon pulls the sea.').join('\n\n');
+
+    /// Tides, with a long reply on the main thread and a long tangent,
+    /// Moon gravity, from it.
+    TreeDetail longLesson() => treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+      ],
+      nodes: [
+        userNode,
+        node(
+          'a1',
+          branch: 'trunk',
+          seq: 1,
+          role: Role.assistant,
+          content: long,
+        ),
+        node('s1', branch: 'side-9', seq: 0, content: 'Why does it pull?'),
+        node(
+          's2',
+          branch: 'side-9',
+          seq: 1,
+          role: Role.assistant,
+          content: long,
+        ),
+      ],
+    );
+
+    ScrollPosition thread(WidgetTester tester) =>
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+
+    bool jumpShown(WidgetTester tester) => !tester
+        .widget<IgnorePointer>(find.byKey(const ValueKey('jump-to-end')))
+        .ignoring;
+
+    /// The button as read out: its tooltip names it.
+    final jumpButton = find.semantics.byPredicate(
+      (node) => node.tooltip == jumpToEnd,
+    );
+
+    Future<void> press(WidgetTester tester, LogicalKeyboardKey key) async {
+      await tester.sendKeyEvent(key);
+      await settle(tester);
+    }
+
+    testWidgets('no jump to the end where the main thread opens, at its '
+        'end', (tester) async {
+      api.details['t1'] = longLesson();
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(jumpShown(tester), isFalse);
+    });
+
+    testWidgets('no jump to the end of a thread that fits', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Short',
+        nodes: [
+          userNode,
+          node(
+            'a1',
+            branch: 'trunk',
+            seq: 1,
+            role: Role.assistant,
+            content: reply,
+          ),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      thread(tester).jumpTo(0);
+      await settle(tester);
+      expect(jumpShown(tester), isFalse);
+    });
+
+    testWidgets('a long tangent offers the jump to its end, which goes '
+        'there', (tester) async {
+      api.details['t1'] = longLesson();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      expect(thread(tester).pixels, 0);
+      expect(jumpShown(tester), isTrue);
+      expect(jumpButton, findsOne);
+
+      await tester.tap(find.byTooltip(jumpToEnd));
+      await settle(tester);
+      final position = thread(tester);
+      expect(position.pixels, position.maxScrollExtent);
+      expect(jumpShown(tester), isFalse);
+      expect(jumpButton, findsNothing);
+    });
+
+    testWidgets('a reply growing below its start offers the jump, which then '
+        'follows it', (tester) async {
+      await pumpApp(tester, api, location: '/t/t1');
+      await sendTyped(tester, 'Why tides?');
+      await start(tester);
+      await emit(tester, const DeltaEvent(nodeId: 'a1', text: 'First line.'));
+      Future<void> grow() => emit(
+        tester,
+        const DeltaEvent(nodeId: 'a1', text: '\n\nThe moon pulls the sea.'),
+      );
+      // A line at a time until the reply's start reaches the top and the
+      // view stops there, with the end still close below.
+      var parked = thread(tester).pixels;
+      for (var i = 0; i < 80; i++) {
+        await grow();
+        final now = thread(tester).pixels;
+        if (now > 0 && now == parked) break;
+        parked = now;
+      }
+      expect(thread(tester).pixels, greaterThan(0));
+      expect(jumpShown(tester), isFalse);
+      for (var i = 0; i < 30; i++) {
+        await grow();
+      }
+      // The end moved away under a view that didn't scroll.
+      expect(thread(tester).pixels, parked);
+      expect(jumpShown(tester), isTrue);
+
+      await tester.tap(find.byTooltip(jumpToEnd));
+      await tester.pump();
+      await tester.pump();
+      await grow();
+      final position = thread(tester);
+      expect(position.pixels, position.maxScrollExtent);
+      expect(jumpShown(tester), isFalse);
+    });
+
+    testWidgets('no jump while a coach mark shows', (tester) async {
+      api.settingsAnswer = const Settings(walkthroughDoneAt: null);
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [
+          userNode,
+          node(
+            'a1',
+            branch: 'trunk',
+            seq: 1,
+            role: Role.assistant,
+            content: '$long\n\n$reply',
+          ),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text(walkthroughSteps.tangent), findsOneWidget);
+      thread(tester).jumpTo(0);
+      await settle(tester);
+      expect(jumpShown(tester), isFalse);
+
+      await tester.tap(find.text(walkthroughButtons.skip));
+      await settle(tester);
+      expect(jumpShown(tester), isTrue);
+    });
+
+    testWidgets('the tangent’s step in its path goes back to its start', (
+      tester,
+    ) async {
+      api.details['t1'] = longLesson();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      thread(tester).jumpTo(1500);
+      await settle(tester);
+
+      await tester.tap(crumb('Moon gravity'));
+      await settle(tester);
+      final position = thread(tester);
+      expect(position.pixels, 0);
+      // What it came from is still above.
+      expect(position.minScrollExtent, lessThan(0));
+      final top = tester.getRect(find.byType(Scrollable).first).top;
+      expect(
+        tester.getTopLeft(find.text('Tangent · Moon gravity')).dy,
+        inInclusiveRange(top, top + 64),
+      );
+    });
+
+    testWidgets('the lesson title goes back to the start', (tester) async {
+      api.details['t1'] = longLesson();
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(thread(tester).pixels, greaterThan(0));
+
+      await tester.tap(find.byTooltip(backToStart));
+      await settle(tester);
+      expect(thread(tester).pixels, 0);
+    });
+
+    testWidgets('without animations, the jumps land at once', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      api.details['t1'] = longLesson();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      // Short of the end, where the way there would be animated.
+      final position = thread(tester);
+      position.jumpTo(position.maxScrollExtent - 600);
+      await settle(tester);
+      expect(jumpShown(tester), isTrue);
+
+      await tester.tap(find.byTooltip(jumpToEnd));
+      await tester.pump();
+      expect(position.pixels, position.maxScrollExtent);
+      expect(jumpShown(tester), isFalse);
+
+      position.jumpTo(600);
+      await tester.pump();
+      await tester.tap(crumb('Moon gravity'));
+      await tester.pump();
+      expect(position.pixels, 0);
+    });
+
+    testWidgets('Home and End scroll the thread, but not from the message '
+        'box', (tester) async {
+      api.details['t1'] = longLesson();
+      await pumpApp(tester, api, location: '/t/t1');
+      final position = thread(tester);
+      final end = position.pixels;
+      expect(end, greaterThan(0));
+
+      // Brought back with the header after reading down.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -200));
+      await settle(tester);
+      expect(find.byTooltip(backToStart).hitTestable(), findsNothing);
+      await press(tester, LogicalKeyboardKey.home);
+      expect(position.pixels, 0);
+      expect(find.byTooltip(backToStart).hitTestable(), findsOneWidget);
+
+      await press(tester, LogicalKeyboardKey.end);
+      expect(position.pixels, position.maxScrollExtent);
+      await press(tester, LogicalKeyboardKey.home);
+      expect(position.pixels, 0);
+      // Page Down reaches the thread through the same primary controller.
+      await press(tester, LogicalKeyboardKey.pageDown);
+      expect(position.pixels, greaterThan(0));
+      await press(tester, LogicalKeyboardKey.home);
+
+      await type(tester, 'Why tides?');
+      final field = tester.widget<TextField>(find.byType(TextField));
+      field.controller!.selection = const TextSelection.collapsed(offset: 0);
+      await tester.pump();
+      await press(tester, LogicalKeyboardKey.end);
+      expect(position.pixels, 0);
+      expect(field.controller!.selection.baseOffset, 'Why tides?'.length);
+    });
+
+    testWidgets('the ways to the ends say where they go', (tester) async {
+      api.details['t1'] = longLesson();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Tides, back to the start')),
+        isSemantics(isButton: true, hasTapAction: true),
+      );
+      expect(
+        tester.getSemantics(
+          find.bySemanticsLabel(
+            'Moon gravity, back to the start of this tangent',
+          ),
+        ),
+        isSemantics(isButton: true, hasTapAction: true),
+      );
+      expect(
+        jumpButton.evaluate().single,
+        isSemantics(isButton: true, hasTapAction: true),
+      );
+    });
+
+    // On iOS a tap on the status bar scrolls the page's primary controller
+    // to its start. The app's theme is made once per test run, on the
+    // platform of the first test, so the tap itself can't be simulated here.
+    testWidgets('the thread is the page’s primary scroll view, and the '
+        'outline’s list leaves it alone', (tester) async {
+      api.details['t1'] = nestedLesson();
+      await pumpApp(tester, api, location: '/t/t1/b/neap');
+      await tester.tap(find.byTooltip('Tangents'));
+      await settle(tester);
+      expect(find.byType(Drawer), findsOneWidget);
+      final controller = PrimaryScrollController.of(
+        tester.element(find.byKey(const ValueKey('breadcrumb'))),
+      );
+      expect(controller.positions.single, same(thread(tester)));
+    });
   });
 }

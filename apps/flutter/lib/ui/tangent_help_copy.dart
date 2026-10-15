@@ -76,3 +76,17 @@ const yourTangentsLabel = 'Your tangents';
 
 /// The heading over a reply's suggested tangents that no tangent follows yet.
 const suggestedTangentsLabel = 'Suggested tangents';
+
+// The ways to the two ends of a thread. Only this app has them, so they
+// have no original in packages/shared and the parity check passes them by.
+
+/// The button that appears above the message box while the end of the
+/// thread is far below.
+const jumpToEnd = 'Jump to the end';
+
+/// The lesson title's tooltip: a tap scrolls to the start of the thread.
+const backToStart = 'Back to the start';
+
+/// The tooltip of a tangent's current step in its path: a tap scrolls to
+/// the tangent's first message.
+const backToTangentStart = 'Back to the start of this tangent';
