@@ -7,6 +7,7 @@ import {
   billing,
   branch,
   detail,
+  layOutThread,
   node,
   openTree,
   provider,
@@ -332,6 +333,56 @@ describe('Learn: finding your way around a lesson', () => {
     await p.user.click(within(path).getByRole('button', { name: 'Particles' }));
     expect(go).toHaveBeenLastCalledWith('side', 'a2');
     expect(within(path).getByText('Duality').getAttribute('aria-current')).toBe('page');
+  });
+
+  it('every tangent opens at its start, after the main thread was read to its end', async () => {
+    const p = await page(branchyLesson());
+    // The open tangent's fork 1200px down a 3000px lesson, in a 500px view.
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    view.scrollBy(3000);
+    for (const [tangent, first] of [
+      ['side', 'u2'],
+      ['other', 'u4'],
+      ['side', 'u2'],
+    ] as const) {
+      p.store.setRoute('t1', tangent, first);
+      await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+      // The main thread opens at its end.
+      p.store.setRoute('t1', null, null);
+      await vi.waitFor(() => expect(view.scrollTop).toBe(2500));
+    }
+  });
+
+  it('a tangent whose reply is still being written opens at its start too', async () => {
+    const d = branchyLesson();
+    d.nodes = d.nodes.map((n) => (n.id === 'a2' ? { ...n, status: 'streaming', content: '' } : n));
+    const p = await page(d);
+    const view = layOutThread({
+      height: 3000,
+      view: 500,
+      at: { '.fork-current': 1200, '#msg-a2': 1300 },
+    });
+    view.scrollBy(3000);
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    p.store.live.set(
+      new Map([
+        [
+          'a2',
+          {
+            nodeId: 'a2',
+            treeId: 't1',
+            branchId: 'side',
+            content: 'A particle',
+            status: null,
+            reconnecting: false,
+          },
+        ],
+      ]),
+    );
+    await p.fixture.whenStable();
+    await new Promise(requestAnimationFrame);
+    expect(view.scrollTop).toBe(1200);
   });
 
   it('a tangent opens at its first message, from under the message it started from', async () => {

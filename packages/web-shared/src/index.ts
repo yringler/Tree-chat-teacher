@@ -32,6 +32,7 @@ export {
   type PathEntry,
   type SendOptions,
 } from './conversation/conversation-store';
+export { ThreadScroll, type ThreadScrollOptions } from './conversation/thread-scroll';
 export {
   PowerAccountStore,
   type AccountRefusal,

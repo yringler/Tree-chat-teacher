@@ -32,6 +32,7 @@ import {
   SelectionAsk,
   TextSizeMenu,
   TextSizeStore,
+  ThreadScroll,
   Walkthrough,
   type ComposerAction,
   type MessageQuote,
@@ -79,8 +80,6 @@ export class ChatPage implements OnDestroy {
   private readonly title = inject(Title);
   private readonly walkthrough = inject(Walkthrough);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
-  /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
-  private readonly pinned = signal(true);
   /** The first crumb: the lesson's trunk, the way back from any tangent. */
   protected readonly mainThreadLabel = MAIN_THREAD_LABEL;
   protected readonly mainThreadBack = MAIN_THREAD_BACK;
@@ -88,6 +87,16 @@ export class ChatPage implements OnDestroy {
   protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
   /** Words "Ask about this" put on the composer: the next message asks about them. */
   protected readonly quote = signal<MessageQuote | null>(null);
+  /** Where the lesson is scrolled; a reply being written is read from its first line. */
+  protected readonly thread = new ThreadScroll({
+    store: this.store,
+    scroller: () => this.scroller()?.nativeElement,
+    readRepliesFromStart: true,
+    moved: () => {
+      this.pendingAsk.clear();
+      this.quote.set(null);
+    },
+  });
 
   protected readonly branchTitle = branchTitle;
   /** The lesson's title in the learner's words ("New lesson" until the first reply names it). */
@@ -197,44 +206,10 @@ export class ChatPage implements OnDestroy {
         }
       });
     });
-
-    // Scroll to the focused message, or to the bottom when switching branches;
-    // new messages only scroll when the view is pinned to the bottom.
-    let lastBranch: string | null = null;
-    let lastFocus: string | null = null;
-    effect(() => {
-      const branchId = this.store.selectedBranchId();
-      const focus = this.store.focusedInPath()?.id ?? null;
-      const count = this.store.path().length;
-      if (!branchId || count === 0) return;
-      const moved = branchId !== lastBranch || focus !== lastFocus;
-      lastBranch = branchId;
-      lastFocus = focus;
-      if (moved) {
-        this.pendingAsk.clear();
-        this.quote.set(null);
-      }
-      if (moved || untracked(this.pinned)) {
-        if (moved && !focus) this.pinned.set(true);
-        requestAnimationFrame(() => this.scrollTo(moved ? focus : null));
-      }
-    });
-
-    // Follow a reply while it streams in, while the view is pinned.
-    effect(() => {
-      const s = this.store.streamingNode();
-      const live = s ? this.store.live().get(s.id)?.content : undefined;
-      if (live === undefined || !untracked(this.pinned)) return;
-      requestAnimationFrame(() => this.scrollTo(null));
-    });
   }
 
   ngOnDestroy(): void {
     this.pendingAsk.destroy();
-  }
-
-  protected onScroll(el: HTMLElement): void {
-    this.pinned.set(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
   }
 
   /** Puts the selected words on the composer; the tangent is made when it is sent. */
@@ -284,7 +259,7 @@ export class ChatPage implements OnDestroy {
   protected send(content: string): void {
     const id = this.store.selectedBranchId();
     if (!id) return;
-    this.pinned.set(true);
+    this.thread.pin();
     if (this.store.focusedNodeId()) this.store.go(id, null, true);
     void this.store.send(id, content);
   }
@@ -293,7 +268,7 @@ export class ChatPage implements OnDestroy {
   private async goOnTangent(content: string): Promise<void> {
     const from = this.tangentFrom();
     if (!from) return;
-    this.pinned.set(true);
+    this.thread.pin();
     // Kept on failure, to try again.
     if (await this.store.askFrom(from, content, this.quote()?.quote ?? null)) this.quote.set(null);
   }
@@ -318,37 +293,5 @@ export class ChatPage implements OnDestroy {
     const found = selectedMessageQuote(this.scroller()?.nativeElement, window.getSelection());
     const node = found ? this.store.index()?.nodes.get(found.nodeId) : undefined;
     return node && node.status !== 'streaming' ? found : null;
-  }
-
-  private scrollTo(nodeId: string | null): void {
-    const el = this.scroller()?.nativeElement;
-    if (!el) return;
-    if (nodeId) {
-      document
-        .getElementById(`msg-${nodeId}`)
-        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    } else {
-      this.followEnd(el);
-    }
-  }
-
-  /**
-   * Scrolls to the bottom, but a reply being written only until its start
-   * reaches the top of the view, so the learner reads it from its first line;
-   * past that, the end grows out of sight. A learner who scrolls on below its
-   * start is followed again.
-   */
-  private followEnd(el: HTMLElement): void {
-    const reply = this.store.streamingNode();
-    const host = reply ? document.getElementById(`msg-${reply.id}`) : null;
-    if (host) {
-      const top = el.scrollTop + host.getBoundingClientRect().top - el.getBoundingClientRect().top;
-      if (el.scrollTop <= top && top < el.scrollHeight - el.clientHeight) {
-        this.pinned.set(false);
-        el.scrollTop = top;
-        return;
-      }
-    }
-    el.scrollTop = el.scrollHeight;
   }
 }
