@@ -35,7 +35,7 @@ export interface FanOutRequest {
   anchorQuote: string | null;
   isPrivate: boolean;
   variants: BranchVariant[];
-  /** Sent to every new branch at once; empty = just create the branches. */
+  /** Sent to every new branch at once; a lane is made only with it (empty: none is). */
   firstMessage: string;
 }
 
@@ -235,12 +235,15 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
   /**
    * The canvas's signature move: one message, asked several ways at once.
    * Every variant becomes a sibling lane off the same message (its own
-   * context mode and model), and the first message, when given, is sent to
-   * all of them in parallel. Resolves with the lanes that were created.
+   * context mode and model), made with the first message, which is sent to
+   * all of them in parallel (none without it). Resolves with the lanes that
+   * were created.
    * Several lanes are told apart by their model and mode; a single one is
    * titled after its first reply (auto-titling).
    */
   async fanOut(req: FanOutRequest): Promise<Branch[]> {
+    const message = req.firstMessage.trim();
+    if (!message) return [];
     const several = req.variants.length > 1;
     const created: Branch[] = [];
     for (const v of req.variants) {
@@ -262,12 +265,7 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
     const first = created[0];
     if (!first) return created;
     this.go(first.id);
-    const message = req.firstMessage.trim();
-    if (message) {
-      for (const b of created) void this.send(b.id, message);
-    } else {
-      this.composer.focus(first.id);
-    }
+    for (const b of created) void this.send(b.id, message);
     return created;
   }
 

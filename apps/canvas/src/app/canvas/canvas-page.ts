@@ -15,11 +15,13 @@ import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
 import {
+  ComposerQuote,
   endpointTitle,
   Icon,
   PendingQuote,
   SelectionAsk,
   selectedMessageQuote,
+  TangentAsk,
   TextSizeMenu,
   TextSizeStore,
   type MessageQuote,
@@ -60,6 +62,7 @@ interface PendingTouch {
 @Component({
   selector: 'app-canvas-page',
   imports: [
+    ComposerQuote,
     Icon,
     RouterLink,
     Connectors,
@@ -69,6 +72,7 @@ interface PendingTouch {
     LinkPopover,
     Minimap,
     SelectionAsk,
+    TangentAsk,
     TextSizeMenu,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -88,11 +92,16 @@ export class CanvasPage implements OnDestroy {
   private readonly title = inject(Title);
   private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
   /**
-   * Text selected in a finished card: offers "Ask about this" (a `path` lane
-   * quoting it, ready to type) and, by its gear, the branch dialog with the
-   * quote filled in (variants, modes, models).
+   * Text selected in a finished card: offers "Ask about this" (a box for the
+   * question, asked in a `path` lane quoting it, made when it is sent) and,
+   * by its gear, the branch dialog with the quote filled in (variants,
+   * modes, models).
    */
   protected readonly selection = new PendingQuote(() => this.selectedQuote());
+  /** Words "Ask about this" took: the floating box asks about them. */
+  protected readonly quote = signal<MessageQuote | null>(null);
+  /** The question typed in that box. */
+  protected readonly askText = signal('');
   protected readonly asking = signal(false);
   private readonly resize = new ResizeFollower((el) => this.measureViewport(el));
   private fitted = false;
@@ -348,24 +357,43 @@ export class CanvasPage implements OnDestroy {
     this.selection.update();
   }
 
-  /** "Ask about this": a `path` lane off the card, quoting the selection, its box focused. */
-  protected async askAbout(q: MessageQuote): Promise<void> {
+  /** "Ask about this": a box for the question, focused; the lane is made when it is asked. */
+  protected askAbout(q: MessageQuote): void {
     if (this.selectionLocked()) {
       this.moreAbout(q);
       return;
     }
     this.selection.clear();
     window.getSelection()?.removeAllRanges();
+    this.askText.set('');
+    this.quote.set(q);
+  }
+
+  /** The question about the quoted words: a `path` lane off the card, quoting them, asking it. */
+  protected async askQuoted(q: MessageQuote, content: string): Promise<void> {
     this.asking.set(true);
     try {
-      await this.store.createBranch({
-        fromNodeId: q.nodeId,
-        contextMode: 'path',
-        anchorQuote: q.quote,
-      });
+      // Kept on failure, to try again.
+      if (await this.store.askFrom(q.nodeId, content, q.quote)) this.dropQuote();
     } finally {
       this.asking.set(false);
     }
+  }
+
+  /** The box's gear: the branch dialog with the quote and the question so far. */
+  protected moreAboutQuoted(q: MessageQuote, message: string): void {
+    this.dropQuote();
+    this.ui.dialogs.open({
+      kind: 'branch',
+      fromNodeId: q.nodeId,
+      quote: q.quote,
+      ...(message ? { message } : {}),
+    });
+  }
+
+  protected dropQuote(): void {
+    this.quote.set(null);
+    this.askText.set('');
   }
 
   /** The gear: the branch dialog with the quote filled in. */

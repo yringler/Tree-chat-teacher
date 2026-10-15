@@ -825,7 +825,7 @@ test('Canvas demo: the card text size re-lays the lanes out, and is remembered',
   expect(errors).toEqual([]);
 });
 
-test('Canvas demo: "Ask about this" opens a lane to type in; only the selected lane’s ask is open', async ({
+test('Canvas demo: "Ask about this" asks in a new lane once the question is sent; only the selected lane’s ask is open', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -845,16 +845,31 @@ test('Canvas demo: "Ask about this" opens a lane to type in; only the selected l
     'Continue this lane…',
   );
 
-  // Select words in the first reply: "Ask about this" opens a path lane quoting them, its box focused.
+  // Select words in the first reply: "Ask about this" asks for the question, making no lane yet.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'a careful hamster');
   const bar = page.locator('app-selection-ask');
   await expect(bar.getByRole('button', { name: /^More: Tangent from here/ })).toBeVisible();
   await bar.getByRole('button', { name: 'Ask about this' }).click();
+  const box = page.locator('.quote-ask');
+  const question = box.getByRole('textbox', { name: /question about the quoted words/ });
+  await expect(box.locator('.composer-quote')).toContainText('a careful hamster');
+  await expect(question).toBeFocused();
+  await expect(lanes).toHaveCount(3);
+  // Escape drops it, leaving nothing behind.
+  await question.press('Escape');
+  await expect(box).toHaveCount(0);
+  await expect(lanes).toHaveCount(3);
+
+  // Asked, the path lane quoting the words starts with the question.
+  await selectText(trunk.locator('.card-assistant .card-body').first(), 'a careful hamster');
+  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  await question.fill('Why a hamster?');
+  await question.press('Enter');
   await expect(lanes).toHaveCount(4);
+  await expect(box).toHaveCount(0);
   const lane = page.locator('.lane.is-selected');
   await expect(lane.locator('.anchor')).toHaveText('a careful hamster');
-  await expect(lane.locator('.composer textarea')).toBeFocused();
-  await expect(lane.locator('.composer textarea')).toHaveAttribute('placeholder', 'Ask here…');
+  await expect(lane.locator('.card-user')).toContainText('Why a hamster?');
   // The trunk is no longer selected: its open ask folds.
   await expect(page.locator('.tangent-ask.is-expanded')).toHaveCount(0);
 

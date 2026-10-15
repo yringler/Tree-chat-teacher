@@ -201,24 +201,20 @@ describe('CanvasStore', () => {
     return createBranch;
   }
 
-  it('"Ask about this" opens a path lane quoting the selection, its box asked to take focus', async () => {
+  it('a fan-out without a first message makes no lane', async () => {
     const s = setup();
     const createBranch = lanes(s);
-    const go = vi.spyOn(s.store, 'go');
-    vi.mocked(s.composer.focus).mockClear();
-    const lane = await s.store.createBranch({
+    const made = await s.store.fanOut({
       fromNodeId: 'a1',
-      contextMode: 'path',
       anchorQuote: 'A wave',
+      isPrivate: false,
+      variants: [
+        { providerId: 'openrouter', funding: 'credit', model: 'max-model', contextMode: 'path' },
+      ],
+      firstMessage: '   ',
     });
-    expect(createBranch).toHaveBeenCalledWith({
-      fromNodeId: 'a1',
-      contextMode: 'path',
-      anchorQuote: 'A wave',
-    });
-    expect(go).toHaveBeenCalledWith('c1');
-    // The new lane isn't on the canvas yet: the request names it, for its box to take once rendered.
-    expect(s.composer.focus).toHaveBeenCalledWith(lane?.id);
+    expect(made).toEqual([]);
+    expect(createBranch).not.toHaveBeenCalled();
     expect(s.api.sendMessage).not.toHaveBeenCalled();
   });
 

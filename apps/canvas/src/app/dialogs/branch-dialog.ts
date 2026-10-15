@@ -30,9 +30,10 @@ const MAX_VARIANTS = 6;
 /**
  * "Tangent from here", the canvas way: one new lane, or several *variants*
  * off the same message at once, each with its own context mode and model.
- * With a starting message (or one carried from "Ask your own"), every
- * variant is asked in parallel and the lanes stream side by side. Titles
- * come after the first reply (several lanes: their model and mode).
+ * Every variant is asked the starting message (typed here, or carried from
+ * "Ask your own") in parallel, and the lanes stream side by side; a lane is
+ * made only with it. Titles come after the first reply (several lanes:
+ * their model and mode).
  */
 @Component({
   selector: 'app-branch-dialog',
@@ -141,16 +142,16 @@ const MAX_VARIANTS = 6;
         } @else {
           <label class="field">
             <span class="field-label"
-              >Starting message
-              <span class="muted">(optional; sent to every new lane at once)</span></span
+              >Starting message <span class="muted">(sent to every new lane at once)</span></span
             >
             <textarea
               rows="2"
+              required
               [value]="firstMessage()"
               (input)="firstMessage.set(fm.value)"
               (keydown)="onMessageKey($event)"
               #fm
-              placeholder="Leave empty to open the lanes and write in each yourself"
+              placeholder="Ask something to start the lanes"
             ></textarea>
           </label>
         }
@@ -162,17 +163,13 @@ const MAX_VARIANTS = 6;
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
-          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+          <button type="submit" class="btn btn-primary" [disabled]="saving() || !message()">
             @if (saving()) {
               Opening…
             } @else if (variants().length === 1) {
-              {{ message() ? 'Open the lane and ask' : 'Open the lane' }}
+              Open the lane and ask
             } @else {
-              {{
-                message()
-                  ? 'Ask in ' + variants().length + ' lanes'
-                  : 'Open ' + variants().length + ' lanes'
-              }}
+              Ask in {{ variants().length }} lanes
             }
           </button>
         </div>
@@ -205,7 +202,7 @@ export class BranchDialog implements OnInit {
   protected readonly firstMessage = signal('');
   /** A first message written before the dialog opened; replaces the starting message field. */
   protected readonly carried = computed(() => this.state().message?.trim() || null);
-  /** What every new lane is asked first, if anything. */
+  /** What every new lane is asked first. */
   protected readonly message = computed(() => this.carried() ?? this.firstMessage().trim());
   protected readonly isPrivate = signal(false);
   protected readonly saving = signal(false);
@@ -283,7 +280,8 @@ export class BranchDialog implements OnInit {
   }
 
   protected async create(): Promise<void> {
-    if (this.saving()) return;
+    const firstMessage = this.message();
+    if (this.saving() || !firstMessage) return;
     this.saving.set(true);
     try {
       const created = await this.store.fanOut({
@@ -296,7 +294,7 @@ export class BranchDialog implements OnInit {
           funding,
           model: model.trim(),
         })),
-        firstMessage: this.message(),
+        firstMessage,
       });
       if (created.length > 0) {
         this.state().onCreated?.();

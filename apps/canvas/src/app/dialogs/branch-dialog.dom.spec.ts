@@ -89,7 +89,8 @@ describe('Canvas branch dialog: the route a new lane starts on', () => {
       .getByRole('combobox', { name: 'Provider of lane 1' })
       .querySelector<HTMLOptionElement>('option[value="openrouter"]')!;
     expect(own.disabled).toBe(true);
-    await d.user.click(screen.getByRole('button', { name: 'Open the lane' }));
+    await d.user.type(screen.getByRole('textbox', { name: /Starting message/ }), 'Why?');
+    await d.user.click(screen.getByRole('button', { name: 'Open the lane and ask' }));
     expect(d.fanOut).toHaveBeenCalledWith(
       expect.objectContaining({
         variants: [
@@ -123,6 +124,17 @@ describe('Canvas branch dialog: several lanes at once', () => {
     );
     expect(d.fanOut.mock.calls[0]![0].variants).toHaveLength(CONTEXT_MODES.length);
     expect(d.ui.dialogs.get('branch')).toBeNull();
+  });
+
+  it('opens no lane without a starting message', async () => {
+    const d = await open('active', [ownKey, credit]);
+    const ask = screen.getByRole<HTMLButtonElement>('button', { name: 'Open the lane and ask' });
+    expect(ask.disabled).toBe(true);
+    await d.user.type(screen.getByRole('textbox', { name: /Starting message/ }), '  ');
+    expect(ask.disabled).toBe(true);
+    await d.user.keyboard('{Control>}{Enter}{/Control}');
+    expect(d.fanOut).not.toHaveBeenCalled();
+    expect(d.ui.dialogs.get('branch')).not.toBeNull();
   });
 
   it('one lane can’t be removed; another can', async () => {
