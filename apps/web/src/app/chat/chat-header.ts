@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { clip } from '@tangent/shared';
+import { clip, THREAD_ENDS } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { DEMO_MODE, Icon, SidebarToggle, TextSizeMenu } from '@tangent/web-shared';
+import { DEMO_MODE, Icon, SidebarToggle, TextSizeMenu, ThreadEnds } from '@tangent/web-shared';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
@@ -15,8 +15,11 @@ import { ExportMenu } from './export-menu';
     <header class="chat-head">
       <div class="chat-head-row">
         <app-sidebar-toggle />
-        <h1 class="tree-name" [attr.title]="store.detail()?.tree?.title">
-          {{ store.detail()?.tree?.title }}
+        <!-- The title takes the reader back to the start of the thread on screen. -->
+        <h1 class="tree-name">
+          <button type="button" class="to-start" [title]="toStartTitle" (click)="ends.toStart()">
+            {{ store.detail()?.tree?.title }}
+          </button>
         </h1>
         <div class="toolbar" role="toolbar" aria-label="Conversation actions">
           <button
@@ -90,7 +93,15 @@ import { ExportMenu } from './export-menu';
             @for (c of store.crumbs(); track c.branch.id; let last = $last) {
               <li>
                 @if (c.current) {
-                  <span class="crumb crumb-current" aria-current="page">{{ c.branch.title }}</span>
+                  <button
+                    type="button"
+                    class="crumb crumb-current"
+                    aria-current="page"
+                    [title]="inTangent() ? toTangentStartTitle : toStartTitle"
+                    (click)="ends.toStart()"
+                  >
+                    {{ c.branch.title }}
+                  </button>
                 } @else {
                   <button
                     type="button"
@@ -159,6 +170,9 @@ export class ChatHeader {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
   protected readonly demo = inject(DEMO_MODE);
+  protected readonly ends = inject(ThreadEnds);
+  protected readonly toStartTitle = THREAD_ENDS.toStart;
+  protected readonly toTangentStartTitle = THREAD_ENDS.toTangentStart;
 
   /** The return pill, while the view is still where the link went. */
   protected readonly linkReturn = computed(() => {

@@ -8,6 +8,7 @@ const PATHS = {
   chevronRight: 'M9 6l6 6-6 6',
   chevronDown: 'M6 9l6 6 6-6',
   chevronUp: 'M6 15l6-6 6 6',
+  arrowDown: 'M12 5v14M5 12l7 7 7-7',
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z',
   signOut: 'M9 4H5v16h4M16 8l4 4-4 4M20 12H9',
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',

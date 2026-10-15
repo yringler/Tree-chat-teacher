@@ -3,6 +3,7 @@ import {
   ComposerController,
   dispatchShortcut,
   pathKeys,
+  ThreadEnds,
   TextSizeStore,
   type ShortcutHelp,
 } from '@tangent/web-shared';
@@ -15,6 +16,7 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+←', 'Alt+→'], label: 'Previous / next tangent' },
   { keys: ['Alt+↓', ']'], label: 'First tangent from here' },
   { keys: ['j', 'k'], label: 'Next / previous message' },
+  { keys: ['Home', 'End'], label: 'Start / end of the thread' },
   { keys: ['b'], label: 'Tangent from the focused message' },
   { keys: ['v'], label: 'Review up to the focused (or latest) reply' },
   { keys: ['l'], label: 'Link the focused (or latest) message to another' },
@@ -32,6 +34,7 @@ export class Keyboard {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   private readonly composer = inject(ComposerController);
+  private readonly threadEnds = inject(ThreadEnds);
   private readonly textSize = inject(TextSizeStore);
 
   /** On an open conversation only. */
@@ -43,6 +46,9 @@ export class Keyboard {
 
   private readonly keys: Readonly<Record<string, () => unknown>> = {
     ...pathKeys(this.store),
+    // Taken only with a thread on screen; the start is the open tangent's.
+    Home: () => this.threadEnds.toStart(),
+    End: () => this.threadEnds.toEnd(),
     b: () => {
       const node = this.store.focusedInPath() ?? this.store.leaf();
       // Nothing to branch onto without a route to generate on (power is read-only).

@@ -71,11 +71,30 @@ class _ChatPageState extends State<ChatPage> {
   /// learner reads down, to give the thread the room, and back on the way up.
   bool _headerShown = true;
 
+  /// The end of the thread is far enough below to offer the jump to it. A
+  /// notifier of its own, so scrolling rebuilds the button alone.
+  final _farFromEnd = ValueNotifier(false);
+
   static const _outlineWidth = 280.0;
 
   /// From this width the outline stays beside the thread; below it, it is a
   /// drawer.
   static const _wideFrom = contentMaxWidth + _outlineWidth;
+
+  /// Home and End, with Ctrl or Cmd as on a desktop page.
+  static const _threadEnds = <ShortcutActivator, Intent>{
+    SingleActivator(LogicalKeyboardKey.home): _ToStartIntent(),
+    SingleActivator(LogicalKeyboardKey.home, control: true): _ToStartIntent(),
+    SingleActivator(LogicalKeyboardKey.home, meta: true): _ToStartIntent(),
+    SingleActivator(LogicalKeyboardKey.end): _ToEndIntent(),
+    SingleActivator(LogicalKeyboardKey.end, control: true): _ToEndIntent(),
+    SingleActivator(LogicalKeyboardKey.end, meta: true): _ToEndIntent(),
+  };
+
+  late final _threadEndActions = <Type, Action<Intent>>{
+    _ToStartIntent: _ThreadEndAction<_ToStartIntent>(_jumpToStart),
+    _ToEndIntent: _ThreadEndAction<_ToEndIntent>(_jumpToEnd),
+  };
 
   @override
   void initState() {
@@ -122,23 +141,111 @@ class _ChatPageState extends State<ChatPage> {
     _composer.dispose();
     _composerFocus.dispose();
     _scroll.dispose();
+    _farFromEnd.dispose();
     super.dispose();
   }
 
   /// The main thread opens at its end, a tangent at its start.
   void _showBranch() {
-    _stickToBottom = !_chat.isSideBranch;
+    // Decided now: a jump made before the frame ends moves the flag.
+    final atEnd = !_chat.isSideBranch;
+    _stickToBottom = atEnd;
     _headerShown = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
       final position = _scroll.position;
-      _scroll.jumpTo(_stickToBottom ? position.maxScrollExtent : 0);
+      _scroll.jumpTo(atEnd ? position.maxScrollExtent : 0);
     });
   }
 
   void _onScroll() {
     final position = _scroll.position;
     _stickToBottom = position.pixels >= position.maxScrollExtent - 48;
+    _measureEnd();
+  }
+
+  /// Offers the jump to the end once it is more than half a screen (and at
+  /// least a few lines) below. Asked on every scroll and whenever the thread
+  /// changes size, since a reply growing below moves the end without a
+  /// scroll.
+  void _measureEnd() {
+    if (!_scroll.hasClients) return;
+    final position = _scroll.position;
+    if (!position.hasContentDimensions || !position.hasViewportDimension) {
+      return;
+    }
+    final below = position.maxScrollExtent - position.pixels;
+    _farFromEnd.value = below > max(240, position.viewportDimension / 2);
+  }
+
+  bool _onMetrics(ScrollMetricsNotification notification) {
+    if (notification.depth == 0) _measureEnd();
+    return false;
+  }
+
+  /// Animates a short way, which shows where it went; jumps a long one, or
+  /// while a reply is written, whose growth would move the target under the
+  /// animation, or when the learner asked for less motion.
+  bool _glidesTo(double offset) {
+    final position = _scroll.position;
+    return !MediaQuery.disableAnimationsOf(context) &&
+        _chat.streamingNode == null &&
+        (offset - position.pixels).abs() <= 2 * position.viewportDimension;
+  }
+
+  /// Scrolls to the end of the thread and follows it from there, so a reply
+  /// being written stays in view.
+  void _jumpToEnd() {
+    if (!_scroll.hasClients) return;
+    _stickToBottom = true;
+    final end = _scroll.position.maxScrollExtent;
+    if (_glidesTo(end)) {
+      unawaited(
+        _scroll
+            .animateTo(
+              end,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+            )
+            // Unless the learner took over on the way.
+            .then((_) => _settleAtEnd()),
+      );
+    } else {
+      _scroll.jumpTo(end);
+      _settleAtEnd();
+    }
+  }
+
+  /// Jumps on to the end for a few frames while it moves: the messages laid
+  /// out on the way there replace the list's estimate of its length.
+  void _settleAtEnd([int frames = 3]) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_stickToBottom || !_scroll.hasClients) return;
+      final position = _scroll.position;
+      if (position.pixels == position.maxScrollExtent) return;
+      _scroll.jumpTo(position.maxScrollExtent);
+      if (frames > 1) _settleAtEnd(frames - 1);
+    });
+  }
+
+  /// Scrolls to the start of the branch on screen (offset zero: on a tangent,
+  /// its fork divider, with what it came from above), and brings the header
+  /// back with it.
+  void _jumpToStart() {
+    _stickToBottom = false;
+    if (!_headerShown) setState(() => _headerShown = true);
+    if (!_scroll.hasClients || _scroll.position.pixels.abs() <= 1) return;
+    if (_glidesTo(0)) {
+      unawaited(
+        _scroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    } else {
+      _scroll.jumpTo(0);
+    }
   }
 
   /// Only the learner's own scrolling moves the header: not following a
@@ -160,7 +267,8 @@ class _ChatPageState extends State<ChatPage> {
   void _followEnd() {
     if (!_stickToBottom) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
+      // Asked again: opening a tangent in the meantime stops the following.
+      if (!_stickToBottom || !_scroll.hasClients) return;
       final position = _scroll.position;
       final top = _replyTop();
       if (top != null &&
@@ -421,7 +529,24 @@ class _ChatPageState extends State<ChatPage> {
               const SingleActivator(LogicalKeyboardKey.escape):
                   _walkthrough.skip,
           },
-          child: scaffold,
+          child: Shortcuts(
+            shortcuts: _threadEnds,
+            child: Actions(
+              actions: _threadEndActions,
+              // A tap on the status bar (iOS) scrolls the thread to its
+              // start, and Page Up and Down scroll it while no control has
+              // the focus. No scroll view takes the controller on its own:
+              // the outline's list would share it with the thread.
+              child: PrimaryScrollController(
+                controller: _scroll,
+                automaticallyInheritForPlatforms: const {},
+                // Holds the focus while no control has it, as when the page
+                // opens or the message box lets go, so the keys reach the
+                // shortcuts above.
+                child: FocusScope(autofocus: true, child: scaffold),
+              ),
+            ),
+          ),
         );
       },
     );
@@ -453,10 +578,13 @@ class _ChatPageState extends State<ChatPage> {
                 onPressed: () => context.go('/'),
               ),
               titleSpacing: 0,
-              title: Text(
-                _chat.loading ? '' : lessonTitle(_chat.title),
-                overflow: TextOverflow.ellipsis,
-              ),
+              title: _chat.loading
+                  ? null
+                  : _ToStartButton(
+                      title: lessonTitle(_chat.title),
+                      tooltip: backToStart,
+                      onTap: _jumpToStart,
+                    ),
               actions: [
                 const HelpButton(),
                 if (drawer)
@@ -476,6 +604,7 @@ class _ChatPageState extends State<ChatPage> {
                   mainThreadKey: _mainThreadKey,
                   chain: _chat.chain,
                   onOpen: _open,
+                  onCurrent: _jumpToStart,
                   onMore: drawer ? Scaffold.of(context).openEndDrawer : null,
                 ),
               ),
@@ -501,9 +630,37 @@ class _ChatPageState extends State<ChatPage> {
         Expanded(
           child: thread.isEmpty
               ? const _EmptyThread()
-              : LayoutBuilder(
-                  builder: (context, constraints) =>
-                      _threadView(thread, columnPadding(constraints.maxWidth)),
+              : Stack(
+                  children: [
+                    Positioned.fill(
+                      child: NotificationListener<ScrollMetricsNotification>(
+                        onNotification: _onMetrics,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => _threadView(
+                            thread,
+                            columnPadding(constraints.maxWidth),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Centred under the reading column, just above the
+                    // message box, so it rises with a notice or the keyboard.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 12,
+                      child: Center(
+                        child: ValueListenableBuilder(
+                          valueListenable: _farFromEnd,
+                          builder: (context, far, _) => _JumpToEndButton(
+                            // A coach mark has the learner's attention.
+                            shown: far && _walkthrough.showing == null,
+                            onPressed: _jumpToEnd,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
         ),
         ContentColumn(
@@ -614,6 +771,7 @@ class _Breadcrumb extends StatelessWidget {
     required this.mainThreadKey,
     required this.chain,
     required this.onOpen,
+    required this.onCurrent,
     this.onMore,
   });
 
@@ -623,6 +781,9 @@ class _Breadcrumb extends StatelessWidget {
   /// The main thread down to the tangent on screen.
   final List<Branch> chain;
   final ValueChanged<Branch> onOpen;
+
+  /// Scrolls to the start of the tangent on screen, its last step.
+  final VoidCallback onCurrent;
 
   /// Opens the outline, when it is a drawer.
   final VoidCallback? onMore;
@@ -693,12 +854,13 @@ class _Breadcrumb extends StatelessWidget {
                 ),
                 chevron,
               ],
+              // The whole rest of the row, so it is easy to hit.
               Expanded(
-                child: Text(
-                  outlineTitle(chain.last),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: _ToStartButton(
+                  title: outlineTitle(chain.last),
+                  tooltip: backToTangentStart,
                   style: const TextStyle(fontSize: 15),
+                  onTap: onCurrent,
                 ),
               ),
             ],
@@ -706,6 +868,135 @@ class _Breadcrumb extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Words that scroll the thread to its start when tapped: the lesson title,
+/// and a tangent's current step in its path. Read out as a button that says
+/// where it goes.
+class _ToStartButton extends StatelessWidget {
+  const _ToStartButton({
+    required this.title,
+    required this.tooltip,
+    required this.onTap,
+    this.style,
+  });
+
+  final String title;
+
+  /// Where a tap goes; ends the label read out after [title].
+  final String tooltip;
+  final VoidCallback onTap;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    excludeFromSemantics: true,
+    child: Semantics(
+      container: true,
+      button: true,
+      label: '$title, ${tooltip[0].toLowerCase()}${tooltip.substring(1)}',
+      onTap: onTap,
+      excludeSemantics: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 40),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              widthFactor: 1,
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: style,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Floats over the thread while its end is far below, and scrolls there.
+/// Hidden, it takes no taps and isn't read out.
+class _JumpToEndButton extends StatelessWidget {
+  const _JumpToEndButton({required this.shown, required this.onPressed});
+
+  final bool shown;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = TangentColors.of(context);
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 150);
+    return IgnorePointer(
+      key: const ValueKey('jump-to-end'),
+      ignoring: !shown,
+      child: ExcludeSemantics(
+        excluding: !shown,
+        child: AnimatedOpacity(
+          opacity: shown ? 1 : 0,
+          duration: duration,
+          curve: Curves.easeOut,
+          child: AnimatedScale(
+            scale: shown ? 1 : 0.8,
+            duration: duration,
+            curve: Curves.easeOut,
+            // Part of the message box for taps, and never focused, so the
+            // box keeps the focus and a phone's keyboard stays up.
+            child: TextFieldTapRegion(
+              child: ExcludeFocus(
+                child: IconButton.filledTonal(
+                  tooltip: jumpToEnd,
+                  onPressed: onPressed,
+                  style: IconButton.styleFrom(
+                    side: BorderSide(color: tokens.border),
+                    elevation: 2,
+                  ),
+                  icon: const Icon(Icons.arrow_downward),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToStartIntent extends Intent {
+  const _ToStartIntent();
+}
+
+class _ToEndIntent extends Intent {
+  const _ToEndIntent();
+}
+
+/// Scrolls the thread to one end, unless a text field has the focus: there
+/// Home and End move the caret.
+class _ThreadEndAction<T extends Intent> extends Action<T> {
+  _ThreadEndAction(this.onInvoke);
+
+  final VoidCallback onInvoke;
+
+  @override
+  bool isEnabled(T intent) =>
+      FocusManager.instance.primaryFocus?.context
+          ?.findAncestorStateOfType<EditableTextState>() ==
+      null;
+
+  @override
+  Object? invoke(T intent) {
+    onInvoke();
+    return null;
   }
 }
 

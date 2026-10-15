@@ -11,7 +11,17 @@
 } @else {
   <header class="lesson-head">
     <div class="lesson-head-row">
-      <h1 class="lesson-title" [attr.title]="lessonTitle()">{{ lessonTitle() }}</h1>
+      <!-- The title takes the reader back to the start of the thread on screen. -->
+      <h1 class="lesson-title">
+        <button
+          type="button"
+          class="to-start"
+          [title]="threadEnds.toStart"
+          (click)="thread.toStart()"
+        >
+          {{ lessonTitle() }}
+        </button>
+      </h1>
       <div class="lesson-tools">
         @if (funding.payer() !== 'pool') {
           <button
@@ -52,9 +62,15 @@
           @for (c of store.crumbs(); track c.branch.id; let first = $first, i = $index) {
             <li [class.crumb-mid]="!first && i < store.crumbs().length - 2">
               @if (c.current) {
-                <span class="crumb crumb-current" aria-current="page">{{
-                  branchTitle(c.branch)
-                }}</span>
+                <button
+                  type="button"
+                  class="crumb crumb-current"
+                  aria-current="page"
+                  [title]="threadEnds.toTangentStart"
+                  (click)="thread.toStart()"
+                >
+                  {{ branchTitle(c.branch) }}
+                </button>
               } @else {
                 <button
                   type="button"
@@ -87,7 +103,7 @@
     }
   </header>
 
-  <div class="messages" #scroller (scroll)="onScroll(scroller)" tabindex="-1">
+  <div class="messages" #scroller (scroll)="thread.onScroll()" tabindex="-1">
     <div class="messages-inner">
       @if (store.path().length === 0) {
         <div class="empty-state">
@@ -130,6 +146,8 @@
   }
 
   <div class="composer-dock">
+    <!-- Not while a coach mark has the learner's attention. -->
+    <app-jump-to-end [shown]="thread.farFromEnd() && !coachShowing()" (jump)="thread.toEnd()" />
     @if (poolBlock(); as block) {
       <app-pool-block-notice
         [block]="block"

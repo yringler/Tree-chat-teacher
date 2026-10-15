@@ -1,6 +1,7 @@
 // The words that teach when to reply and when to go on a tangent: the two
-// send actions, the "How tangents work" help, the first-run walkthrough and
-// the headings of a reply's tangents footer.
+// send actions, the "How tangents work" help, the first-run walkthrough, the
+// headings of a reply's tangents footer and the ways to the two ends of a
+// thread.
 //
 // This mirrors packages/shared/src/tangent-help.ts and the footer headings of
 // packages/shared/src/tangents.ts, which the landing page and the web apps
@@ -76,3 +77,16 @@ const yourTangentsLabel = 'Your tangents';
 
 /// The heading over a reply's suggested tangents that no tangent follows yet.
 const suggestedTangentsLabel = 'Suggested tangents';
+
+// The ways to the two ends of a thread.
+
+/// The button that appears above the message box while the end of the
+/// thread is far below.
+const jumpToEnd = 'Jump to the end';
+
+/// The lesson title's tooltip: a tap scrolls to the start of the thread.
+const backToStart = 'Back to the start';
+
+/// The tooltip of a tangent's current step in its path: a tap scrolls to
+/// the tangent's first message.
+const backToTangentStart = 'Back to the start of this tangent';

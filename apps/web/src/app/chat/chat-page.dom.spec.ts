@@ -3,6 +3,7 @@ import type { TreeDetail } from '@tangent/shared';
 import {
   branch,
   detail,
+  layOutThread,
   membership,
   node,
   openTree,
@@ -34,6 +35,25 @@ function tree(): TreeDetail {
         funding: 'credit',
         anchorQuote: 'A wave',
       }),
+    ],
+  );
+}
+
+/** "Light" with two tangents off its reply: "Particles" (u2 → a2) and "Why waves" (u3 → a3). */
+function branchy(): TreeDetail {
+  return detail(
+    [
+      node('u1', { role: 'user', content: 'What is light?' }),
+      node('a1', { parentId: 'u1', seq: 1, content: 'A wave.' }),
+      node('u2', { parentId: 'a1', seq: 2, branchId: 'side', role: 'user', content: 'And?' }),
+      node('a2', { parentId: 'u2', seq: 3, branchId: 'side', content: 'A particle.' }),
+      node('u3', { parentId: 'a1', seq: 2, branchId: 'other', role: 'user', content: 'Why?' }),
+      node('a3', { parentId: 'u3', seq: 3, branchId: 'other', content: 'Interference.' }),
+    ],
+    [
+      branch('trunk', { title: 'Main thread' }),
+      branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1', title: 'Particles' }),
+      branch('other', { parentBranchId: 'trunk', branchPointNodeId: 'a1', title: 'Why waves' }),
     ],
   );
 }
@@ -79,6 +99,94 @@ describe('ChatPage', () => {
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?{Enter}');
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
+  });
+
+  it('every tangent opens at its start, after the main thread was read to its end', async () => {
+    const p = await page({ d: branchy() });
+    // The open tangent's fork 1200px down a 3000px conversation, in a 500px view.
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    view.scrollBy(3000);
+    for (const [tangent, first] of [
+      ['side', 'u2'],
+      ['other', 'u3'],
+      ['side', 'u2'],
+    ] as const) {
+      p.store.setRoute('t1', tangent, first);
+      await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+      // The main thread opens at its end.
+      p.store.setRoute('t1', null, null);
+      await vi.waitFor(() => expect(view.scrollTop).toBe(2500));
+    }
+  });
+
+  it('a tangent whose reply is still being written opens at its start too', async () => {
+    const d = branchy();
+    d.nodes = d.nodes.map((n) => (n.id === 'a2' ? { ...n, status: 'streaming', content: '' } : n));
+    const p = await page({ d });
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    view.scrollBy(3000);
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    p.store.live.set(
+      new Map([
+        [
+          'a2',
+          {
+            nodeId: 'a2',
+            treeId: 't1',
+            branchId: 'side',
+            content: 'A particle',
+            status: null,
+            reconnecting: false,
+          },
+        ],
+      ]),
+    );
+    await p.fixture.whenStable();
+    await new Promise(requestAnimationFrame);
+    expect(view.scrollTop).toBe(1200);
+  });
+
+  it('from a tangent’s start, the down arrow jumps to its end, and goes once there', async () => {
+    const p = await page({ d: branchy() });
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    const jump = () => screen.getByRole('button', { name: 'Jump to the end' });
+    view.scrollBy(3000);
+    await p.fixture.whenStable();
+    expect(jump().hasAttribute('inert')).toBe(true);
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    await p.fixture.whenStable();
+    expect(jump().hasAttribute('inert')).toBe(false);
+    await p.user.click(jump());
+    expect(view.scrollTop).toBe(2500);
+    await p.fixture.whenStable();
+    expect(jump().hasAttribute('inert')).toBe(true);
+  });
+
+  it('the title, and the open thread’s step in the path, go back to its start', async () => {
+    const p = await page({ d: branchy() });
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    view.scrollBy(3000);
+    const path = () => screen.getByRole('navigation', { name: 'Tangent path' });
+    const main = within(path()).getByRole('button', { name: 'Main thread' });
+    expect(main.getAttribute('aria-current')).toBe('page');
+    expect(main.title).toBe('Back to the start');
+    await p.user.click(main);
+    await vi.waitFor(() => expect(view.scrollTop).toBe(0));
+
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    view.scrollBy(800);
+    const title = within(screen.getByRole('heading', { name: 'Light' })).getByRole('button');
+    expect(title.title).toBe('Back to the start');
+    await p.user.click(title);
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    view.scrollBy(800);
+    const current = within(path()).getByRole('button', { name: 'Particles' });
+    expect(current.title).toBe('Back to the start of this tangent');
+    await p.user.click(current);
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
   });
 
   it('a new tangent shows where it starts, and asks for its first question', async () => {

@@ -2,8 +2,8 @@ import { TRUNK_TITLE } from './domain.js';
 
 /**
  * The words that teach when to reply and when to go on a tangent: the two
- * send actions, the "How tangents work" help and the first-run walkthrough.
- * One source for the landing page, the Angular help sheet and coach marks,
+ * send actions, the "How tangents work" help and the first-run walkthrough,
+ * and the ways to the two ends of a thread. One source for the landing page, the Angular help sheet and coach marks,
  * and the Flutter app, whose mirror (apps/flutter/lib/ui/tangent_help_copy.dart)
  * a web-shared test keeps identical, as tiers.ts does for the tier words.
  */
@@ -64,3 +64,14 @@ export const WALKTHROUGH_BUTTONS = { next: 'Got it', skip: 'Skip tour', done: 'D
 export const MAIN_THREAD_LABEL = TRUNK_TITLE;
 
 export const MAIN_THREAD_BACK = 'Back to main thread';
+
+/**
+ * The ways to the two ends of a thread: the button that shows while the end
+ * is far below, and what the title and a tangent's current step in its path
+ * do when clicked or tapped (their tooltips).
+ */
+export const THREAD_ENDS = {
+  toEnd: 'Jump to the end',
+  toStart: 'Back to the start',
+  toTangentStart: 'Back to the start of this tangent',
+} as const;

@@ -6,3 +6,4 @@
 export * from './fixtures';
 export { appProviders, me, openTree, powerProviders, signIn } from './power';
 export { provideAnyRoute, render, type Rendered } from './render';
+export { layOutThread, type ThreadLayout } from './layout';
