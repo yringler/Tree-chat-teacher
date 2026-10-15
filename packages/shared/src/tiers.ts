@@ -1,14 +1,14 @@
 import type { ModelInfo, ModelTier } from './provider.js';
 
 /**
- * Normal and Max: the two model tiers both apps offer. Normal is the everyday
- * default; Max is a stronger model that costs many times as much. A model
- * says which tier it is through `ModelInfo.tier`, so clients never match on
- * labels, and every user-facing word about tiers comes from this file so the
- * Worker's pages, Learn and power phrase it the same way.
+ * Normal and Max: the two model tiers power offers. Normal is the everyday
+ * default; Max is a stronger model that costs many times as much. Learn has
+ * one model, Normal. A model says which tier it is through `ModelInfo.tier`,
+ * so clients never match on labels, and every user-facing word about tiers
+ * comes from this file so the Worker's pages and power phrase it the same way.
  */
 
-/** Both tiers, cheaper first (the order Learn lists them in). */
+/** Both tiers, cheaper first (the order power lists them in). */
 export const TIERS: readonly ModelTier[] = ['normal', 'max'];
 
 /** What each tier is called in the UI. */

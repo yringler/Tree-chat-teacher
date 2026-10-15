@@ -860,11 +860,10 @@ test('Learn demo: export a lesson, import a power-style backup, get a Learn less
   expect(lesson.tree.systemPrompt).toBe('Talk like a pirate.');
   for (const b of lesson.branches) {
     expect(b.providerId).toBe('openrouter');
-    expect(['max', 'normal']).toContain(b.model);
+    expect(b.model).toBe('normal');
     expect(b.contextMode).toBe('path');
     expect(b.funding).toBe('own-key');
   }
-  expect(lesson.branches[0].model).toBe('normal');
   // An import gets new ids, and messages are listed by branch id, so compare them in any order.
   const contents = (nodes: { content: string }[]) => nodes.map((n) => n.content).sort();
   expect(contents(lesson.nodes)).toEqual(contents(backup.nodes));

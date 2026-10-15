@@ -69,11 +69,8 @@ describe('demo backend', () => {
     const [provider, ...others] = await api.providers();
     expect(others).toEqual([]);
     expect(provider).toMatchObject({ id: 'openrouter', defaultModel: 'normal', available: true });
-    // Normal first (the default), then Max with its usage factor from the pretend prices.
-    expect(provider!.models).toEqual([
-      { id: 'normal', label: 'Normal', tier: 'normal' },
-      { id: 'max', label: 'Max', tier: 'max', usageFactor: 14 },
-    ]);
+    // Learn runs one model.
+    expect(provider!.models).toEqual([{ id: 'normal', label: 'Normal', tier: 'normal' }]);
   });
 
   it('starts with the example lesson (main thread, a side question and a followed tangent)', async () => {
@@ -103,7 +100,7 @@ describe('demo backend', () => {
 
   it('creates a lesson, streams a reply over SSE, stores it, titles the lesson and charges for it', async () => {
     const { api } = setup({ seed: false });
-    const detail = await api.createTree({ providerId: 'openrouter', model: 'max' });
+    const detail = await api.createTree({ providerId: 'openrouter' });
     expect(detail.tree.title).toBe('New conversation');
     expect(detail.tree.systemPrompt).toBeNull();
 
@@ -138,7 +135,7 @@ describe('demo backend', () => {
 
     const after = await api.getTree(detail.tree.id);
     const stored = after.nodes.find((n) => n.id === start.assistantNode.id)!;
-    expect(stored).toMatchObject({ status: 'complete', content: text, model: 'max' });
+    expect(stored).toMatchObject({ status: 'complete', content: text, model: 'normal' });
     expect(stored.usage?.outputTokens).toBeGreaterThan(0);
     // Auto-titled after the first reply, like production.
     expect(after.tree.title).not.toBe('New conversation');
@@ -400,13 +397,13 @@ describe('demo backend', () => {
     const reply = before.nodes.find((n) => n.role === 'assistant')!;
     const res = await api.reviewNode(
       reply.id,
-      { providerId: 'openrouter', model: 'max' },
+      { providerId: 'openrouter', model: 'normal' },
       new AbortController().signal,
     );
     const seen: ReviewEvent[] = [];
     for await (const e of readSseEvents(res.body!, parseReviewEvent)) seen.push(e);
     expect(seen.some((e) => e.type === 'delta')).toBe(true);
-    expect(seen.at(-1)).toMatchObject({ type: 'done', providerId: 'openrouter', model: 'max' });
+    expect(seen.at(-1)).toMatchObject({ type: 'done', providerId: 'openrouter', model: 'normal' });
     expect((await api.getTree(lesson!.id)).nodes).toEqual(before.nodes);
   });
 
@@ -524,6 +521,12 @@ describe('power demo backend', () => {
       // Nothing needs a membership, so no power branch is ever read-only here.
       membershipNeededFor: [],
     });
+    // Normal first (the default), then Max with its usage factor from the pretend prices.
+    const [provider] = await api.providers();
+    expect(provider!.models).toEqual([
+      { id: 'normal', label: 'Normal', tier: 'normal' },
+      { id: 'max', label: 'Max', tier: 'max', usageFactor: 14 },
+    ]);
     const unsupported = { status: 501, code: 'not_implemented' };
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,
@@ -650,14 +653,19 @@ describe('power demo backend', () => {
     const [tree] = await power.api.listTrees();
     const res = await power.backend.fetch(power.api.backupUrl(tree!.id));
     const backup = (await res.json()) as Parameters<ApiClient['importBackup']>[0];
-    // As power could have made it: another provider, a summary branch, a custom prompt.
+    // As power could have made it: another provider, summary branches on Max, a custom prompt.
     const [trunk, ...rest] = backup.branches;
     const fromPower = {
       ...backup,
       tree: { ...backup.tree, systemPrompt: 'Talk like a pirate.' },
       branches: [
         { ...trunk!, providerId: 'anthropic', model: 'vendor-large' },
-        ...rest.map((b) => ({ ...b, contextMode: 'summary' as const, funding: 'credit' as const })),
+        ...rest.map((b) => ({
+          ...b,
+          model: 'max',
+          contextMode: 'summary' as const,
+          funding: 'credit' as const,
+        })),
       ],
     };
 
@@ -667,8 +675,8 @@ describe('power demo backend', () => {
     expect(lesson.branches.map((b) => [b.providerId, b.contextMode, b.funding])).toEqual(
       lesson.branches.map(() => ['openrouter', 'path', 'own-key']),
     );
-    expect(lesson.branches[0]!.model).toBe('normal');
-    expect(lesson.branches.slice(1).map((b) => b.model)).toEqual(rest.map((b) => b.model));
+    // Learn runs Normal alone, so power's Max moves to it like any model Learn doesn't offer.
+    expect(lesson.branches.map((b) => b.model)).toEqual(lesson.branches.map(() => 'normal'));
     // An import gets new ids, and the repositories list nodes by branch id.
     const contents = (nodes: { content: string }[]) => nodes.map((n) => n.content).sort();
     expect(contents(lesson.nodes)).toEqual(contents(backup.nodes));

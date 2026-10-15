@@ -266,7 +266,14 @@ export class DemoBackend {
     this.mode = options.mode ?? 'simple';
     this.storage = options.storage === undefined ? defaultStorage() : options.storage;
     const inner = options.provider ?? createLoremProvider();
-    this.provider = { ...inner, stream: (request) => this.meter(inner, request) };
+    this.provider = {
+      ...inner,
+      // Like the Worker: Learn offers one model (Normal), so it lists and imports onto
+      // that alone; power keeps Normal | Max.
+      models: () =>
+        this.mode === 'simple' ? inner.models().filter((m) => m.tier !== 'max') : inner.models(),
+      stream: (request) => this.meter(inner, request),
+    };
     const provider = this.provider;
     const registry: ProviderRegistry = {
       get: (id) => (id === provider.id ? provider : undefined),

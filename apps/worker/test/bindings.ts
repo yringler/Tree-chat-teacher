@@ -58,15 +58,17 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   // Learn mode and billing (paid credit offered). Multi-user tests pass an env
   // override with auth configured (as auth.test.ts does for BETTER_AUTH_SECRET).
   // The built-in provider (the endpoint `openrouter`): fake, reporting a fixed cost per call.
-  // Unlike a deployment, Max is the default, as the suites were written against it.
+  // Its default `max` is no tier: it is the id the suites run Learn on. `normal` is the
+  // Normal tier and the pool's model, and `strong` is power's Max, which Learn never lists.
   BUILT_IN_PROVIDER: JSON.stringify({
     id: 'openrouter',
     kind: 'fake',
     label: 'Tangent',
     defaultModel: 'max',
     models: [
-      { id: 'max', label: 'Max', tier: 'max' },
+      { id: 'max', label: 'Default' },
       { id: 'normal', label: 'Normal', tier: 'normal' },
+      { id: 'strong', label: 'Max', tier: 'max' },
     ],
     // `[echo-request]` in a message makes the reply echo the request's model, output cap
     // and system prompt (the pool tests check what was really sent upstream).

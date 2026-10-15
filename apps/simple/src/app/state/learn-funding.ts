@@ -2,7 +2,6 @@ import { computed, inject, Injectable, linkedSignal, signal } from '@angular/cor
 import {
   learnPayer,
   OPENROUTER_PROVIDER_ID,
-  poolModelText,
   type BillingSummary,
   type KeyStatusResponse,
   type MembershipInfo,
@@ -250,24 +249,6 @@ export class LearnFunding {
       (!!status && status.sessionsRemaining <= 0) ||
       (!!caps && caps.usedRequests >= caps.requestsPerDay)
     );
-  });
-
-  /** On the open pool, which uses one model: the Normal/Max switch shows it, locked. */
-  readonly poolModel = computed(() => {
-    const status = this.poolStatus();
-    return status?.enabled && this.payer() === 'pool' ? status.model : null;
-  });
-
-  /**
-   * Why the Normal/Max switch is locked, or null when it isn't. By default the
-   * pool runs Normal's model, asked with less thinking and a shorter reply
-   * cap ("The open pool uses Normal's model with lighter thinking and shorter
-   * replies.", `poolModelText`); one that is neither tier ("Lite") leaves no
-   * segment on.
-   */
-  readonly poolModelHint = computed(() => {
-    const model = this.poolModel();
-    return model ? `The open pool uses ${poolModelText(model)}.` : null;
   });
 
   /**

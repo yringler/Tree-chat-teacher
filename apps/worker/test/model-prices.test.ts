@@ -18,7 +18,7 @@ const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
 /** Normal's and the pool's default model, priced like the others (and so tracked). */
 const V41 = 'deepseek/deepseek-v4.1-flash';
-/** Learn's Max tier: priced (and so tracked) for the Max usage note, not for the pool. */
+/** Power's Max: priced (and so tracked) for the Max usage note, not for the pool. */
 const SONNET = 'anthropic/claude-sonnet-5.5';
 /** The fallback candidate: priced (and so tracked) though no default. */
 const MINIMAX = 'minimax/minimax-m3';

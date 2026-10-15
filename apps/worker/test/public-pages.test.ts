@@ -329,10 +329,9 @@ describe('/pricing', () => {
   it('includes, per column, what each way to pay covers', async () => {
     const member = (await get(deployment(), '/pricing')).html;
     expect(row(member, 'Your own OpenRouter key')).toEqual(['—', '—', '✓']);
-    expect(row(member, 'The Max tier')).toEqual(['—', '✓', '✓']);
     expect(row(member, 'Web search')).toEqual(['—', '✓', '✓']);
     expect(row(member, 'Every control')).toEqual(['Read and export', '✓', '✓']);
-    expect(row(member, 'Any OpenRouter model, on prepaid credit')).toEqual([
+    expect(row(member, 'Any OpenRouter model on prepaid credit')).toEqual([
       '—',
       '✓',
       'Bought separately',
@@ -346,15 +345,25 @@ describe('/pricing', () => {
 
     const free = (await get(deployment(NO_MEMBERSHIP), '/pricing')).html;
     expect(row(free, 'Your own OpenRouter key')).toEqual(['✓', '✓']);
-    expect(row(free, 'The Max tier')).toEqual(['On your key', '✓']);
     expect(row(free, 'Web search')).toEqual(['On your key', '✓']);
     expect(row(free, 'Every control')).toEqual(['On your keys', '✓']);
     expect(row(free, 'Tangent’s charge on your own key')).toEqual(['Nothing', 'Nothing']);
 
-    // Learn with one model has no tier to choose.
-    const one = (await get(deployment({ LEARN_MAX_MODEL: DEFAULT_BACKGROUND_MODEL }), '/pricing'))
+    // Learn has one model: Max is power's, suggested on credit.
+    const rows = [...chart(member).rows.keys()];
+    expect(rows.filter((k) => k.includes('Max'))).toEqual([
+      'Any OpenRouter model on prepaid credit, with Max suggested for the hardest questions',
+    ]);
+    expect(text(member)).toContain('any OpenRouter model in power mode, Max included');
+    // Without a Max of its own, power's credit row names none.
+    const one = (await get(deployment({ POWER_MAX_MODEL: DEFAULT_BACKGROUND_MODEL }), '/pricing'))
       .html;
-    expect([...chart(one).rows.keys()].some((k) => k.includes('tier'))).toBe(false);
+    expect(row(one, 'Any OpenRouter model, on prepaid credit')).toEqual([
+      '—',
+      '✓',
+      'Bought separately',
+    ]);
+    expect(text(one)).not.toContain('Max');
   });
 
   it('states the pool’s caps, model and reply length from the config, the same in every column', async () => {

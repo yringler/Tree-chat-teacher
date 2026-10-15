@@ -25,10 +25,7 @@ const LEARN = provider({
   funding: 'credit',
   acceptsUserKey: false,
   keySource: 'server',
-  models: [
-    { id: 'normal-model', label: 'Normal', tier: 'normal' },
-    { id: 'max-model', label: 'Max', tier: 'max', usageFactor: 14 },
-  ],
+  models: [{ id: 'normal-model', label: 'Normal', tier: 'normal' }],
   defaultModel: 'normal-model',
 });
 
@@ -131,22 +128,19 @@ describe('Learn: the lesson page', () => {
     expect(askFrom).toHaveBeenCalledTimes(1);
   });
 
-  it('Compare stands beside Tangent ↳ and Next ➜, and compares in a tangent from the last reply', async () => {
-    const p = await page();
-    const createBranch = vi.spyOn(p.store, 'createBranch').mockResolvedValue(branch('side'));
-    const open = vi.spyOn(TestBed.inject(UiStore).dialogs, 'open');
+  it('Learn runs one model: no tutor switch and no Compare, even where the provider lists more', async () => {
+    const p = await page(lesson('max-model'));
+    p.store.providers.set([
+      provider({
+        ...LEARN,
+        models: [...LEARN.models, { id: 'max-model', label: 'Max', tier: 'max' }],
+      }),
+    ]);
+    await p.fixture.whenStable();
     await p.user.type(composer()!, 'And a particle?');
-    await p.user.click(within(dock()).getByRole('button', { name: 'Compare Normal and Max' }));
-    expect(createBranch).toHaveBeenCalledWith({
-      fromNodeId: 'a1',
-      contextMode: 'path',
-      anchorQuote: null,
-    });
-    expect(open).toHaveBeenCalledWith({
-      kind: 'compare',
-      branchId: 'side',
-      content: 'And a particle?',
-    });
+    expect(screen.queryByRole('radiogroup', { name: 'Tutor' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Compare/ })).toBeNull();
+    expect(within(dock()).queryByRole('status')).toBeNull();
   });
 
   it('Enter sends as a tangent, Ctrl+Enter as Next', async () => {
@@ -233,27 +227,6 @@ describe('Learn: the lesson page', () => {
     expect(send).toHaveBeenCalledWith('side', 'Why?');
   });
 
-  it('the tutor switch: Normal or Max, and on Max how much more it uses', async () => {
-    const p = await page(lesson('max-model'));
-    const tutor = screen.getByRole('radiogroup', { name: 'Tutor' });
-    expect(within(tutor).getByRole('radio', { name: 'Max' }).getAttribute('aria-checked')).toBe(
-      'true',
-    );
-    expect(within(dock()).getByRole('status').textContent).toBe(
-      'Max uses about 14× as much as Normal.',
-    );
-    const setModel = vi.spyOn(p.store, 'setModel').mockResolvedValue(true);
-    await p.user.click(within(tutor).getByRole('radio', { name: 'Normal' }));
-    expect(setModel).toHaveBeenCalledWith('trunk', 'normal-model');
-  });
-
-  it('on the open pool, which uses Lite: says so in visible text, and offers no Compare', async () => {
-    await page(lesson('lite-model'), { pool: POOL_ON, chosen: 'pool' });
-    expect(screen.queryByRole('radiogroup', { name: 'Tutor' })).toBeNull();
-    expect(screen.getByText(/The open pool uses Lite/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Compare Normal and Max' })).toBeNull();
-  });
-
   it('with both credit and the pool to pay with, the composer offers the choice', async () => {
     const p = await page(lesson(), {
       billing: billing({ availableMicros: 500_000 }),
@@ -274,7 +247,7 @@ describe('Learn: the lesson page', () => {
   it('credit picked but used up: the composer says replies use the pool meanwhile', async () => {
     await page(lesson(), { billing: billing(), pool: POOL_ON, chosen: 'credit' });
     const note = within(dock()).getByText(/Your credit is used up, so replies use the open pool/);
-    expect(note.textContent).toContain("which can't compare answers or check sources");
+    expect(note.textContent).toContain("which can't check sources");
     expect(within(note).getByRole('link', { name: 'Add credit' }).getAttribute('href')).toBe(
       '/billing',
     );

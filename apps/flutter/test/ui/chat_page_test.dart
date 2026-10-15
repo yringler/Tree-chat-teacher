@@ -45,7 +45,7 @@ final streamingReply = node(
   role: Role.assistant,
   status: NodeStatus.streaming,
 );
-final trunk = branch('trunk', model: 'normal-model');
+final trunk = branch('trunk');
 
 void main() {
   late FakeTangentApi api;
@@ -1024,7 +1024,6 @@ void main() {
           branchPointNodeId: 'a1',
           title: 'Tangent: The moon pulls',
           titleSource: 'default',
-          model: null,
         ),
       ],
       nodes: [
@@ -1268,14 +1267,6 @@ void main() {
     );
     await settle(tester);
     expect(find.textContaining('The moon', findRichText: true), findsWidgets);
-  });
-
-  testWidgets('Normal/Max switches the branch’s model', (tester) async {
-    await pumpApp(tester, api, location: '/t/t1');
-    await tester.tap(find.text('Max'));
-    await settle(tester);
-    expect(api.modelSwitches.single.branchId, 'trunk');
-    expect(api.modelSwitches.single.model, 'max-model');
   });
 
   testWidgets('a signed-out session goes back to sign-in', (tester) async {

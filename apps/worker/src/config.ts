@@ -76,7 +76,7 @@ export const CONFIG_VARS = [
   'GROUNDING_MAX_RESULTS',
   'GROUNDING_ENGINE',
   'GROUNDING_AUTO_DAILY_CAP',
-  // The built-in provider and Learn's tiers
+  // The built-in provider and its models
   'BUILT_IN_API_KEY',
   'BUILT_IN_PROVIDER',
   'BUILT_IN_MAX_INPUT_TOKENS',
@@ -84,10 +84,7 @@ export const CONFIG_VARS = [
   'LEARN_NORMAL_EFFORT',
   'LEARN_NORMAL_REPLY_TOKENS',
   'LEARN_NORMAL_PROVIDER_ORDER',
-  'LEARN_MAX_MODEL',
-  'LEARN_MAX_EFFORT',
-  'LEARN_MAX_REPLY_TOKENS',
-  'LEARN_MAX_PROVIDER_ORDER',
+  'POWER_MAX_MODEL',
   'LEARN_SYSTEM_PROMPT',
   'BACKGROUND_MODEL',
   'BACKGROUND_EFFORT',
@@ -203,10 +200,10 @@ export const POOL_ACCOUNT_ID = 'pool';
 
 // ---- The hosted models: the defaults a live eval of the candidates picked (2026-10-08)
 
-/** Learn's Normal tier, its default (`LEARN_NORMAL_MODEL`). */
+/** Learn's one model, and power's Normal (`LEARN_NORMAL_MODEL`). */
 export const DEFAULT_LEARN_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
-/** Learn's Max tier (`LEARN_MAX_MODEL`). */
-export const DEFAULT_LEARN_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
+/** Power's Max, the stronger model it suggests (`POWER_MAX_MODEL`). */
+export const DEFAULT_POWER_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
 /**
  * The background model (`BACKGROUND_MODEL`): Learn's summaries and titles,
  * and the open pool's default model. Not a tier, though today it is the same
@@ -238,9 +235,7 @@ export interface DefaultTierRequest {
  * says nothing about another. The pool's reply cap is
  * `POOL_MAX_OUTPUT_TOKENS` (8,192), whatever its model.
  */
-export const DEFAULT_TIER_REQUESTS: Readonly<
-  Record<'normal' | 'max' | 'pool', DefaultTierRequest>
-> = {
+export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal' | 'pool', DefaultTierRequest>> = {
   normal: {
     model: DEFAULT_LEARN_NORMAL_MODEL,
     request: {
@@ -248,10 +243,6 @@ export const DEFAULT_TIER_REQUESTS: Readonly<
       maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
       providerOrder: V4_1_FLASH_PROVIDER_ORDER,
     },
-  },
-  max: {
-    model: DEFAULT_LEARN_MAX_MODEL,
-    request: { effort: null, maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS, providerOrder: [] },
   },
   pool: {
     model: DEFAULT_BACKGROUND_MODEL,
@@ -316,7 +307,7 @@ export interface ModelPrice {
 }
 
 /**
- * Placeholder prices of the default pool model, of Learn's tiers, Normal
+ * Placeholder prices of the default pool model, of power's tiers, Normal
  * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`;
  * `MAX_USAGE_FACTOR_FALLBACK` is their factor), of the previous defaults and
  * of a fallback candidate: OpenRouter list prices when they were added, or
@@ -394,10 +385,10 @@ export interface PoolRateLimits {
 }
 
 /**
- * How one hosted tier asks its model (`LEARN_NORMAL_*`, `LEARN_MAX_*`,
- * `POOL_*`), as parsed: an empty var is null (or no providers). The tier's
- * model is resolved by the caller (simple-mode.ts, pool/params.ts), which
- * fills the empty settings from `DEFAULT_TIER_REQUESTS` while the tier runs
+ * How one hosted tier asks its model (`LEARN_NORMAL_*`, `POOL_*`), as
+ * parsed: an empty var is null (or no providers). The tier's model is
+ * resolved by the caller (simple-mode.ts, pool/params.ts), which fills the
+ * empty settings from `DEFAULT_TIER_REQUESTS` while the tier runs
  * its default model (`withTierDefaults`); on any other model they stay
  * empty: no effort sent, the default output cap, OpenRouter's own routing.
  */
@@ -507,6 +498,8 @@ export interface AppConfig {
     summaryProviderId: string | null;
     summaryModel: string | null;
     autoTitle: boolean;
+    /** `POWER_MAX_MODEL`: power's Max, on Tangent credit and on the user's own OpenRouter key. */
+    maxModel: string;
   };
   grounding: {
     policy: GroundingPolicy;
@@ -556,16 +549,15 @@ export interface AppConfig {
     fake: string | null;
   };
   builtIn: {
-    /** `BUILT_IN_PROVIDER` as JSON text (parsed by simple-mode.ts); null = OpenRouter with Learn's tiers. */
+    /** `BUILT_IN_PROVIDER` as JSON text (parsed by simple-mode.ts); null = OpenRouter, Normal and Max. */
     provider: string | null;
     /** Per-call input cap of Learn and of Tangent credit in power. */
     maxInputTokens: number;
   };
   learn: {
+    /** `LEARN_NORMAL_MODEL`: Learn's one model, and power's Normal. */
     normalModel: string;
-    maxModel: string;
     normal: TierRequestConfig;
-    max: TierRequestConfig;
     /** `LEARN_SYSTEM_PROMPT`; null = DEFAULT_SYSTEM_PROMPT. */
     systemPrompt: string | null;
   };
@@ -847,6 +839,7 @@ function parse(env: AppEnv): AppConfig {
       summaryProviderId: text('SUMMARY_PROVIDER_ID'),
       summaryModel: text('SUMMARY_MODEL'),
       autoTitle: bool('AUTO_TITLE', true),
+      maxModel: text('POWER_MAX_MODEL') ?? DEFAULT_POWER_MAX_MODEL,
     },
     grounding: {
       policy: enumVar('GROUNDING', v('GROUNDING'), GROUNDING_POLICIES, DEFAULT_GROUNDING_POLICY),
@@ -892,13 +885,11 @@ function parse(env: AppEnv): AppConfig {
     },
     learn: {
       normalModel: text('LEARN_NORMAL_MODEL') ?? DEFAULT_LEARN_NORMAL_MODEL,
-      maxModel: text('LEARN_MAX_MODEL') ?? DEFAULT_LEARN_MAX_MODEL,
       normal: tier(
         'LEARN_NORMAL_EFFORT',
         'LEARN_NORMAL_REPLY_TOKENS',
         'LEARN_NORMAL_PROVIDER_ORDER',
       ),
-      max: tier('LEARN_MAX_EFFORT', 'LEARN_MAX_REPLY_TOKENS', 'LEARN_MAX_PROVIDER_ORDER'),
       systemPrompt: text('LEARN_SYSTEM_PROMPT'),
     },
     background: {

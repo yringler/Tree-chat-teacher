@@ -11,10 +11,7 @@ import { HomePage } from './home-page';
 
 const LEARN = provider({
   label: 'Tangent',
-  models: [
-    { id: 'normal-model', label: 'Normal', tier: 'normal' },
-    { id: 'max-model', label: 'Max', tier: 'max', usageFactor: 14 },
-  ],
+  models: [{ id: 'normal-model', label: 'Normal', tier: 'normal' }],
   defaultModel: 'normal-model',
 });
 
@@ -48,26 +45,27 @@ describe('Learn: the home page', () => {
   );
   afterEach(() => vi.unstubAllGlobals());
 
-  it('starts a lesson on the topic typed, on the tutor picked', async () => {
+  it('starts a lesson on the topic typed, with no tutor to pick', async () => {
     const h = await home();
+    // Learn runs one model, even where the provider lists more.
+    h.store.providers.set([
+      provider({
+        ...LEARN,
+        models: [...LEARN.models, { id: 'max-model', label: 'Max', tier: 'max' }],
+      }),
+    ]);
+    await h.fixture.whenStable();
+    expect(screen.queryByRole('radiogroup')).toBeNull();
     const start = vi.spyOn(h.store, 'startLesson').mockResolvedValue(true);
     await h.user.type(screen.getByRole('textbox', { name: 'Topic or first question' }), 'Tides');
-    await h.user.click(screen.getByRole('radio', { name: 'Max' }));
-    expect(screen.getByRole('status').textContent).toBe('Max uses about 14× as much as Normal.');
     await h.user.click(screen.getByRole('button', { name: 'Start lesson' }));
-    expect(start).toHaveBeenCalledWith('max-model', 'Tides');
+    expect(start).toHaveBeenCalledWith('Tides');
   });
 
   it('while the own key is locked, the ways out stand where Start was', async () => {
     await home({ membership: NOT_A_MEMBER, chosen: 'own-key' });
     expect(screen.queryByRole('button', { name: 'Start lesson' })).toBeNull();
     screen.getByRole('region', { name: 'Replies on your own key need a membership.' });
-  });
-
-  it('on the open pool: the tutor switch is locked to the pool’s model and says so in text', async () => {
-    await home({ pool: POOL_ON, chosen: 'pool' });
-    expect(screen.queryByRole('radiogroup', { name: 'Tutor' })).toBeNull();
-    expect(screen.getByText(/^The open pool uses Lite/)).toBeTruthy();
   });
 
   it('while the pool is on: its meter, who provides it, and how it works', async () => {

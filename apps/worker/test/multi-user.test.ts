@@ -784,6 +784,108 @@ describe('Learn mode on paid credit', () => {
   });
 });
 
+describe('Learn has one model; Max is power’s', () => {
+  /**
+   * The built-in provider as deployed: Normal (the default) and Max, tagged, Max
+   * priced far above Normal. Worker routes only: a send runs in the tree's Durable
+   * Object, on the suites' bindings.
+   */
+  const tiered = () =>
+    authEnv({
+      BUILT_IN_PROVIDER: JSON.stringify({
+        id: 'openrouter',
+        kind: 'fake',
+        label: 'Tangent',
+        defaultModel: 'normal',
+        models: [
+          { id: 'normal', label: 'Normal', tier: 'normal' },
+          { id: 'big', label: 'Max', tier: 'max' },
+        ],
+      }),
+      MODEL_PRICES: JSON.stringify({
+        normal: { in: 10_000, out: 10_000, context: 1_048_576 },
+        big: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+      }),
+    });
+  const CREDIT = { providerId: 'openrouter', funding: 'credit' } as const;
+  const grant = (u: User) =>
+    grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+
+  it("a branch stored on Max runs in Learn on Learn's model, billed as it, and stays on Max", async () => {
+    // The bindings: Learn's model is `max` (no tier), power's Max is `strong`.
+    const u = await newUser();
+    await grant(u);
+    const { detail, trunk } = await treeWithNodes(u, undefined, { ...CREDIT, model: 'strong' });
+    expect(trunk.model).toBe('strong');
+
+    const sent = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(sent.status).toBe(200);
+    const events = parseSse(await sent.text());
+    expect(events.at(-1)?.type).toBe('done');
+    const start = events[0] as Extract<StreamEvent, { type: 'start' }>;
+    expect(start.assistantNode).toMatchObject({ providerId: 'openrouter', model: 'max' });
+    const rows = await env.DB.prepare(
+      "SELECT model FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .all<{ model: string }>();
+    expect(rows.results.map((r) => r.model)).toEqual(['max']);
+    // The stored branch is untouched: power still continues it on Max.
+    const after = await ok<TreeDetail>(await u.call(`/api/trees/${detail.tree.id}`));
+    expect(after.branches[0]).toMatchObject({ model: 'strong', funding: 'credit' });
+  });
+
+  it('Learn lists only Normal and refuses a request that picks Max; power lists both', async () => {
+    const u = await newUser(tiered());
+    await grant(u);
+    const learn = await ok<ProviderInfo[]>(await u.call('/api/providers', { learn: 'credit' }));
+    expect(learn.map((p) => [p.id, p.defaultModel, p.models.map((m) => m.id)])).toEqual([
+      ['openrouter', 'normal', ['normal']],
+    ]);
+    const power = await ok<ProviderInfo[]>(await u.call('/api/providers'));
+    expect(power.find((p) => p.id === 'openrouter')?.models.map((m) => [m.id, m.tier])).toEqual([
+      ['normal', 'normal'],
+      ['big', 'max'],
+    ]);
+
+    const { trunk, assistant } = await treeWithNodes(u, 'credit');
+    expect(trunk.model).toBe('normal');
+    // A branch moved to Max in Learn stays on Normal.
+    const patched = await ok<Branch>(
+      await u.call(`/api/branches/${trunk.id}`, {
+        method: 'PATCH',
+        json: { model: 'big' },
+        learn: 'credit',
+      }),
+    );
+    expect(patched.model).toBe('normal');
+    // Generating on Max is refused.
+    for (const [path, init] of [
+      [
+        `/api/branches/${trunk.id}/candidates`,
+        { method: 'POST', json: { content: 'Explain primes', model: 'big' } },
+      ],
+      [
+        `/api/nodes/${assistant.id}/review`,
+        { method: 'POST', json: { providerId: 'openrouter', model: 'big' } },
+      ],
+    ] as [string, CallInit][]) {
+      const res = await u.call(path, { ...init, learn: 'credit' });
+      expect(res.status, path).toBe(400);
+    }
+    expect(await usageRows(u.learn.accountId)).toBe(0);
+  });
+});
+
 describe('power mode with the built-in provider (Tangent credit)', () => {
   /** A route on Tangent credit: the built-in endpoint, paid from the user's credit. */
   const CREDIT = { providerId: 'openrouter', funding: 'credit' } as const;
@@ -808,8 +910,9 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       acceptsUserKey: false,
       openModels: true,
       models: [
-        { id: 'max', label: 'Max (suggested)', tier: 'max' },
+        { id: 'max', label: 'Default (suggested)' },
         { id: 'normal', label: 'Normal (suggested)', tier: 'normal' },
+        { id: 'strong', label: 'Max (suggested)', tier: 'max' },
       ],
     });
     expect(providers.filter((p) => p.openModels).map((p) => p.id)).toEqual(['openrouter']);
@@ -1146,7 +1249,7 @@ describe("Learn mode on the user's own OpenRouter key", () => {
         apiKeySecret: 'BUILT_IN_API_KEY',
         defaultModel: 'max',
         models: [
-          { id: 'max', label: 'Max', tier: 'max' },
+          { id: 'max', label: 'Default' },
           { id: 'normal', label: 'Normal', tier: 'normal' },
         ],
       }),

@@ -18,7 +18,6 @@ import 'lesson_outline.dart';
 import 'message_view.dart';
 import 'tangent_help_copy.dart';
 import 'theme.dart';
-import 'tier_switch.dart';
 import 'widgets.dart';
 
 /// `/t/:treeId` and `/t/:treeId/b/:branchId`: a lesson's thread, the trunk or
@@ -354,13 +353,7 @@ class _ChatPageState extends State<ChatPage> {
     final lessons = scope.lessons;
     final wide = MediaQuery.sizeOf(context).width >= _wideFrom;
     return ListenableBuilder(
-      // The session: who pays decides whether the tier can be switched.
-      listenable: Listenable.merge([
-        _chat,
-        lessons,
-        _walkthrough,
-        scope.session,
-      ]),
+      listenable: Listenable.merge([_chat, lessons, _walkthrough]),
       builder: (context, _) {
         _reportToWalkthrough();
         // The main thread alone needs no outline.
@@ -465,12 +458,6 @@ class _ChatPageState extends State<ChatPage> {
                 overflow: TextOverflow.ellipsis,
               ),
               actions: [
-                if (_chat.branch != null)
-                  TierSwitch(
-                    tier: _chat.tier,
-                    enabled: _chat.canSwitchTier,
-                    onChanged: (tier) => unawaited(_chat.setTier(tier)),
-                  ),
                 const HelpButton(),
                 if (drawer)
                   Builder(

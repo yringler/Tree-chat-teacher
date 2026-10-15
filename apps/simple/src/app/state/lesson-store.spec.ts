@@ -4,9 +4,6 @@ import { Router } from '@angular/router';
 import type {
   BillingSummary,
   Branch,
-  CandidateEvent,
-  CandidateRequest,
-  CommitCandidateResponse,
   PoolBlockDetails,
   PoolStatusResponse,
   ChatNode,
@@ -31,7 +28,7 @@ import {
 } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
-import { COMPARE_OUT_OF_DATE_MESSAGE, LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
+import { LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
 import { LearnFunding } from './learn-funding';
 import { PaymentChoice } from './payment-choice';
 import { UiStore } from './ui-store';
@@ -60,10 +57,7 @@ const PROVIDER: ProviderInfo = {
   id: 'openrouter',
   kind: 'openai-compatible',
   label: 'Tangent',
-  models: [
-    { id: 'normal-model', label: 'Normal', tier: 'normal' },
-    { id: 'max-model', label: 'Max', tier: 'max', usageFactor: 3 },
-  ],
+  models: [{ id: 'normal-model', label: 'Normal', tier: 'normal' }],
   defaultModel: 'normal-model',
   openModels: false,
   available: true,
@@ -136,35 +130,7 @@ function fakeApi() {
       link(id, 'a1', 'a2', req.note),
     ),
     deleteLink: vi.fn(async (_id: string) => undefined),
-    streamCandidate: vi.fn(
-      async (_b: string, req: CandidateRequest, _signal: AbortSignal): Promise<Response> =>
-        candidateStream(req.model),
-    ),
-    commitCandidate: vi.fn(
-      async (_b: string, _candidateId: string): Promise<CommitCandidateResponse> => {
-        throw new Error('not needed');
-      },
-    ),
   };
-}
-
-/** A finished candidate answer from `model` (Compare). */
-function candidateStream(model: string): Response {
-  const events: CandidateEvent[] = [
-    { type: 'delta', text: `Answer from ${model}.` },
-    {
-      type: 'done',
-      candidateId: `cand-${model}`,
-      providerId: 'openrouter',
-      funding: 'credit',
-      model,
-      usage: null,
-      sources: null,
-      expiresAt: T,
-    },
-  ];
-  const body = events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
-  return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
 }
 
 function backupOf(d: TreeDetail): TreeBackup {
@@ -235,11 +201,10 @@ describe('LessonStore', () => {
     vi.useRealTimers();
   });
 
-  it('loads providers and exposes the Normal/Max models', async () => {
+  it('loads providers and lessons', async () => {
     const s = setup();
     await s.store.init();
-    expect(s.store.models().map((m) => m.label)).toEqual(['Normal', 'Max']);
-    expect(s.store.defaultModel()).toBe('normal-model');
+    expect(s.store.provider()?.id).toBe('openrouter');
     expect(s.store.treesLoaded()).toBe(true);
   });
 
@@ -540,12 +505,10 @@ describe('LessonStore', () => {
     const s = setup();
     await s.store.init();
     s.api.sendMessage.mockRejectedValue(new ApiError(402, 'payment_required', 'Too low'));
-    await expect(s.store.startLesson('max-model', '  Teach me fractions ')).resolves.toBe(true);
+    await expect(s.store.startLesson('  Teach me fractions ')).resolves.toBe(true);
 
-    expect(s.api.createTree).toHaveBeenCalledWith({
-      providerId: 'openrouter',
-      model: 'max-model',
-    });
+    // No model: the lesson runs on the provider's default.
+    expect(s.api.createTree).toHaveBeenCalledWith({ providerId: 'openrouter' });
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1']);
     await vi.waitFor(() => expect(s.router.navigate).toHaveBeenLastCalledWith(['/billing']));
     expect(s.api.sendMessage).toHaveBeenCalledWith(
@@ -664,146 +627,6 @@ describe('LessonStore', () => {
     await expect(s.store.askFrom('a1', 'Why?')).resolves.toBeNull();
     expect(s.api.sendMessage).not.toHaveBeenCalled();
     expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
-  });
-
-  it('the Normal/Max toggle updates the branch model', async () => {
-    const s = setup();
-    await open(s, detail());
-    await expect(s.store.setModel('trunk', 'max-model')).resolves.toBe(true);
-    expect(s.api.updateBranch).toHaveBeenCalledWith('trunk', { model: 'max-model' });
-    expect(s.store.selectedBranch()?.model).toBe('max-model');
-    // No request when the model is already selected.
-    await s.store.setModel('trunk', 'max-model');
-    expect(s.api.updateBranch).toHaveBeenCalledTimes(1);
-  });
-
-  describe('Compare', () => {
-    const question = 'Why is the sky blue?';
-    const committed = (): CommitCandidateResponse => ({
-      userNode: node('cu', { role: 'user', content: question }),
-      assistantNode: node('ca', {
-        seq: 1,
-        parentId: 'cu',
-        content: 'Answer from max-model.',
-        model: 'max-model',
-      }),
-      branch: branch('trunk', { title: 'Sky' }),
-    });
-
-    it('asks Normal, then Max, for the question', async () => {
-      const s = setup();
-      await s.store.init();
-      const run = s.store.newCompare('trunk', question);
-      expect(run?.candidates().map((c) => [c.id, c.label, c.model])).toEqual([
-        ['normal', 'Normal', 'normal-model'],
-        ['max', 'Max', 'max-model'],
-      ]);
-      await run!.start();
-      expect(s.api.streamCandidate.mock.calls.map((c) => [c[0], c[1]])).toEqual([
-        ['trunk', { content: question, model: 'normal-model' }],
-        ['trunk', { content: question, model: 'max-model' }],
-      ]);
-      expect(run!.candidates().map((c) => c.state)).toEqual(['done', 'done']);
-    });
-
-    it('needs both tiers', async () => {
-      const s = setup();
-      s.api.providers.mockResolvedValue([
-        { ...PROVIDER, models: [{ id: 'normal-model', label: 'Normal', tier: 'normal' }] },
-      ]);
-      await s.store.init();
-      expect(s.store.newCompare('trunk', question)).toBeNull();
-    });
-
-    it('keeps only the picked answer, as if it had been sent', async () => {
-      const s = setup();
-      await s.store.init();
-      await open(s, detail());
-      s.store.comparing.set(true);
-      expect(s.store.busy()).toBe(true);
-      const run = s.store.newCompare('trunk', question)!;
-      await run.start();
-      s.api.commitCandidate.mockResolvedValue(committed());
-      s.api.listTrees.mockClear();
-
-      await expect(s.store.commitCompare(run, 'max')).resolves.toBe('kept');
-      expect(s.api.commitCandidate).toHaveBeenCalledWith('trunk', 'cand-max-model');
-      expect(s.store.path().map((n) => n.id)).toEqual(['cu', 'ca']);
-      expect(s.store.selectedBranch()?.title).toBe('Sky');
-      // The branch keeps its own tier; nothing is left streaming.
-      expect(s.store.selectedBranch()?.model).toBe('normal-model');
-      expect(s.store.live().size).toBe(0);
-      expect(s.store.streamingNode()).toBeNull();
-      // The composer lets the question go, and the lesson list is refreshed (auto-title).
-      expect(s.composer.sent).toHaveBeenCalledWith(expect.any(String), question);
-      await vi.waitFor(() => expect(s.api.listTrees).toHaveBeenCalled());
-    });
-
-    it('an out-of-date comparison says so and keeps the question', async () => {
-      const s = setup();
-      await s.store.init();
-      await open(s, detail());
-      const run = s.store.newCompare('trunk', question)!;
-      await run.start();
-      s.api.commitCandidate.mockRejectedValue(
-        new ApiError(410, 'gone', 'This comparison expired.'),
-      );
-
-      await expect(s.store.commitCompare(run, 'normal')).resolves.toBe('out-of-date');
-      expect(s.toasts.toasts().at(-1)).toMatchObject({
-        kind: 'error',
-        text: COMPARE_OUT_OF_DATE_MESSAGE,
-      });
-      expect(s.store.path()).toEqual([]);
-      expect(s.composer.sent).not.toHaveBeenCalled();
-      expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
-    });
-
-    it('a moved-on lesson (409) is out of date too', async () => {
-      const s = setup();
-      await s.store.init();
-      await open(s, detail());
-      const run = s.store.newCompare('trunk', question)!;
-      await run.start();
-      s.api.commitCandidate.mockRejectedValue(new ApiError(409, 'conflict', 'Moved on'));
-      await expect(s.store.commitCompare(run, 'max')).resolves.toBe('out-of-date');
-      expect(s.toasts.toasts().at(-1)?.text).toBe(COMPARE_OUT_OF_DATE_MESSAGE);
-    });
-
-    it('a refusal is reported like a send’s (out of credit: billing)', async () => {
-      const s = setup();
-      await s.store.init();
-      await open(s, detail());
-      s.store.compareRefused(new ApiError(402, 'payment_required', 'Too low'));
-      expect(s.toasts.toasts().at(-1)).toMatchObject({
-        kind: 'error',
-        text: OUT_OF_CREDIT_MESSAGE,
-      });
-      expect(s.router.navigate).toHaveBeenCalledWith(['/billing']);
-
-      const run = s.store.newCompare('trunk', question)!;
-      await run.start();
-      s.api.commitCandidate.mockRejectedValue(
-        new ApiError(403, 'pool_unavailable', 'Compare isn’t available on the open pool'),
-      );
-      await expect(s.store.commitCompare(run, 'max')).resolves.toBe('refused');
-      expect(s.toasts.toasts().at(-1)?.text).toBe('Compare isn’t available on the open pool');
-      expect(s.store.path()).toEqual([]);
-    });
-
-    it('a transient failure (network, 5xx) is reported and can be retried', async () => {
-      const s = setup();
-      await s.store.init();
-      await open(s, detail());
-      const run = s.store.newCompare('trunk', question)!;
-      await run.start();
-      s.api.commitCandidate.mockRejectedValueOnce(new ApiError(503, 'internal', 'Try again'));
-      await expect(s.store.commitCompare(run, 'max')).resolves.toBe('failed');
-      expect(s.toasts.toasts().at(-1)?.text).toBe('Try again');
-      expect(run.committing()).toBe(false);
-      s.api.commitCandidate.mockResolvedValue(committed());
-      await expect(s.store.commitCompare(run, 'max')).resolves.toBe('kept');
-    });
   });
 
   describe('deleting a side question', () => {

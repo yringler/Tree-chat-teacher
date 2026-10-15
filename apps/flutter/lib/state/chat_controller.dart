@@ -48,9 +48,6 @@ class ChatController extends ChangeNotifier {
   bool _sending = false;
   bool get sending => _sending;
 
-  bool _switching = false;
-  bool get switching => _switching;
-
   String get title => lessons.titleOf(treeId) ?? _tree?.title ?? '';
 
   /// The branch on screen: the one asked for, else the trunk.
@@ -125,19 +122,6 @@ class ChatController extends ChangeNotifier {
   /// Transient progress text of a reply being written ("Searching…").
   String? statusOf(String nodeId) => _status[nodeId];
 
-  /// The tier this branch runs on, when its model is one of Learn's tiers.
-  Tier? get tier {
-    final id = branchId;
-    return id == null ? null : lessons.tierOf(effectiveModel(id, _branches));
-  }
-
-  /// The open pool runs one model, so the learner can't pick a tier on it.
-  bool get canSwitchTier =>
-      session.payer != Payer.pool &&
-      lessons.hasTiers &&
-      !_switching &&
-      streamingNode == null;
-
   /// The tangents that start from [node], in the server's order.
   List<Branch> tangentsAt(ChatNode node) => [
     for (final b in _branches.values)
@@ -196,23 +180,6 @@ class ChatController extends ChangeNotifier {
     } on Object catch (error) {
       _fail(error);
     }
-  }
-
-  Future<void> setTier(Tier tier) async {
-    final id = branchId;
-    final model = lessons.modelFor(tier);
-    if (id == null || model == null || !canSwitchTier) return;
-    _switching = true;
-    _notice = null;
-    _notify();
-    try {
-      final updated = await api.setBranchModel(id, model);
-      _branches[updated.id] = updated;
-    } on Object catch (error) {
-      _fail(error);
-    }
-    _switching = false;
-    _notify();
   }
 
   /// Creates a tangent from [node] and puts it on screen, titled [title]

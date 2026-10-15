@@ -10,7 +10,6 @@ import 'delete_account_dialog.dart';
 import 'format.dart';
 import 'help.dart';
 import 'payment_dialog.dart';
-import 'tier_switch.dart';
 import 'widgets.dart';
 
 /// `/`: start a lesson, and the list of lessons.
@@ -142,7 +141,6 @@ class _NewLessonCard extends StatefulWidget {
 
 class _NewLessonCardState extends State<_NewLessonCard> {
   final _topic = TextEditingController();
-  Tier _tier = Tier.normal;
   bool _starting = false;
 
   @override
@@ -154,7 +152,7 @@ class _NewLessonCardState extends State<_NewLessonCard> {
   Future<void> _start() async {
     if (_starting) return;
     setState(() => _starting = true);
-    final id = await AppScope.of(context).lessons.start(_topic.text, _tier);
+    final id = await AppScope.of(context).lessons.start(_topic.text);
     if (!mounted) return;
     setState(() => _starting = false);
     if (id != null) context.go('/t/$id');
@@ -190,26 +188,12 @@ class _NewLessonCardState extends State<_NewLessonCard> {
               ),
             ),
             const SizedBox(height: 16),
-            // Full width, so spaceBetween puts the button at the end.
-            SizedBox(
-              width: double.infinity,
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                alignment: WrapAlignment.spaceBetween,
-                children: [
-                  TierSwitch(
-                    tier: _tier,
-                    enabled: !_starting,
-                    onChanged: (tier) => setState(() => _tier = tier),
-                  ),
-                  FilledButton.icon(
-                    onPressed: _starting ? null : () => unawaited(_start()),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Start lesson'),
-                  ),
-                ],
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: FilledButton.icon(
+                onPressed: _starting ? null : () => unawaited(_start()),
+                icon: const Icon(Icons.add),
+                label: const Text('Start lesson'),
               ),
             ),
           ],

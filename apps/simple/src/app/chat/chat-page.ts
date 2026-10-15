@@ -17,11 +17,8 @@ import { describeEndpoint } from '@tangent/core/links';
 import {
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
-  maxUsageNote,
   REPLY_ACTION,
   TANGENT_ACTION,
-  tierModel,
-  tierOf,
   type ChatNode,
 } from '@tangent/shared';
 import {
@@ -45,7 +42,7 @@ import { UiStore } from '../state/ui-store';
 import { connectionTitleOf } from './connections';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
-import { FUNDING_OPTIONS, tierSwitch, type FundingOption } from './switches';
+import { FUNDING_OPTIONS, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
 
@@ -84,7 +81,6 @@ export class ChatPage implements OnDestroy {
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
   private readonly pinned = signal(true);
-  protected readonly switching = signal(false);
   /** The first crumb: the lesson's trunk, the way back from any tangent. */
   protected readonly mainThreadLabel = MAIN_THREAD_LABEL;
   protected readonly mainThreadBack = MAIN_THREAD_BACK;
@@ -164,30 +160,6 @@ export class ChatPage implements OnDestroy {
   protected readonly fundingOption = computed<FundingOption>(() =>
     this.funding.payer() === 'pool' ? 'pool' : 'credit',
   );
-
-  /**
-   * Compare (Normal and Max answer, one is kept) beside Send or Tangent ↳ and
-   * Next ➜: both tiers are listed and the reply isn't on the open pool, which
-   * refuses it.
-   */
-  protected readonly canCompare = computed(() => {
-    const models = this.store.models();
-    return (
-      this.store.selectedBranch() !== null &&
-      tierModel(models, 'normal') !== undefined &&
-      tierModel(models, 'max') !== undefined &&
-      this.funding.poolModel() === null &&
-      !this.store.busy()
-    );
-  });
-
-  /** "Max uses about 14× as much as Normal." while the open branch is on Max (not on the pool). */
-  protected readonly maxNote = computed(() => {
-    const models = this.store.models();
-    const b = this.store.selectedBranch();
-    if (!b || this.funding.poolModel() || tierOf(models, b.model) !== 'max') return null;
-    return maxUsageNote(tierModel(models, 'max')?.usageFactor);
-  });
 
   /**
    * A message refused before it reached the lesson (no credit, the pool, a
@@ -278,25 +250,7 @@ export class ChatPage implements OnDestroy {
     this.composer.focus();
   }
 
-  protected async setModel(branchId: string, model: string): Promise<void> {
-    this.switching.set(true);
-    try {
-      await this.store.setModel(branchId, model);
-    } finally {
-      this.switching.set(false);
-    }
-  }
-
   protected readonly fundingOptions = FUNDING_OPTIONS;
-
-  /** The Normal/Max switch for a branch on `model` (locked to the pool's model on the pool). */
-  protected tiers(model: string) {
-    return tierSwitch(
-      this.store.models(),
-      this.funding.poolModel()?.id ?? model,
-      this.funding.poolModelHint(),
-    );
-  }
 
   protected chooseFunding(id: string): void {
     const option = FUNDING_OPTIONS.find((o) => o.id === id)?.id;
@@ -347,31 +301,6 @@ export class ChatPage implements OnDestroy {
   /** The lesson's own instructions, offered only where the learner pays (the pool ignores them). */
   protected openInstructions(): void {
     this.ui.dialogs.open({ kind: 'instructions' });
-  }
-
-  /**
-   * Opens the Compare sheet for `content`, in a tangent from the quoted or
-   * last reply when there is one to go on (made first), else where the
-   * lesson is open; the composer keeps the text until a pick is kept.
-   */
-  protected async compare(content: string): Promise<void> {
-    let id = this.store.selectedBranchId();
-    if (!id || !this.canCompare()) return;
-    this.pinned.set(true);
-    const from = this.tangentFrom();
-    if (from) {
-      const b = await this.store.createBranch({
-        fromNodeId: from,
-        contextMode: 'path',
-        anchorQuote: this.quote()?.quote ?? null,
-      });
-      if (!b) return;
-      this.quote.set(null);
-      id = b.id;
-    } else if (this.store.focusedNodeId()) {
-      this.store.go(id, null, true);
-    }
-    this.ui.dialogs.open({ kind: 'compare', branchId: id, content });
   }
 
   /** The message a tangent from the composer starts at; null: there is none to go on. */

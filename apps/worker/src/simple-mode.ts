@@ -6,6 +6,8 @@ import {
   TIER_LABELS,
   TIERS,
   BUILT_IN_MAX_OUTPUT_TOKENS,
+  tierModel,
+  tierOf,
   type ModelInfo,
   type ModelTier,
   type ProviderConfig,
@@ -25,8 +27,8 @@ import type { PoolParams } from './pool/params.js';
 
 export {
   DEFAULT_BACKGROUND_MODEL,
-  DEFAULT_LEARN_MAX_MODEL,
   DEFAULT_LEARN_NORMAL_MODEL,
+  DEFAULT_POWER_MAX_MODEL,
 } from './config.js';
 
 /*
@@ -41,6 +43,7 @@ export {
  * as "Tangent credit", with any OpenRouter model allowed
  * (`builtInPowerConfig`), in a registry of its own. Learn also runs this
  * config on the user's own OpenRouter key, unmetered (registries.ts `registryFor`).
+ * Learn has one model, Normal; Max is power's (docs/DECISIONS.md says why).
  */
 
 /** What the pool model is called where Learn's config doesn't list it (it is no tier). */
@@ -57,22 +60,30 @@ export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 export const SIMPLE_MAX_OUTPUT_TOKENS = BUILT_IN_MAX_OUTPUT_TOKENS;
 
 /**
- * The built-in provider's config, as Learn uses it: its tiers, Normal (the
- * default) then Max, each tagged with its `tier`. `BUILT_IN_PROVIDER` (one
- * ProviderConfig as JSON, id `openrouter`) replaces it wholesale, e.g. a fake
- * provider in tests or the AI Gateway; its models name their own `tier`, and
- * one that names none offers no tiers. The id is fixed so that a branch's
- * provider id means the same endpoint in both apps. There is deliberately no fallback
- * to OPENROUTER_API_KEY: customer spend stays on its own key, which can carry
- * a hard credit limit.
- *
- * The default config's tier models carry their tier's request settings
- * (`LEARN_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`, and Max's;
- * empty ones are the default model's evaluated settings, `withTierDefaults`), so
- * a tier is a model plus how it is asked, whoever pays (credit or the
- * learner's own key); an override's models carry their own.
+ * The built-in provider's config, as Learn uses it: Learn's one model,
+ * Normal (`LEARN_NORMAL_MODEL`), with its request settings
+ * (`LEARN_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`; empty ones are
+ * the default model's evaluated settings, `withTierDefaults`), whoever pays
+ * (credit or the learner's own key). With a `BUILT_IN_PROVIDER` override,
+ * every model it lists but those tagged `tier: "max"`, which are power's.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
+  const config = builtInConfig(env);
+  return { ...config, models: config.models.filter((m) => m.tier !== 'max') };
+}
+
+/**
+ * The built-in provider with every model it offers: Normal (the default)
+ * then power's Max, each tagged with its `tier`. `BUILT_IN_PROVIDER` (one
+ * ProviderConfig as JSON, id `openrouter`) replaces it wholesale, e.g. a fake
+ * provider in tests or the AI Gateway; its models name their own `tier` and
+ * carry their own request settings, and its default can't be a Max model,
+ * since Learn runs on it. The id is fixed so that a branch's provider id
+ * means the same endpoint in both apps. There is deliberately no fallback to
+ * OPENROUTER_API_KEY: customer spend stays on its own key, which can carry a
+ * hard credit limit.
+ */
+function builtInConfig(env: AppEnv): ProviderConfig {
   const { builtIn, learn } = appConfig(env);
   const override = builtIn.provider;
   if (override) {
@@ -82,6 +93,8 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     const config = configs[0]!;
     if (config.id !== OPENROUTER_PROVIDER_ID)
       throw new Error(`Invalid BUILT_IN_PROVIDER: id must be "${OPENROUTER_PROVIDER_ID}"`);
+    if (tierOf(config.models, config.defaultModel) === 'max')
+      throw new Error('Invalid BUILT_IN_PROVIDER: the default model must not be a Max model');
     return config;
   }
   return {
@@ -93,9 +106,10 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     defaultModel: learn.normalModel,
     // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
     options: { webSearch: true },
+    // Power asks Max as the user sets it, so only Normal carries request settings.
     models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) =>
-      m.tier
-        ? withRequestConfig(m, withTierDefaults(learn[m.tier], DEFAULT_TIER_REQUESTS[m.tier], m.id))
+      m.tier === 'normal'
+        ? withRequestConfig(m, withTierDefaults(learn.normal, DEFAULT_TIER_REQUESTS.normal, m.id))
         : m,
     ),
   };
@@ -143,16 +157,15 @@ export function withRequestConfig(
 
 /** Normal then Max, labelled by `label`; Normal alone when both are the same model. */
 function tierModels(env: AppEnv, label: (tier: ModelTier) => string): ModelInfo[] {
-  const { normalModel, maxModel } = appConfig(env).learn;
-  const ids: Record<ModelTier, string> = { normal: normalModel, max: maxModel };
+  const { learn, power } = appConfig(env);
+  const ids: Record<ModelTier, string> = { normal: learn.normalModel, max: power.maxModel };
   const tiers = ids.normal === ids.max ? TIERS.slice(0, 1) : TIERS;
   return tiers.map((tier) => ({ id: ids[tier], label: label(tier), tier }));
 }
 
 /**
- * The suggested OpenRouter models, Normal first (LEARN_NORMAL_MODEL,
- * LEARN_MAX_MODEL): Learn's two tiers, and the models power lists first for
- * OpenRouter, on the user's own key or on credit.
+ * The models power suggests first for OpenRouter on the user's own key,
+ * Normal then Max (LEARN_NORMAL_MODEL, POWER_MAX_MODEL), as on Tangent credit.
  */
 export function suggestedModels(env: AppEnv): ModelInfo[] {
   return tierModels(env, (tier) => `${TIER_LABELS[tier]} (suggested)`);
@@ -165,14 +178,15 @@ export function simpleMaxInputTokens(env: AppEnv): number {
 
 /**
  * The built-in provider as power lists it: Learn's config (same key, same
- * BUILT_IN_PROVIDER override), labelled "Tangent credit", with any model id
- * allowed (its models are suggestions) and one call's cost bounded like
- * Learn's: the context window is Learn's input cap plus its output reserve,
- * and output is capped at SIMPLE_MAX_OUTPUT_TOKENS. Per-model limits are
- * dropped so no listed model can widen those bounds.
+ * BUILT_IN_PROVIDER override) with power's Max too, labelled "Tangent
+ * credit", with any model id allowed (its models are suggestions) and one
+ * call's cost bounded like Learn's: the context window is Learn's input cap
+ * plus its output reserve, and output is capped at SIMPLE_MAX_OUTPUT_TOKENS.
+ * Per-model settings are dropped, so no listed model can widen those bounds,
+ * and power asks each model as the user sets it.
  */
 export function builtInPowerConfig(env: AppEnv): ProviderConfig {
-  const base = simpleProviderConfig(env);
+  const base = builtInConfig(env);
   return {
     ...base,
     label: 'Tangent credit',
@@ -191,9 +205,8 @@ export function builtInPowerConfig(env: AppEnv): ProviderConfig {
  * The background model of the simple provider (summaries, titles, and the
  * pool's default model): BACKGROUND_MODEL, which the default config needn't
  * list (it is no tier, and OpenRouter takes any model id). A BUILT_IN_PROVIDER
- * override is a closed list, so there it is BACKGROUND_MODEL when the
- * override lists it, else the override's default (never another tier, which
- * could be Max).
+ * override is a closed list, so there it is BACKGROUND_MODEL when Learn's
+ * models include it, else the override's default.
  */
 export function simpleFastModel(
   env: AppEnv,
@@ -318,17 +331,18 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
 
 /**
  * What Learn offers, as the public pages (landing, pricing) describe it, read
- * from the built-in provider's config: its models (Learn's tiers: Normal,
- * Max, then any model that is no tier), whether it is OpenRouter (so credit
- * takes "any OpenRouter model"), whether its replies can search the web, and
+ * from the built-in provider's config: whether it is OpenRouter (so credit
+ * takes "any OpenRouter model"), the Max power suggests on credit (null when
+ * it lists none), whether its replies can search the web, and
  * whether a search costs about 1¢ (OpenRouter's Exa price covers up to 10
  * results; other engines and more results cost differently). Null when
  * BUILT_IN_PROVIDER is invalid, so a page falls back to wording that claims
  * none of these.
  */
 export interface LearnOffer {
-  tiers: { id: string; label: string; tier?: ModelTier }[];
   openRouter: boolean;
+  /** The label of power's Max on Tangent credit; null when the provider lists no Max. */
+  powerMax: string | null;
   search: boolean;
   searchAboutOneCent: boolean;
 }
@@ -336,19 +350,15 @@ export interface LearnOffer {
 export function learnOffer(env: AppEnv): LearnOffer | null {
   let config: ProviderConfig;
   try {
-    config = simpleProviderConfig(env);
+    config = builtInConfig(env);
   } catch {
     return null;
   }
-  const rank = (tier: ModelTier | undefined) => (tier ? TIERS.indexOf(tier) : TIERS.length);
-  const tiers = [...config.models]
-    .sort((a, b) => rank(a.tier) - rank(b.tier))
-    .map(({ id, label, tier }) => ({ id, label, ...(tier ? { tier } : {}) }));
   const openRouter = config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
   const { engine, maxResults } = appConfig(env).grounding;
   return {
-    tiers,
     openRouter,
+    powerMax: tierModel(config.models, 'max')?.label ?? null,
     search: config.options?.['webSearch'] === true,
     searchAboutOneCent: openRouter && engine === 'exa' && maxResults <= 10,
   };
