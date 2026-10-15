@@ -422,6 +422,20 @@ describe('Learn: finding your way around a lesson', () => {
     );
   });
 
+  it('the down arrow gives way to "Ask about this", which floats in the same place', async () => {
+    const p = await page(lesson('normal-model', { content: 'Light is a wave of fields.' }));
+    const view = layOutThread({ height: 3000, view: 500, at: {} });
+    await new Promise(requestAnimationFrame);
+    // Reading back up the lesson, far from its end.
+    view.scrollBy(-3000);
+    await p.fixture.whenStable();
+    const jump = () => screen.getByRole('button', { name: 'Jump to the end' });
+    await vi.waitFor(() => expect(jump().hasAttribute('inert')).toBe(false));
+    selectWave();
+    await vi.waitFor(() => screen.getByRole('button', { name: 'Ask about this' }));
+    expect(jump().hasAttribute('inert')).toBe(true);
+  });
+
   it('the title, and a tangent’s name in its path, go back to the start', async () => {
     const p = await page(branchyLesson());
     const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });

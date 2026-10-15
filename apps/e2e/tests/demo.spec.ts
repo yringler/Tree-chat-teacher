@@ -365,6 +365,24 @@ test('Learn demo: each tangent started from a reply shows its question, not only
   expect(errors).toEqual([]);
 });
 
+test('Learn demo: "Ask about this" on an earlier reply takes the tap, not the jump to the end', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  await skipTour(page);
+  // Read back up to the first reply, far from the end.
+  const first = page.locator('.msg-assistant').first();
+  await first.scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: 'Jump to the end' })).toBeVisible();
+  await selectText(first, 'By copying owls');
+  await page.getByRole('button', { name: 'Ask about this' }).click();
+  await expect(page.getByRole('textbox').last()).toHaveAttribute('placeholder', 'Ask about this…');
+  expect(errors).toEqual([]);
+});
+
 test('Learn demo: the lesson text size scales the messages only, and is remembered', async ({
   page,
 }) => {
