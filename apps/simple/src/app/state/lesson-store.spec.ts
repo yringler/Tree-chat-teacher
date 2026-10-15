@@ -534,11 +534,7 @@ describe('LessonStore', () => {
     const s = setup();
     const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
     await open(s, detail([userNode, done], [branch('trunk', { model: 'max-model' })]));
-    const created = await s.store.createBranch({
-      fromNodeId: 'a1',
-      contextMode: 'path',
-      anchorQuote: 'a wave',
-    });
+    const created = await s.store.askFrom('a1', 'Of what?', 'a wave');
 
     expect(s.api.createBranch).toHaveBeenCalledWith({
       fromNodeId: 'a1',
@@ -550,7 +546,6 @@ describe('LessonStore', () => {
     expect(created?.id).toBe('side');
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1', 'b', 'side'], { queryParams: {} });
     expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['side']);
-    expect(s.composer.focus).toHaveBeenCalledTimes(1);
 
     // Following the route into the side question; back goes to the branch point.
     s.store.setRoute('t1', 'side', null);

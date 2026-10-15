@@ -127,6 +127,7 @@
           [node]="e.node"
           [ancestor]="e.ancestor"
           [focused]="e.node.id === store.focusedInPath()?.id"
+          (tangent)="askAboutMessage(e.node)"
         />
       }
       @if (store.emptyBranch(); as b) {
@@ -191,24 +192,14 @@
         (act)="act($event)"
         (stop)="stop()"
       >
-        <!-- The words the message asks about; dropping them leaves the focus in the box. -->
+        <!-- What the message asks about (words, or a whole message); dropping it leaves the focus in the box. -->
         @if (quote(); as q) {
-          <div composerLead class="composer-lead">
-            <span class="composer-pill composer-quote">
-              <app-icon name="tangent" [size]="14" />
-              <span class="composer-quote-text" [attr.title]="q.quote">“{{ q.quote }}”</span>
-              <button
-                type="button"
-                class="icon-btn"
-                [attr.aria-label]="'Don’t ask about “' + q.quote + '”'"
-                title="Don’t ask about these words"
-                (mousedown)="$event.preventDefault()"
-                (click)="dropQuote()"
-              >
-                <app-icon name="x" [size]="13" />
-              </button>
-            </span>
-          </div>
+          <app-composer-quote
+            composerLead
+            [quote]="q.quote"
+            [excerpt]="excerptOf(q.nodeId)"
+            (dropped)="dropQuote()"
+          />
         }
       </app-composer>
     }

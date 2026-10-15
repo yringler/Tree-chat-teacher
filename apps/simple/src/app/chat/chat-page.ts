@@ -17,7 +17,9 @@ import { describeEndpoint } from '@tangent/core/links';
 import {
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
+  plainText,
   REPLY_ACTION,
+  splitTangents,
   TANGENT_ACTION,
   THREAD_ENDS,
   type ChatNode,
@@ -25,6 +27,7 @@ import {
 import {
   Composer,
   ComposerController,
+  ComposerQuote,
   Icon,
   JumpToEnd,
   PendingQuote,
@@ -49,11 +52,21 @@ import { FUNDING_OPTIONS, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
 
+/** What a tangent from the composer starts at: a message, about `quote` when words were selected. */
+interface AskTarget {
+  nodeId: string;
+  quote: string | null;
+}
+
+/** How much of a whole message the composer shows when its message asks about it. */
+const EXCERPT_CHARS = 60;
+
 /** `/t/:treeId[/b/:branchId]`: the lesson, one branch at a time. */
 @Component({
   selector: 'app-chat-page',
   imports: [
     Composer,
+    ComposerQuote,
     MessageItem,
     Segmented,
     Icon,
@@ -89,8 +102,11 @@ export class ChatPage implements OnDestroy {
   protected readonly threadEnds = THREAD_ENDS;
   /** Text selected inside one finished message: offers "Ask about this". */
   protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
-  /** Words "Ask about this" put on the composer: the next message asks about them. */
-  protected readonly quote = signal<MessageQuote | null>(null);
+  /**
+   * What the composer's next message asks about, on a tangent made when it is
+   * sent: words "Ask about this" quoted, or a whole message (its Tangent ↳).
+   */
+  protected readonly quote = signal<AskTarget | null>(null);
   /** Where the lesson is scrolled; a reply being written is read from its first line. */
   protected readonly thread = new ThreadScroll({
     store: this.store,
@@ -225,6 +241,19 @@ export class ChatPage implements OnDestroy {
     window.getSelection()?.removeAllRanges();
     this.quote.set(q);
     this.composer.focus();
+  }
+
+  /** A message's own Tangent ↳: the message goes on the composer, the tangent is made when it is sent. */
+  protected askAboutMessage(node: ChatNode): void {
+    this.pendingAsk.clear();
+    this.quote.set({ nodeId: node.id, quote: null });
+    this.composer.focus();
+  }
+
+  /** The opening words of message `nodeId`, for the composer to say what it asks about. */
+  protected excerptOf(nodeId: string): string {
+    const content = this.store.index()?.nodes.get(nodeId)?.content ?? '';
+    return plainText(splitTangents(content).body, { max: EXCERPT_CHARS });
   }
 
   protected dropQuote(): void {
