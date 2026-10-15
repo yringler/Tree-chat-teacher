@@ -1,5 +1,6 @@
 import type { BillingSummary, UsageEntry, UsageListResponse } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
+import type { PortalTab } from '../core/billing-client';
 import {
   BillingController,
   POLL_ATTEMPTS,
@@ -65,19 +66,22 @@ function setup(summaries: BillingSummary[] = [summary()]) {
   };
   const billing = {
     upgrade: vi.fn(async () => undefined),
-    portal: vi.fn(async () => undefined),
+    portal: vi.fn(async (_tab: PortalTab) => undefined),
   };
+  const tab = { show: vi.fn((_url: string) => undefined), close: vi.fn(() => undefined) };
+  const openTab = vi.fn((): PortalTab => tab);
   const navigate = vi.fn((_url: string) => undefined);
   const clearCheckoutParam = vi.fn(() => undefined);
   const sleep = vi.fn(async (_ms: number) => undefined);
   const ctl = new BillingController({
     api,
     billing,
+    openTab,
     navigate,
     clearCheckoutParam,
     sleep,
   });
-  return { ctl, api, billing, navigate, clearCheckoutParam, sleep };
+  return { ctl, api, billing, tab, openTab, navigate, clearCheckoutParam, sleep };
 }
 
 describe('BillingController: loading', () => {
@@ -313,11 +317,27 @@ describe('BillingController: the membership', () => {
 });
 
 describe('BillingController: the portal', () => {
-  it('"Manage billing" opens the portal', async () => {
-    const { ctl, billing } = setup();
-    await ctl.manage();
-    expect(billing.portal).toHaveBeenCalledOnce();
+  it('"Manage billing" opens its tab during the click, before the portal URL arrives', () => {
+    const { ctl, openTab } = setup();
+    void ctl.manage();
+    expect(openTab).toHaveBeenCalledOnce();
     expect(ctl.pending()).toEqual({ kind: 'portal' });
+  });
+
+  it('hands the tab to the portal and leaves this page where it is', async () => {
+    const { ctl, billing, tab, navigate } = setup();
+    await ctl.manage();
+    expect(billing.portal).toHaveBeenCalledWith(tab);
+    expect(tab.close).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('clears "Opening…" once the tab is pointed, so the button works again', async () => {
+    const { ctl } = setup();
+    await ctl.manage();
+    expect(ctl.pending()).toBeNull();
+    expect(ctl.busy()).toBe(false);
+    expect(ctl.actionError()).toBeNull();
   });
 
   it('a portal error without a customer yet reads kindly', async () => {
@@ -332,5 +352,13 @@ describe('BillingController: the portal', () => {
     await ctl.manage();
     expect(ctl.actionError()).toMatch(/nothing to manage yet/);
     expect(ctl.busy()).toBe(false);
+  });
+
+  it('a second click while the tab is being pointed opens no second tab', async () => {
+    const { ctl, openTab } = setup();
+    const first = ctl.manage();
+    void ctl.manage();
+    await first;
+    expect(openTab).toHaveBeenCalledOnce();
   });
 });

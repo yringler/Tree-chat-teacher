@@ -7,6 +7,7 @@ import type {
   UsageListResponse,
 } from '@tangent/shared';
 import { MAX_TOP_UP_CENTS, MIN_TOP_UP_CENTS } from '@tangent/shared';
+import type { PortalTab } from '../core/billing-client';
 import { parseDollarsToCents, topUpError } from './format';
 import { type MembershipUpgrader, subscribeToMembership } from './membership';
 
@@ -30,10 +31,12 @@ export interface BillingDeps {
     usage(cursor?: string | null, limit?: number): Promise<UsageListResponse>;
     createCheckout(amountCents: number): Promise<CheckoutResponse>;
   };
-  /** `BillingClient`: `upgrade` subscribes to the membership, `portal` manages it. */
+  /** `BillingClient`: `upgrade` subscribes to the membership, `portal` manages it in a tab. */
   billing: MembershipUpgrader & {
-    portal(): Promise<void>;
+    portal(tab: PortalTab): Promise<void>;
   };
+  /** Opens the tab the portal shows in (`openPortalTab`); called during the click that asks for it. */
+  openTab(): PortalTab;
   /** Leaves the app for the payment provider's checkout (`location.assign`). */
   navigate(url: string): void;
   /** Drops `?checkout=...` from the address bar so a reload doesn't poll again. */
@@ -205,10 +208,22 @@ export class BillingController {
     await this.leaveFor({ kind: 'subscribe' }, () => subscribeToMembership(this.deps.billing));
   }
 
-  /** Manage billing: the billing portal, back to this page. */
+  /**
+   * Manage billing: the portal opens in a new tab, so this page stays. The tab is
+   * opened here, synchronously, so the click still allows it.
+   */
   async manage(): Promise<void> {
     if (this.busy()) return;
-    await this.leaveFor({ kind: 'portal' }, () => this.deps.billing.portal(), portalMessage);
+    const tab = this.deps.openTab();
+    this.pending.set({ kind: 'portal' });
+    this.actionError.set(null);
+    try {
+      await this.deps.billing.portal(tab);
+    } catch (err) {
+      this.actionError.set(portalMessage(err));
+    } finally {
+      this.pending.set(null);
+    }
   }
 
   /** A redeemed code changed the membership (no reload needed). */
@@ -229,17 +244,13 @@ export class BillingController {
    * Runs a step that ends in a navigation to the payment provider. On success the page is
    * unloading, so `pending` stays set (no double clicks while it goes).
    */
-  private async leaveFor(
-    action: PendingAction,
-    step: () => Promise<void>,
-    describe: (err: unknown) => string = messageOf,
-  ): Promise<void> {
+  private async leaveFor(action: PendingAction, step: () => Promise<void>): Promise<void> {
     this.pending.set(action);
     this.actionError.set(null);
     try {
       await step();
     } catch (err) {
-      this.actionError.set(describe(err));
+      this.actionError.set(messageOf(err));
       this.pending.set(null);
     }
   }

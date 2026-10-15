@@ -11,7 +11,7 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { BillingSummary, MembershipInfo, UsageEntry, UsagePurpose } from '@tangent/shared';
 import { ApiClient } from '../core/api-client';
-import { BillingClient } from '../core/billing-client';
+import { BillingClient, openPortalTab } from '../core/billing-client';
 import { DEMO_MODE } from '../core/demo';
 import { Icon } from '../ui/icon';
 import { BillingController } from './billing-controller';
@@ -347,6 +347,7 @@ export class BillingPage implements OnInit, OnDestroy {
   protected readonly ctl = new BillingController({
     api: inject(ApiClient),
     billing: inject(BillingClient),
+    openTab: () => openPortalTab(),
     navigate: (url) => location.assign(url),
     clearCheckoutParam: () => this.clearCheckoutParam(),
   });
