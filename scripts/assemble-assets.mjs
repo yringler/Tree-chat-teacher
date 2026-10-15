@@ -7,7 +7,15 @@
 //   apps/admin/dist/admin/browser/**   → apps/worker/site/admin/   (admin app, `/admin/`)
 //   apps/flutter/dist/web/**           → apps/worker/site/app/     (Flutter app, `/app/`)
 // Run by the root `pnpm build` after the `ng build`s and `flutter build web`. Pure Node fs, no deps.
-import { cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -68,12 +76,18 @@ if (existsSync(site)) {
 
 for (const [i, { from, to }] of sources.entries()) {
   const nested = i > 0;
-  cpSync(from, to, {
-    recursive: true,
-    errorOnExist: true,
-    force: false,
-    filter: (src) => !(nested && path.dirname(src) === from && ROOT_ONLY.has(path.basename(src))),
-  });
+  mkdirSync(to, { recursive: true });
+  // Entry by entry: newer Node versions apply errorOnExist to an existing destination
+  // directory, which `to` already is. Per entry it still fails when two sources
+  // would write the same path.
+  for (const entry of readdirSync(from)) {
+    if (nested && ROOT_ONLY.has(entry)) continue;
+    cpSync(path.join(from, entry), path.join(to, entry), {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
+  }
   console.log(`assemble-assets: ${path.relative(root, from)} → ${path.relative(root, to)}`);
 }
 
