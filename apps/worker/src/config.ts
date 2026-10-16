@@ -906,7 +906,7 @@ function parse(env: AppEnv): AppConfig {
       maxMessageChars: int('POOL_MAX_MESSAGE_CHARS', 4000, { min: 1 }),
       caps: {
         user: {
-          requestsPerDay: int('POOL_REQUESTS_PER_DAY', 30),
+          requestsPerDay: int('POOL_REQUESTS_PER_DAY', 10),
           spendMicrosPerDay: int('POOL_SPEND_MICROS_PER_DAY', 100_000),
         },
         global: {

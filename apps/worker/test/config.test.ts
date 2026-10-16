@@ -181,7 +181,7 @@ describe('appConfig', () => {
     });
     // One set of caps for everyone: no member tier.
     expect(c.pool.caps).toEqual({
-      user: { requestsPerDay: 30, spendMicrosPerDay: 100_000 },
+      user: { requestsPerDay: 10, spendMicrosPerDay: 100_000 },
       global: { spendMicrosPerDay: 5_000_000, bpsOfMorningBalance: 2_000 },
       ip: { requestsPerDay: 60, spendMicrosPerDay: 300_000 },
     });
