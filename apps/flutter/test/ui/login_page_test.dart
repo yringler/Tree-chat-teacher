@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
@@ -17,7 +18,7 @@ Future<SessionController> pumpLogin(
   FakeTangentApi api, {
   required bool native,
   bool googleOnDevice = false,
-  bool googleEnabled = true,
+  bool? googleEnabled = true,
   GoogleIdTokenSource? googleIdToken,
   TokenStore? signInStore,
   DateTime Function()? now,
@@ -418,6 +419,38 @@ void main() {
       googleEnabled: false,
     );
     expect(find.text('Continue with Google'), findsNothing);
+  });
+
+  testWidgets('an iOS build offers no Google sign-in', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(
+      tester,
+      api,
+      native: true,
+      googleOnDevice: true,
+      googleEnabled: null,
+    );
+    expect(find.text('Continue with Google'), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Android offers Google sign-in by default', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(
+      tester,
+      api,
+      native: true,
+      googleOnDevice: true,
+      googleEnabled: null,
+    );
+    expect(find.text('Continue with Google'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   test('code error messages', () {

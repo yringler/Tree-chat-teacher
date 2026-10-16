@@ -63,9 +63,9 @@ String googleErrorMessage(Object error) => switch (error) {
   _ => 'Signing in with Google didn’t work. Try again, or use your email.',
 };
 
-/// Google sign-in is off until Google approves the OAuth consent screen's
-/// branding; flip this back to true then.
-const _googleSignInEnabled = false;
+/// Google sign-in in an iOS build. Off: the App Store then asks for Sign in
+/// with Apple beside it, which the Worker doesn't offer (docs/DEFERRED.md).
+const googleOnIos = false;
 
 final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
@@ -92,7 +92,7 @@ class LoginPage extends StatefulWidget {
     this.native = !kIsWeb,
     this.googleOnDevice,
     this.googleIdToken = deviceGoogleIdToken,
-    this.googleEnabled = _googleSignInEnabled,
+    this.googleEnabled,
   });
 
   /// `?error=` from a magic link that failed.
@@ -111,8 +111,9 @@ class LoginPage extends StatefulWidget {
   /// Google's account picker; tests pass a stand-in.
   final GoogleIdTokenSource googleIdToken;
 
-  /// Whether any Google button shows, on the web or on the device.
-  final bool googleEnabled;
+  /// Whether any Google button shows, on the web or on the device: everywhere
+  /// but an iOS build unless [googleOnIos], unless a test says otherwise.
+  final bool? googleEnabled;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -173,6 +174,10 @@ class _LoginPageState extends State<LoginPage> {
 
   bool get _canSend =>
       !_busy && _token != null && _emailPattern.hasMatch(_email.text.trim());
+
+  bool get _googleEnabled =>
+      widget.googleEnabled ??
+      (googleOnIos || kIsWeb || defaultTargetPlatform != TargetPlatform.iOS);
 
   bool get _googleOnDevice =>
       widget.googleOnDevice ??
@@ -356,7 +361,7 @@ class _LoginPageState extends State<LoginPage> {
     // apps.
     final deviceGoogle =
         widget.native &&
-        widget.googleEnabled &&
+        _googleEnabled &&
         _googleOnDevice &&
         options.google &&
         googleClientId != null &&
@@ -364,7 +369,7 @@ class _LoginPageState extends State<LoginPage> {
     final browserProviders = widget.native
         ? const <(String, String)>[]
         : [
-            if (widget.googleEnabled && options.google)
+            if (_googleEnabled && options.google)
               ('google', 'Continue with Google'),
             if (options.github) ('github', 'Continue with GitHub'),
           ];
