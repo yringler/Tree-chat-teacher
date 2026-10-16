@@ -1,5 +1,11 @@
 import { TestBed } from '@angular/core/testing';
-import type { BillingSummary, Branch, MeResponse, ProviderInfo } from '@tangent/shared';
+import type {
+  BillingSummary,
+  Branch,
+  LearnKeyProvider,
+  MeResponse,
+  ProviderInfo,
+} from '@tangent/shared';
 import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -27,7 +33,13 @@ const PROVIDERS: ProviderInfo[] = [
   }),
 ];
 
-async function open(opts: { builtInCredit?: boolean; keysEnabled?: boolean } = {}) {
+async function open(
+  opts: {
+    builtInCredit?: boolean;
+    keysEnabled?: boolean;
+    learnProviders?: LearnKeyProvider[];
+  } = {},
+) {
   const api = {
     billing: vi.fn(
       async () =>
@@ -62,7 +74,7 @@ async function open(opts: { builtInCredit?: boolean; keysEnabled?: boolean } = {
     enabled: opts.keysEnabled ?? true,
     hasKey: true,
     providers: ['anthropic'],
-    learnProviders: ['openrouter'],
+    learnProviders: opts.learnProviders ?? ['openrouter'],
   });
   const r = await render(KeysDialog, {
     providers: [{ provide: PowerConversationStore, useValue: store }, provideAnyRoute()],
@@ -89,6 +101,16 @@ describe('Keys & credit dialog', () => {
     expect(within(rows[2]!).getByRole('link', { name: 'Add credit' }).getAttribute('href')).toBe(
       '/billing',
     );
+  });
+
+  it('marks every key Learn replies on too', async () => {
+    await open({ learnProviders: ['openrouter', 'anthropic'] });
+    const rows = screen.getAllByRole('listitem');
+    expect(rows.map((r) => r.querySelector('.key-name')?.textContent?.trim())).toEqual([
+      'Anthropic · also used by Learn',
+      'OpenRouter · also used by Learn',
+      'Tangent credit',
+    ]);
   });
 
   it('saves a key for the first provider without one, clearing the field before the request', async () => {
