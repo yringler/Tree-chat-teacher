@@ -74,6 +74,7 @@ const BILLING: BillingSummary = {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
+    codesAccepted: false,
   },
   builtInCredit: true,
   currency: 'usd',

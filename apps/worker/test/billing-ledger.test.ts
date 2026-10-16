@@ -228,6 +228,7 @@ describe('billing summary', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
+        codesAccepted: false,
       },
       builtInCredit: true,
       topUpsEnabled: true,

@@ -135,7 +135,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
                 }
               </div>
             }
-            @if (s.membership.status === 'inactive' && !demo) {
+            @if (s.membership.status === 'inactive' && s.membership.codesAccepted && !demo) {
               <app-membership-code-form (redeemed)="onRedeemed($event)" />
             }
           </section>

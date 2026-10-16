@@ -18,6 +18,7 @@ function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
+      codesAccepted: false,
     },
     builtInCredit: true,
     currency: 'usd',

@@ -85,6 +85,7 @@ export async function membershipFor(env: AppEnv, account: AccountContext): Promi
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: membershipPriceCents(env),
+    codesAccepted: appConfig(env).billing.membershipWaiverCode !== null,
   };
   if (!account.userId || !membershipRequired(env)) return base;
   const active = ACTIVE_STATUSES.map((s) => `'${s}'`).join(', ');
