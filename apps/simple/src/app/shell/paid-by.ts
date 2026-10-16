@@ -5,7 +5,7 @@ import { UiStore } from '../state/ui-store';
 import { LearnFunding } from '../state/learn-funding';
 
 /**
- * What replies run on (the learner's own OpenRouter key, Tangent credit or
+ * What replies run on (the learner's own key, Tangent credit or
  * the open pool), as a button that opens "How replies are paid for".
  * `header` is the app header's pill ("Credit · $1.20", the amount hidden on
  * phones); `inline` sits next to Start lesson ("Replies paid by [Tangent

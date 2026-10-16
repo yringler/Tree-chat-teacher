@@ -175,7 +175,7 @@
         <app-segmented
           class="funding-toggle"
           label="Pay for replies with"
-          [options]="fundingOptions"
+          [options]="fundingOptions()"
           [value]="fundingOption()"
           [disabled]="store.busy()"
           (changed)="chooseFunding($event)"

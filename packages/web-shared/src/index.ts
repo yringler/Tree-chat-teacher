@@ -163,6 +163,7 @@ export { BillingPage } from './billing/billing-page';
 export { BILLING_SUMMARY_LISTENER } from './billing/billing-listener';
 export { MembershipCodeForm } from './billing/membership-code-form';
 export { ReadOnlyComposer } from './billing/read-only-composer';
+export { KeyForm, type KeySubmission } from './billing/key-form';
 export {
   addBlockedSend,
   keyMissing,

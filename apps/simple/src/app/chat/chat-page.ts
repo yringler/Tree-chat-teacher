@@ -48,7 +48,7 @@ import { UiStore } from '../state/ui-store';
 import { connectionTitleOf } from './connections';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
-import { FUNDING_OPTIONS, type FundingOption } from './switches';
+import { FUNDING_OPTIONS, OWN_KEY_OPTION, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
 
@@ -189,9 +189,8 @@ export class ChatPage implements OnDestroy {
     return block && block.branchId === this.store.selectedBranchId() ? block : null;
   });
 
-  protected readonly fundingOption = computed<FundingOption>(() =>
-    this.funding.payer() === 'pool' ? 'pool' : 'credit',
-  );
+  /** The funding switch's stop: what replies run on. */
+  protected readonly fundingOption = computed<FundingOption>(() => this.funding.payer());
 
   /**
    * A message refused before it reached the lesson (no credit, the pool, a
@@ -261,10 +260,13 @@ export class ChatPage implements OnDestroy {
     this.composer.focus();
   }
 
-  protected readonly fundingOptions = FUNDING_OPTIONS;
+  /** Credit and the pool, and "Your key" while the own key could reply. */
+  protected readonly fundingOptions = computed(() =>
+    this.funding.fundingKeyStop() ? [...FUNDING_OPTIONS, OWN_KEY_OPTION] : FUNDING_OPTIONS,
+  );
 
   protected chooseFunding(id: string): void {
-    const option = FUNDING_OPTIONS.find((o) => o.id === id)?.id;
+    const option = this.fundingOptions().find((o) => o.id === id)?.id;
     if (!option) return;
     this.funding.switchTo(option);
   }

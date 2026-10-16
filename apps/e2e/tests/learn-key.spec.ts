@@ -136,7 +136,7 @@ test('a never-member: the own-key choice is locked in the dialog, and a stored o
     .first()
     .click();
   const dialog = page.getByRole('dialog', { name: 'How replies are paid for' });
-  await expect(dialog.getByRole('radio', { name: /Use my own OpenRouter key/ })).toBeDisabled();
+  await expect(dialog.getByRole('radio', { name: /Use my own API key/ })).toBeDisabled();
   await expect(dialog).toContainText('Needs a membership');
   await expect(dialog.getByRole('radio', { name: /Use Tangent credit/ })).toBeChecked();
 });

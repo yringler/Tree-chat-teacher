@@ -89,8 +89,9 @@ export class LessonStore extends ConversationStore<ApiClient> {
   }
 
   // Providers (Learn accounts: one provider, whose default model every lesson runs on).
-  // Learn's endpoint is the built-in provider's, else the first; Learn pays per request
-  // (its payment header), never per branch, so it names no funding.
+  // Learn's endpoint is the built-in provider's, or the learner's own Anthropic one
+  // (the list follows the request's headers, so it is read again on a switch); Learn
+  // pays per request (its payment header), never per branch, so it names no funding.
   readonly providers = signal<ProviderInfo[]>([]);
   readonly provider = computed<ProviderInfo | null>(
     () =>
@@ -278,7 +279,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
     const branch = this.index()?.branches.get(branchId);
     // The open pool can't pay for searches (its holds are priced from tokens alone).
     if (!branch || this.funding.payer() === 'pool') return false;
-    return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
+    // Every branch replies on Learn's one provider, whatever provider it stores.
+    return this.provider()?.webSearch === true;
   }
 
   // Messages and replies
@@ -325,6 +327,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
    */
   private paymentSwitched(payer: Payer): boolean {
     this.dismissPoolBlock();
+    void this.loadProviders();
     return payer !== 'own-key' && this.funding.payer() === payer && this.resumeUnsent();
   }
 

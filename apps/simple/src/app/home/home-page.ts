@@ -35,7 +35,8 @@ import { LearnFunding } from '../state/learn-funding';
     <div class="page-body">
       @if (funding.needsKey()) {
         <p class="notice" role="status">
-          Replies run on your own OpenRouter key, and none is saved in this browser yet.
+          Replies run on your own {{ funding.ownKeyLabel() }} key, and none is saved in this browser
+          yet.
           <button type="button" class="link-btn" (click)="ui.dialogs.open({ kind: 'access' })">
             Add your key{{
               funding.creditOffered() && funding.creditUsable() ? ' or use Tangent credit' : ''

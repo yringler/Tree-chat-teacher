@@ -19,17 +19,19 @@ export interface KeyLockedText {
  * What `KeyLockedNotice` says. A learner who had a membership (a subscription
  * on record) is asked to renew it; one who never had one, to become a member.
  * `alternatives`: the open pool or Tangent credit is on offer as a way out.
+ * `keyLabel`: who bills the learner for replies on their key ("OpenRouter").
  */
 export function keyLockedText(
   m: Pick<MembershipInfo, 'subscriptionStatus' | 'priceCents'>,
   alternatives: boolean,
+  keyLabel: string,
 ): KeyLockedText {
   const ended = m.subscriptionStatus !== null;
   const price = formatCents(m.priceCents);
   return {
     lead: ended ? 'Your membership has ended.' : 'Replies on your own key need a membership.',
     body:
-      `The membership is ${price} a year; OpenRouter still bills you for the replies.` +
+      `The membership is ${price} a year; ${keyLabel} still bills you for the replies.` +
       (alternatives ? ' Or carry on without one:' : ''),
     subscribe: ended ? 'Renew membership' : 'Become a member',
   };
@@ -95,7 +97,7 @@ export class KeyLockedNotice {
   protected readonly text = computed(() => {
     const m = this.funding.membership();
     const ways = this.funding.keyLockedWays();
-    return m ? keyLockedText(m, ways.pool || ways.credit) : null;
+    return m ? keyLockedText(m, ways.pool || ways.credit, this.funding.ownKeyLabel()) : null;
   });
 
   protected onPageShow(event: Event): void {
