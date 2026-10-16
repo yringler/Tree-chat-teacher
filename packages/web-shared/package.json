@@ -47,7 +47,7 @@
     "@testing-library/user-event": "14.6.7",
     "@types/trusted-types": "^2.0.7",
     "@vitest/coverage-v8": "~4.1.11",
-    "happy-dom": "20.14.5",
+    "happy-dom": "21.0.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "typescript": "~6.0.3",
