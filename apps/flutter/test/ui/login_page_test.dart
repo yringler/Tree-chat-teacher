@@ -17,7 +17,7 @@ Future<SessionController> pumpLogin(
   FakeTangentApi api, {
   required bool native,
   bool googleOnDevice = false,
-  bool googleEnabled = true,
+  bool googleInBrowser = true,
   GoogleIdTokenSource? googleIdToken,
   TokenStore? signInStore,
   DateTime Function()? now,
@@ -35,7 +35,7 @@ Future<SessionController> pumpLogin(
           captcha: fakeCaptcha,
           native: native,
           googleOnDevice: googleOnDevice,
-          googleEnabled: googleEnabled,
+          googleInBrowser: googleInBrowser,
           googleIdToken: googleIdToken ?? (_) async => 'id-token',
         ),
       ),
@@ -393,31 +393,15 @@ void main() {
     expect(find.text('Continue with Google'), findsNothing);
   });
 
-  testWidgets('Google sign-in is hidden everywhere while it is switched off', (
+  testWidgets('the web build offers no browser Google button by default', (
     tester,
   ) async {
     final api = FakeTangentApi()
       ..meAnswers = [unauthorized]
       ..loginOptionsAnswer = withProviders;
-    await pumpLogin(tester, api, native: false, googleEnabled: false);
+    await pumpLogin(tester, api, native: false, googleInBrowser: false);
     expect(find.text('Continue with Google'), findsNothing);
     expect(find.text('Continue with GitHub'), findsOneWidget);
-  });
-
-  testWidgets('the device offers no Google button while it is switched off', (
-    tester,
-  ) async {
-    final api = FakeTangentApi()
-      ..meAnswers = [unauthorized]
-      ..loginOptionsAnswer = withProviders;
-    await pumpLogin(
-      tester,
-      api,
-      native: true,
-      googleOnDevice: true,
-      googleEnabled: false,
-    );
-    expect(find.text('Continue with Google'), findsNothing);
   });
 
   test('code error messages', () {
