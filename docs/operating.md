@@ -7,7 +7,7 @@ How to deploy and run a Tangent deployment: Cloudflare and GitHub setup, sign-in
 - A Cloudflare account. The **Workers Paid** plan is recommended: the Free plan's 10 ms of CPU per request is tight for streaming.
 - A domain on Cloudflare. Sign-in callbacks, magic links and passkeys are tied to one public origin.
 - A [Resend](https://resend.com) account for magic-link email, and a Cloudflare [Turnstile](https://developers.cloudflare.com/turnstile/) widget.
-- To sell credit or the membership: an [OpenRouter](https://openrouter.ai) account and a [Polar](https://polar.sh) account. Learn on the learner's own OpenRouter key needs neither.
+- To sell credit or the membership: an [OpenRouter](https://openrouter.ai) account and a [Polar](https://polar.sh) account. Learn on the learner's own OpenRouter or Anthropic key needs neither.
 - To build: Node, pnpm and Flutter, as in the README's [quickstart](../README.md#quickstart-local-development).
 
 ## First deployment
@@ -118,7 +118,7 @@ Only `master` reaches the sandbox: a branch's migrations would stay in its datab
 
 ## Users' own keys
 
-With `KEY_ENCRYPTION_SECRET` set, users paste their Anthropic, OpenAI or OpenRouter key under **Keys** (**Keys & credit** where credit is sold). Learn uses only the OpenRouter key, from the same cookie.
+With `KEY_ENCRYPTION_SECRET` set, users paste their Anthropic, OpenAI or OpenRouter key under **Keys** (**Keys & credit** where credit is sold). Learn uses the OpenRouter key and, where `PROVIDERS` has an `anthropic` endpoint of kind `anthropic` (the defaults do), the Anthropic key, from the same cookie; on the Anthropic key it runs fixed models (Sonnet for replies, Haiku for titles and summaries) through that endpoint, never `ANTHROPIC_API_KEY`.
 
 - The Worker checks the key with one unbilled call, then seals `{ keys, exp, uid }` with AES-256-GCM into the `__Host-llmkey` cookie (HttpOnly, Secure, SameSite=Strict). It expires after 7 days unused: using the keys reseals it with a fresh expiry once it is a day old. The server stores nothing, and no endpoint returns any part of a key.
 - A cookie that is tampered with, expired, sealed with an older secret or sealed for another user answers `401 key_required` and is cleared. Signing out clears it too. **Rotating `KEY_ENCRYPTION_SECRET` revokes every stored key.**
