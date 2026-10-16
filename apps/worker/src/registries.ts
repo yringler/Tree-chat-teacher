@@ -106,7 +106,11 @@ export function registryFor(
       const pool = poolScope(account, scope);
       return windowedRegistry(env, [pool ? poolProviderConfig(env, pool) : config]);
     }
-    const ownConfig = learnKeyConfig(env, learnOwnKey(account)) ?? config;
+    const ownKey = learnOwnKey(account);
+    const ownConfig = learnKeyConfig(env, ownKey);
+    // resolveAccount names only an offered key; replying on another endpoint than the one
+    // the chat settings title and summarise on would be a silent mismatch.
+    if (!ownConfig) throw new Error(`Learn's own key "${ownKey}" is not offered here`);
     const own = apiKeys?.[ownConfig.id];
     return windowedRegistry(
       env,

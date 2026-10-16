@@ -221,6 +221,15 @@ describe('resolveAccount', () => {
       resolveAccount(withEnv({ PROVIDERS: '' }), who, learn('own-key', 'anthropic')),
     ).toMatchObject({ ownKey: 'anthropic' });
   });
+
+  it('reads no provider config for a Learn request on OpenRouter', () => {
+    // An invalid built-in provider fails where replies are generated, not on every Learn call.
+    const broken = withEnv({ BUILT_IN_PROVIDER: 'not json', PROVIDERS: 'not json' });
+    expect(resolveAccount(broken, user('a@example.org'), learn('own-key'))).toMatchObject({
+      payer: 'own-key',
+      ownKey: 'openrouter',
+    });
+  });
 });
 
 /** Power's Anthropic endpoint, as an operator configures it (here on the mock upstream). */
@@ -311,9 +320,41 @@ describe("Learn on the learner's own Anthropic key", () => {
       summaryEffort: null,
       autoTitle: true,
     });
-    // On OpenRouter (or credit), the background model as before.
+    // On OpenRouter (or credit), the built-in provider's background model.
     expect(chatSettingsFor(e, onKey('openrouter')).summaryProviderId).toBe('openrouter');
     expect(chatSettingsFor(e, onKey('anthropic', 'credit')).summaryProviderId).toBe('openrouter');
+  });
+
+  it("a send titles the lesson on Haiku with the learner's key, never the operator's", async () => {
+    const userKey = `sk-ant-goodTITLE-${crypto.randomUUID()}`;
+    const operatorKey = `sk-ant-goodOPERATOR-${crypto.randomUUID()}`;
+    const withOperatorKey = { ...e, ANTHROPIC_API_KEY: operatorKey } as AppEnv;
+    const account = { ...onKey('anthropic'), id: `u_${crypto.randomUUID()}` };
+    const chat = chatService(withOperatorKey, account, {
+      apiKeys: { anthropic: userKey },
+      generating: true,
+    });
+    const detail = await chat.createTree({});
+    const begun = await chat.beginSend(detail.tree.trunkBranchId, 'What is light?');
+    for await (const event of chat.runGeneration(begun, AbortSignal.timeout(10_000)))
+      expect(event.type).not.toBe('error');
+    const calls = (key: string) =>
+      fetch(`https://llm.test/__mock/messages?key=${encodeURIComponent(key)}`).then(
+        async (res) => ((await res.json()) as { models: string[] }).models,
+      );
+    expect(await calls(userKey)).toEqual([
+      LEARN_ANTHROPIC_REPLY_MODEL,
+      LEARN_ANTHROPIC_BACKGROUND_MODEL,
+    ]);
+    // The mock answers `key=<the key's tag>`: the title came from that call.
+    expect((await chat.getTreeDetail(detail.tree.id)).tree.title).toMatch(/^key=TITLE-/);
+    expect(await calls(operatorKey)).toEqual([]);
+  });
+
+  it('refuses to build a registry for an own key the deployment does not offer', () => {
+    // resolveAccount never names one; a registry on OpenRouter would disagree with the summaries.
+    const unoffered = { ...onKey('anthropic'), ownKey: 'anthropic' as const };
+    expect(() => registryFor({ ...env } as AppEnv, unoffered)).toThrow(/anthropic/);
   });
 });
 

@@ -107,7 +107,7 @@ describe('the built-in provider’s bounds', () => {
     const credit = builtInPowerConfig(env);
     expect(credit.maxOutputTokens).toBe(16_384);
     expect(credit.maxContextTokens).toBe(simpleMaxInputTokens(env) + 16_384);
-    expect(simpleChatSettings(env)).toMatchObject({
+    expect(simpleChatSettings(env, 'openrouter')).toMatchObject({
       reservedOutputTokens: 4096,
       reasoningOutputTokens: 16_384,
       maxInputTokens: simpleMaxInputTokens(env),

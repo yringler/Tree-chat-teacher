@@ -1,7 +1,7 @@
 // The Worker's side of the tree's Durable Object protocol (tree-session.ts):
 // one method per internal route, so the routes never build its URLs, and the
 // encoding of the account each call acts as, both ways.
-import { LEARN_KEY_PROVIDERS } from '@tangent/shared';
+import { learnKeyProviderSchema } from '@tangent/shared';
 import { z } from 'zod';
 import type { AccountContext, AppEnv } from '../env.js';
 import type { PoolParams } from '../pool/params.js';
@@ -28,7 +28,7 @@ const accountSchema = z.union([
     ...ids,
     mode: z.literal('simple'),
     payer: z.enum(['own-key', 'credit']),
-    ownKey: z.enum(LEARN_KEY_PROVIDERS),
+    ownKey: learnKeyProviderSchema,
   }),
   z.strictObject({
     ...ids,

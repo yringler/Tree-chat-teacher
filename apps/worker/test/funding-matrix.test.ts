@@ -383,10 +383,21 @@ describe('funding matrix: who pays, and with which key', () => {
     expect(replyOf(reply.text)).toBe('key=USER-0123456789');
     // Sonnet is Learn's one model on that key: no other is allowed.
     expect((await review('claude-opus-5-5')).status).toBe(400);
-    // Without the header, Learn is on OpenRouter, whose key isn't saved.
-    expect(await review('claude-sonnet-5-5', { learn: 'own-key' })).toMatchObject({
-      status: 400,
+    // Without the header, Learn is on OpenRouter: it has no Anthropic endpoint to review on,
+    const withoutHeader = await review('claude-sonnet-5-5', { learn: 'own-key' });
+    expect(withoutHeader.status).toBe(400);
+    expect((JSON.parse(withoutHeader.text) as ApiError).error).toEqual({
+      code: 'bad_request',
+      message: 'Unknown provider "anthropic"',
     });
+    // and its own OpenRouter key isn't saved, so it asks for that one.
+    const onOpenRouter = await reviewWith(
+      c,
+      learn.assistant.id,
+      { providerId: 'openrouter' },
+      { learn: 'own-key' },
+    );
+    expect(onOpenRouter).toMatchObject({ status: 401, code: 'key_required' });
     expect(await usageRows(`u_${userId}`)).toBe(0);
   });
 

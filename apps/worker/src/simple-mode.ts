@@ -236,10 +236,7 @@ export function simpleFastModel(
  * and titles run on LEARN_ANTHROPIC_BACKGROUND_MODEL at the model's own
  * effort, since the background vars describe the built-in provider's model.
  */
-export function simpleChatSettings(
-  env: AppEnv,
-  ownKey: LearnKeyProvider = OPENROUTER_PROVIDER_ID,
-): ChatSettings {
+export function simpleChatSettings(env: AppEnv, ownKey: LearnKeyProvider): ChatSettings {
   const summary =
     ownKey === ANTHROPIC_PROVIDER_ID
       ? {

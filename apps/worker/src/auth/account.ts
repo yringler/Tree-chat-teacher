@@ -94,7 +94,8 @@ export function accountRequest(headers: Headers): AccountRequest {
  * while it is on (`poolAvailable`) and for a signed-in user (the dev bypass
  * has no user to cap). Power pays per route and never uses the pool, whatever
  * the header says. Learn's own key is the one the request names where this
- * deployment offers it (`learnKeyConfig`), else OpenRouter. The pool's
+ * deployment offers it (`learnKeyConfig`), else OpenRouter, decided here
+ * once so the registry and the chat settings agree on it. The pool's
  * parameters are added by `withPoolParams` (they need the caller's network),
  * and a send whose credit runs out may still move to the pool
  * (billing/gate.ts `resolveFunding`).
@@ -112,7 +113,10 @@ export function resolveAccount(
     const simple = { ...ids, mode: 'simple' } as const;
     if (request.payment === 'pool') return { ...simple, payer: 'pool', pool: null };
     const credit = request.payment === 'credit' && builtInAvailable(env);
-    const ownKey = learnKeyConfig(env, request.ownKey) ? request.ownKey : OPENROUTER_PROVIDER_ID;
+    // OpenRouter is always offered, so only another key reads the provider configs.
+    const offered =
+      request.ownKey === OPENROUTER_PROVIDER_ID || learnKeyConfig(env, request.ownKey) !== null;
+    const ownKey = offered ? request.ownKey : OPENROUTER_PROVIDER_ID;
     return { ...simple, payer: credit ? 'credit' : 'own-key', ownKey };
   }
   return {
