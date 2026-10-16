@@ -144,6 +144,8 @@ export class TangentAsk {
   readonly busy = input(false);
   /** The newest reply's item: stronger, and (expandable) open from the start. */
   readonly latest = input(false);
+  /** Takes the focus when it first renders (shown because the user asked to type a question). */
+  readonly focusOnOpen = input(false);
   /** Send: the trimmed, non-empty question. */
   readonly ask = output<string>();
   /** The gear: the trimmed question (possibly empty), for the branch dialog to send. */
@@ -159,6 +161,9 @@ export class TangentAsk {
   private readonly field = viewChild<ElementRef<HTMLTextAreaElement | HTMLInputElement>>('field');
 
   constructor() {
+    afterNextRender(() => {
+      if (this.focusOnOpen()) this.field()?.nativeElement.focus({ preventScroll: true });
+    });
     // The newest reply's item opens by itself (no focus, no scroll); once it
     // isn't the newest, it folds unless it is in use.
     effect(() => {

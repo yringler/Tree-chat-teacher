@@ -21,10 +21,10 @@ import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
 /**
- * "Branch from here": creates a branch off any message and opens it. With a
- * starting message (or one carried from "Ask your own"), sends it as the
- * first message; without, the composer is focused. Titles come after the
- * first reply (auto-titling).
+ * "Branch from here": a tangent off any message, made with its first
+ * message (typed here, or carried from "Ask your own"), which it sends and
+ * opens. Cancelling makes nothing. Titles come after the first reply
+ * (auto-titling).
  */
 @Component({
   selector: 'app-branch-dialog',
@@ -64,17 +64,17 @@ import { ModePicker } from '../ui/mode-picker';
         } @else {
           <label class="field">
             <span class="field-label"
-              >Starting message
-              <span class="muted">(optional; sent as the tangent’s first message)</span></span
+              >Starting message <span class="muted">(the tangent’s first message)</span></span
             >
             <textarea
               rows="3"
               autofocus
+              required
               [value]="message()"
               (input)="message.set(m.value)"
               (keydown)="onMessageKey($event)"
               #m
-              placeholder="Ask something to start the tangent, or leave empty to write it later"
+              placeholder="Ask something to start the tangent"
             ></textarea>
           </label>
         }
@@ -92,8 +92,8 @@ import { ModePicker } from '../ui/mode-picker';
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
-          <button type="submit" class="btn btn-primary" [disabled]="saving()">
-            {{ saving() ? 'Creating…' : firstMessage() ? 'Create and ask' : 'Start tangent' }}
+          <button type="submit" class="btn btn-primary" [disabled]="saving() || !firstMessage()">
+            {{ saving() ? 'Creating…' : 'Create and ask' }}
           </button>
         </div>
       </form>
@@ -137,7 +137,8 @@ export class BranchDialog implements OnInit {
     // be bought), keeping the parent's model where that route serves it.
     const parent = this.parent();
     const usable = !!parent && this.store.account.routeState(parent) === 'open';
-    const start = startingRoute(parent, usable, this.store.account.defaultProvider());
+    const start =
+      this.state().route ?? startingRoute(parent, usable, this.store.account.defaultProvider());
     this.route.set(start.providerId ? routeKey(start) : '');
     this.modelId.set(start.model);
   }
@@ -155,7 +156,8 @@ export class BranchDialog implements OnInit {
   }
 
   protected async create(): Promise<void> {
-    if (this.saving()) return;
+    const first = this.firstMessage();
+    if (this.saving() || !first) return;
     const p = this.parent();
     this.saving.set(true);
     const quote = this.quote().trim();
@@ -169,10 +171,7 @@ export class BranchDialog implements OnInit {
         : {}),
       isPrivate: this.isPrivate(),
     };
-    const first = this.firstMessage();
-    const branch = first
-      ? await this.store.startBranch(req, first)
-      : await this.store.createBranch(req);
+    const branch = await this.store.startBranch(req, first);
     this.saving.set(false);
     if (branch) {
       this.state().onCreated?.();

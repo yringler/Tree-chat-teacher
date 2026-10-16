@@ -188,10 +188,10 @@ describe('Learn: the lesson page', () => {
     const p = await page(lesson('normal-model', { content: 'Light is a wave of fields.' }));
     selectWave();
     await p.fixture.whenStable();
-    const createBranch = vi.spyOn(p.store, 'createBranch');
+    const startBranch = vi.spyOn(p.store, 'startBranch');
     await p.user.click(screen.getByRole('button', { name: 'Ask about this' }));
     // Nothing is made until the question is sent.
-    expect(createBranch).not.toHaveBeenCalled();
+    expect(startBranch).not.toHaveBeenCalled();
     within(dock()).getByText('“wave”');
     expect(composer()?.placeholder).toBe('Ask about this…');
     // Words to ask about only go on a tangent.
@@ -213,6 +213,26 @@ describe('Learn: the lesson page', () => {
     await p.user.click(within(dock()).getByRole('button', { name: 'Don’t ask about “wave”' }));
     expect(within(dock()).queryByText('“wave”')).toBeNull();
     expect(composer()?.placeholder).toBe('Ask anything…');
+  });
+
+  it("a message's own Tangent ↳ puts it on the composer; the tangent is made only when sent", async () => {
+    const p = await page(lesson('normal-model', { content: 'Light is a wave of fields.' }));
+    const startBranch = vi.spyOn(p.store, 'startBranch');
+    const reply = document.getElementById('msg-a1')!;
+    await p.user.click(within(reply).getByRole('button', { name: 'Tangent ↳' }));
+    expect(startBranch).not.toHaveBeenCalled();
+    within(dock()).getByText('Tangent from “Light is a wave of fields.”');
+    expect(document.activeElement).toBe(composer());
+    expect(within(dock()).queryByRole('button', { name: 'Next ➜' })).toBeNull();
+    // Dropped, it leaves nothing behind.
+    await p.user.click(within(dock()).getByRole('button', { name: 'Don’t go on this tangent' }));
+    expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
+    expect(startBranch).not.toHaveBeenCalled();
+    // Asked, the tangent starts with the question, about the whole message.
+    await p.user.click(within(reply).getByRole('button', { name: 'Tangent ↳' }));
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
+    await p.user.type(composer()!, 'Of what?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'Of what?', null);
   });
 
   it('inside an empty tangent the composer asks it, with nothing to choose', async () => {
@@ -512,7 +532,6 @@ describe('Learn: finding your way around a lesson', () => {
     await p.user.click(screen.getByText('A wave.'));
     expect(focus).toHaveBeenCalledWith('a1');
     focus.mockClear();
-    vi.spyOn(p.store, 'createBranch').mockResolvedValue(null);
     const reply = document.getElementById('msg-a1')!;
     await p.user.click(within(reply).getByRole('button', { name: 'Tangent ↳' }));
     expect(focus).not.toHaveBeenCalled();

@@ -96,10 +96,6 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   // Branches
 
-  protected override branchOpened(branchId: string): void {
-    this.composer.focus(branchId);
-  }
-
   /** Whether replies in `branchId` can be checked against web sources (its provider can search). */
   canCheckSources(branchId: string): boolean {
     const branch = this.index()?.branches.get(branchId);

@@ -258,10 +258,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   // Branches
 
-  protected override branchOpened(): void {
-    this.composer.focus();
-  }
-
   /** Tangents keep the provider and model of the thread they come from. */
   protected override newBranchRoute(from: Branch | null): Partial<CreateBranchRequest> {
     return from ? { providerId: from.providerId, model: from.model } : {};

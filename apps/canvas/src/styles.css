@@ -1181,6 +1181,25 @@
   z-index: 3;
 }
 
+/* "Ask about this" took the words: the quote and a box for the question, over the canvas. */
+.quote-ask {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: min(560px, calc(100% - 32px));
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.quote-ask .composer-lead {
+  max-width: 100%;
+}
+
 /* Minimap */
 
 .minimap-host {

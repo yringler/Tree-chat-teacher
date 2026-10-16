@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import {
   CONTINUE_MESSAGE,
   isCutOffReply,
@@ -48,9 +56,7 @@ import { branchTitle } from './titles';
             type="button"
             class="btn btn-ghost btn-sm msg-ask"
             title="Go on a tangent about this message"
-            (click)="
-              store.createBranch({ fromNodeId: n.id, contextMode: 'path', anchorQuote: null })
-            "
+            (click)="tangent.emit()"
           >
             Tangent ↳
           </button>
@@ -150,6 +156,8 @@ export class MessageItem {
   readonly node = input.required<ChatNode>();
   readonly ancestor = input(false);
   readonly focused = input(false);
+  /** Its header's Tangent ↳: the page puts the message on the composer, asked about when sent. */
+  readonly tangent = output();
 
   private readonly live = computed(() => this.store.live().get(this.node().id) ?? null);
   protected readonly streaming = computed(() => this.node().status === 'streaming');

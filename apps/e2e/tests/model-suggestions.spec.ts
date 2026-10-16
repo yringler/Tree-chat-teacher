@@ -86,7 +86,8 @@ test('every suggested model stays in view under the model id, in power and Canva
     .getByRole('combobox', { name: 'Provider' })
     .selectOption({ label: 'Tangent credit' });
   await pickMax(dialog, dialog.getByRole('textbox', { name: 'Model' }));
-  await dialog.getByRole('button', { name: 'Start tangent' }).click();
+  await dialog.getByRole('textbox', { name: /Starting message/ }).fill('Is 1 prime?');
+  await dialog.getByRole('button', { name: 'Create and ask' }).click();
   await expect(dialog).toHaveCount(0);
   expect(await creditModels(page, treeId)).toEqual(['max']);
 
@@ -100,7 +101,8 @@ test('every suggested model stays in view under the model id, in power and Canva
     .getByRole('combobox', { name: 'Provider of lane 1' })
     .selectOption({ label: 'Tangent credit' });
   await pickMax(dialog, dialog.getByRole('textbox', { name: 'Model of lane 1' }));
-  await dialog.getByRole('button', { name: 'Open the lane' }).click();
+  await dialog.getByRole('textbox', { name: /Starting message/ }).fill('Is 2 prime?');
+  await dialog.getByRole('button', { name: 'Open the lane and ask' }).click();
   await expect(dialog).toHaveCount(0);
   expect(await creditModels(page, treeId)).toEqual(['max', 'max']);
 });

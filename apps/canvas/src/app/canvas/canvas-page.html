@@ -159,10 +159,32 @@
             : 'A new lane quoting the selection, with the conversation so far: ask there'
         "
         [moreLabel]="selectionLocked() ? null : 'More: Tangent from here with this quote…'"
-        [busy]="asking()"
         (ask)="askAbout(q)"
         (more)="moreAbout(q)"
       />
+    </div>
+  } @else if (quote(); as q) {
+    <!-- The question about the words "Ask about this" took; Escape or the x drops them. -->
+    <div class="float-bar">
+      <div
+        class="quote-ask"
+        role="group"
+        aria-label="Ask about the quoted words"
+        (keydown.escape)="dropQuote()"
+      >
+        <app-composer-quote [quote]="q.quote" (dropped)="dropQuote()" />
+        <app-tangent-ask
+          label="Your question about the quoted words, asked in a new lane"
+          placeholder="Ask about this…"
+          settingsLabel="More: Tangent from here with this quote…"
+          [expandable]="true"
+          [focusOnOpen]="true"
+          [busy]="asking()"
+          [(text)]="askText"
+          (ask)="askQuoted(q, $event)"
+          (settings)="moreAboutQuoted(q, $event)"
+        />
+      </div>
     </div>
   }
 

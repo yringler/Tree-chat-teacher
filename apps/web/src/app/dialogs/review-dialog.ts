@@ -114,7 +114,7 @@ const EXCERPT_CHARS = 280;
                 [disabled]="acting()"
                 (click)="branchWithReviewer()"
               >
-                <app-icon name="tangent" /> Tangent here with {{ labelOf(r, r.model) }}
+                <app-icon name="tangent" /> Tangent here with {{ labelOf(r, r.model) }}…
               </button>
               <button type="button" class="icon-btn" aria-label="Copy review" (click)="copy()">
                 <app-icon name="copy" [size]="14" />
@@ -247,19 +247,17 @@ export class ReviewDialog implements OnInit {
     }
   }
 
-  protected async branchWithReviewer(): Promise<void> {
+  /** "Tangent here with …": the tangent dialog on the reviewer's model, to write its first message. */
+  protected branchWithReviewer(): void {
     const r = this.review();
     if (!r) return;
-    this.acting.set(true);
-    const branch = await this.store.createBranch({
+    this.close();
+    this.ui.dialogs.open({
+      kind: 'branch',
       fromNodeId: this.nodeId(),
-      contextMode: 'path',
-      providerId: r.providerId,
-      funding: r.funding ?? 'own-key',
-      model: r.model,
+      quote: null,
+      route: { providerId: r.providerId, funding: r.funding ?? 'own-key', model: r.model },
     });
-    this.acting.set(false);
-    if (branch) this.close();
   }
 
   protected async copy(): Promise<void> {

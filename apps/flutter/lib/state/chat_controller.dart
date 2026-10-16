@@ -182,15 +182,19 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  /// Creates a tangent from [node] and puts it on screen, titled [title]
-  /// when it follows a suggestion, about [anchorQuote] when the learner
-  /// selected words in it. Returns its id (its first message is still to
-  /// send), or null on error (see [notice]).
-  Future<String?> startTangent(
-    ChatNode node, {
+  /// Starts a tangent from [node] with [question] as its first message, and
+  /// puts it on screen: titled [title] when it follows a suggestion, about
+  /// [anchorQuote] when the learner selected words in it. A tangent is only
+  /// made with its question. Returns its id and whether the server started
+  /// the reply (see [send]), or null when it could not be made (see
+  /// [notice]).
+  Future<({String id, Future<bool> accepted})?> startTangent(
+    ChatNode node,
+    String question, {
     String? title,
     String? anchorQuote,
   }) async {
+    if (question.trim().isEmpty) return null;
     _notice = null;
     _sending = true;
     _notify();
@@ -203,7 +207,7 @@ class ChatController extends ChangeNotifier {
       _branches[created.id] = created;
       _sending = false;
       selectBranch(created.id);
-      return created.id;
+      return (id: created.id, accepted: send(question));
     } on Object catch (error) {
       _sending = false;
       _fail(error);

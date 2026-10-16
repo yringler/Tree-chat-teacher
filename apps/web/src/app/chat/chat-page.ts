@@ -15,6 +15,8 @@ import { clip, REPLY_ACTION, type MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
   Composer,
+  ComposerController,
+  ComposerQuote,
   endpointTitle,
   Icon,
   JumpToEnd,
@@ -41,6 +43,7 @@ import { RouteBar } from './route-bar';
   imports: [
     ChatHeader,
     Composer,
+    ComposerQuote,
     Icon,
     JumpToEnd,
     MessageItem,
@@ -65,19 +68,25 @@ export class ChatPage implements OnDestroy {
   /** The user's text size for the messages and composer (see chat.css). */
   protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
+  private readonly composer = inject(ComposerController);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /**
-   * Text selected in a finished message: offers "Ask about this" (a `path`
-   * branch quoting it, opened ready to type) and, by its gear, the full
-   * "Branch from here" dialog with the quote filled in.
+   * Text selected in a finished message: offers "Ask about this" (the words
+   * on the composer, asked about in a `path` tangent made when the message
+   * is sent) and, by its gear, the full "Branch from here" dialog with the
+   * quote filled in.
    */
   protected readonly selection = new PendingQuote(() => this.quoteToAsk());
-  protected readonly asking = signal(false);
+  /** Words "Ask about this" put on the composer: the next message asks about them in a new tangent. */
+  protected readonly quote = signal<MessageQuote | null>(null);
   /** Where the conversation is scrolled. */
   protected readonly thread = new ThreadScroll({
     store: this.store,
     scroller: () => this.scroller()?.nativeElement,
-    moved: () => this.selection.clear(),
+    moved: () => {
+      this.selection.clear();
+      this.quote.set(null);
+    },
   });
 
   /**
@@ -89,6 +98,7 @@ export class ChatPage implements OnDestroy {
     const b = this.store.selectedBranch();
     if (!b) return 'Message…';
     if (this.store.path().length === 0) return 'Start the conversation…';
+    if (this.quote()) return 'Ask about this…';
     // A new branch without messages: the next one starts it.
     if (this.store.emptyBranch()) return 'Ask your question…';
     return 'Continue this thread…';
@@ -101,6 +111,7 @@ export class ChatPage implements OnDestroy {
   protected readonly sendTitle = computed(() => {
     const b = this.store.selectedBranch();
     if (!b || this.store.path().length === 0) return null;
+    if (this.quote()) return 'Ask in a new tangent about the quoted words';
     const hint = b.parentBranchId ? REPLY_ACTION.hintInTangent : REPLY_ACTION.hint;
     return `${REPLY_ACTION.label}: ${hint}`;
   });
@@ -120,9 +131,12 @@ export class ChatPage implements OnDestroy {
     return (id && this.store.unsentDrafts().get(id)) || '';
   });
 
-  /** Compare is offered: Normal and Max are two models the open branch can use, and it is idle. */
+  /**
+   * Compare is offered: Normal and Max are two models the open branch can
+   * use, it is idle, and the message continues it (not a quote's new tangent).
+   */
   protected readonly canCompare = computed(
-    () => !this.store.busy() && this.tiers.available(this.store.selectedBranch()),
+    () => !this.store.busy() && !this.quote() && this.tiers.available(this.store.selectedBranch()),
   );
 
   /** Pick mode, with what the message being linked from says (for the banner). */
@@ -161,24 +175,21 @@ export class ChatPage implements OnDestroy {
     this.selection.destroy();
   }
 
-  /** "Ask about this": a `path` branch quoting the selection, opened with the composer focused. */
-  protected async askAbout(q: MessageQuote): Promise<void> {
+  /** "Ask about this": the selection on the composer, focused; the tangent is made when it is sent. */
+  protected askAbout(q: MessageQuote): void {
     if (this.selectionLocked()) {
       this.moreAbout(q);
       return;
     }
     this.selection.clear();
     window.getSelection()?.removeAllRanges();
-    this.asking.set(true);
-    try {
-      await this.store.createBranch({
-        fromNodeId: q.nodeId,
-        contextMode: 'path',
-        anchorQuote: q.quote,
-      });
-    } finally {
-      this.asking.set(false);
-    }
+    this.quote.set(q);
+    this.composer.focus();
+  }
+
+  protected dropQuote(): void {
+    this.quote.set(null);
+    this.composer.focus();
   }
 
   /** The gear: "Branch from here" with the quote filled in (mode, model, starting message…). */
@@ -202,11 +213,22 @@ export class ChatPage implements OnDestroy {
   }
 
   protected send(content: string): void {
+    const q = this.quote();
+    if (q) {
+      void this.askQuoted(q, content);
+      return;
+    }
     const id = this.store.selectedBranchId();
     if (!id) return;
     this.thread.pin();
     if (this.store.focusedNodeId()) this.store.focus(null);
     void this.store.send(id, content);
+  }
+
+  /** The message starts a `path` tangent about the quoted words; they stay on the composer if it can't be made. */
+  private async askQuoted(q: MessageQuote, content: string): Promise<void> {
+    this.thread.pin();
+    if (await this.store.askFrom(q.nodeId, content, q.quote)) this.quote.set(null);
   }
 
   /** Compare: Normal and Max answer the message in a dialog; the text stays until one is kept. */
