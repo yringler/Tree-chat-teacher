@@ -2,7 +2,8 @@
 
 A small Flutter version of Learn (`apps/simple`): sign in, the lessons list,
 and the chat with streaming replies and tangents. One codebase for the web,
-Android and iOS. The Worker serves the web build at `/app/`.
+Android and iOS. The Android app is public on Google Play; iOS has not been built or
+run. The Worker serves the web build at `/app/`.
 
 ## Setup
 
@@ -190,5 +191,6 @@ Then run the workflow with a track. A new personal developer account may
 have to run a closed test before production unlocks; Play Console shows the
 requirement.
 
-iOS isn't set up: it needs a macOS runner with Xcode, a paid Apple Developer
-membership, and a signing certificate and provisioning profile on the runner.
+iOS isn't set up. The Apple Developer membership exists; it still needs a macOS
+runner with Xcode, and a signing certificate and provisioning profile on the
+runner.
