@@ -1,19 +1,19 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  type ElementRef,
-  inject,
-  signal,
-  viewChild,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import type { Payer } from '@tangent/shared';
+import {
+  ANTHROPIC_PROVIDER_ID,
+  LEARN_KEY_LABELS,
+  OPENROUTER_PROVIDER_ID,
+  type LearnKeyProvider,
+  type Payer,
+} from '@tangent/shared';
 import {
   creditFeeText,
   errorMessage,
   formatCents,
-  Icon,
+  KeyForm,
+  type KeySubmission,
   Modal,
   PoolMeter,
   ToastStore,
@@ -23,15 +23,17 @@ import { UiStore } from '../state/ui-store';
 import { LearnFunding } from '../state/learn-funding';
 
 /**
- * How replies are paid for: the learner's own OpenRouter key (they pay
- * OpenRouter directly; where the membership is required, it needs one, so a
+ * How replies are paid for: the learner's own key (they pay its provider
+ * directly; where the membership is required, it needs one, so a
  * non-member sees it disabled with a link to the billing page), Tangent
  * credit (prepaid, on the built-in provider: the model's list price, bought
  * with a service fee, open to anyone, offered only when the server sells it), or the
- * open pool, while it is on. The key is read from the input only at submit
- * time, posted once and the field cleared: the server seals it into an
- * HttpOnly cookie this code can't read (the same cookie as power mode's
- * OpenRouter key).
+ * open pool, while it is on. The own key is OpenRouter's or, where the
+ * server offers it, Anthropic's, on which Learn runs a fixed pair of models
+ * (the dialog says which, and that power mode is where to choose others).
+ * The key is entered through `KeyForm`, which hands it over once: the
+ * server seals it into an HttpOnly cookie this code can't read (the same
+ * cookie as power mode's keys).
  *
  * Opened by a message refused for want of the own key, it says so; saving a
  * key, or picking Tangent credit or the pool, then sends it (and closes).
@@ -39,14 +41,37 @@ import { LearnFunding } from '../state/learn-funding';
  */
 @Component({
   selector: 'app-model-access-dialog',
-  imports: [Modal, Icon, PoolMeter, RouterLink],
+  imports: [Modal, KeyForm, NgTemplateOutlet, PoolMeter, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="How replies are paid for" (closed)="close()">
+      <!-- Which own key replies run on: part of the own key's option, shown while it is picked. -->
+      <ng-template #whichKey>
+        @if (keyChoice()) {
+          <fieldset class="access-choice key-choice">
+            <legend class="field-label">Which key</legend>
+            @for (k of funding.ownKeyOptions(); track k) {
+              <label class="access-option">
+                <input
+                  type="radio"
+                  name="own-key"
+                  [value]="k"
+                  [checked]="funding.ownKey() === k"
+                  (change)="chooseKey(k)"
+                />
+                <span>
+                  <strong>{{ labels[k] }}</strong>
+                  <span class="muted small">{{ keyHints[k] }}</span>
+                </span>
+              </label>
+            }
+          </fieldset>
+        }
+      </ng-template>
       @if (waiting()) {
         <p class="notice" role="status">
-          Your message wasn’t sent: replies run on your own OpenRouter key, and none is saved in
-          this browser. Save your key below, or pick another way to pay, and it is sent.
+          Your message wasn’t sent: replies run on your own {{ keyLabel() }} key, and none is saved
+          in this browser. Save your key below, or pick another way to pay, and it is sent.
         </p>
       }
       @if (funding.creditOffered() || funding.poolOn()) {
@@ -62,20 +87,21 @@ import { LearnFunding } from '../state/learn-funding';
               (change)="choose('own-key')"
             />
             <span>
-              <strong>Use my own OpenRouter key</strong>
+              <strong>Use my own API key</strong>
               <span class="muted small">
                 @if (ownKeyLocked()) {
-                  Needs a membership ({{ price() }}/year): covers Tangent while OpenRouter bills you
-                  directly.
+                  Needs a membership ({{ price() }}/year): covers Tangent while
+                  {{ keyLabel() }} bills you directly.
                   <a routerLink="/billing" (click)="close()">Become a member</a>
                 } @else if (membershipRequired()) {
-                  You pay OpenRouter directly; your membership covers Tangent.
+                  You pay {{ keyLabel() }} directly; your membership covers Tangent.
                 } @else {
-                  Free here: you pay OpenRouter directly.
+                  Free here: you pay {{ keyLabel() }} directly.
                 }
               </span>
             </span>
           </label>
+          <ng-container [ngTemplateOutlet]="whichKey" />
           @if (funding.creditOffered()) {
             <label class="access-option">
               <input
@@ -123,15 +149,16 @@ import { LearnFunding } from '../state/learn-funding';
       } @else {
         <p class="muted small">
           @if (ownKeyLocked()) {
-            Replies run on your own OpenRouter key, which needs a membership ({{ price() }}/year):
-            it covers Tangent while OpenRouter bills you directly.
+            Replies run on your own {{ keyLabel() }} key, which needs a membership ({{
+              price()
+            }}/year): it covers Tangent while {{ keyLabel() }} bills you directly.
             <a routerLink="/billing" (click)="close()">Become a member</a>
           } @else if (membershipRequired()) {
-            Replies run on your own OpenRouter key: you pay OpenRouter directly, and your membership
-            covers Tangent.
+            Replies run on your own {{ keyLabel() }} key: you pay {{ keyLabel() }} directly, and
+            your membership covers Tangent.
           } @else {
-            Replies run on your own OpenRouter key: you pay OpenRouter directly, and Tangent charges
-            nothing.
+            Replies run on your own {{ keyLabel() }} key: you pay {{ keyLabel() }} directly, and
+            Tangent charges nothing.
           }
         </p>
       }
@@ -165,8 +192,11 @@ import { LearnFunding } from '../state/learn-funding';
               This server can't store your own key (KEY_ENCRYPTION_SECRET is not set).
             </p>
           } @else {
+            @if (!funding.creditOffered() && !funding.poolOn()) {
+              <ng-container [ngTemplateOutlet]="whichKey" />
+            }
             <div class="key-row">
-              <span class="key-name">OpenRouter key</span>
+              <span class="key-name">{{ keyLabel() }} key</span>
               @if (funding.hasOwnKey()) {
                 <span class="badge badge-ok">saved</span>
                 <button
@@ -181,33 +211,22 @@ import { LearnFunding } from '../state/learn-funding';
                 <span class="badge badge-warn">not set</span>
               }
             </div>
-            <form class="form" (submit)="$event.preventDefault(); save()">
-              <label class="field">
-                <span class="field-label">
-                  {{ funding.hasOwnKey() ? 'Replace your key' : 'Your OpenRouter API key' }}
-                </span>
-                <input
-                  #keyInput
-                  type="password"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder="sk-or-…"
-                  required
-                />
-              </label>
+            <app-key-form
+              [providers]="[{ id: funding.ownKey(), label: keyLabel() }]"
+              [provider]="funding.ownKey()"
+              [label]="funding.hasOwnKey() ? 'Replace your key' : 'Your ' + keyLabel() + ' API key'"
+              [placeholder]="keyPlaceholders[funding.ownKey()]"
+              [busy]="busy()"
+              (saved)="save($event)"
+            >
               <p class="muted small">
                 Create one at
-                <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener"
-                  >openrouter.ai</a
-                >. It is stored encrypted in this browser only until it goes 7 days unused, and
-                power mode's OpenRouter provider uses it too.
+                <a [href]="keyPages[funding.ownKey()].href" target="_blank" rel="noopener">{{
+                  keyPages[funding.ownKey()].name
+                }}</a
+                >. Power mode's {{ keyLabel() }} provider uses it too.
               </p>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary" [disabled]="busy()">
-                  <app-icon name="key" [size]="14" /> Save key
-                </button>
-              </div>
-            </form>
+            </app-key-form>
           }
         } @else {
           <p class="muted small">Loading…</p>
@@ -226,13 +245,49 @@ export class ModelAccessDialog {
   private readonly toast = inject(ToastStore);
   /** A message refused for want of the own key waits for a way to pay. */
   protected readonly waiting = computed(() => this.lessons.unsentDraft()?.needsKey ?? false);
-  private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
+
+  protected readonly labels = LEARN_KEY_LABELS;
+  /** What each own key gets Learn, so the learner picks knowing it. */
+  protected readonly keyHints: Readonly<Record<LearnKeyProvider, string>> = {
+    [OPENROUTER_PROVIDER_ID]: 'Replies use the model Learn picks for tutoring.',
+    [ANTHROPIC_PROVIDER_ID]:
+      'Replies use Claude Sonnet; titles and summaries use Claude Haiku. To pick other models, use power mode.',
+  };
+  protected readonly keyPlaceholders: Readonly<Record<LearnKeyProvider, string>> = {
+    [OPENROUTER_PROVIDER_ID]: 'sk-or-…',
+    [ANTHROPIC_PROVIDER_ID]: 'sk-ant-…',
+  };
+  /** Where to create each key. */
+  protected readonly keyPages: Readonly<Record<LearnKeyProvider, { href: string; name: string }>> =
+    {
+      [OPENROUTER_PROVIDER_ID]: {
+        href: 'https://openrouter.ai/settings/keys',
+        name: 'openrouter.ai',
+      },
+      [ANTHROPIC_PROVIDER_ID]: {
+        href: 'https://console.anthropic.com/settings/keys',
+        name: 'console.anthropic.com',
+      },
+    };
+  protected readonly keyLabel = this.funding.ownKeyLabel;
 
   /** The way to pay the radios show: the learner's pick (credit that can't pay stays picked). */
   protected readonly payment = this.funding.picked;
   /** The membership is required here (the fee is on). */
   protected readonly membershipRequired = computed(
     () => this.funding.membership()?.required ?? false,
+  );
+  /**
+   * "Which key" shows: the own key is picked and can be saved here, and the
+   * server offers more than one. It sits under the own key's option, so it
+   * reads as part of it, not of the whole dialog.
+   */
+  protected readonly keyChoice = computed(
+    () =>
+      this.payment() === 'own-key' &&
+      !this.ownKeyLocked() &&
+      (this.funding.keyStatus()?.enabled ?? false) &&
+      this.funding.ownKeyOptions().length > 1,
   );
   /** The own key needs a membership the learner lacks: the option is disabled. */
   protected readonly ownKeyLocked = computed(() => !this.funding.member());
@@ -263,20 +318,24 @@ export class ModelAccessDialog {
     if (this.funding.switchTo(payment)) this.close();
   }
 
-  protected async save(): Promise<void> {
-    const input = this.keyInput()?.nativeElement;
-    const apiKey = input?.value.trim() ?? '';
-    if (input) input.value = '';
-    if (!apiKey) return;
+  /** Replies run on the learner's own `key` from now on; a message waiting for it is sent once it is saved. */
+  protected chooseKey(key: LearnKeyProvider): void {
+    this.error.set(null);
+    this.funding.chooseKey(key);
+    if (this.funding.hasOwnKey() && this.lessons.resumeUnsent()) this.close();
+  }
+
+  protected async save({ apiKey }: KeySubmission): Promise<void> {
+    const key = this.funding.ownKey();
     await this.run(async () => {
-      await this.funding.saveKey(apiKey);
-      this.toast.notify('Your OpenRouter key is saved');
+      await this.funding.saveKey(key, apiKey);
+      this.toast.notify(`Your ${LEARN_KEY_LABELS[key]} key is saved`);
       if (this.payment() === 'own-key' && this.lessons.resumeUnsent()) this.close();
     });
   }
 
   protected async forget(): Promise<void> {
-    await this.run(() => this.funding.forgetKey());
+    await this.run(() => this.funding.forgetKey(this.funding.ownKey()));
   }
 
   private async run(fn: () => Promise<void>): Promise<void> {

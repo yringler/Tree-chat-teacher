@@ -23,6 +23,7 @@ class TangentApp extends StatefulWidget {
     super.key,
     required this.api,
     this.choiceStore,
+    this.keyChoiceStore,
     this.signInStore,
     this.initialLocation,
     this.captcha = TurnstileWidget.new,
@@ -32,6 +33,9 @@ class TangentApp extends StatefulWidget {
 
   /// Where the learner's pick of who pays is kept between launches.
   final TokenStore? choiceStore;
+
+  /// Where the learner's pick of own key is kept between launches.
+  final TokenStore? keyChoiceStore;
 
   /// Where a sign-in waiting on its emailed code is kept between launches.
   final TokenStore? signInStore;
@@ -50,6 +54,7 @@ class _TangentAppState extends State<TangentApp> {
   late final _session = SessionController(
     widget.api,
     choiceStore: widget.choiceStore,
+    keyChoiceStore: widget.keyChoiceStore,
     signInStore: widget.signInStore,
   );
   late final _lessons = LessonsController(api: widget.api, session: _session);

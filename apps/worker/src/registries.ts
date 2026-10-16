@@ -14,7 +14,6 @@ import {
 import { createProviderRegistry, decorateProvider } from '@tangent/providers';
 import {
   DEFAULT_SYSTEM_PROMPT,
-  OPENROUTER_PROVIDER_ID,
   type BranchFunding,
   type LlmProvider,
   type ProviderConfig,
@@ -32,12 +31,14 @@ import { createPoolUsageMeter } from './pool/meter.js';
 import {
   callPayer,
   isPoolFunded,
+  learnOwnKey,
   type AccountContext,
   type AppEnv,
   type PoolAccount,
 } from './env.js';
 import {
   apiKeySecrets,
+  learnKeyConfig,
   providerConfigs,
   providerEnv,
   type UserApiKeys,
@@ -80,8 +81,11 @@ function poolScope(account: AccountContext, scope: ServiceScope) {
  *   operator's key; user keys are ignored. A generating pool request gets the
  *   pool's config of it (`poolProviderConfig`). Learn pays per request, so
  *   this is its one registry, whatever a branch's funding says.
- * - simple, own key: the same provider config, on the user's OpenRouter key
- *   (key cookie entry OPENROUTER_PROVIDER_ID) and never the operator's.
+ * - simple, own key: the config of the learner's chosen own key
+ *   (`learnKeyConfig`): the same built-in config on their OpenRouter key, or
+ *   power's Anthropic endpoint on their Anthropic key with Learn's one
+ *   Anthropic model (key cookie entry = the provider id), never the
+ *   operator's key.
  * - power: the configured providers, user keys overriding server secrets.
  *   Server secrets only for operatorKeys (the local dev bypass), and never
  *   the built-in key. Tangent credit is not in it: a branch on `credit`
@@ -102,12 +106,17 @@ export function registryFor(
       const pool = poolScope(account, scope);
       return windowedRegistry(env, [pool ? poolProviderConfig(env, pool) : config]);
     }
-    const own = apiKeys?.[OPENROUTER_PROVIDER_ID];
+    const ownKey = learnOwnKey(account);
+    const ownConfig = learnKeyConfig(env, ownKey);
+    // resolveAccount names only an offered key; replying on another endpoint than the one
+    // the chat settings title and summarise on would be a silent mismatch.
+    if (!ownConfig) throw new Error(`Learn's own key "${ownKey}" is not offered here`);
+    const own = apiKeys?.[ownConfig.id];
     return windowedRegistry(
       env,
-      [config],
-      own ? { [config.id]: own } : undefined,
-      new Set([BUILT_IN_API_KEY_SECRET, ...apiKeySecrets([config])]),
+      [ownConfig],
+      own ? { [ownConfig.id]: own } : undefined,
+      new Set([BUILT_IN_API_KEY_SECRET, ...apiKeySecrets([ownConfig])]),
     );
   }
   const configs = providerConfigs(env);
@@ -194,7 +203,7 @@ export function chatSettingsFor(
 ): ChatSettings {
   const pool = poolScope(account, scope);
   if (pool) return poolChatSettings(pool);
-  if (account.mode === 'simple') return simpleChatSettings(env);
+  if (account.mode === 'simple') return simpleChatSettings(env, learnOwnKey(account));
   const { summaryProviderId, summaryModel, autoTitle } = appConfig(env).power;
   // A summary provider is looked up among the own-key routes only (ChatService), so
   // summaries of branches on the user's own keys never cost credit.

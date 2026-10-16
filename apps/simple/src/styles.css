@@ -952,6 +952,17 @@ app-related-links.connections {
   gap: 2px;
 }
 
+/* Which own key replies run on, under "Use my own API key". */
+.key-choice > legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+/* Indented under the own key's option, among the ways to pay, as part of it. */
+.access-choice .key-choice {
+  margin: 0 0 4px 28px;
+}
+
 /* What replies are paid by (shell/paid-by.ts): opens the dialog above. */
 
 .pay-pill {

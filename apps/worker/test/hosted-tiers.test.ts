@@ -112,8 +112,8 @@ describe('tier config vars', () => {
   it('wrangler.jsonc ships the same models and settings as the code defaults', async () => {
     const live = asShipped();
     expect(simpleProviderConfig(live).models).toEqual(simpleProviderConfig(deployed()).models);
-    expect(simpleChatSettings(live).summaryModel).toBe(DEFAULT_BACKGROUND_MODEL);
-    expect(simpleChatSettings(live).summaryEffort).toBe('low');
+    expect(simpleChatSettings(live, 'openrouter').summaryModel).toBe(DEFAULT_BACKGROUND_MODEL);
+    expect(simpleChatSettings(live, 'openrouter').summaryEffort).toBe('low');
     const [pool, defaults] = await Promise.all([
       resolvePoolParams(live, null),
       resolvePoolParams(deployed(), null),
@@ -250,8 +250,8 @@ describe("Learn's Normal with request settings", () => {
   });
 
   it('give summaries and titles the background effort', () => {
-    expect(simpleChatSettings(tuned()).summaryEffort).toBe('none');
-    expect(simpleChatSettings(deployed()).summaryEffort).toBe('low');
+    expect(simpleChatSettings(tuned(), 'openrouter').summaryEffort).toBe('none');
+    expect(simpleChatSettings(deployed(), 'openrouter').summaryEffort).toBe('low');
   });
 
   it('ask the default model as evaluated by default', async () => {

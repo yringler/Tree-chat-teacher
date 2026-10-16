@@ -1,9 +1,11 @@
 import { computed, inject, Injectable, linkedSignal, signal } from '@angular/core';
 import {
+  LEARN_KEY_LABELS,
   learnPayer,
   OPENROUTER_PROVIDER_ID,
   type BillingSummary,
   type KeyStatusResponse,
+  type LearnKeyProvider,
   type MembershipInfo,
   type Payer,
   type PoolMeResponse,
@@ -24,9 +26,9 @@ import { PaymentChoice } from './payment-choice';
 /** What Learn's replies run on, for the header and the New lesson form. */
 export interface PaidBy {
   readonly payer: Payer;
-  /** "Your OpenRouter key", "Tangent credit" or "Open pool". */
+  /** "Your OpenRouter key", "Your Anthropic key", "Tangent credit" or "Open pool". */
   readonly label: string;
-  /** The header's shorter name: "Your key", "Credit" or "Pool". */
+  /** The header's shorter name: "OpenRouter key", "Anthropic key", "Credit" or "Pool". */
   readonly short: string;
   /** "$1.20 left", "$2.40 in the pool" or "no key saved"; null when there is nothing to add. */
   readonly detail: string | null;
@@ -35,8 +37,9 @@ export interface PaidBy {
 }
 
 /**
- * Who pays for Learn's replies: the learner's own OpenRouter key (which
- * needs the yearly membership where one is required), prepaid Tangent
+ * Who pays for Learn's replies: the learner's own key, OpenRouter or (where
+ * the server offers it) Anthropic (either needs the yearly membership where
+ * one is required), prepaid Tangent
  * credit, or the open pool (neither needs a membership). Each fact is held
  * here once: whether credit is offered (the caller, AccountStore), the
  * balance and top-ups (the billing summary), the membership, the pool's
@@ -83,6 +86,8 @@ export class LearnFunding {
   private readonly reported = signal<{ asked: Payer; used: Payer } | null>(null);
   /** The open lesson's part in a switch (LessonStore): true when it sent a waiting message. */
   private switched: (payer: Payer) => boolean = () => false;
+  /** What follows a fact the payer goes by (LessonStore: the provider list). */
+  private factsHook: () => void = () => undefined;
 
   /** This server sells Tangent credit. */
   readonly creditOffered = computed(() => this.account.me()?.builtInCredit ?? false);
@@ -90,15 +95,41 @@ export class LearnFunding {
   readonly poolOn = computed(() => this.poolStatus()?.enabled ?? false);
   /** No membership the own key needs is missing. */
   readonly member = computed(() => !membershipBlocks(this.membership()));
+  /** The own keys this server lets Learn reply on (OpenRouter until the key status is read). */
+  readonly ownKeyOptions = computed<readonly LearnKeyProvider[]>(
+    () => this.keyStatus()?.learnProviders ?? [OPENROUTER_PROVIDER_ID],
+  );
   /**
-   * The learner's own OpenRouter key is saved in this browser; null until
+   * The own key the learner is shown: the one they picked where this server
+   * offers it, else OpenRouter, as the server decides. Calls name the pick
+   * itself (`PaymentChoice.requestedKey`), so a key status still loading, or
+   * one that failed, shows OpenRouter here but never asks for it.
+   */
+  readonly ownKey = computed<LearnKeyProvider>(() => {
+    const chosen = this.choice.chosenKey();
+    return chosen && this.ownKeyOptions().includes(chosen) ? chosen : OPENROUTER_PROVIDER_ID;
+  });
+  /**
+   * The key the calls name for replies: the requested own key while the
+   * learner pays with one, else OpenRouter's endpoint (credit and the pool
+   * run on it). The provider list follows it (LessonStore).
+   */
+  readonly replyKey = computed<LearnKeyProvider>(() =>
+    this.payer() === 'own-key' ? this.choice.requestedKey() : OPENROUTER_PROVIDER_ID,
+  );
+  /** "OpenRouter" or "Anthropic". */
+  readonly ownKeyLabel = computed(() => LEARN_KEY_LABELS[this.ownKey()]);
+  /**
+   * The learner's own key (`ownKey`) is saved in this browser; null until
    * the key status is read, so a status still loading (or failed) never
    * moves a key user onto the pool.
    */
   readonly hasOwnKey = computed(() => {
     const status = this.keyStatus();
-    return status ? status.providers.includes(OPENROUTER_PROVIDER_ID) : null;
+    return status ? status.providers.includes(this.ownKey()) : null;
   });
+  /** Replies could run on the own key now: it is saved, and no membership it needs is missing. */
+  readonly ownKeyUsable = computed(() => this.member() && this.hasOwnKey() === true);
   /**
    * Credit can pay for replies: anyone can buy it (no membership needed), so
    * it is usable wherever top-ups are sold, and otherwise while a balance is
@@ -234,8 +265,8 @@ export class LearnFunding {
     const locked = this.membershipBlocked();
     return {
       payer,
-      label: 'Your OpenRouter key',
-      short: 'Your key',
+      label: `Your ${this.ownKeyLabel()} key`,
+      short: `${this.ownKeyLabel()} key`,
       detail: locked ? 'needs a membership' : missing ? 'no key saved' : null,
       warn: missing || locked,
     };
@@ -253,18 +284,21 @@ export class LearnFunding {
 
   /**
    * The composer's funding switch: both the learner's own credit (offered and
-   * a balance left) and the pool can pay, so the learner picks. Hidden while
-   * replies run on the own key: the switch picks between the funded sources.
-   * Hidden too until the billing summary is read, so it shows with the
-   * balance the payer goes by, not ahead of it. Membership plays no part:
-   * neither credit nor the pool needs one.
+   * a balance left) and the pool can pay, so the learner picks. Hidden too
+   * until the billing summary is read, so it shows with the balance the
+   * payer goes by, not ahead of it. Neither credit nor the pool needs a
+   * membership. While the own key could reply (`ownKeyUsable`) it is a third
+   * stop (`fundingKeyStop`); otherwise the switch is hidden while replies run
+   * on the own key, since it would offer no way back.
    */
   readonly fundingChoice = computed(() => {
-    if (!this.creditOffered() || !this.poolOn()) return false;
-    if (this.billing() === null || this.payer() === 'own-key') return false;
+    if (!this.creditOffered() || !this.poolOn() || this.billing() === null) return false;
+    if (this.payer() === 'own-key' && !this.ownKeyUsable()) return false;
     const own = this.poolMe()?.personalAvailableMicros ?? this.billing()?.availableMicros ?? 0;
     return own > 0;
   });
+  /** The funding switch has a stop for the own key ("Anthropic key"). */
+  readonly fundingKeyStop = computed(() => this.ownKeyUsable());
 
   /** Personal credit can be bought now: credit is offered and top-ups are sold. Anyone may buy. */
   readonly creditOnSale = computed(() => creditBuyable(this.creditOffered(), this.billing()));
@@ -296,6 +330,15 @@ export class LearnFunding {
   /** What the open lesson does when the payer is switched (`switchTo`). */
   whenSwitched(hook: (payer: Payer) => boolean): void {
     this.switched = hook;
+  }
+
+  /**
+   * What to do once any fact the payer and `replyKey` go by changes: a pick,
+   * the key status, the balance, the membership or the pool. Every write of
+   * them comes through here (`/api/me` is read once, before the lessons).
+   */
+  whenFactsChange(hook: () => void): void {
+    this.factsHook = hook;
   }
 
   /** A reply started on `used`, as the server reports it (the stream's `start`). */
@@ -332,6 +375,7 @@ export class LearnFunding {
   /** What the server said the latest reply ran on may no longer hold. */
   private factsChanged(): void {
     this.reported.set(null);
+    this.factsHook();
   }
 
   private useMembership(membership: MembershipInfo): void {
@@ -375,14 +419,23 @@ export class LearnFunding {
     }
   }
 
-  /** Stores the learner's OpenRouter key (sealed into an HttpOnly cookie by the server). */
-  async saveKey(apiKey: string): Promise<void> {
-    await this.api.saveKey(OPENROUTER_PROVIDER_ID, apiKey);
+  /**
+   * Replies run on the learner's own `key` from now on: the pick is
+   * remembered and the payer becomes the own key (`switchTo`).
+   */
+  chooseKey(key: LearnKeyProvider): boolean {
+    this.choice.chooseKey(key);
+    return this.switchTo('own-key');
+  }
+
+  /** Stores the learner's `provider` key (sealed into an HttpOnly cookie by the server). */
+  async saveKey(provider: LearnKeyProvider, apiKey: string): Promise<void> {
+    await this.api.saveKey(provider, apiKey);
     await this.refreshKey();
   }
 
-  async forgetKey(): Promise<void> {
-    await this.api.forgetKey(OPENROUTER_PROVIDER_ID);
+  async forgetKey(provider: LearnKeyProvider): Promise<void> {
+    await this.api.forgetKey(provider);
     await this.refreshKey();
   }
 }

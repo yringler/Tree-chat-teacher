@@ -95,7 +95,7 @@ void main() {
       await pumpApp(tester, api);
       expect(api.payerSet, Payer.pool);
       await open(tester);
-      await tester.tap(find.text('Use my own OpenRouter key'));
+      await tester.tap(find.text('Use my own API key'));
       await settle(tester);
       expect(find.text('No key saved.'), findsOneWidget);
 
@@ -116,6 +116,76 @@ void main() {
       expect(find.text('No key saved.'), findsOneWidget);
     });
 
+    testWidgets(
+      'where Anthropic is offered, picks it, says what Learn runs on it, and '
+      'saves its key',
+      (tester) async {
+        api.keyStatusAnswer = const KeyStatus(
+          enabled: true,
+          providers: [],
+          learnProviders: [LearnKey.openRouter, LearnKey.anthropic],
+        );
+        await pumpApp(tester, api);
+        await open(tester);
+        await tester.tap(find.text('Use my own API key'));
+        await settle(tester);
+        expect(find.text('Which key'), findsOneWidget);
+        expect(
+          find.text(
+            'Replies use Claude Sonnet; titles and summaries use Claude '
+            'Haiku. To pick other models, use power mode.',
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Anthropic'));
+        await settle(tester);
+        expect(api.ownKeySet, LearnKey.anthropic);
+        expect(api.payerSet, Payer.ownKey);
+
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Your Anthropic API key'),
+          'sk-ant-1',
+        );
+        await tester.ensureVisible(find.text('Save key'));
+        await tester.tap(find.text('Save key'));
+        await settle(tester);
+        expect(api.savedKeys, ['sk-ant-1']);
+        expect(find.text('Your Anthropic key is saved.'), findsOneWidget);
+
+        await tester.ensureVisible(find.text('Forget'));
+        await tester.tap(find.text('Forget'));
+        await settle(tester);
+        expect(api.forgotten, [LearnKey.anthropic]);
+      },
+    );
+
+    testWidgets(
+      '"Which key" sits right under the own key option, before the other '
+      'ways to pay',
+      (tester) async {
+        api.poolStatusAnswer = const PoolStatus(enabled: true, modelLabel: 'M');
+        api.keyStatusAnswer = const KeyStatus(
+          enabled: true,
+          providers: [],
+          learnProviders: [LearnKey.openRouter, LearnKey.anthropic],
+        );
+        await pumpApp(tester, api);
+        await open(tester);
+        expect(find.text('Which key'), findsNothing);
+        await tester.tap(find.text('Use my own API key'));
+        await settle(tester);
+        final which = tester.getTopLeft(find.text('Which key')).dy;
+        expect(
+          which,
+          greaterThan(tester.getTopLeft(find.text('Use my own API key')).dy),
+        );
+        expect(
+          which,
+          lessThan(tester.getTopLeft(find.text('Use the open pool')).dy),
+        );
+      },
+    );
+
     testWidgets('a rejected key says why', (tester) async {
       api.refuseKey = const ApiException(
         status: 400,
@@ -124,7 +194,7 @@ void main() {
       );
       await pumpApp(tester, api);
       await open(tester);
-      await tester.tap(find.text('Use my own OpenRouter key'));
+      await tester.tap(find.text('Use my own API key'));
       await settle(tester);
       await tester.enterText(find.byType(TextField).last, 'sk-or-bad');
       await tester.ensureVisible(find.text('Save key'));
@@ -149,7 +219,7 @@ void main() {
       await open(tester);
       final own = find.widgetWithText(
         RadioListTile<Payer>,
-        'Use my own OpenRouter key',
+        'Use my own API key',
       );
       expect(tester.widget<RadioListTile<Payer>>(own).enabled, isFalse);
       expect(find.textContaining('Needs a membership'), findsOneWidget);

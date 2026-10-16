@@ -50,6 +50,10 @@ class HttpTangentApi implements TangentApi {
   @override
   Payer payer = Payer.ownKey;
 
+  /// OpenRouter, the server's own default when the header is absent.
+  @override
+  LearnKey ownKey = LearnKey.openRouter;
+
   /// Reconnects of a reply's stream before giving up, with the delay
   /// doubling from [_baseDelay] (stream-runner.ts in web-shared).
   static const _maxReconnects = 4;
@@ -200,17 +204,13 @@ class HttpTangentApi implements TangentApi {
       KeyStatus.fromJson(await _object('GET', ['key', 'status']));
 
   @override
-  Future<void> saveKey(String apiKey) async {
-    await _send(
-      'POST',
-      ['key'],
-      body: {'provider': openRouterProviderId, 'apiKey': apiKey},
-    );
+  Future<void> saveKey(LearnKey key, String apiKey) async {
+    await _send('POST', ['key'], body: {'provider': key.id, 'apiKey': apiKey});
   }
 
   @override
-  Future<void> forgetKey() async {
-    await _send('DELETE', ['key'], body: {'provider': openRouterProviderId});
+  Future<void> forgetKey(LearnKey key) async {
+    await _send('DELETE', ['key'], body: {'provider': key.id});
   }
 
   // Lessons.
@@ -392,6 +392,7 @@ class HttpTangentApi implements TangentApi {
       ..headers.addAll({
         'x-tangent-mode': 'simple',
         'x-tangent-payment': payer.header,
+        'x-tangent-own-key': ownKey.id,
         'accept': 'application/json, text/event-stream',
         if (body != null) 'content-type': 'application/json',
         if (token != null) 'authorization': 'Bearer $token',

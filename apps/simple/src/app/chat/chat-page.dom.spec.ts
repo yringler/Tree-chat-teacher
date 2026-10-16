@@ -269,6 +269,55 @@ describe('Learn: the lesson page', () => {
     );
   });
 
+  it('a saved own key the learner can use is a third stop of the funding switch', async () => {
+    const both = { billing: billing({ availableMicros: 500_000 }), pool: POOL_ON } as const;
+    const p = await page(lesson(), { ...both, chosen: 'own-key' });
+    const pay = within(dock()).getByRole('radiogroup', { name: 'Pay for replies with' });
+    const stops = () =>
+      within(pay)
+        .getAllByRole('radio')
+        .map((r) => r.textContent?.trim());
+    expect(stops()).toEqual(['My credit', 'Open pool', 'OpenRouter key']);
+    expect(
+      within(pay).getByRole('radio', { name: 'OpenRouter key' }).getAttribute('aria-checked'),
+    ).toBe('true');
+    await p.user.click(within(pay).getByRole('radio', { name: 'My credit' }));
+    await p.fixture.whenStable();
+    expect(within(pay).getByRole('radio', { name: 'My credit' }).getAttribute('aria-checked')).toBe(
+      'true',
+    );
+  });
+
+  it('the own key stop names the key replies run on', async () => {
+    await page(lesson(), {
+      billing: billing({ availableMicros: 500_000 }),
+      pool: POOL_ON,
+      chosen: 'own-key',
+      savedKeys: ['anthropic'],
+      learnProviders: ['openrouter', 'anthropic'],
+      chosenKey: 'anthropic',
+    });
+    const pay = within(dock()).getByRole('radiogroup', { name: 'Pay for replies with' });
+    expect(
+      within(pay).getByRole('radio', { name: 'Anthropic key' }).getAttribute('aria-checked'),
+    ).toBe('true');
+  });
+
+  it('without a saved own key the funding switch keeps its two stops', async () => {
+    await page(lesson(), {
+      billing: billing({ availableMicros: 500_000 }),
+      pool: POOL_ON,
+      chosen: 'credit',
+      ownKey: false,
+    });
+    const two = within(dock()).getByRole('radiogroup', { name: 'Pay for replies with' });
+    expect(
+      within(two)
+        .getAllByRole('radio')
+        .map((r) => r.textContent?.trim()),
+    ).toEqual(['My credit', 'Open pool']);
+  });
+
   it('credit picked but used up: the composer says replies use the pool meanwhile', async () => {
     await page(lesson(), { billing: billing(), pool: POOL_ON, chosen: 'credit' });
     const note = within(dock()).getByText(/Your credit is used up, so replies use the open pool/);

@@ -8,6 +8,7 @@ import type {
   PoolStatusResponse,
   ChatNode,
   CreateBranchRequest,
+  KeyStatusResponse,
   CreateLinkRequest,
   MeResponse,
   NodeLink,
@@ -115,7 +116,12 @@ function fakeApi() {
     streamNode: vi.fn(async (_id: string, _signal: AbortSignal): Promise<Response> => stream([])),
     cancelNode: vi.fn(async (_id: string) => undefined),
     billing: vi.fn(async () => BILLING),
-    keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
+    keyStatus: vi.fn(async (): Promise<KeyStatusResponse> => ({
+      enabled: true,
+      hasKey: false,
+      providers: [],
+      learnProviders: ['openrouter'],
+    })),
     poolStatus: vi.fn(async () => POOL_STATUS),
     poolMe: vi.fn(async () => {
       throw new Error('not needed');
@@ -206,6 +212,41 @@ describe('LessonStore', () => {
     await s.store.init();
     expect(s.store.provider()?.id).toBe('openrouter');
     expect(s.store.treesLoaded()).toBe(true);
+  });
+
+  it('reads the providers again whenever the key replies run on changes', async () => {
+    const s = setup();
+    const choice = s.injector.get(PaymentChoice);
+    const funding = s.injector.get(LearnFunding);
+    // The server answers for the endpoint the headers name: the learner's Anthropic key, or
+    // the built-in endpoint on OpenRouter, credit or the pool.
+    const ANTHROPIC: ProviderInfo = { ...PROVIDER, id: 'anthropic', webSearch: false };
+    s.api.providers.mockImplementation(async () => {
+      const headers = choice.headers();
+      const onAnthropic =
+        headers['x-tangent-payment'] === 'own-key' && headers['x-tangent-own-key'] === 'anthropic';
+      return [onAnthropic ? ANTHROPIC : { ...PROVIDER, webSearch: true }];
+    });
+    funding.poolStatus.set(POOL_STATUS);
+    choice.chooseKey('anthropic');
+    // Booting: the key status isn't read yet, and calls name the key that was picked.
+    await s.store.init();
+    expect(s.store.provider()?.id).toBe('anthropic');
+    // Only OpenRouter's key is saved: with nothing picked, replies move to the pool.
+    s.api.keyStatus.mockResolvedValueOnce({
+      enabled: true,
+      hasKey: true,
+      providers: ['openrouter'],
+      learnProviders: ['openrouter', 'anthropic'],
+    });
+    await s.injector.get(LearnFunding).refreshKey();
+    expect(funding.payer()).toBe('pool');
+    await vi.waitFor(() => expect(s.store.provider()?.id).toBe('openrouter'));
+    // Picking the key again reads them again; facts that leave the key alone don't.
+    funding.chooseKey('anthropic');
+    await vi.waitFor(() => expect(s.store.provider()?.id).toBe('anthropic'));
+    await funding.refreshBalance();
+    expect(s.api.providers).toHaveBeenCalledTimes(3);
   });
 
   it('hands the payer the server used, from the start event, to the "Paid by" pill', async () => {

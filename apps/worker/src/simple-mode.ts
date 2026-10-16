@@ -1,6 +1,7 @@
 import { appChatSettings, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
 import { isOpenRouterBaseUrl, parseProviderConfigs } from '@tangent/providers';
 import {
+  ANTHROPIC_PROVIDER_ID,
   OPENROUTER_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
   TIER_LABELS,
@@ -8,6 +9,7 @@ import {
   BUILT_IN_MAX_OUTPUT_TOKENS,
   tierModel,
   tierOf,
+  type LearnKeyProvider,
   type ModelInfo,
   type ModelTier,
   type ProviderConfig,
@@ -44,12 +46,22 @@ export {
  * (`builtInPowerConfig`), in a registry of its own. Learn also runs this
  * config on the user's own OpenRouter key, unmetered (registries.ts `registryFor`).
  * Learn has one model, Normal; Max is power's (docs/DECISIONS.md says why).
+ * On the user's own Anthropic key, Learn runs power's Anthropic endpoint on
+ * a fixed pair of models instead (`LEARN_ANTHROPIC_REPLY_MODEL`,
+ * provider-configs.ts `learnKeyConfig`).
  */
 
 /** What the pool model is called where Learn's config doesn't list it (it is no tier). */
 export const POOL_MODEL_LABEL = 'Lite';
-/** What Learn's own key is: the user's OpenRouter key (cookie entry OPENROUTER_PROVIDER_ID). */
-export const LEARN_KEY_LABEL = 'OpenRouter';
+/**
+ * What Learn replies with on the learner's own Anthropic key, whatever a
+ * branch stores: the one model that key's config lists, so every other model
+ * runs as this one (`RouteResolver.runnable`). Constants, not vars: Learn has
+ * nothing to configure, and power is where a learner picks models.
+ */
+export const LEARN_ANTHROPIC_REPLY_MODEL = 'claude-sonnet-5-5';
+/** Titles and summaries on the learner's own Anthropic key: cheaper, and quick enough. */
+export const LEARN_ANTHROPIC_BACKGROUND_MODEL = 'claude-haiku-4-5';
 /** Output cap of a reply on a model that doesn't reason. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 /**
@@ -218,19 +230,38 @@ export function simpleFastModel(
   return config.models.some((m) => m.id === wanted) ? wanted : config.defaultModel;
 }
 
-/** Chat settings for simple accounts: capped input, fixed output reserve, cheap summaries. */
-export function simpleChatSettings(env: AppEnv): ChatSettings {
-  const config = simpleProviderConfig(env);
-  const summaryModel = simpleFastModel(env, config);
+/**
+ * Chat settings for simple accounts: capped input, fixed output reserve,
+ * cheap summaries. On the learner's own Anthropic key (`ownKey`) summaries
+ * and titles run on LEARN_ANTHROPIC_BACKGROUND_MODEL at the model's own
+ * effort, since the background vars describe the built-in provider's model.
+ */
+export function simpleChatSettings(env: AppEnv, ownKey: LearnKeyProvider): ChatSettings {
+  const summary =
+    ownKey === ANTHROPIC_PROVIDER_ID
+      ? {
+          summaryProviderId: ANTHROPIC_PROVIDER_ID,
+          summaryModel: LEARN_ANTHROPIC_BACKGROUND_MODEL,
+        }
+      : simpleSummaries(env);
   return appChatSettings('learn', {
-    summaryProviderId: config.id,
-    summaryModel,
-    summaryEffort: backgroundEffort(env, summaryModel),
+    ...summary,
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
     reasoningOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
     groundingPolicy: groundingPolicy(env),
   });
+}
+
+/** Where Learn's summaries and titles run on the built-in provider: its background model. */
+function simpleSummaries(env: AppEnv) {
+  const config = simpleProviderConfig(env);
+  const summaryModel = simpleFastModel(env, config);
+  return {
+    summaryProviderId: config.id,
+    summaryModel,
+    summaryEffort: backgroundEffort(env, summaryModel),
+  };
 }
 
 /**

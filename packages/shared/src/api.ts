@@ -22,7 +22,7 @@ import {
   MIN_REQUESTED_INPUT_TOKENS,
   requestedInputTokens,
 } from './input-limit.js';
-import type { AccountMode, MembershipInfo } from './billing.js';
+import type { AccountMode, LearnKeyProvider, MembershipInfo } from './billing.js';
 import {
   CITATIONS_MAX,
   CITATION_EXCERPT_MAX,
@@ -455,6 +455,11 @@ export interface KeyStatusResponse {
   hasKey: boolean;
   /** Provider ids with a stored key. Never any part of a key. */
   providers: string[];
+  /**
+   * The own keys Learn can reply on here: OpenRouter always, Anthropic where
+   * the server configures power's Anthropic provider.
+   */
+  learnProviders: LearnKeyProvider[];
 }
 
 /**

@@ -2,6 +2,7 @@ import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classe
 import { Injector } from '@angular/core';
 import type {
   BillingSummary,
+  KeyStatusResponse,
   Payer,
   MembershipInfo,
   MeResponse,
@@ -112,7 +113,12 @@ function setup(
     billing: vi.fn(billing),
     poolStatus: vi.fn(async () => pool),
     poolMe: vi.fn(async () => poolMe),
-    keyStatus: vi.fn(async () => ({ enabled: true, hasKey: true, providers: ['openrouter'] })),
+    keyStatus: vi.fn(async (): Promise<KeyStatusResponse> => ({
+      enabled: true,
+      hasKey: true,
+      providers: ['openrouter'],
+      learnProviders: ['openrouter'],
+    })),
   };
   const injector = Injector.create({
     providers: [
@@ -338,7 +344,7 @@ describe('LearnFunding membership', () => {
     expect(funding.paidBy()).toEqual({
       payer: 'own-key',
       label: 'Your OpenRouter key',
-      short: 'Your key',
+      short: 'OpenRouter key',
       detail: null,
       warn: false,
     });
@@ -390,7 +396,12 @@ describe('LearnFunding membership', () => {
 describe('LearnFunding paidBy', () => {
   it('names credit with its balance, and warns once it is used up', async () => {
     const { funding, api } = setup(async () => summary(membership({ required: false }), 1_200_000));
-    api.keyStatus.mockResolvedValueOnce({ enabled: true, hasKey: false, providers: [] });
+    api.keyStatus.mockResolvedValueOnce({
+      enabled: true,
+      hasKey: false,
+      providers: [],
+      learnProviders: ['openrouter'],
+    });
     signIn(funding, me(membership({ required: false })));
     // No key saved and the pool not on: credit, which can be bought, before the balance is read.
     await funding.refreshKey();
@@ -409,13 +420,18 @@ describe('LearnFunding paidBy', () => {
 
   it('names the own key, and warns while none is saved', async () => {
     const { funding, api } = setup(async () => summary(membership()));
-    api.keyStatus.mockResolvedValueOnce({ enabled: true, hasKey: false, providers: [] });
+    api.keyStatus.mockResolvedValueOnce({
+      enabled: true,
+      hasKey: false,
+      providers: [],
+      learnProviders: ['openrouter'],
+    });
     pick(funding, 'own-key');
     await funding.refreshKey();
     expect(funding.paidBy()).toEqual({
       payer: 'own-key',
       label: 'Your OpenRouter key',
-      short: 'Your key',
+      short: 'OpenRouter key',
       detail: 'no key saved',
       warn: true,
     });
@@ -426,7 +442,12 @@ describe('LearnFunding paidBy', () => {
   it('a locked own key asks for the membership, not for a key', async () => {
     const { funding, api } = setup(async () => summary(membership()));
     signIn(funding, me(membership()));
-    api.keyStatus.mockResolvedValueOnce({ enabled: true, hasKey: false, providers: [] });
+    api.keyStatus.mockResolvedValueOnce({
+      enabled: true,
+      hasKey: false,
+      providers: [],
+      learnProviders: ['openrouter'],
+    });
     pick(funding, 'own-key');
     await funding.refreshKey();
     expect(funding.membershipBlocked()).toBe(true);
@@ -490,6 +511,50 @@ describe('LearnFunding open pool', () => {
     expect(funding.payer()).toBe('own-key');
     expect(funding.paidBy().label).toBe('Your OpenRouter key');
     expect(funding.fundingChoice()).toBe(false);
+  });
+
+  it('the funding toggle gains a stop for the own key while a saved own key could reply', async () => {
+    const { funding, api } = setup(async () => summary(membership({ status: 'active' })));
+    signIn(funding, me(membership({ status: 'active' })));
+    await funding.refreshPool();
+    await funding.refreshBalance();
+    expect(funding.fundingChoice()).toBe(true);
+    expect(funding.fundingKeyStop()).toBe(false);
+    await funding.refreshKey();
+    expect(funding.fundingKeyStop()).toBe(true);
+    // On the key, the switch stays, so the way back is one tap.
+    pick(funding, 'own-key');
+    expect(funding.fundingChoice()).toBe(true);
+    // Without a membership the key can't reply: no stop for it.
+    funding.setMembership(membership());
+    expect(funding.fundingKeyStop()).toBe(false);
+    // The chosen key's own entry counts: an Anthropic pick with only OpenRouter's saved is no key.
+    funding.setMembership(membership({ status: 'active' }));
+    api.keyStatus.mockResolvedValueOnce({
+      enabled: true,
+      hasKey: true,
+      providers: ['openrouter'],
+      learnProviders: ['openrouter', 'anthropic'],
+    });
+    await funding.refreshKey();
+    funding.chooseKey('anthropic');
+    expect(funding.ownKey()).toBe('anthropic');
+    expect(funding.hasOwnKey()).toBe(false);
+    expect(funding.fundingKeyStop()).toBe(false);
+    expect(funding.paidBy()).toMatchObject({
+      label: 'Your Anthropic key',
+      short: 'Anthropic key',
+      detail: 'no key saved',
+    });
+  });
+
+  it('an own key the server no longer offers reads as OpenRouter', async () => {
+    const { funding } = setup(async () => summary(membership({ status: 'active' })));
+    signIn(funding, { ...me(membership({ required: false })), builtInCredit: false });
+    funding.chooseKey('anthropic');
+    await funding.refreshKey();
+    expect(funding.ownKey()).toBe('openrouter');
+    expect(funding.paidBy().label).toBe('Your OpenRouter key');
   });
 
   it("an empty pool, or today's replies used up, turns the pill into a warning", async () => {
@@ -606,11 +671,41 @@ describe('LearnFunding paid-by pill', () => {
     expect(choice.headers()).toEqual({
       'x-tangent-mode': 'simple',
       'x-tangent-payment': 'own-key',
+      'x-tangent-own-key': 'openrouter',
     });
     injector.get(AccountStore).me.set(me(membership({ status: 'active' })));
     choice.choose('credit');
     expect(funding.payer()).toBe('credit');
-    expect(choice.headers()).toEqual({ 'x-tangent-mode': 'simple', 'x-tangent-payment': 'credit' });
+    expect(choice.headers()).toEqual({
+      'x-tangent-mode': 'simple',
+      'x-tangent-payment': 'credit',
+      'x-tangent-own-key': 'openrouter',
+    });
+    // The pick is named before the key status is read (the server replaces a key it doesn't offer).
+    choice.chooseKey('anthropic');
+    expect(choice.headers()['x-tangent-own-key']).toBe('anthropic');
+    funding.keyStatus.set({
+      enabled: true,
+      hasKey: false,
+      providers: [],
+      learnProviders: ['openrouter'],
+    });
+    expect(choice.headers()['x-tangent-own-key']).toBe('anthropic');
+    // What the learner is shown follows what the server offers.
+    expect(funding.ownKey()).toBe('openrouter');
+  });
+
+  it('names the stored Anthropic pick while the key status loads, and when it fails', async () => {
+    const { funding, api } = setup(async () => summary(membership({ status: 'active' })));
+    const choice = injectors.get(funding)!.get(PaymentChoice);
+    choice.chooseKey('anthropic');
+    pick(funding, 'own-key');
+    expect(funding.keyStatus()).toBeNull();
+    expect(choice.headers()['x-tangent-own-key']).toBe('anthropic');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    api.keyStatus.mockRejectedValueOnce(new Error('offline'));
+    await funding.refreshKey();
+    expect(choice.headers()['x-tangent-own-key']).toBe('anthropic');
   });
 
   it('forgets what the server said once a fact changes: a top-up, the pool, a new pick', async () => {

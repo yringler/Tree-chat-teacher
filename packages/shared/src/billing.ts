@@ -1,6 +1,7 @@
 import type { ServiceFee } from './charge.js';
 import { z } from './zod.js';
 import type { UsagePurpose } from './provider.js';
+import { ANTHROPIC_PROVIDER_ID, OPENROUTER_PROVIDER_ID } from './route.js';
 
 /**
  * Billing contract: the yearly membership (once the operator sets it up,
@@ -20,8 +21,9 @@ import type { UsagePurpose } from './provider.js';
  * for, never which conversations the user sees: every user has one account.
  * - `power`: the full app at `/`: the user's own keys (unmetered), plus the
  *   built-in provider on credit where the server offers it.
- * - `simple`: Tangent Learn at `/learn/`, on the user's own OpenRouter key,
- *   on credit or on the open pool (`Payer`, per request).
+ * - `simple`: Tangent Learn at `/learn/`, on the user's own OpenRouter or
+ *   Anthropic key (`LearnKeyProvider`), on credit or on the open pool
+ *   (`Payer`, per request).
  */
 export type AccountMode = 'power' | 'simple';
 
@@ -29,6 +31,28 @@ export type AccountMode = 'power' | 'simple';
 export const MODE_HEADER = 'x-tangent-mode';
 /** Request header with the `Payer` of a `simple` request; absent = `own-key`. */
 export const PAYMENT_HEADER = 'x-tangent-payment';
+/**
+ * Request header naming which of the learner's own keys a `simple` request
+ * replies on when it pays with its own key (`LearnKeyProvider`); absent or
+ * unknown = OpenRouter.
+ */
+export const OWN_KEY_HEADER = 'x-tangent-own-key';
+
+/**
+ * The own keys Learn can reply on, by their key-cookie entry (the provider
+ * id, the same entry power uses). On OpenRouter, Learn runs its one model;
+ * on Anthropic, a fixed pair (a reply model and a cheaper one for titles and
+ * summaries) that the Worker sets. Neither is configurable in Learn.
+ */
+export const LEARN_KEY_PROVIDERS = [OPENROUTER_PROVIDER_ID, ANTHROPIC_PROVIDER_ID] as const;
+export type LearnKeyProvider = (typeof LEARN_KEY_PROVIDERS)[number];
+export const learnKeyProviderSchema = z.enum(LEARN_KEY_PROVIDERS);
+
+/** What each of Learn's own keys is called: "Your OpenRouter key", "Add your Anthropic API key". */
+export const LEARN_KEY_LABELS: Readonly<Record<LearnKeyProvider, string>> = {
+  [OPENROUTER_PROVIDER_ID]: 'OpenRouter',
+  [ANTHROPIC_PROVIDER_ID]: 'Anthropic',
+};
 
 /** Smallest one-time top-up ($5.00 of credit). */
 export const MIN_TOP_UP_CENTS = 500;

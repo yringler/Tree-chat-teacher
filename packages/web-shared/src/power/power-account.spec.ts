@@ -82,6 +82,7 @@ function setup(providers: ProviderInfo[] = [ownKey, credit]) {
       enabled: true,
       hasKey: false,
       providers: [],
+      learnProviders: ['openrouter'],
     })),
     saveKey: vi.fn(async (_provider: string, _key: string) => undefined),
     forgetKey: vi.fn(async (_provider?: string) => undefined),

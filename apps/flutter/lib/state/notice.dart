@@ -44,8 +44,8 @@ Notice noticeFor(Object error) {
       );
     case 'key_required':
       return const Notice(
-        'Your message wasn’t sent: save your OpenRouter key, or pick another '
-        'way to pay.',
+        'Your message wasn’t sent: save your own key, or pick another way to '
+        'pay.',
         choosePayment: true,
       );
     case 'membership_required':

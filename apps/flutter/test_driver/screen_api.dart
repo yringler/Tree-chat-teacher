@@ -167,6 +167,9 @@ class ScreenApi implements TangentApi {
   set payer(Payer payer) {}
 
   @override
+  set ownKey(LearnKey key) {}
+
+  @override
   Future<LoginOptions> loginOptions() async => const LoginOptions(
     configured: true,
     devMode: true,
@@ -247,10 +250,10 @@ class ScreenApi implements TangentApi {
       const KeyStatus(enabled: true, providers: []);
 
   @override
-  Future<void> saveKey(String apiKey) async {}
+  Future<void> saveKey(LearnKey key, String apiKey) async {}
 
   @override
-  Future<void> forgetKey() async {}
+  Future<void> forgetKey(LearnKey key) async {}
 
   @override
   Future<List<ProviderInfo>> providers() async => const [

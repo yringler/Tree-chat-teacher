@@ -56,6 +56,17 @@ describe('Paid by', () => {
     expect(button.classList).toContain('balance-low');
   });
 
+  it('on a saved own key, names it', async () => {
+    await pill('header', {
+      chosen: 'own-key',
+      savedKeys: ['anthropic'],
+      learnProviders: ['openrouter', 'anthropic'],
+      chosenKey: 'anthropic',
+    });
+    const button = screen.getByRole('button', { name: /^Replies paid by Your Anthropic key\./ });
+    expect(button.textContent?.trim()).toBe('Anthropic key');
+  });
+
   it('on the own key it needs a membership for, says so', async () => {
     await pill('header', { membership: NOT_A_MEMBER, chosen: 'own-key' });
     screen.getByRole('button', {

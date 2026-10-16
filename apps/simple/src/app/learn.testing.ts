@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import type {
   BillingSummary,
+  LearnKeyProvider,
   MembershipInfo,
   Payer,
   PoolMeResponse,
@@ -39,7 +40,12 @@ export function learner(
     poolMe?: PoolMeResponse;
     /** The own key is saved (true), isn't (false), or keys can't be stored here (null). */
     ownKey?: boolean | null;
+    /** Which own keys are saved when `ownKey` is true (OpenRouter's unless it says). */
+    savedKeys?: LearnKeyProvider[];
+    /** The own keys the server offers Learn (OpenRouter alone unless it says). */
+    learnProviders?: LearnKeyProvider[];
     chosen?: Payer;
+    chosenKey?: LearnKeyProvider;
   } = {},
 ): LearnFunding {
   const m = facts.membership ?? membership({ required: false, status: 'inactive' });
@@ -54,9 +60,11 @@ export function learner(
   funding.keyStatus.set({
     enabled: ownKey !== null,
     hasKey: ownKey === true,
-    providers: ownKey ? ['openrouter'] : [],
+    providers: ownKey ? (facts.savedKeys ?? ['openrouter']) : [],
+    learnProviders: facts.learnProviders ?? ['openrouter'],
   });
   if (facts.chosen) TestBed.inject(PaymentChoice).chosen.set(facts.chosen);
+  if (facts.chosenKey) TestBed.inject(PaymentChoice).chosenKey.set(facts.chosenKey);
   return funding;
 }
 

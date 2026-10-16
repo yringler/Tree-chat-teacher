@@ -11,6 +11,9 @@ import 'config.dart';
 /// `STORAGE_KEY` in apps/simple/src/app/state/payment-choice.ts.
 const _choiceKey = 'tangent.learn.payment';
 
+/// `OWN_KEY_STORAGE_KEY` in apps/simple/src/app/state/payment-choice.ts.
+const _keyChoiceKey = 'tangent.learn.ownKey';
+
 const _signInKey = 'tangent.learn.sign_in';
 
 void main() {
@@ -32,6 +35,9 @@ void main() {
       choiceStore: kIsWeb
           ? browserStore(_choiceKey)
           : const SecureTokenStore(_choiceKey),
+      keyChoiceStore: kIsWeb
+          ? browserStore(_keyChoiceKey)
+          : const SecureTokenStore(_keyChoiceKey),
       signInStore: kIsWeb
           ? browserStore(_signInKey)
           : const SecureTokenStore(_signInKey),

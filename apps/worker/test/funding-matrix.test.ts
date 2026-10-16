@@ -1,6 +1,8 @@
 import {
+  OWN_KEY_HEADER,
   type ApiError,
   type Branch,
+  type KeyStatusResponse,
   type Payer,
   type MeResponse,
   type ProviderInfo,
@@ -328,6 +330,88 @@ describe('funding matrix: who pays, and with which key', () => {
       status: 200,
       reply: 'key=USER-0123456789',
     });
+  });
+
+  it("Learn on its own Anthropic key: the user's key on Sonnet, gated by the membership like OpenRouter", async () => {
+    const anthropic = {
+      id: 'anthropic',
+      kind: 'anthropic',
+      label: 'Anthropic',
+      baseUrl: MOCK_UPSTREAM,
+      apiKeySecret: 'ANTHROPIC_API_KEY',
+      defaultModel: 'claude-opus-5-5',
+      models: [
+        { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
+        { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
+      ],
+    };
+    const e = matrixEnv({
+      PROVIDERS: JSON.stringify([openRouterLike('OpenRouter', 'OPENROUTER_API_KEY'), anthropic]),
+      ANTHROPIC_API_KEY: 'sk-ant-goodSERVER',
+      ANNUAL_FEE_ENABLED: 'true',
+      POOL_ENABLED: 'false',
+    });
+    const { c, userId } = await signedIn(e);
+    const onAnthropic: CallInit = { learn: 'own-key', headers: { [OWN_KEY_HEADER]: 'anthropic' } };
+    const status = await ok<KeyStatusResponse>(await c.call('/api/key/status', onAnthropic));
+    expect(status.learnProviders).toEqual(['openrouter', 'anthropic']);
+
+    // Learn saves only its own keys, each checked against power's endpoint for it.
+    const save = (provider: string) =>
+      c.call('/api/key', {
+        method: 'POST',
+        json: { provider, apiKey: USER_KEY },
+        learn: 'own-key',
+      });
+    expect((await save('fake')).status).toBe(400);
+    expect((await save('anthropic')).status).toBe(204);
+
+    const learn = await replyOn(c, { providerId: 'openrouter' }, 'own-key');
+    const review = (model: string, init: CallInit = onAnthropic) =>
+      c
+        .call(`/api/nodes/${learn.assistant.id}/review`, {
+          method: 'POST',
+          json: { providerId: 'anthropic', model },
+          ...init,
+        })
+        .then(async (res) => ({ status: res.status, text: await res.text() }));
+    // No membership: refused, as on OpenRouter; credit isn't asked for and never used.
+    expect(await review('claude-sonnet-5-5')).toMatchObject({ status: 402 });
+    await insertSubscription(env, userId, 'active');
+    const reply = await review('claude-sonnet-5-5');
+    expect(reply.status, reply.text).toBe(200);
+    expect(replyOf(reply.text)).toBe('key=USER-0123456789');
+    // Sonnet is Learn's one model on that key: no other is allowed.
+    expect((await review('claude-opus-5-5')).status).toBe(400);
+    // Without the header, Learn is on OpenRouter: it has no Anthropic endpoint to review on,
+    const withoutHeader = await review('claude-sonnet-5-5', { learn: 'own-key' });
+    expect(withoutHeader.status).toBe(400);
+    expect((JSON.parse(withoutHeader.text) as ApiError).error).toEqual({
+      code: 'bad_request',
+      message: 'Unknown provider "anthropic"',
+    });
+    // and its own OpenRouter key isn't saved, so it asks for that one.
+    const onOpenRouter = await reviewWith(
+      c,
+      learn.assistant.id,
+      { providerId: 'openrouter' },
+      { learn: 'own-key' },
+    );
+    expect(onOpenRouter).toMatchObject({ status: 401, code: 'key_required' });
+    expect(await usageRows(`u_${userId}`)).toBe(0);
+  });
+
+  it('Learn offers no Anthropic key where the deployment has no Anthropic endpoint', async () => {
+    const e = matrixEnv();
+    const { c } = await signedIn(e);
+    const status = await ok<KeyStatusResponse>(await c.call('/api/key/status'));
+    expect(status.learnProviders).toEqual(['openrouter']);
+    const res = await c.call('/api/key', {
+      method: 'POST',
+      json: { provider: 'anthropic', apiKey: USER_KEY },
+      learn: 'own-key',
+    });
+    expect(res.status).toBe(400);
   });
 
   it('self-hosted without billing: no Tangent credit in power, Learn credit falls back to the own key', async () => {

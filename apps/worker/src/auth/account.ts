@@ -1,11 +1,22 @@
 import { DomainError } from '@tangent/core';
-import { MODE_HEADER, PAYERS, PAYMENT_HEADER, type AccountMode, type Payer } from '@tangent/shared';
+import {
+  learnKeyProviderSchema,
+  MODE_HEADER,
+  OPENROUTER_PROVIDER_ID,
+  OWN_KEY_HEADER,
+  PAYERS,
+  PAYMENT_HEADER,
+  type AccountMode,
+  type LearnKeyProvider,
+  type Payer,
+} from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
 import { ipKey, utcDay } from '../pool/ids.js';
 import { resolvePoolParams } from '../pool/params.js';
 import { builtInAvailable, poolAvailable } from '../availability.js';
+import { learnKeyConfig } from '../provider-configs.js';
 
 /** Prefix of account ids: `u_<Better Auth user id>`, also the user's ledger id. */
 export const ACCOUNT_PREFIX = 'u_';
@@ -35,18 +46,29 @@ export function userIdOfAccount(accountId: string): string | null {
   return null;
 }
 
-/** What the request asks for: the app it comes from, and how a Learn request pays. */
+/**
+ * What the request asks for: the app it comes from, how a Learn request
+ * pays, and which own key it pays with.
+ */
 export interface AccountRequest {
   mode: AccountMode;
   payment: Payer;
+  ownKey: LearnKeyProvider;
 }
 
-/** Reads MODE_HEADER and PAYMENT_HEADER; anything unexpected means power / own-key. */
+/**
+ * Reads MODE_HEADER, PAYMENT_HEADER and OWN_KEY_HEADER; anything unexpected
+ * means power / own-key / OpenRouter, as an older client or one that sends
+ * none means: an unknown key reads as the default rather than a refusal, so
+ * the worst it can do is ask for an OpenRouter key, never spend anyone's money.
+ */
 export function accountRequest(headers: Headers): AccountRequest {
   const payment = headers.get(PAYMENT_HEADER);
+  const ownKey = learnKeyProviderSchema.safeParse(headers.get(OWN_KEY_HEADER));
   return {
     mode: headers.get(MODE_HEADER) === 'simple' ? 'simple' : 'power',
     payment: PAYERS.find((payer) => payer === payment) ?? 'own-key',
+    ownKey: ownKey.success ? ownKey.data : OPENROUTER_PROVIDER_ID,
   };
 }
 
@@ -71,9 +93,12 @@ export function accountRequest(headers: Headers): AccountRequest {
  * offered (else `own-key`, as above), or `pool`, which the pool funds only
  * while it is on (`poolAvailable`) and for a signed-in user (the dev bypass
  * has no user to cap). Power pays per route and never uses the pool, whatever
- * the header says. The pool's parameters are added by `withPoolParams` (they
- * need the caller's network), and a send whose credit runs out may still
- * move to the pool (billing/gate.ts `resolveFunding`).
+ * the header says. Learn's own key is the one the request names where this
+ * deployment offers it (`learnKeyConfig`), else OpenRouter, decided here
+ * once so the registry and the chat settings agree on it. The pool's
+ * parameters are added by `withPoolParams` (they need the caller's network),
+ * and a send whose credit runs out may still move to the pool
+ * (billing/gate.ts `resolveFunding`).
  */
 export function resolveAccount(
   env: AppEnv,
@@ -88,7 +113,11 @@ export function resolveAccount(
     const simple = { ...ids, mode: 'simple' } as const;
     if (request.payment === 'pool') return { ...simple, payer: 'pool', pool: null };
     const credit = request.payment === 'credit' && builtInAvailable(env);
-    return { ...simple, payer: credit ? 'credit' : 'own-key' };
+    // OpenRouter is always offered, so only another key reads the provider configs.
+    const offered =
+      request.ownKey === OPENROUTER_PROVIDER_ID || learnKeyConfig(env, request.ownKey) !== null;
+    const ownKey = offered ? request.ownKey : OPENROUTER_PROVIDER_ID;
+    return { ...simple, payer: credit ? 'credit' : 'own-key', ownKey };
   }
   return {
     ...ids,

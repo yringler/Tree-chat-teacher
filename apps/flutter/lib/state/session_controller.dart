@@ -20,6 +20,7 @@ class SessionController extends ChangeNotifier {
   SessionController(
     this.api, {
     this.choiceStore,
+    this.keyChoiceStore,
     this.signInStore,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
@@ -30,6 +31,10 @@ class SessionController extends ChangeNotifier {
   /// web, the same entry the web app's Learn uses); null keeps it for this
   /// run only.
   final TokenStore? choiceStore;
+
+  /// Where the learner's pick of own key is kept, as [choiceStore] keeps
+  /// the payer.
+  final TokenStore? keyChoiceStore;
 
   /// Where a sign-in waiting on its emailed code is kept, so a phone that
   /// closes the app while the learner reads the email reopens on the code
@@ -48,6 +53,9 @@ class SessionController extends ChangeNotifier {
   /// The learner's own pick; null until they make one.
   Payer? _chosen;
   Payer? get chosen => _chosen;
+
+  /// The learner's pick of own key; null until they make one.
+  LearnKey? _chosenKey;
 
   /// Null until read, or when it can't be.
   BillingSummary? _billing;
@@ -87,10 +95,36 @@ class SessionController extends ChangeNotifier {
   bool get ownKeyAllowed =>
       !(_me?.membershipMissing ?? false) && !_membershipRefused;
 
-  /// The learner's OpenRouter key is saved; null until the key status is
-  /// read, so a status still loading (or failed) never moves a key user onto
-  /// the pool.
-  bool? get hasOwnKey => _keyStatus?.hasOpenRouterKey;
+  /// The own keys this server lets Learn reply on.
+  List<LearnKey> get ownKeyOptions =>
+      _keyStatus?.learnProviders ?? const [LearnKey.openRouter];
+
+  /// The own key the learner is shown: the one they picked where this
+  /// server offers it, else OpenRouter, as the server decides. Calls name
+  /// the pick itself ([requestedKey]), so a key status still loading, or
+  /// one that failed, shows OpenRouter here but never asks for it.
+  LearnKey get ownKey {
+    final chosen = _chosenKey;
+    return chosen != null && ownKeyOptions.contains(chosen)
+        ? chosen
+        : LearnKey.openRouter;
+  }
+
+  /// The own key every call names: the pick (OpenRouter until there is
+  /// one), whether or not the key status has been read. The server replaces
+  /// a key it doesn't offer with OpenRouter.
+  LearnKey get requestedKey => _chosenKey ?? LearnKey.openRouter;
+
+  /// The key the calls name for replies: [requestedKey] while the learner
+  /// pays with their own key, else OpenRouter's endpoint (credit and the
+  /// pool run on it). The lessons' provider list follows it.
+  LearnKey get replyKey =>
+      payer == Payer.ownKey ? requestedKey : LearnKey.openRouter;
+
+  /// The learner's own key ([ownKey]) is saved; null until the key status
+  /// is read, so a status still loading (or failed) never moves a key user
+  /// onto the pool.
+  bool? get hasOwnKey => _keyStatus?.has(ownKey);
 
   /// What replies run on: the learner's pick where it can apply, else what
   /// can reply now (see [learnPayer]).
@@ -146,7 +180,7 @@ class SessionController extends ChangeNotifier {
       _readPool(),
       _readKey(),
     ]);
-    api.payer = payer;
+    _tellApi();
     unawaited(cancelSignIn());
     _status = SessionStatus.signedIn;
     notifyListeners();
@@ -205,16 +239,28 @@ class SessionController extends ChangeNotifier {
     }
   }
 
-  /// Saves the learner's OpenRouter key; a key the server or OpenRouter
-  /// refuses throws, and changes nothing.
+  /// Replies run on the learner's own [key] from now on: the pick is kept
+  /// for the next launch, and the payer becomes the own key ([choose]).
+  Future<void> chooseKey(LearnKey key) async {
+    _chosenKey = key;
+    try {
+      await keyChoiceStore?.write(key.id);
+    } on Object {
+      // Not kept: the pick lasts for this run.
+    }
+    await choose(Payer.ownKey);
+  }
+
+  /// Saves the learner's [ownKey]; a key the server or its provider refuses
+  /// throws, and changes nothing.
   Future<void> saveKey(String apiKey) async {
-    await api.saveKey(apiKey);
+    await api.saveKey(ownKey, apiKey);
     await _readKey();
     _changed();
   }
 
   Future<void> forgetKey() async {
-    await api.forgetKey();
+    await api.forgetKey(ownKey);
     await _readKey();
     _changed();
   }
@@ -274,8 +320,15 @@ class SessionController extends ChangeNotifier {
   }
 
   void _changed() {
-    api.payer = payer;
+    _tellApi();
     notifyListeners();
+  }
+
+  /// What every call names from now on.
+  void _tellApi() {
+    api
+      ..payer = payer
+      ..ownKey = requestedKey;
   }
 
   Future<void> _readChoice() async {
@@ -286,6 +339,14 @@ class SessionController extends ChangeNotifier {
       }
     } on Object {
       // Without the stored pick, the default applies.
+    }
+    try {
+      final stored = await keyChoiceStore?.read();
+      for (final key in LearnKey.values) {
+        if (key.id == stored) _chosenKey = key;
+      }
+    } on Object {
+      // Without the stored pick, OpenRouter.
     }
   }
 

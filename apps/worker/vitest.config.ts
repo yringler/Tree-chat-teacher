@@ -26,7 +26,14 @@ import { mockResend, RESEND_ORIGIN } from './test/mocks/resend.js';
  * The Workers Vitest plugin has no `fetchMock` export, so this is the single
  * interception point; a test can drive a mock's control endpoints (if it
  * defines any) with a plain `fetch()` to that origin.
+ *
+ * The Anthropic-style upstream records the model of every `/v1/messages`
+ * call by its key: `GET /__mock/messages?key=<x-api-key>` returns
+ * `{ models }`, so a test with a key of its own can tell which model a
+ * background call (a title, a summary) ran on and that it used that key.
  */
+const messageModels = new Map<string, string[]>();
+
 async function mockUpstream(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.origin === POLAR_ORIGIN) return mockPolar(request);
@@ -75,6 +82,8 @@ async function mockUpstream(request: Request): Promise<Response> {
     });
   }
   if (url.origin !== MOCK_UPSTREAM) return new Response('blocked in tests', { status: 599 });
+  if (url.pathname === '/__mock/messages')
+    return Response.json({ models: messageModels.get(url.searchParams.get('key') ?? '') ?? [] });
   const key = request.headers.get('x-api-key') ?? '';
   if (!key.startsWith('sk-ant-good')) {
     return Response.json(
@@ -85,6 +94,8 @@ async function mockUpstream(request: Request): Promise<Response> {
   if (url.pathname === '/v1/models') return Response.json({ data: [] });
   if (url.pathname === '/v1/messages/count_tokens') return Response.json({ input_tokens: 5 });
   if (url.pathname !== '/v1/messages') return new Response('not found', { status: 404 });
+  const { model } = (await request.json()) as { model?: string };
+  messageModels.set(key, [...(messageModels.get(key) ?? []), model ?? '']);
   const tag = key.slice('sk-ant-good'.length);
   const slow = tag.endsWith('-slow');
   const frame = (event: string, data: unknown) =>

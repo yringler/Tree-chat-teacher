@@ -2,23 +2,17 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  type ElementRef,
   inject,
   input,
   type OnDestroy,
   type OnInit,
   output,
   signal,
-  viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import {
-  OPENROUTER_PROVIDER_ID,
-  type BillingSummary,
-  type Branch,
-  type ProviderInfo,
-} from '@tangent/shared';
+import type { BillingSummary, Branch, ProviderInfo } from '@tangent/shared';
 import { formatMicros } from '../billing/format';
+import { KeyForm, type KeySubmission } from '../billing/key-form';
 import { KeyMissingNotice } from '../billing/key-missing';
 import { creditFeeText } from '../billing/membership';
 import { Icon } from '../ui/icon';
@@ -33,11 +27,10 @@ export function creditFeeSentence(b: Pick<BillingSummary, 'serviceFee'>): string
 
 /**
  * Keys & credit, in power and the canvas (the app provides its store as
- * `PowerConversationStore`). Bring-your-own-key: the key is read from the
- * input only at submit time, posted once, and the field is cleared right
- * away: the app never keeps it in a signal, in storage or anywhere else. The
- * server seals it into an HttpOnly cookie this code can't read, which both
- * apps (and Learn, for OpenRouter) use. Where the server offers the built-in
+ * `PowerConversationStore`). Bring-your-own-key through `KeyForm`, which
+ * hands the key over once and keeps it nowhere. The server seals it into an
+ * HttpOnly cookie this code can't read, which both apps (and Learn, for the
+ * keys it replies on) use. Where the server offers the built-in
  * provider, its row shows the user's credit and links to the billing page.
  *
  * Opened by a send the server refused for want of the branch's own key
@@ -47,7 +40,7 @@ export function creditFeeSentence(b: Pick<BillingSummary, 'serviceFee'>): string
  */
 @Component({
   selector: 'app-keys-dialog',
-  imports: [Modal, Icon, KeyMissingNotice, RouterLink],
+  imports: [Modal, Icon, KeyForm, KeyMissingNotice, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal [heading]="credit() ? 'Keys & credit' : 'API keys'" (closed)="closed.emit()">
@@ -76,7 +69,7 @@ export function creditFeeSentence(b: Pick<BillingSummary, 'serviceFee'>): string
           <li class="key-row">
             <span class="key-name"
               >{{ p.label }}
-              @if (p.id === learnKey) {
+              @if (learnKeys().includes(p.id)) {
                 <span class="muted small">· also used by Learn</span>
               }
             </span>
@@ -129,55 +122,28 @@ export function creditFeeSentence(b: Pick<BillingSummary, 'serviceFee'>): string
       }
 
       @if (enabled()) {
-        <form class="form" (submit)="$event.preventDefault(); save()">
-          <div class="field-row">
-            <label class="field">
-              <span class="field-label">Provider</span>
-              <select #ps [value]="provider()" (change)="provider.set(ps.value)">
-                @for (p of keyProviders(); track p.id) {
-                  <option [value]="p.id" [selected]="p.id === provider()">{{ p.label }}</option>
-                }
-              </select>
-            </label>
-            <label class="field">
-              <span class="field-label">API key</span>
-              <input
-                #keyInput
-                type="password"
-                name="api-key"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-                required
-                maxlength="512"
-                autofocus
-              />
-            </label>
-          </div>
-          <p class="muted small">
-            Your key is sent once to this server, checked with {{ providerLabel() }}, encrypted with
-            a server-side secret and stored only in your browser as a cookie that page scripts can't
-            read. It is not saved on the server. Every chat request sends it back to the server,
-            which decrypts it in memory to call the provider, so you are trusting this server not to
-            log it. It expires after 7 days without use.
-          </p>
-          <div class="form-actions">
-            @if (store.account.keyStatus()?.hasKey) {
-              <button
-                type="button"
-                class="btn btn-danger-ghost btn-left"
-                [disabled]="busy()"
-                (click)="forget()"
-              >
-                <app-icon name="trash" /> Forget all keys
-              </button>
-            }
-            <button type="button" class="btn btn-ghost" (click)="closed.emit()">Close</button>
-            <button type="submit" class="btn btn-primary" [disabled]="busy()">
-              {{ busy() ? 'Checking…' : 'Save key' }}
+        <app-key-form
+          [providers]="keyProviders()"
+          [(provider)]="provider"
+          [busy]="busy()"
+          [autofocus]="true"
+          (saved)="save($event)"
+        >
+          @if (store.account.keyStatus()?.hasKey) {
+            <button
+              keyFormActions
+              type="button"
+              class="btn btn-danger-ghost btn-left"
+              [disabled]="busy()"
+              (click)="forget()"
+            >
+              <app-icon name="trash" /> Forget all keys
             </button>
-          </div>
-        </form>
+          }
+          <button keyFormActions type="button" class="btn btn-ghost" (click)="closed.emit()">
+            Close
+          </button>
+        </app-key-form>
       }
     </app-modal>
   `,
@@ -199,13 +165,15 @@ export class KeysDialog implements OnInit, OnDestroy {
   /** Close, Escape, the backdrop, or a link away: the app closes the dialog. */
   readonly closed = output();
 
-  private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
   protected readonly provider = signal('');
   protected readonly busy = signal(false);
   /** "Continue on Tangent credit" is moving the branch. */
   protected readonly switching = signal(false);
 
-  protected readonly learnKey = OPENROUTER_PROVIDER_ID;
+  /** The keys Learn replies on too. */
+  protected readonly learnKeys = computed<readonly string[]>(
+    () => this.store.account.keyStatus()?.learnProviders ?? [],
+  );
   protected readonly usd = formatMicros;
   protected readonly fees = creditFeeSentence;
   /** The server offers the built-in provider on the user's credit. */
@@ -216,9 +184,6 @@ export class KeysDialog implements OnInit, OnDestroy {
   );
   protected readonly enabled = computed(
     () => (this.store.account.keyStatus()?.enabled ?? false) && this.keyProviders().length > 0,
-  );
-  protected readonly providerLabel = computed(
-    () => this.keyProviders().find((p) => p.id === this.provider())?.label ?? 'the provider',
   );
   /** The credit available, for the refused send's notice. */
   protected readonly balance = computed(() => {
@@ -250,20 +215,18 @@ export class KeysDialog implements OnInit, OnDestroy {
     }
   }
 
-  protected async save(): Promise<void> {
-    const el = this.keyInput()?.nativeElement;
-    if (!el || !this.provider()) return;
-    const apiKey = el.value.trim();
-    // Clear the field before the request: the value lives only in this call.
-    el.value = '';
-    if (!apiKey) return;
+  protected async save({ provider, apiKey }: KeySubmission): Promise<void> {
     this.busy.set(true);
-    const ok = await this.store.account.saveKey(this.provider(), apiKey);
+    const ok = await this.store.account.saveKey(provider, apiKey);
     this.busy.set(false);
     if (ok) {
-      this.toast.notify(`${this.providerLabel()} key saved`);
-      this.store.resumeAfterKey(this.provider());
+      this.toast.notify(`${this.labelOf(provider)} key saved`);
+      this.store.resumeAfterKey(provider);
     }
+  }
+
+  private labelOf(provider: string): string {
+    return this.keyProviders().find((p) => p.id === provider)?.label ?? provider;
   }
 
   protected async forget(provider?: string): Promise<void> {

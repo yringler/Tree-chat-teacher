@@ -36,7 +36,7 @@ describe('grounding settings', () => {
       GROUNDING_MAX_RESULTS: '25',
       GROUNDING_ENGINE: 'parallel',
     } as AppEnv;
-    expect(simpleChatSettings(e).grounding).toEqual({
+    expect(simpleChatSettings(e, 'openrouter').grounding).toEqual({
       policy: 'explicit',
       maxUses: 1,
       ignoreBranchSetting: true,

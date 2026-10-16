@@ -6,6 +6,7 @@ import {
   OPENROUTER_PROVIDER_ID,
   type Branch,
   type CreateBranchRequest,
+  type LearnKeyProvider,
   type Payer,
   type ProviderInfo,
   type TreeBackupInput,
@@ -86,12 +87,23 @@ export class LessonStore extends ConversationStore<ApiClient> {
       treeTitle: lessonTitle,
     });
     this.funding.whenSwitched((payer) => this.paymentSwitched(payer));
+    // The list follows the key replies run on, however that changes (a switch, or a key
+    // status or balance read that moves the payer), once `init` has read it.
+    this.funding.whenFactsChange(() => {
+      if (this.providersFor !== null && this.funding.replyKey() !== this.providersFor)
+        void this.loadProviders();
+    });
   }
 
   // Providers (Learn accounts: one provider, whose default model every lesson runs on).
-  // Learn's endpoint is the built-in provider's, else the first; Learn pays per request
-  // (its payment header), never per branch, so it names no funding.
+  // Learn's endpoint is the built-in provider's, or the learner's own Anthropic one
+  // (the list follows the request's headers); Learn pays per request (its payment
+  // header), never per branch, so it names no funding.
   readonly providers = signal<ProviderInfo[]>([]);
+  /** The key the latest provider list was asked for; null until `init` asks. */
+  private providersFor: LearnKeyProvider | null = null;
+  /** Only the latest request's answer is kept, so a slower earlier one can't overwrite it. */
+  private providersRequest = 0;
   readonly provider = computed<ProviderInfo | null>(
     () =>
       this.providers().find((p) => p.id === OPENROUTER_PROVIDER_ID) ?? this.providers()[0] ?? null,
@@ -119,8 +131,11 @@ export class LessonStore extends ConversationStore<ApiClient> {
   }
 
   async loadProviders(): Promise<void> {
+    this.providersFor = this.funding.replyKey();
+    const request = ++this.providersRequest;
     try {
-      this.providers.set(await this.api.providers());
+      const providers = await this.api.providers();
+      if (request === this.providersRequest) this.providers.set(providers);
     } catch (err) {
       this.fail(err);
     }
@@ -278,7 +293,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
     const branch = this.index()?.branches.get(branchId);
     // The open pool can't pay for searches (its holds are priced from tokens alone).
     if (!branch || this.funding.payer() === 'pool') return false;
-    return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
+    // Every branch replies on Learn's one provider, whatever provider it stores.
+    return this.provider()?.webSearch === true;
   }
 
   // Messages and replies

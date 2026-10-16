@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { learner, NOT_A_MEMBER, POOL_ON } from '../learn.testing';
 import { LessonStore } from '../state/lesson-store';
+import { PaymentChoice } from '../state/payment-choice';
 import { UiStore } from '../state/ui-store';
 import { ModelAccessDialog } from './model-access-dialog';
 
@@ -30,9 +31,15 @@ async function open(facts: Parameters<typeof learner>[0] = {}) {
     billing: vi.fn(async () => facts.billing ?? billing()),
     poolStatus: vi.fn(async () => facts.pool ?? { ...POOL_ON, enabled: false }),
     poolMe: vi.fn(async () => POOL_ME),
+    providers: vi.fn(async () => []),
     saveKey: vi.fn(async (_provider: string, _key: string): Promise<void> => undefined),
     forgetKey: vi.fn(async (_provider: string) => undefined),
-    keyStatus: vi.fn(async () => ({ enabled: true, hasKey: true, providers: ['openrouter'] })),
+    keyStatus: vi.fn(async () => ({
+      enabled: true,
+      hasKey: true,
+      providers: facts.savedKeys ?? ['openrouter'],
+      learnProviders: facts.learnProviders ?? ['openrouter'],
+    })),
   };
   const r = await render(ModelAccessDialog, {
     providers: appProviders(api),
@@ -45,7 +52,7 @@ async function open(facts: Parameters<typeof learner>[0] = {}) {
 }
 
 const radio = (name: RegExp) => screen.getByRole<HTMLInputElement>('radio', { name });
-const OWN = /Use my own OpenRouter key/;
+const OWN = /Use my own API key/;
 const CREDIT = /Use Tangent credit/;
 const POOL = /Use the open pool/;
 
@@ -78,7 +85,7 @@ describe('How replies are paid for', () => {
     expect(radio(OWN).disabled).toBe(true);
     const label = radio(OWN).closest('label')!;
     expect(label.textContent).toMatch(
-      /Needs a membership \(\$10\/year\): covers Tangent while OpenRouter bills you\s+directly\./,
+      /Needs a membership \(\$10\/year\): covers Tangent while\s+OpenRouter bills you\s+directly\./,
     );
     expect(screen.getByRole('link', { name: 'Become a member' }).getAttribute('href')).toBe(
       '/billing',
@@ -127,6 +134,73 @@ describe('How replies are paid for', () => {
     await vi.waitFor(() =>
       expect(TestBed.inject(ToastStore).toasts()[0]?.text).toBe('Your OpenRouter key is saved'),
     );
+  });
+
+  it('where Anthropic is offered: picks which key, and says what Learn runs on it', async () => {
+    const d = await open({
+      membership: membership({ required: false }),
+      ownKey: true,
+      learnProviders: ['openrouter', 'anthropic'],
+    });
+    screen.getByRole('group', { name: 'Which key' });
+    expect(radio(/^OpenRouter/).checked).toBe(true);
+    const anthropic = radio(/^Anthropic/);
+    expect(anthropic.closest('label')?.textContent).toMatch(
+      /Replies use Claude Sonnet; titles and summaries use Claude Haiku\. To pick other models, use\s+power mode\./,
+    );
+    await d.user.click(anthropic);
+    await d.fixture.whenStable();
+    expect(TestBed.inject(PaymentChoice).headers()).toMatchObject({
+      'x-tangent-payment': 'own-key',
+      'x-tangent-own-key': 'anthropic',
+    });
+    expect(screen.getByText('not set')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'console.anthropic.com' })).toBeTruthy();
+    const field = screen.getByLabelText<HTMLInputElement>('Your Anthropic API key');
+    expect(field.placeholder).toBe('sk-ant-…');
+    await d.user.type(field, 'sk-ant-1');
+    await d.user.click(screen.getByRole('button', { name: 'Save key' }));
+    await vi.waitFor(() => expect(d.api.saveKey).toHaveBeenCalledWith('anthropic', 'sk-ant-1'));
+    await vi.waitFor(() =>
+      expect(TestBed.inject(ToastStore).toasts()[0]?.text).toBe('Your Anthropic key is saved'),
+    );
+  });
+
+  it('"Which key" sits right under the own key option, before the other ways to pay', async () => {
+    await open({
+      billing: billing({ availableMicros: 1_200_000 }),
+      pool: POOL_ON,
+      chosen: 'own-key',
+      learnProviders: ['openrouter', 'anthropic'],
+    });
+    const which = screen.getByRole('group', { name: 'Which key' });
+    const own = radio(OWN).closest('label')!;
+    expect(own.nextElementSibling).toBe(which);
+    expect(
+      which.compareDocumentPosition(radio(CREDIT)) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('shows "Which key" only while the own key is picked', async () => {
+    await open({
+      billing: billing({ availableMicros: 1_200_000 }),
+      pool: POOL_ON,
+      chosen: 'credit',
+      learnProviders: ['openrouter', 'anthropic'],
+    });
+    expect(screen.queryByRole('group', { name: 'Which key' })).toBeNull();
+  });
+
+  it('forgets only the chosen key', async () => {
+    const d = await open({
+      ownKey: true,
+      savedKeys: ['openrouter', 'anthropic'],
+      learnProviders: ['openrouter', 'anthropic'],
+      chosenKey: 'anthropic',
+    });
+    expect(screen.getByText('saved')).toBeTruthy();
+    await d.user.click(screen.getByRole('button', { name: 'Forget' }));
+    await vi.waitFor(() => expect(d.api.forgetKey).toHaveBeenCalledWith('anthropic'));
   });
 
   it('opened by a message refused for want of the key, says it wasn’t sent', async () => {

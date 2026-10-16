@@ -2,7 +2,7 @@ import { DomainError, ValidationError } from '@tangent/core';
 import { acceptsUserKey, verifyApiKey } from '@tangent/providers';
 import {
   API_ROUTES,
-  OPENROUTER_PROVIDER_ID,
+  LEARN_KEY_PROVIDERS,
   type KeyStatusResponse,
   type ProviderConfig,
 } from '@tangent/shared';
@@ -20,15 +20,20 @@ import {
 } from '../byok/keys.js';
 import type { AppBindings, AppContext } from '../env.js';
 import { validateJson } from '../http/errors.js';
-import { providerConfigs, providerEnv } from '../provider-configs.js';
-import { simpleProviderConfig } from '../simple-mode.js';
+import {
+  learnKeyConfig,
+  learnKeyProviders,
+  providerConfigs,
+  providerEnv,
+} from '../provider-configs.js';
 
 /**
  * Bring-your-own-key management, mounted at /api/key. No route ever returns
  * any part of a key; the key is only accepted (POST) and then lives in the
  * sealed HttpOnly cookie. Both apps share the one cookie: Learn mode (simple)
- * stores and uses only the OpenRouter entry (OPENROUTER_PROVIDER_ID), checked
- * against its own provider config, so the same key works in both apps.
+ * stores and uses only its own keys' entries (OpenRouter, and Anthropic where
+ * offered: `learnKeyConfig`), each checked against the endpoint power uses
+ * for it, so the same key works in both apps.
  */
 export function keyRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
@@ -47,6 +52,7 @@ export function keyRoutes(): Hono<AppBindings> {
       enabled: keySecret(c.env) !== null,
       hasKey: providers.length > 0,
       providers,
+      learnProviders: learnKeyProviders(c.env),
     } satisfies KeyStatusResponse);
   });
 
@@ -99,7 +105,8 @@ export function keyRoutes(): Hono<AppBindings> {
 /** The provider config a key for `provider` is checked against, in the request's mode. */
 function keyConfig(c: AppContext, provider: string): ProviderConfig | undefined {
   if (c.var.account.mode === 'simple') {
-    return provider === OPENROUTER_PROVIDER_ID ? simpleProviderConfig(c.env) : undefined;
+    const key = LEARN_KEY_PROVIDERS.find((id) => id === provider);
+    return (key && learnKeyConfig(c.env, key)) ?? undefined;
   }
   return providerConfigs(c.env).find((p) => p.id === provider);
 }

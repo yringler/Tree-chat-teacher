@@ -4,7 +4,9 @@ import { keyLockedText } from './key-locked-notice';
 
 describe('keyLockedText', () => {
   it('asks a learner who never had a membership to become a member', () => {
-    expect(keyLockedText({ subscriptionStatus: null, priceCents: 1000 }, true)).toEqual({
+    expect(
+      keyLockedText({ subscriptionStatus: null, priceCents: 1000 }, true, 'OpenRouter'),
+    ).toEqual({
       lead: 'Replies on your own key need a membership.',
       body: 'The membership is $10 a year; OpenRouter still bills you for the replies. Or carry on without one:',
       subscribe: 'Become a member',
@@ -12,9 +14,11 @@ describe('keyLockedText', () => {
   });
 
   it('asks a lapsed member to renew, and offers no "carry on" with nowhere to go', () => {
-    expect(keyLockedText({ subscriptionStatus: 'canceled', priceCents: 1000 }, false)).toEqual({
+    expect(
+      keyLockedText({ subscriptionStatus: 'canceled', priceCents: 1000 }, false, 'Anthropic'),
+    ).toEqual({
       lead: 'Your membership has ended.',
-      body: 'The membership is $10 a year; OpenRouter still bills you for the replies.',
+      body: 'The membership is $10 a year; Anthropic still bills you for the replies.',
       subscribe: 'Renew membership',
     });
   });

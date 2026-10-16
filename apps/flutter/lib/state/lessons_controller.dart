@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
@@ -16,6 +18,13 @@ class LessonsController extends ChangeNotifier {
 
   List<ProviderInfo> _providers = const [];
 
+  /// The key the latest provider list was asked for; null until [load].
+  LearnKey? _providersFor;
+
+  /// Only the latest request's answer is kept, so a slower earlier one
+  /// can't overwrite it.
+  int _providersRequest = 0;
+
   /// Null until the first load.
   List<TreeSummary>? _trees;
   List<TreeSummary>? get trees => _trees;
@@ -32,7 +41,7 @@ class LessonsController extends ChangeNotifier {
   /// Learn runs on OpenRouter where the server offers it.
   ProviderInfo? get provider {
     for (final p in _providers) {
-      if (p.id == openRouterProviderId) return p;
+      if (p.id == LearnKey.openRouter.id) return p;
     }
     return _providers.isEmpty ? null : _providers.first;
   }
@@ -52,7 +61,10 @@ class LessonsController extends ChangeNotifier {
     _loading = true;
     notifyListeners();
     try {
-      _providers = await api.providers();
+      _providersFor = session.replyKey;
+      final request = ++_providersRequest;
+      final providers = await api.providers();
+      if (request == _providersRequest) _providers = providers;
       _trees = await api.trees();
       _notice = null;
     } on Object catch (error) {
@@ -129,8 +141,32 @@ class LessonsController extends ChangeNotifier {
     }
   }
 
+  /// The list follows the key replies run on, however that changes (a pick,
+  /// or a key status or balance read that moves the payer).
+  Future<void> _reloadProviders() async {
+    _providersFor = session.replyKey;
+    final request = ++_providersRequest;
+    try {
+      final providers = await api.providers();
+      if (request != _providersRequest) return;
+      _providers = providers;
+      notifyListeners();
+    } on Object catch (error) {
+      _fail(error);
+      notifyListeners();
+    }
+  }
+
   void _onSession() {
+    if (session.status == SessionStatus.signedIn) {
+      final loadedFor = _providersFor;
+      if (loadedFor != null && session.replyKey != loadedFor) {
+        unawaited(_reloadProviders());
+      }
+      return;
+    }
     if (session.status != SessionStatus.signedOut) return;
+    _providersFor = null;
     _providers = const [];
     _trees = null;
     _firstMessages.clear();

@@ -1351,7 +1351,7 @@ void main() {
     await pumpApp(tester, api, location: '/t/t1');
     await sendTyped(tester, 'Why tides?');
     await settle(tester);
-    expect(find.textContaining('save your OpenRouter key'), findsOneWidget);
+    expect(find.textContaining('save your own key'), findsOneWidget);
     await tester.tap(find.text('How you pay'));
     await settle(tester);
     expect(find.text('How replies are paid for'), findsOneWidget);

@@ -1,4 +1,9 @@
-import type { BranchFunding, Payer } from '@tangent/shared';
+import {
+  OPENROUTER_PROVIDER_ID,
+  type BranchFunding,
+  type LearnKeyProvider,
+  type Payer,
+} from '@tangent/shared';
 import type { Context } from 'hono';
 import type { ConfigVars } from './config.js';
 import type { PoolParams } from './pool/params.js';
@@ -43,12 +48,17 @@ export interface PowerAccount extends AccountIds {
 
 /**
  * Tangent Learn, paying per request whatever a branch says: on
- * the user's own OpenRouter key, or on credit (the built-in provider on the
- * operator's key, metered) where it is offered.
+ * the user's own OpenRouter or Anthropic key, or on credit (the built-in
+ * provider on the operator's key, metered) where it is offered.
  */
 export interface LearnAccount extends AccountIds {
   mode: 'simple';
   payer: 'own-key' | 'credit';
+  /**
+   * Which own key replies run on while `payer` is `own-key`: the request's
+   * OWN_KEY_HEADER where this deployment offers it, else OpenRouter.
+   */
+  ownKey: LearnKeyProvider;
 }
 
 /** Learn on the open pool: a signed-in user, and what the pool's calls run with. */
@@ -81,6 +91,17 @@ export interface UnfundedPoolAccount extends AccountIds {
  * account, as the request's mode generates and pays for replies.
  */
 export type AccountContext = PowerAccount | LearnAccount | PoolAccount | UnfundedPoolAccount;
+
+/**
+ * The own key a Learn account replies on: the chosen one while it pays with
+ * its own key; OpenRouter otherwise, the endpoint credit and the pool run on
+ * (an unfunded pool account generates nothing).
+ */
+export function learnOwnKey(
+  account: LearnAccount | PoolAccount | UnfundedPoolAccount,
+): LearnKeyProvider {
+  return account.payer === 'own-key' ? account.ownKey : OPENROUTER_PROVIDER_ID;
+}
 
 /** True when the account's metered calls are paid by the open pool. */
 export function isPoolFunded(account: AccountContext): account is PoolAccount {

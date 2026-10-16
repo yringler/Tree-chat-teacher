@@ -3,7 +3,7 @@ import { Overlays, SidebarState } from '@tangent/web-shared';
 
 /**
  * A dialog of Learn, with what it was opened with. `access`: "How replies are
- * paid for" (own OpenRouter key, credit or the pool); `pool-verify`: the
+ * paid for" (own key, credit or the pool); `pool-verify`: the
  * human check before a first pool message (PoolFirstUseDialog); `connect`:
  * the Connect sheet (ConnectDialog) for the message a connection is made
  * from; `shortcuts`: the keyboard shortcuts; `instructions`: the open lesson's

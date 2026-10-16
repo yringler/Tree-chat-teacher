@@ -6,10 +6,19 @@ import {
   parseProviderConfigs,
   type ProviderEnv,
 } from '@tangent/providers';
-import { OPENROUTER_PROVIDER_ID, type ProviderConfig } from '@tangent/shared';
+import {
+  ANTHROPIC_PROVIDER_ID,
+  OPENROUTER_PROVIDER_ID,
+  type LearnKeyProvider,
+  type ProviderConfig,
+} from '@tangent/shared';
 import { appConfig, namedSecrets } from './config.js';
 import type { AppEnv } from './env.js';
-import { suggestedModels } from './simple-mode.js';
+import {
+  LEARN_ANTHROPIC_REPLY_MODEL,
+  simpleProviderConfig,
+  suggestedModels,
+} from './simple-mode.js';
 
 /** Provider id → user-supplied API key (bring-your-own-key, see byok/keys.ts). */
 export type UserApiKeys = Readonly<Record<string, string>>;
@@ -44,6 +53,35 @@ function openrouterWithSuggestions(env: AppEnv, config: ProviderConfig): Provide
     defaultModel: suggested[0]!.id,
     openModels: true,
   };
+}
+
+/**
+ * The config Learn replies through on the learner's own `key`: the built-in
+ * provider's (`simpleProviderConfig`) for OpenRouter; for Anthropic, power's
+ * `anthropic` endpoint (so a key saved in either app is checked against, and
+ * used on, the same endpoint) with LEARN_ANTHROPIC_REPLY_MODEL as its only
+ * model. Null where the deployment has no Anthropic endpoint of that kind.
+ */
+export function learnKeyConfig(env: AppEnv, key: LearnKeyProvider): ProviderConfig | null {
+  if (key === OPENROUTER_PROVIDER_ID) return simpleProviderConfig(env);
+  const power = providerConfigs(env).find(
+    (c) => c.id === ANTHROPIC_PROVIDER_ID && c.kind === 'anthropic',
+  );
+  if (!power) return null;
+  const listed = power.models.find((m) => m.id === LEARN_ANTHROPIC_REPLY_MODEL);
+  return {
+    ...power,
+    defaultModel: LEARN_ANTHROPIC_REPLY_MODEL,
+    models: [listed ?? { id: LEARN_ANTHROPIC_REPLY_MODEL, label: 'Claude Sonnet' }],
+    openModels: false,
+  };
+}
+
+/** The own keys Learn can reply on in this deployment (`KeyStatusResponse.learnProviders`). */
+export function learnKeyProviders(env: AppEnv): LearnKeyProvider[] {
+  return learnKeyConfig(env, ANTHROPIC_PROVIDER_ID)
+    ? [OPENROUTER_PROVIDER_ID, ANTHROPIC_PROVIDER_ID]
+    : [OPENROUTER_PROVIDER_ID];
 }
 
 /**

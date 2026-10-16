@@ -83,14 +83,18 @@ describe("the built-in provider's models", () => {
 
   it('summaries and titles stay on the background model, at low effort, never on Max', () => {
     expect(simpleFastModel(deployed())).toBe(DEFAULT_BACKGROUND_MODEL);
-    const settings = simpleChatSettings(deployed());
+    const settings = simpleChatSettings(deployed(), 'openrouter');
     expect(settings.summaryModel).toBe(DEFAULT_BACKGROUND_MODEL);
     // Not Normal's `high`, which its listing of the same model carries.
     expect(settings.summaryEffort).toBe('low');
     expect(simpleFastModel(deployed({ BACKGROUND_MODEL: 'c/fast' }))).toBe('c/fast');
     // The default effort belongs to the default model.
-    expect(simpleChatSettings(deployed({ BACKGROUND_MODEL: 'c/fast' })).summaryEffort).toBeNull();
-    expect(simpleChatSettings(deployed({ BACKGROUND_EFFORT: 'none' })).summaryEffort).toBe('none');
+    expect(
+      simpleChatSettings(deployed({ BACKGROUND_MODEL: 'c/fast' }), 'openrouter').summaryEffort,
+    ).toBeNull();
+    expect(
+      simpleChatSettings(deployed({ BACKGROUND_EFFORT: 'none' }), 'openrouter').summaryEffort,
+    ).toBe('none');
   });
 
   it('a BUILT_IN_PROVIDER override: its models name their own tiers, Max is power’s; its background model', () => {

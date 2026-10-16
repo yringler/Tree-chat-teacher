@@ -390,8 +390,8 @@ describe('funding resolution', () => {
     const accounts: AccountContext[] = [
       { ...ids, mode: 'simple', payer: 'pool', pool },
       { ...ids, mode: 'simple', payer: 'pool', pool: null },
-      { ...ids, mode: 'simple', payer: 'credit' },
-      { ...ids, mode: 'simple', payer: 'own-key' },
+      { ...ids, mode: 'simple', payer: 'credit', ownKey: 'openrouter' },
+      { ...ids, mode: 'simple', payer: 'own-key', ownKey: 'anthropic' },
       { ...ids, id: 'p_x', mode: 'power', creditOffered: true, operatorKeys: false },
       {
         ...ids,
@@ -410,7 +410,12 @@ describe('funding resolution', () => {
     const decode = (query: Record<string, string>) => () =>
       accountFromParams(new URLSearchParams({ treeId: 't', nodeId: 'n', ...query }));
     const encoded = (account: object) => decode({ account: JSON.stringify(account) });
-    const valid: Record<string, unknown> = { ...ids, mode: 'simple', payer: 'own-key' };
+    const valid: Record<string, unknown> = {
+      ...ids,
+      mode: 'simple',
+      payer: 'own-key',
+      ownKey: 'openrouter',
+    };
     expect(encoded(valid)).not.toThrow();
     expect(decode({})).toThrow();
     expect(decode({ account: '' })).toThrow();
@@ -422,6 +427,7 @@ describe('funding resolution', () => {
     expect(encoded({ ...valid, id: '' })).toThrow();
     expect(encoded({ ...valid, payer: 'personal' })).toThrow();
     expect(encoded({ ...valid, mode: 'Simple' })).toThrow();
+    expect(encoded({ ...valid, ownKey: 'openai' })).toThrow();
     // No state the account types rule out: power on a payer, a funded pool without a user.
     expect(
       encoded({ ...valid, mode: 'power', creditOffered: true, operatorKeys: false }),
