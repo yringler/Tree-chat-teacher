@@ -8,10 +8,11 @@
 //   (EMAIL_PROVIDER=log, localhost only) and Cloudflare's always-pass Turnstile test
 //   keys; the membership on, sold by the fake payment provider (allowed only with
 //   TEST_SEAMS, like the worker tests), so tests set memberships and credit through
-//   its signed webhook. Power's own-key providers call no model (see PROVIDERS); the
-//   built-in provider (Learn, and power's Tangent credit) calls the scripted
-//   OpenRouter stand-in below, so sends, Compare and summaries on credit run
-//   through the Worker, the Durable Object and the billing gate.
+//   its signed webhook. Power's own-key providers call no model (see PROVIDERS), except
+//   Anthropic's; the built-in provider (Learn, and power's Tangent credit) and that
+//   Anthropic endpoint (Learn on the learner's own Anthropic key) call the scripted
+//   stand-in below, so sends, Compare and summaries run through the Worker, the
+//   Durable Object and the billing gate.
 // - wrangler/: the local D1 database and Durable Objects, migrated before start.
 // - wrangler.log: the server's output, where tests read magic links (tests/helpers.ts).
 //
@@ -57,11 +58,16 @@ const MODERATION_CATEGORIES = [
  * user message>"` (a side question's excerpt comes before the question) in
  * OpenAI's chunk format and reports a cost, as OpenRouter does, so the meter
  * settles each call at once. `GET /models` (the key check when a key is
- * saved) accepts any `sk-or-` key.
+ * saved) accepts any `sk-or-` key. A request carrying an `sk-ant-` key in
+ * `x-api-key` gets Anthropic's API instead (`anthropicUpstream`).
  */
 function scriptedUpstream() {
   let generation = 0;
   return http.createServer((req, res) => {
+    if (String(req.headers['x-api-key'] ?? '').startsWith('sk-ant-')) {
+      anthropicUpstream(req, res);
+      return;
+    }
     const key = (req.headers.authorization ?? '').replace(/^Bearer /, '');
     if (!key.startsWith('sk-or-')) {
       res.writeHead(401, { 'content-type': 'application/json' });
@@ -93,9 +99,7 @@ function scriptedUpstream() {
     req.on('data', (chunk) => (raw += chunk));
     req.on('end', async () => {
       const body = JSON.parse(raw);
-      const lastUser = [...body.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
-      const asked = String(lastUser).trim().split('\n').at(-1) ?? '';
-      const text = `Scripted reply (${body.model}): "${asked.slice(0, 80)}"`;
+      const text = `Scripted reply (${body.model}): "${lastAsked(body.messages).slice(0, 80)}"`;
       const id = `gen-e2e-${++generation}`;
       const frame = (chunk) => res.write(`data: ${JSON.stringify({ id, ...chunk })}\n\n`);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -117,6 +121,65 @@ function scriptedUpstream() {
     });
   });
 }
+/** The text of the last line of the last user message in `messages` (either API's shape). */
+function lastAsked(messages) {
+  const content = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  const text = Array.isArray(content)
+    ? content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')
+    : String(content);
+  return text.trim().split('\n').at(-1) ?? '';
+}
+
+/**
+ * The same script on Anthropic's Messages API, for Learn on the learner's own
+ * Anthropic key: `GET /v1/models` (the key check), `POST /v1/messages` streamed
+ * as Anthropic's events, and `POST /v1/messages/count_tokens`. Anthropic
+ * reports tokens, no cost.
+ */
+function anthropicUpstream(req, res) {
+  const path = (req.url ?? '').split('?')[0];
+  if (req.method === 'GET' && path === '/v1/models') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ data: [] }));
+    return;
+  }
+  if (req.method !== 'POST' || !path.startsWith('/v1/messages')) {
+    res.writeHead(404).end();
+    return;
+  }
+  let raw = '';
+  req.on('data', (chunk) => (raw += chunk));
+  req.on('end', async () => {
+    const body = JSON.parse(raw);
+    const prompt = Math.ceil(JSON.stringify(body.messages).length / 4);
+    if (path === '/v1/messages/count_tokens') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ input_tokens: prompt }));
+      return;
+    }
+    const text = `Scripted reply (${body.model}): "${lastAsked(body.messages).slice(0, 80)}"`;
+    const event = (type, data) =>
+      res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    event('message_start', { message: { usage: { input_tokens: prompt, output_tokens: 1 } } });
+    event('content_block_start', { index: 0, content_block: { type: 'text', text: '' } });
+    for (let i = 0; i < text.length; i += 8) {
+      event('content_block_delta', {
+        index: 0,
+        delta: { type: 'text_delta', text: text.slice(i, i + 8) },
+      });
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    event('content_block_stop', { index: 0 });
+    event('message_delta', {
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: Math.ceil(text.length / 4) },
+    });
+    event('message_stop', {});
+    res.end();
+  });
+}
+
 const upstream = scriptedUpstream();
 await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
 const upstreamUrl = `http://127.0.0.1:${upstream.address().port}/v1`;
@@ -179,6 +242,20 @@ const vars = {
       apiKeySecret: 'KEYED_API_KEY',
       defaultModel: 'keyed-1',
       models: [{ id: 'keyed-1', label: 'Keyed 1' }],
+    },
+    // Anthropic, on the scripted upstream, which Learn offers on the learner's own key
+    // too (learn-key.spec.ts). Its models are the pair Learn runs on that key.
+    {
+      id: 'anthropic',
+      kind: 'anthropic',
+      label: 'Anthropic',
+      baseUrl: upstreamUrl.replace(/\/v1$/, ''),
+      apiKeySecret: 'ANTHROPIC_API_KEY',
+      defaultModel: 'claude-sonnet-5-5',
+      models: [
+        { id: 'claude-sonnet-5-5', label: 'Claude Sonnet' },
+        { id: 'claude-haiku-4-5', label: 'Claude Haiku' },
+      ],
     },
   ]),
   // The built-in provider (Learn, and power's Tangent credit), on the scripted upstream.

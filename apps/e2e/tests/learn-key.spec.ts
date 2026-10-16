@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { membership, newEmail, paymentWebhook, signIn } from './helpers';
+import { membership, newEmail, paymentWebhook, signIn, topUp } from './helpers';
 
 /*
  * Learn on the learner's own key. Where the membership is required (as here),
@@ -139,4 +139,63 @@ test('a never-member: the own-key choice is locked in the dialog, and a stored o
   await expect(dialog.getByRole('radio', { name: /Use my own API key/ })).toBeDisabled();
   await expect(dialog).toContainText('Needs a membership');
   await expect(dialog.getByRole('radio', { name: /Use Tangent credit/ })).toBeChecked();
+});
+
+test('a member saves an Anthropic key in the dialog, and replies run on it, named in the switch and the pill', async ({
+  context,
+  page,
+  baseURL,
+}) => {
+  const userId = await signIn(context, baseURL!, newEmail('learn-anthropic'));
+  // A member with credit: the composer's funding switch offers credit, the pool and the key.
+  await paymentWebhook(context.request, [membership(userId, 'active', 1), topUp(userId, 500)]);
+  // The switch shows only while the pool is on too, which this server leaves off for
+  // the other suites: this browser reads it as on. Replies here run on the key, so
+  // nothing reaches the pool.
+  await page.route('**/api/pool/status', async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), enabled: true } });
+  });
+
+  await page.goto('/learn/');
+  await expect(page.getByRole('heading', { name: 'New lesson' })).toBeVisible();
+  await page
+    .getByRole('button', { name: /Change how replies are paid for/ })
+    .first()
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'How replies are paid for' });
+  await dialog.getByRole('radio', { name: /Use my own API key/ }).check();
+  // Which key belongs to the own key's option.
+  const which = dialog.getByRole('group', { name: 'Which key' });
+  await which.getByRole('radio', { name: /^Anthropic/ }).check();
+  await dialog.getByLabel('Your Anthropic API key').fill('sk-ant-e2e-learner-key-1');
+  await dialog.getByRole('button', { name: 'Save key' }).click();
+  await expect(page.locator('.toast')).toContainText('Your Anthropic key is saved');
+  await expect(dialog.getByText('saved', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: /^Replies paid by Your Anthropic key\./ }),
+  ).toHaveText(/Anthropic key/);
+
+  const sends: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/messages') && r.method() === 'POST')
+      sends.push(r.headers()['x-tangent-own-key'] ?? '');
+  });
+  await page.locator('#new-lesson-topic').fill('Why is the sky blue?');
+  await page.getByRole('button', { name: 'Start lesson' }).click();
+  await expect(page).toHaveURL(/\/learn\/t\/[^/]+/);
+  // The scripted Anthropic upstream answered, on the model Learn runs on that key.
+  await expect(page.locator('.msg-assistant')).toContainText(
+    'Scripted reply (claude-sonnet-5-5): "Why is the sky blue?"',
+  );
+  expect(sends).toEqual(['anthropic']);
+
+  const pay = page.getByRole('radiogroup', { name: 'Pay for replies with' });
+  await expect(pay.getByRole('radio')).toHaveText(['My credit', 'Open pool', 'Anthropic key']);
+  await expect(pay.getByRole('radio', { name: 'Anthropic key' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
 });
