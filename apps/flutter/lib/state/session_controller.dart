@@ -99,14 +99,27 @@ class SessionController extends ChangeNotifier {
   List<LearnKey> get ownKeyOptions =>
       _keyStatus?.learnProviders ?? const [LearnKey.openRouter];
 
-  /// The own key replies run on while the learner pays with one: the one
-  /// they picked where this server offers it, else OpenRouter.
+  /// The own key the learner is shown: the one they picked where this
+  /// server offers it, else OpenRouter, as the server decides. Calls name
+  /// the pick itself ([requestedKey]), so a key status still loading, or
+  /// one that failed, shows OpenRouter here but never asks for it.
   LearnKey get ownKey {
     final chosen = _chosenKey;
     return chosen != null && ownKeyOptions.contains(chosen)
         ? chosen
         : LearnKey.openRouter;
   }
+
+  /// The own key every call names: the pick (OpenRouter until there is
+  /// one), whether or not the key status has been read. The server replaces
+  /// a key it doesn't offer with OpenRouter.
+  LearnKey get requestedKey => _chosenKey ?? LearnKey.openRouter;
+
+  /// The key the calls name for replies: [requestedKey] while the learner
+  /// pays with their own key, else OpenRouter's endpoint (credit and the
+  /// pool run on it). The lessons' provider list follows it.
+  LearnKey get replyKey =>
+      payer == Payer.ownKey ? requestedKey : LearnKey.openRouter;
 
   /// The learner's own key ([ownKey]) is saved; null until the key status
   /// is read, so a status still loading (or failed) never moves a key user
@@ -315,7 +328,7 @@ class SessionController extends ChangeNotifier {
   void _tellApi() {
     api
       ..payer = payer
-      ..ownKey = ownKey;
+      ..ownKey = requestedKey;
   }
 
   Future<void> _readChoice() async {

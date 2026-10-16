@@ -366,6 +366,15 @@ void main() {
       expect(forget.json, {'provider': 'openrouter'});
     });
 
+    test('a status naming no Learn keys offers OpenRouter alone', () async {
+      final f = fake(
+        (request) =>
+            json({'enabled': true, 'hasKey': false, 'providers': <String>[]}),
+      );
+      final status = await f.api.keyStatus();
+      expect(status.learnProviders, [LearnKey.openRouter]);
+    });
+
     test('a native build keeps the key cookie and sends it back', () async {
       final kept = MemoryTokens();
       final f = fake(

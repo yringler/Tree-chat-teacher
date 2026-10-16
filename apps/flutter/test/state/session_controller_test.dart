@@ -213,10 +213,12 @@ void main() {
     expect(api.ownKeySet, LearnKey.openRouter);
     expect(session.payer, Payer.ownKey);
 
-    // Not offered here: OpenRouter, whatever was picked.
+    // Not offered here: shown as OpenRouter, whatever was picked; calls name the pick,
+    // which the server replaces with OpenRouter.
     await session.chooseKey(LearnKey.anthropic);
     expect(store.value, 'anthropic');
     expect(session.ownKey, LearnKey.openRouter);
+    expect(api.ownKeySet, LearnKey.anthropic);
 
     api.keyStatusAnswer = const KeyStatus(
       enabled: true,
@@ -235,6 +237,19 @@ void main() {
     expect(next.hasOwnKey, isTrue);
     expect(next.payer, Payer.ownKey);
   });
+
+  test(
+    'calls name the stored own key even when the key status fails',
+    () async {
+      final store = MemoryStore()..value = 'anthropic';
+      final api = apiWith(creditMicros: 0, poolEnabled: true)
+        ..keyStatusError = Exception('offline');
+      final session = SessionController(api, keyChoiceStore: store);
+      await session.start();
+      expect(session.keyStatus, isNull);
+      expect(api.ownKeySet, LearnKey.anthropic);
+    },
+  );
 
   test('picked own key without a key is blocked', () async {
     final api = apiWith(creditMicros: 0, poolEnabled: true);

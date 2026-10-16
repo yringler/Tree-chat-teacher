@@ -253,8 +253,15 @@ class FakeTangentApi implements TangentApi {
   @override
   Future<BillingSummary> billing() async => billingAnswer;
 
+  /// Thrown by `keyStatus`, when set; otherwise [keyStatusAnswer].
+  Object? keyStatusError;
+
   @override
-  Future<KeyStatus> keyStatus() async => keyStatusAnswer;
+  Future<KeyStatus> keyStatus() async {
+    final error = keyStatusError;
+    if (error != null) throw error;
+    return keyStatusAnswer;
+  }
 
   @override
   Future<void> saveKey(LearnKey key, String apiKey) async {
@@ -280,8 +287,14 @@ class FakeTangentApi implements TangentApi {
     );
   }
 
+  /// How many times `providers` was asked.
+  int providersCalls = 0;
+
   @override
-  Future<List<ProviderInfo>> providers() async => providersAnswer;
+  Future<List<ProviderInfo>> providers() async {
+    providersCalls++;
+    return providersAnswer;
+  }
 
   @override
   Future<List<TreeSummary>> trees() async => treesAnswer;

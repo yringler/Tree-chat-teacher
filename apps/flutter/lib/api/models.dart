@@ -163,13 +163,13 @@ class KeyStatus {
     providers: (json['providers'] as List<Object?>? ?? const [])
         .whereType<String>()
         .toList(),
-    learnProviders: [
-      for (final key in LearnKey.values)
-        if ((json['learnProviders'] as List<Object?>? ?? const []).contains(
-          key.id,
-        ))
-          key,
-    ],
+    learnProviders: switch (json['learnProviders']) {
+      final List<Object?> ids => [
+        for (final key in LearnKey.values)
+          if (ids.contains(key.id)) key,
+      ],
+      _ => const [LearnKey.openRouter],
+    },
   );
 
   /// The server can store keys (it has a key encryption secret).
