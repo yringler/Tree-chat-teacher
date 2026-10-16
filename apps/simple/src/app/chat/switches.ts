@@ -11,9 +11,11 @@ export const FUNDING_OPTIONS: readonly FundingStop[] = [
   { id: 'pool', label: 'Open pool', hint: 'Use the open pool, within its daily limits' },
 ];
 
-/** Its third stop, while the learner's own key could reply too. */
-export const OWN_KEY_OPTION: FundingStop = {
-  id: 'own-key',
-  label: 'Your key',
-  hint: 'Pay for replies with your own API key',
-};
+/** Its third stop, while the learner's own key could reply too: "Anthropic key". */
+export function ownKeyOption(provider: string): FundingStop {
+  return {
+    id: 'own-key',
+    label: `${provider} key`,
+    hint: `Pay for replies with your own ${provider} API key`,
+  };
+}

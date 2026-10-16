@@ -84,7 +84,7 @@ export class PaidBy {
   private readonly ui = inject(UiStore);
   protected readonly demo = inject(DEMO_MODE);
 
-  /** The header pill's name: "Credit", "Pool", "Your key" or "Add your key". */
+  /** The header pill's name: "Credit", "Pool", "Anthropic key" (the own key's) or "Add your key". */
   protected readonly headerName = computed(() =>
     this.funding.needsKey() ? 'Add your key' : this.funding.paidBy().short,
   );

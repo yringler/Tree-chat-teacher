@@ -166,6 +166,31 @@ describe('How replies are paid for', () => {
     );
   });
 
+  it('"Which key" sits right under the own key option, before the other ways to pay', async () => {
+    await open({
+      billing: billing({ availableMicros: 1_200_000 }),
+      pool: POOL_ON,
+      chosen: 'own-key',
+      learnProviders: ['openrouter', 'anthropic'],
+    });
+    const which = screen.getByRole('group', { name: 'Which key' });
+    const own = radio(OWN).closest('label')!;
+    expect(own.nextElementSibling).toBe(which);
+    expect(
+      which.compareDocumentPosition(radio(CREDIT)) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('shows "Which key" only while the own key is picked', async () => {
+    await open({
+      billing: billing({ availableMicros: 1_200_000 }),
+      pool: POOL_ON,
+      chosen: 'credit',
+      learnProviders: ['openrouter', 'anthropic'],
+    });
+    expect(screen.queryByRole('group', { name: 'Which key' })).toBeNull();
+  });
+
   it('forgets only the chosen key', async () => {
     const d = await open({
       ownKey: true,

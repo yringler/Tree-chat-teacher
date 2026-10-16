@@ -344,7 +344,7 @@ describe('LearnFunding membership', () => {
     expect(funding.paidBy()).toEqual({
       payer: 'own-key',
       label: 'Your OpenRouter key',
-      short: 'Your key',
+      short: 'OpenRouter key',
       detail: null,
       warn: false,
     });
@@ -431,7 +431,7 @@ describe('LearnFunding paidBy', () => {
     expect(funding.paidBy()).toEqual({
       payer: 'own-key',
       label: 'Your OpenRouter key',
-      short: 'Your key',
+      short: 'OpenRouter key',
       detail: 'no key saved',
       warn: true,
     });
@@ -513,7 +513,7 @@ describe('LearnFunding open pool', () => {
     expect(funding.fundingChoice()).toBe(false);
   });
 
-  it('the funding toggle gains a "Your key" stop while a saved own key could reply', async () => {
+  it('the funding toggle gains a stop for the own key while a saved own key could reply', async () => {
     const { funding, api } = setup(async () => summary(membership({ status: 'active' })));
     signIn(funding, me(membership({ status: 'active' })));
     await funding.refreshPool();
@@ -543,6 +543,7 @@ describe('LearnFunding open pool', () => {
     expect(funding.fundingKeyStop()).toBe(false);
     expect(funding.paidBy()).toMatchObject({
       label: 'Your Anthropic key',
+      short: 'Anthropic key',
       detail: 'no key saved',
     });
   });

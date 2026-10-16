@@ -28,7 +28,7 @@ export interface PaidBy {
   readonly payer: Payer;
   /** "Your OpenRouter key", "Your Anthropic key", "Tangent credit" or "Open pool". */
   readonly label: string;
-  /** The header's shorter name: "Your key", "Credit" or "Pool". */
+  /** The header's shorter name: "OpenRouter key", "Anthropic key", "Credit" or "Pool". */
   readonly short: string;
   /** "$1.20 left", "$2.40 in the pool" or "no key saved"; null when there is nothing to add. */
   readonly detail: string | null;
@@ -257,7 +257,7 @@ export class LearnFunding {
     return {
       payer,
       label: `Your ${this.ownKeyLabel()} key`,
-      short: 'Your key',
+      short: `${this.ownKeyLabel()} key`,
       detail: locked ? 'needs a membership' : missing ? 'no key saved' : null,
       warn: missing || locked,
     };
@@ -288,7 +288,7 @@ export class LearnFunding {
     const own = this.poolMe()?.personalAvailableMicros ?? this.billing()?.availableMicros ?? 0;
     return own > 0;
   });
-  /** The funding switch has a "Your key" stop. */
+  /** The funding switch has a stop for the own key ("Anthropic key"). */
   readonly fundingKeyStop = computed(() => this.ownKeyUsable());
 
   /** Personal credit can be bought now: credit is offered and top-ups are sold. Anyone may buy. */

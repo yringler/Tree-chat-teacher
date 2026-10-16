@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import {
   ANTHROPIC_PROVIDER_ID,
@@ -40,10 +41,33 @@ import { LearnFunding } from '../state/learn-funding';
  */
 @Component({
   selector: 'app-model-access-dialog',
-  imports: [Modal, KeyForm, PoolMeter, RouterLink],
+  imports: [Modal, KeyForm, NgTemplateOutlet, PoolMeter, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="How replies are paid for" (closed)="close()">
+      <!-- Which own key replies run on: part of the own key's option, shown while it is picked. -->
+      <ng-template #whichKey>
+        @if (keyChoice()) {
+          <fieldset class="access-choice key-choice">
+            <legend class="field-label">Which key</legend>
+            @for (k of funding.ownKeyOptions(); track k) {
+              <label class="access-option">
+                <input
+                  type="radio"
+                  name="own-key"
+                  [value]="k"
+                  [checked]="funding.ownKey() === k"
+                  (change)="chooseKey(k)"
+                />
+                <span>
+                  <strong>{{ labels[k] }}</strong>
+                  <span class="muted small">{{ keyHints[k] }}</span>
+                </span>
+              </label>
+            }
+          </fieldset>
+        }
+      </ng-template>
       @if (waiting()) {
         <p class="notice" role="status">
           Your message wasn’t sent: replies run on your own {{ keyLabel() }} key, and none is saved
@@ -77,6 +101,7 @@ import { LearnFunding } from '../state/learn-funding';
               </span>
             </span>
           </label>
+          <ng-container [ngTemplateOutlet]="whichKey" />
           @if (funding.creditOffered()) {
             <label class="access-option">
               <input
@@ -167,25 +192,8 @@ import { LearnFunding } from '../state/learn-funding';
               This server can't store your own key (KEY_ENCRYPTION_SECRET is not set).
             </p>
           } @else {
-            @if (funding.ownKeyOptions().length > 1) {
-              <fieldset class="access-choice key-choice">
-                <legend class="field-label">Which key</legend>
-                @for (k of funding.ownKeyOptions(); track k) {
-                  <label class="access-option">
-                    <input
-                      type="radio"
-                      name="own-key"
-                      [value]="k"
-                      [checked]="funding.ownKey() === k"
-                      (change)="chooseKey(k)"
-                    />
-                    <span>
-                      <strong>{{ labels[k] }}</strong>
-                      <span class="muted small">{{ keyHints[k] }}</span>
-                    </span>
-                  </label>
-                }
-              </fieldset>
+            @if (!funding.creditOffered() && !funding.poolOn()) {
+              <ng-container [ngTemplateOutlet]="whichKey" />
             }
             <div class="key-row">
               <span class="key-name">{{ keyLabel() }} key</span>
@@ -268,6 +276,18 @@ export class ModelAccessDialog {
   /** The membership is required here (the fee is on). */
   protected readonly membershipRequired = computed(
     () => this.funding.membership()?.required ?? false,
+  );
+  /**
+   * "Which key" shows: the own key is picked and can be saved here, and the
+   * server offers more than one. It sits under the own key's option, so it
+   * reads as part of it, not of the whole dialog.
+   */
+  protected readonly keyChoice = computed(
+    () =>
+      this.payment() === 'own-key' &&
+      !this.ownKeyLocked() &&
+      (this.funding.keyStatus()?.enabled ?? false) &&
+      this.funding.ownKeyOptions().length > 1,
   );
   /** The own key needs a membership the learner lacks: the option is disabled. */
   protected readonly ownKeyLocked = computed(() => !this.funding.member());

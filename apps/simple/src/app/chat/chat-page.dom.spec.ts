@@ -277,15 +277,30 @@ describe('Learn: the lesson page', () => {
       within(pay)
         .getAllByRole('radio')
         .map((r) => r.textContent?.trim());
-    expect(stops()).toEqual(['My credit', 'Open pool', 'Your key']);
-    expect(within(pay).getByRole('radio', { name: 'Your key' }).getAttribute('aria-checked')).toBe(
-      'true',
-    );
+    expect(stops()).toEqual(['My credit', 'Open pool', 'OpenRouter key']);
+    expect(
+      within(pay).getByRole('radio', { name: 'OpenRouter key' }).getAttribute('aria-checked'),
+    ).toBe('true');
     await p.user.click(within(pay).getByRole('radio', { name: 'My credit' }));
     await p.fixture.whenStable();
     expect(within(pay).getByRole('radio', { name: 'My credit' }).getAttribute('aria-checked')).toBe(
       'true',
     );
+  });
+
+  it('the own key stop names the key replies run on', async () => {
+    await page(lesson(), {
+      billing: billing({ availableMicros: 500_000 }),
+      pool: POOL_ON,
+      chosen: 'own-key',
+      savedKeys: ['anthropic'],
+      learnProviders: ['openrouter', 'anthropic'],
+      chosenKey: 'anthropic',
+    });
+    const pay = within(dock()).getByRole('radiogroup', { name: 'Pay for replies with' });
+    expect(
+      within(pay).getByRole('radio', { name: 'Anthropic key' }).getAttribute('aria-checked'),
+    ).toBe('true');
   });
 
   it('without a saved own key the funding switch keeps its two stops', async () => {

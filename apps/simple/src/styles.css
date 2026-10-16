@@ -958,6 +958,11 @@ app-related-links.connections {
   margin-bottom: 4px;
 }
 
+/* Indented under the own key's option, among the ways to pay, as part of it. */
+.access-choice .key-choice {
+  margin: 0 0 4px 28px;
+}
+
 /* What replies are paid by (shell/paid-by.ts): opens the dialog above. */
 
 .pay-pill {

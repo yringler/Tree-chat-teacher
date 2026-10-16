@@ -48,7 +48,7 @@ import { UiStore } from '../state/ui-store';
 import { connectionTitleOf } from './connections';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
-import { FUNDING_OPTIONS, OWN_KEY_OPTION, type FundingOption } from './switches';
+import { FUNDING_OPTIONS, ownKeyOption, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
 
@@ -260,9 +260,11 @@ export class ChatPage implements OnDestroy {
     this.composer.focus();
   }
 
-  /** Credit and the pool, and "Your key" while the own key could reply. */
+  /** Credit and the pool, and the own key ("Anthropic key") while it could reply. */
   protected readonly fundingOptions = computed(() =>
-    this.funding.fundingKeyStop() ? [...FUNDING_OPTIONS, OWN_KEY_OPTION] : FUNDING_OPTIONS,
+    this.funding.fundingKeyStop()
+      ? [...FUNDING_OPTIONS, ownKeyOption(this.funding.ownKeyLabel())]
+      : FUNDING_OPTIONS,
   );
 
   protected chooseFunding(id: string): void {
