@@ -409,6 +409,11 @@ suite('buildTitlePrompt', () => {
     expect(content).toMatch(/quotes/);
   });
 
+  it('asks for plain text, with no TeX or Markdown', () => {
+    const out = buildTitlePrompt([{ role: 'user', content: 'Why is d/dx e^x = e^x?' }]);
+    expect(out.system).toContain('Plain text only: no TeX, dollar signs or Markdown');
+  });
+
   it('clips very long messages', () => {
     const out = buildTitlePrompt([{ role: 'user', content: 'a'.repeat(10_000) }]);
     expect(out.messages[0]!.content.length).toBeLessThan(3000);

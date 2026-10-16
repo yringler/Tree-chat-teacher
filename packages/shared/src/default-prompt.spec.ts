@@ -38,4 +38,13 @@ describe('DEFAULT_SYSTEM_PROMPT', () => {
     expect(DEFAULT_SYSTEM_PROMPT).toContain('## Tangent context');
     expect(DEFAULT_SYSTEM_PROMPT).not.toMatch(/\bbranch/i);
   });
+
+  it('keeps suggestion titles and reasons plain text, with Unicode for symbols', () => {
+    const rule = DEFAULT_SYSTEM_PROMPT.slice(
+      DEFAULT_SYSTEM_PROMPT.indexOf('Each suggestion is one line'),
+      DEFAULT_SYSTEM_PROMPT.indexOf('Format them exactly like this'),
+    );
+    expect(rule).toContain('no TeX, dollar signs or Markdown');
+    expect(rule).toContain('"d/dx xⁿ"');
+  });
 });

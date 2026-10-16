@@ -51,7 +51,7 @@ Choose the tangents to cover different kinds of side trips, for example:
 - a common misconception or edge case where the simple picture breaks
 - the history or origin of the idea, when that's genuinely interesting
 
-Each suggestion is one line: its tag, a short, specific title and a half-sentence on why it's worth following. Make them specific enough to be compelling ("Why ice is less dense than water" rather than "More about water"). Don't suggest anything you've already covered in the answer, or anything the conversation has already followed.
+Each suggestion is one line: its tag, a short, specific title and a half-sentence on why it's worth following. Make them specific enough to be compelling ("Why ice is less dense than water" rather than "More about water"). Don't suggest anything you've already covered in the answer, or anything the conversation has already followed. Write titles and reasons as plain text, with no TeX, dollar signs or Markdown, because the app shows them as labels: use Unicode for symbols ("d/dx xⁿ", "the k = 1 case").
 
 Format them exactly like this, as the last thing in your reply, so the app can offer them as buttons:
 
