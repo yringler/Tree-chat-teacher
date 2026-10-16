@@ -93,6 +93,7 @@ describe('membership', () => {
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
+      codesAccepted: false,
     });
     expect((await membershipFor(memberEnv, devPowerAccount())).required).toBe(false);
     await expect(assertMember(env, account)).resolves.toBeUndefined();
@@ -127,6 +128,7 @@ describe('membership', () => {
           periodEnd: new Date(periodEnd).toISOString(),
           cancelAtPeriodEnd: true,
           priceCents: 1000,
+          codesAccepted: true,
         });
         await expect(assertMember(memberEnv, a)).resolves.toBeUndefined();
       }
@@ -208,6 +210,13 @@ describe('membership waiver code', () => {
       expect(err.error.code).toBe('forbidden');
     }
     expect((await isWaived(account.userId!)).waived).toBe(0);
+  });
+
+  it('codesAccepted says whether a code is configured, so the apps can hide the form', async () => {
+    const account = await member();
+    expect((await membershipFor(memberEnv, account)).codesAccepted).toBe(true);
+    const none = { ...memberEnv, MEMBERSHIP_WAIVER_CODE: ' ' };
+    expect((await membershipFor(none, account)).codesAccepted).toBe(false);
   });
 
   it('is 400 when no code is configured, or the body is invalid', async () => {

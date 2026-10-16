@@ -114,6 +114,11 @@ export interface MembershipInfo {
   cancelAtPeriodEnd: boolean;
   /** Display price per year, pre-tax (tax is added at checkout). */
   priceCents: number;
+  /**
+   * The server redeems a membership code (`MEMBERSHIP_WAIVER_CODE` is set), so
+   * the apps offer the "Have a code?" form; false hides it.
+   */
+  codesAccepted: boolean;
 }
 
 /** The latest top-up. */

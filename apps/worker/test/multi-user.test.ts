@@ -1140,6 +1140,7 @@ describe('membership', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
+        codesAccepted: false,
       } satisfies MembershipInfo);
     }
     const u = await newUser(memberEnv());

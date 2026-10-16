@@ -90,7 +90,7 @@ How pricing works is in [operating.md](operating.md#how-pricing-works).
 - `PERSONAL_CREDIT_ENABLED`: var; default `false`. `true` lets personal credit (e.g. granted by an admin) be spent before payments are configured; with payments it always may.
 - `ANNUAL_FEE_ENABLED`: var; default `false`. `true` charges the yearly membership: with `POLAR_MEMBERSHIP_PRODUCT_ID` and `KEY_ENCRYPTION_SECRET` set, generating on the user's own keys needs one, in Learn, power and Canvas alike. Tangent credit and the pool never do.
 - `MEMBERSHIP_PRICE_CENTS`: var; default `1000` ($10.00). The yearly price users are shown; Polar charges its product's price.
-- `MEMBERSHIP_WAIVER_CODE`: secret; default none (no code redemption); optional. A code users enter to have the membership waived. Change it if it leaks.
+- `MEMBERSHIP_WAIVER_CODE`: secret; default none (no code redemption, and the billing page hides "Have a code?"); optional. A code users enter to have the membership waived. Change it if it leaks.
 - `PAYMENT_PROVIDER`: var; default `polar`. The payment adapter (`apps/worker/src/billing/providers/`).
 - `POLAR_ACCESS_TOKEN`: secret; required for payments. A Polar organization access token (`polar_oat_…`). Payments are on only when this and `POLAR_WEBHOOK_SECRET` are set; sandbox and production tokens differ.
 - `POLAR_WEBHOOK_SECRET`: secret; required for payments. Signing secret (`whsec_…`) of the webhook endpoint `/api/webhooks/polar`.

@@ -61,6 +61,7 @@ const ME: MeResponse = {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
+    codesAccepted: false,
   },
   membershipNeededFor: [],
   androidAppId: null,

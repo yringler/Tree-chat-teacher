@@ -108,6 +108,7 @@ describe('PowerConversationStore', () => {
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
+      codesAccepted: false,
     });
     expect(s.nodeLocked('a1')).toBe(true);
     expect(s.nodeLocked('a2')).toBe(false);

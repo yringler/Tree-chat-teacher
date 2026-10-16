@@ -99,6 +99,7 @@ const DEMO_MEMBERSHIP: MembershipInfo = {
   periodEnd: null,
   cancelAtPeriodEnd: false,
   priceCents: 1000,
+  codesAccepted: false,
 };
 /** The demos' pool: off, so no pool UI shows and nothing pretends to be funded. */
 export const DEMO_POOL_STATUS: PoolStatusResponse = {

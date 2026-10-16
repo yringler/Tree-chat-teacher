@@ -60,6 +60,7 @@ function fakeApi() {
             periodEnd: null,
             cancelAtPeriodEnd: false,
             priceCents: 1000,
+            codesAccepted: false,
           },
           membershipNeededFor: ['own-key'],
         }) as MeResponse,
@@ -291,6 +292,7 @@ describe('CanvasStore', () => {
           periodEnd: null,
           cancelAtPeriodEnd: false,
           priceCents: 1000,
+          codesAccepted: false,
         },
       } as MeResponse);
       expect(s.store.membershipBlocked()).toBe(false);
@@ -319,6 +321,7 @@ describe('CanvasStore', () => {
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
+      codesAccepted: false,
     } as const;
     const withCredit = setup();
     await withCredit.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
@@ -357,6 +360,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
+    codesAccepted: false,
   } as const;
   const credit: ProviderInfo = {
     id: 'openrouter',

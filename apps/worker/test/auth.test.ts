@@ -147,6 +147,7 @@ describe('fail closed', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
+        codesAccepted: false,
       },
       // The dev bypass requires no membership: nothing is ever read-only.
       membershipNeededFor: [],
@@ -187,6 +188,7 @@ describe('fail closed', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
+        codesAccepted: false,
       },
       membershipNeededFor: [],
       androidAppId: 'com.tangentailearning.tangent',

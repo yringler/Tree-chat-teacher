@@ -17,6 +17,7 @@ function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
+    codesAccepted: false,
     ...over,
   };
 }
