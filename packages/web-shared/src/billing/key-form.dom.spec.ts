@@ -49,6 +49,13 @@ describe('KeyForm', () => {
     expect(f.saved).toHaveBeenCalledExactlyOnceWith({ provider: 'openrouter', apiKey: 'sk-or-1' });
   });
 
+  it('puts Save right after the field, above the paragraph on how the key is kept', async () => {
+    await form({ providers: [{ id: 'openrouter', label: 'OpenRouter' }], provider: 'openrouter' });
+    const save = screen.getByRole('button', { name: 'Save key' });
+    const privacy = screen.getByText(/Your key is sent once to this server/);
+    expect(save.compareDocumentPosition(privacy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('waits while a save is in flight', async () => {
     await form({ providers: [{ id: 'openrouter', label: 'OpenRouter' }], busy: true });
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Checking…' }).disabled).toBe(

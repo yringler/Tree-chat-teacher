@@ -30,9 +30,9 @@ export interface KeySubmission {
  * the paragraph below the field says, the same in both apps.
  *
  * With more than one provider it shows a picker (`provider`, two-way); with
- * one it takes that one's key. Content goes between the field and the
- * paragraph (e.g. where to create a key); buttons marked `keyFormActions` go
- * before Save.
+ * one it takes that one's key. Content goes between the field and Save
+ * (e.g. where to create a key); buttons marked `keyFormActions` go before
+ * Save. The paragraph comes last, so Save stays above the fold on a phone.
  */
 @Component({
   selector: 'app-key-form',
@@ -67,6 +67,12 @@ export interface KeySubmission {
         </label>
       </div>
       <ng-content />
+      <div class="form-actions">
+        <ng-content select="[keyFormActions]" />
+        <button type="submit" class="btn btn-primary" [disabled]="busy()">
+          {{ busy() ? 'Checking…' : 'Save key' }}
+        </button>
+      </div>
       <p class="muted small">
         Your key is sent once to this server, checked with {{ providerLabel() }}, encrypted with a
         server-side secret and stored only in your browser as a cookie that page scripts can't read.
@@ -74,12 +80,6 @@ export interface KeySubmission {
         decrypts it in memory to call the provider, so you are trusting this server not to log it.
         It expires after 7 days without use.
       </p>
-      <div class="form-actions">
-        <ng-content select="[keyFormActions]" />
-        <button type="submit" class="btn btn-primary" [disabled]="busy()">
-          {{ busy() ? 'Checking…' : 'Save key' }}
-        </button>
-      </div>
     </form>
   `,
 })
