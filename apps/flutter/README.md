@@ -2,7 +2,7 @@
 
 A small Flutter version of Learn (`apps/simple`): sign in, the lessons list,
 and the chat with streaming replies and tangents. One codebase for the web,
-Android and iOS. The Android app is on Google Play; iOS has not been built or
+Android and iOS. The Android app is public on Google Play; iOS has not been built or
 run. The Worker serves the web build at `/app/`.
 
 ## Setup
