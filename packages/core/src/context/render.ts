@@ -275,7 +275,8 @@ export function buildTitlePrompt(messages: readonly ChatMessage[]): RenderedProm
   }));
   return {
     system:
-      'You name conversations. Reply with only a short title: 2–6 words, no quotes, no trailing punctuation.',
+      'You name conversations. Reply with only a short title: 2–6 words, no quotes, no trailing punctuation. ' +
+      'Plain text only: no TeX, dollar signs or Markdown; use Unicode for symbols (xⁿ, π, √2).',
     messages: [
       {
         role: 'user',
