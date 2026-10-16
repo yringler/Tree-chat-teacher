@@ -141,6 +141,12 @@ class _PaymentDialogState extends State<PaymentDialog> {
           title: const Text('Use my own API key'),
           subtitle: Text(_ownKeyText(session)),
         ),
+        // Which key is part of the own key's option, so it sits under it.
+        if (picked == Payer.ownKey && _offersKeyChoice(session))
+          Padding(
+            padding: const EdgeInsets.only(left: 24, bottom: 8),
+            child: _keyChoice(session),
+          ),
         if (session.creditOffered)
           RadioListTile<Payer>(
             value: Payer.credit,
@@ -194,6 +200,13 @@ class _PaymentDialogState extends State<PaymentDialog> {
     ),
   };
 
+  /// The learner can pick between own keys: theirs is allowed, the server
+  /// can store it and offers more than one.
+  static bool _offersKeyChoice(SessionController session) =>
+      session.ownKeyAllowed &&
+      (session.keyStatus?.enabled ?? false) &&
+      session.ownKeyOptions.length > 1;
+
   Widget _keyChoice(SessionController session) => RadioGroup<LearnKey>(
     groupValue: session.ownKey,
     onChanged: (key) {
@@ -236,7 +249,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
     final saved = status.has(key);
     final (keyPage, keyShape) = _keyPage(key);
     return [
-      if (session.ownKeyOptions.length > 1) ...[
+      // With no other way to pay there are no options to sit under.
+      if (!session.creditOffered &&
+          !session.poolOn &&
+          _offersKeyChoice(session)) ...[
         _keyChoice(session),
         const SizedBox(height: 8),
       ],

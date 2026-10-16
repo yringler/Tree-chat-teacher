@@ -159,6 +159,33 @@ void main() {
       },
     );
 
+    testWidgets(
+      '"Which key" sits right under the own key option, before the other '
+      'ways to pay',
+      (tester) async {
+        api.poolStatusAnswer = const PoolStatus(enabled: true, modelLabel: 'M');
+        api.keyStatusAnswer = const KeyStatus(
+          enabled: true,
+          providers: [],
+          learnProviders: [LearnKey.openRouter, LearnKey.anthropic],
+        );
+        await pumpApp(tester, api);
+        await open(tester);
+        expect(find.text('Which key'), findsNothing);
+        await tester.tap(find.text('Use my own API key'));
+        await settle(tester);
+        final which = tester.getTopLeft(find.text('Which key')).dy;
+        expect(
+          which,
+          greaterThan(tester.getTopLeft(find.text('Use my own API key')).dy),
+        );
+        expect(
+          which,
+          lessThan(tester.getTopLeft(find.text('Use the open pool')).dy),
+        );
+      },
+    );
+
     testWidgets('a rejected key says why', (tester) async {
       api.refuseKey = const ApiException(
         status: 400,
