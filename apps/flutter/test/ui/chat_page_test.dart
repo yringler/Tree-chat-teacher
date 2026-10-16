@@ -19,7 +19,7 @@ const reply =
 const taggedReply =
     'The **moon** pulls the sea.\n\n'
     '<tangents>\n'
-    '- [continue] Neap tides — the other half of the month\n'
+    '- [deeper] Neap tides — the other half of the month\n'
     '- [tangent] Tidal locking — why we see one face of the moon\n'
     '</tangents>';
 
@@ -375,7 +375,7 @@ void main() {
       expect(find.text(tangentAction.label), findsOneWidget);
       expect(find.text(replyAction.label), findsOneWidget);
       expect(find.bySemanticsLabel('Send as tangent'), findsOneWidget);
-      expect(find.bySemanticsLabel('Send as next step'), findsOneWidget);
+      expect(find.bySemanticsLabel('Send as next message'), findsOneWidget);
       expect(find.byTooltip('Send'), findsNothing);
       // Equally wide, the tangent first.
       final tangent = tester.getRect(find.byType(FilledButton));
@@ -651,8 +651,8 @@ void main() {
     Finder yours(String title) =>
         find.bySemanticsLabel(RegExp('^Open tangent: $title'));
 
-    testWidgets('lists the learner’s tangents first, then next steps, then '
-        'the suggestions', (tester) async {
+    testWidgets('lists the learner’s tangents first, then folds both kinds '
+        'of suggestion behind one row', (tester) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',
         branches: [
@@ -663,14 +663,23 @@ void main() {
       );
       await pumpApp(tester, api, location: '/t/t1');
       final yours = tester.getTopLeft(find.text(yourTangentsLabel)).dy;
-      final keepGoing = tester.getTopLeft(find.text(keepGoingLabel)).dy;
-      final fold = tester.getTopLeft(find.text('1 suggested tangent')).dy;
-      expect(yours, lessThan(keepGoing));
-      expect(keepGoing, lessThan(fold));
+      final fold = find.text('2 suggested tangents');
+      expect(yours, lessThan(tester.getTopLeft(fold).dy));
       expect(find.text('Moon gravity'), findsOneWidget);
-      expect(find.text('Neap tides'), findsOneWidget);
+      expect(find.text(digDeeperLabel), findsNothing);
+      expect(find.text('Neap tides'), findsNothing);
       expect(find.text(suggestedTangentsLabel), findsNothing);
       expect(find.text('Tidal locking'), findsNothing);
+
+      await tester.tap(fold);
+      await settle(tester);
+      final deeper = tester.getTopLeft(find.text(digDeeperLabel)).dy;
+      final neap = tester.getTopLeft(find.text('Neap tides')).dy;
+      final offers = tester.getTopLeft(find.text(suggestedTangentsLabel)).dy;
+      final locking = tester.getTopLeft(find.text('Tidal locking')).dy;
+      expect(deeper, lessThan(neap));
+      expect(neap, lessThan(offers));
+      expect(offers, lessThan(locking));
     });
 
     testWidgets('a followed suggestion shows once, under Your tangents, and '
@@ -877,9 +886,8 @@ void main() {
       content: taggedReply.replaceFirst('Neap tides', next),
     );
 
-    testWidgets('next steps show on the last reply only, and send a reply', (
-      tester,
-    ) async {
+    testWidgets('every reply shows its Dig deeper suggestions before its '
+        'suggested tangents', (tester) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',
         nodes: [
@@ -890,17 +898,49 @@ void main() {
         ],
       );
       await pumpApp(tester, api, location: '/t/t1');
-      expect(find.text('Keep going'), findsOneWidget);
-      expect(find.text('Neap tides'), findsNothing);
-      expect(find.text('Solar tides'), findsOneWidget);
-      // Every reply keeps its tangents.
+      expect(find.text(digDeeperLabel), findsNWidgets(2));
       expect(find.text(suggestedTangentsLabel), findsNWidgets(2));
+      expect(find.text('Neap tides'), findsOneWidget);
+      expect(find.text('Solar tides'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Solar tides')).dy,
+        lessThan(tester.getTopLeft(find.text('Tidal locking').last).dy),
+      );
+    });
 
-      await tester.tap(find.text('Solar tides'));
+    testWidgets('a Dig deeper suggestion on an earlier reply opens a tangent '
+        'instead of sending in the thread', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [
+          userNode,
+          tagged('a1', 1, 'Neap tides'),
+          node('u2', branch: 'trunk', seq: 2, content: 'And the sun?'),
+          tagged('a2', 3, 'Solar tides'),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.ensureVisible(find.text('Neap tides'));
+      await tester.pump();
+      await tester.tap(find.text('Neap tides'));
       await settle(tester);
-      expect(api.createdBranches, isEmpty);
-      expect(api.sends.single.target, 'trunk');
-      expect(api.sends.single.content, 'Solar tides');
+      expect(api.createdBranches.single.title, 'Neap tides');
+      expect(api.sends.single.target, 'side-1');
+      expect(api.sends.single.content, 'Neap tides');
+      expect(find.text('Main thread'), findsOneWidget);
+    });
+
+    testWidgets('a Dig deeper suggestion on the newest reply opens a tangent '
+        'too', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, tagged('a1', 1, 'Neap tides')],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(find.text('Neap tides'));
+      await settle(tester);
+      expect(api.createdBranches.single.title, 'Neap tides');
+      expect(api.sends.single.target, 'side-1');
     });
 
     testWidgets('while a send is in flight, the suggestions are disabled', (
@@ -912,7 +952,7 @@ void main() {
       );
       await pumpApp(tester, api, location: '/t/t1');
       final rows = [
-        find.bySemanticsLabel(RegExp('^Neap tides')),
+        find.bySemanticsLabel(RegExp('^Start a tangent: Neap tides')),
         find.bySemanticsLabel(RegExp('^Start a tangent: Tidal locking')),
       ];
       for (final row in rows) {
@@ -958,7 +998,7 @@ void main() {
         ],
       );
       await pumpApp(tester, api, location: '/t/t1');
-      expect(find.text('Keep going'), findsNothing);
+      expect(find.text(digDeeperLabel), findsNothing);
       expect(find.text(suggestedTangentsLabel), findsOneWidget);
       expect(find.text('Spring tides'), findsOneWidget);
     });

@@ -16,7 +16,7 @@ Each molecule locks into a lattice held open by hydrogen bonds.
 </tangents>''';
 
 const _t = TangentKind.tangent;
-const _c = TangentKind.continueOn;
+const _d = TangentKind.deeper;
 
 void main() {
   group('splitTangents', () {
@@ -88,7 +88,7 @@ void main() {
       final split = splitTangents(
         [
           '<tangents>',
-          '- [continue] Where the number comes from — the next step',
+          '- [deeper] Where the number comes from — the next step',
           '- [tangent] What a limit is — the idea the answer leans on',
           '- Untagged side trip — a model that dropped the tag',
           '- [tangent] Compound interest — where e first showed up',
@@ -99,7 +99,7 @@ void main() {
         Tangent(
           title: 'Where the number comes from',
           why: 'the next step',
-          kind: _c,
+          kind: _d,
         ),
         Tangent(
           title: 'What a limit is',
@@ -119,15 +119,15 @@ void main() {
       ]);
     });
 
-    test('caps each kind on its own: 3 continue, 6 tangent', () {
+    test('caps each kind on its own: 3 deeper, 6 tangent', () {
       final lines = [
-        for (var i = 0; i < 5; i++) '- [continue] C$i — r',
+        for (var i = 0; i < 5; i++) '- [deeper] C$i — r',
         for (var i = 0; i < 8; i++) '- [tangent] T$i — r',
       ].join('\n');
       final groups = groupTangents(
         splitTangents('<tangents>\n$lines\n</tangents>').tangents,
       );
-      expect(groups.continueOn.map((t) => t.title), ['C0', 'C1', 'C2']);
+      expect(groups.deeper.map((t) => t.title), ['C0', 'C1', 'C2']);
       expect(groups.tangent.map((t) => t.title), [
         'T0',
         'T1',
@@ -140,17 +140,17 @@ void main() {
 
     test('drops a title repeated under the other kind: the first wins', () {
       final split = splitTangents(
-        '<tangents>\n- [tangent] Limits — a\n- [continue] limits — b\n'
-        '- [continue] Series — c\n</tangents>',
+        '<tangents>\n- [tangent] Limits — a\n- [deeper] limits — b\n'
+        '- [deeper] Series — c\n</tangents>',
       );
       expect(split.tangents, const [
         Tangent(title: 'Limits', why: 'a', kind: _t),
-        Tangent(title: 'Series', why: 'c', kind: _c),
+        Tangent(title: 'Series', why: 'c', kind: _d),
       ]);
     });
 
     test('hides an unfinished tagged block while the reply streams', () {
-      final split = splitTangents('A.\n<tangents>\n- [continue] Next — wh');
+      final split = splitTangents('A.\n<tangents>\n- [deeper] Next — wh');
       expect(split.body, 'A.');
       expect(split.tangents, isEmpty);
       expect(split.partial, isTrue);
@@ -158,13 +158,13 @@ void main() {
 
     test('reads the block format the prompt asks for', () {
       final split = splitTangents(
-        'Body.\n\n<tangents>\n- [continue] One — because\n- [tangent] Two\n'
+        'Body.\n\n<tangents>\n- [deeper] One — because\n- [tangent] Two\n'
         '</tangents>',
       );
       expect(split.body, 'Body.');
       expect(split.partial, isFalse);
       expect(split.tangents, const [
-        Tangent(title: 'One', why: 'because', kind: _c),
+        Tangent(title: 'One', why: 'because', kind: _d),
         Tangent(title: 'Two', why: null, kind: _t),
       ]);
     });
@@ -184,10 +184,10 @@ void main() {
       );
     });
 
-    test('reads the [continue] and [tangent] tags', () {
+    test('reads the [deeper] and [tangent] tags', () {
       expect(
-        parseTangentLine('- [continue] Next — why'),
-        const Tangent(title: 'Next', why: 'why', kind: _c),
+        parseTangentLine('- [deeper] Next — why'),
+        const Tangent(title: 'Next', why: 'why', kind: _d),
       );
       expect(
         parseTangentLine('- [tangent] Side — why'),
@@ -195,10 +195,12 @@ void main() {
       );
     });
 
-    test('takes [next] and [reply] as continue, in any case', () {
-      expect(parseTangentLine('- [next] A')?.kind, _c);
-      expect(parseTangentLine('- [Reply] A')?.kind, _c);
-      expect(parseTangentLine('- [CONTINUE] A')?.kind, _c);
+    test('takes [dig deeper], [deeper] and [next] as deeper, in any case', () {
+      expect(parseTangentLine('- [Dig deeper] A')?.kind, _d);
+      expect(parseTangentLine('- [next] A')?.kind, _d);
+      expect(parseTangentLine('- [CONTINUE] A')?.kind, _d);
+      expect(parseTangentLine('- [DEEPER] A')?.kind, _d);
+      expect(parseTangentLine('- [reply] A')?.title, '[reply] A');
       expect(
         parseTangentLine('- [Tangent] A'),
         const Tangent(title: 'A', why: null, kind: _t),
@@ -209,14 +211,14 @@ void main() {
       const expected = Tangent(
         title: 'Where e comes from',
         why: 'next',
-        kind: _c,
+        kind: _d,
       );
       expect(
-        parseTangentLine('- **[continue] Where e comes from** — next'),
+        parseTangentLine('- **[deeper] Where e comes from** — next'),
         expected,
       );
       expect(
-        parseTangentLine('- [continue] **Where e comes from** — next'),
+        parseTangentLine('- [deeper] **Where e comes from** — next'),
         expected,
       );
     });
@@ -226,7 +228,7 @@ void main() {
     });
 
     test('returns null for a tag with no title', () {
-      expect(parseTangentLine('- [continue]'), isNull);
+      expect(parseTangentLine('- [deeper]'), isNull);
       expect(parseTangentLine('- [tangent]   '), isNull);
     });
 
@@ -241,29 +243,30 @@ void main() {
   group('groupTangents', () {
     test('splits the list by kind, keeping the order', () {
       const a = Tangent(title: 'A', why: null, kind: _t);
-      const b = Tangent(title: 'B', why: null, kind: _c);
+      const b = Tangent(title: 'B', why: null, kind: _d);
       const c = Tangent(title: 'C', why: null, kind: _t);
       final groups = groupTangents(const [a, b, c]);
-      expect(groups.continueOn, const [b]);
+      expect(groups.deeper, const [b]);
       expect(groups.tangent, const [a, c]);
     });
   });
 
   group('tangentFooter', () {
     const a = Tangent(title: 'A', why: 'why a', kind: _t);
-    const b = Tangent(title: 'B', why: null, kind: _c);
+    const b = Tangent(title: 'B', why: null, kind: _d);
     const c = Tangent(title: 'C', why: null, kind: _t);
     const d = Tangent(title: 'D', why: null, kind: _t);
     String titleOf(({String id, String title}) b) => b.title;
 
-    test('offers every suggested tangent, open, while the reply has none of '
-        'the learner’s', () {
+    test('offers every suggestion, open, while the reply has none of the '
+        'learner’s', () {
       final footer = tangentFooter(
         const [a, b, c],
         const <({String id, String title})>[],
         titleOf: titleOf,
       );
       expect(footer.yours, isEmpty);
+      expect(footer.deeper, const [b]);
       expect(footer.offers, const [a, c]);
       expect(footer.folded, isFalse);
       expect(footer.followed, 0);
@@ -278,6 +281,7 @@ void main() {
         titleOf: titleOf,
       );
       expect(footer.yours, const [followed]);
+      expect(footer.deeper, const [b]);
       expect(footer.offers, const [a, d]);
       expect(footer.folded, isTrue);
       expect(footer.followed, 1);
@@ -315,16 +319,16 @@ void main() {
       expect(footer.followed, 2);
     });
 
-    test('matches only tangent suggestions: a next step is sent as a reply, '
-        'never followed', () {
+    test('follows a dig-deeper suggestion as a tangent too', () {
       final footer = tangentFooter(
-        const [b],
+        const [a, b],
         const [(id: 'b', title: 'B')],
         titleOf: titleOf,
       );
-      expect(footer.offers, isEmpty);
-      expect(footer.folded, isFalse);
-      expect(footer.followed, 0);
+      expect(footer.deeper, isEmpty);
+      expect(footer.offers, const [a]);
+      expect(footer.folded, isTrue);
+      expect(footer.followed, 1);
     });
   });
 

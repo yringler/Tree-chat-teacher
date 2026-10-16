@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { HELP_RULE } from '@tangent/shared';
 import { detail, openTree, powerProviders, render, signIn } from '@tangent/web-shared/testing';
 import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
@@ -72,7 +73,7 @@ describe('DialogHost', () => {
     await h.fixture.whenStable();
     expect(open()).toEqual(['How tangents work']);
     const help = screen.getByRole('dialog');
-    expect(help.textContent).toContain('Reply = the next step. Tangent = a side trip.');
+    expect(help.textContent).toContain(HELP_RULE);
     // Power has no walkthrough to replay.
     expect(within(help).queryByRole('button', { name: 'Replay the walkthrough' })).toBeNull();
     await h.user.click(within(help).getByRole('button', { name: 'Keyboard shortcuts' }));

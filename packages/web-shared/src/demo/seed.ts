@@ -27,9 +27,9 @@ const FIRST_TURN: Turn = [
     'The off-key part matters: a kitten that copies perfectly never finds its own tune.',
     formatTangents([
       {
-        title: 'From whistling to a whole song',
-        why: 'the next step once the tune holds',
-        kind: 'continue',
+        title: 'How a kitten holds a tune',
+        why: 'what keeps the off-key part from drifting',
+        kind: 'deeper',
       },
       {
         title: TANGENT,
@@ -57,8 +57,8 @@ const SECOND_TURN: Turn = [
     formatTangents([
       {
         title: 'How a kitten keeps its own tune',
-        why: 'what comes after making one up',
-        kind: 'continue',
+        why: 'how a made-up tune sticks',
+        kind: 'deeper',
       },
       {
         title: 'The curious melon effect',

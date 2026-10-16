@@ -9,7 +9,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 - `message`: only the message the branch forks from, plus the highlighted quote;
 - `independent`: only the highlighted quote or topic.
 
-The **Context Inspector** shows exactly what will be sent and why. Every reply suggests next steps (**Keep going**) and **tangents** to explore, and replies can be grounded in a web search, with sources.
+The **Context Inspector** shows exactly what will be sent and why. Every reply suggests tangents to explore, further in (**Dig deeper**) or off to the side, and replies can be grounded in a web search, with sources.
 
 These apps share one Worker and one sign-in:
 

@@ -45,7 +45,7 @@ describe('lorem text', () => {
     expect(loremReply(DEMO_MAX_MODEL, seeded(7))).not.toBe(loremReply(DEMO_MAX_MODEL, seeded(8)));
   });
 
-  it('always ends with a tagged block of next steps and tangents the app can parse', () => {
+  it('always ends with a tagged block of deeper suggestions and tangents the app can parse', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const reply = loremReply(seed % 2 ? DEMO_MAX_MODEL : DEMO_NORMAL_MODEL, seeded(seed));
       expect(reply.endsWith('</tangents>')).toBe(true);
@@ -54,8 +54,8 @@ describe('lorem text', () => {
       expect(body).not.toContain('<tangents>');
       expect(body.length).toBeGreaterThan(20);
       const groups = groupTangents(tangents);
-      expect(groups.continue.length).toBeGreaterThanOrEqual(1);
-      expect(groups.continue.length).toBeLessThanOrEqual(2);
+      expect(groups.deeper.length).toBeGreaterThanOrEqual(1);
+      expect(groups.deeper.length).toBeLessThanOrEqual(2);
       expect(groups.tangent.length).toBeGreaterThanOrEqual(2);
       expect(groups.tangent.length).toBeLessThanOrEqual(4);
       for (const t of tangents) expect(t.why).not.toBeNull();
@@ -65,8 +65,8 @@ describe('lorem text', () => {
     const suggestions = loremTangents(seeded(3));
     const titles = suggestions.map((t) => t.title);
     expect(new Set(titles).size).toBe(titles.length);
-    // Next steps come first, as the prompt asks.
-    expect(suggestions[0]?.kind).toBe('continue');
+    // Dig deeper comes first, as the prompt asks.
+    expect(suggestions[0]?.kind).toBe('deeper');
   });
 
   it('writes longer replies for Max than for Normal', () => {

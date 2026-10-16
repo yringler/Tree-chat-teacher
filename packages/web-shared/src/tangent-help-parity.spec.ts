@@ -1,15 +1,14 @@
 import { readFileSync } from 'node:fs';
 import {
   DEFAULT_BRANCH_TITLE_PREFIX,
+  DIG_DEEPER_LABEL,
   HELP_ANALOGY,
   HELP_DEFAULT,
   HELP_ITEMS,
   HELP_REPLAY,
   HELP_RULE,
   HELP_SHORTCUTS,
-  HELP_TEST,
   HELP_TITLE,
-  KEEP_GOING_LABEL,
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
   REPLY_ACTION,
@@ -36,15 +35,14 @@ const DART = 'apps/flutter/lib/ui/tangent_help_copy.dart';
 const OUTLINE = 'apps/flutter/lib/ui/lesson_outline.dart';
 
 const COPY = {
+  DIG_DEEPER_LABEL,
   HELP_ANALOGY,
   HELP_DEFAULT,
   HELP_ITEMS,
   HELP_REPLAY,
   HELP_RULE,
   HELP_SHORTCUTS,
-  HELP_TEST,
   HELP_TITLE,
-  KEEP_GOING_LABEL,
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
   REPLY_ACTION,

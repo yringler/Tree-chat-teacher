@@ -57,7 +57,7 @@ describe('splitTangents', () => {
     expect(body).toBe('Answer so far.');
     expect(tangents).toEqual([]);
     expect(partial).toBe(true);
-    expect(splitTangents('A.\n<tangents>\n- [continue] Next — wh')).toEqual({
+    expect(splitTangents('A.\n<tangents>\n- [deeper] Next — wh')).toEqual({
       body: 'A.',
       tangents: [],
       partial: true,
@@ -80,7 +80,7 @@ describe('splitTangents', () => {
     const { tangents } = splitTangents(
       [
         '<tangents>',
-        '- [continue] Where the number comes from — the next step of the lesson',
+        '- [deeper] Where the number comes from — the next step of the lesson',
         '- [tangent] What a limit is — the idea the answer leans on',
         '- Untagged side trip — a model that dropped the tag',
         '- [tangent] Compound interest — where e first showed up',
@@ -91,7 +91,7 @@ describe('splitTangents', () => {
       {
         title: 'Where the number comes from',
         why: 'the next step of the lesson',
-        kind: 'continue',
+        kind: 'deeper',
       },
       { title: 'What a limit is', why: 'the idea the answer leans on', kind: 'tangent' },
       { title: 'Untagged side trip', why: 'a model that dropped the tag', kind: 'tangent' },
@@ -99,24 +99,24 @@ describe('splitTangents', () => {
     ]);
   });
 
-  it('caps each kind on its own: 3 continue, 6 tangent', () => {
+  it('caps each kind on its own: 3 deeper, 6 tangent', () => {
     const lines = [
-      ...Array.from({ length: 5 }, (_, i) => `- [continue] C${i} — r`),
+      ...Array.from({ length: 5 }, (_, i) => `- [deeper] C${i} — r`),
       ...Array.from({ length: 8 }, (_, i) => `- [tangent] T${i} — r`),
     ].join('\n');
     const { tangents } = splitTangents(`<tangents>\n${lines}\n</tangents>`);
-    const { continue: next, tangent } = groupTangents(tangents);
+    const { deeper: next, tangent } = groupTangents(tangents);
     expect(next.map((t) => t.title)).toEqual(['C0', 'C1', 'C2']);
     expect(tangent.map((t) => t.title)).toEqual(['T0', 'T1', 'T2', 'T3', 'T4', 'T5']);
   });
 
   it('drops a title repeated under the other kind: the first one wins', () => {
     const { tangents } = splitTangents(
-      '<tangents>\n- [tangent] Limits — a\n- [continue] limits — b\n- [continue] Series — c\n</tangents>',
+      '<tangents>\n- [tangent] Limits — a\n- [deeper] limits — b\n- [deeper] Series — c\n</tangents>',
     );
     expect(tangents).toEqual([
       { title: 'Limits', why: 'a', kind: 'tangent' },
-      { title: 'Series', why: 'c', kind: 'continue' },
+      { title: 'Series', why: 'c', kind: 'deeper' },
     ]);
   });
 });
@@ -140,11 +140,11 @@ describe('parseTangentLine', () => {
     expect(parseTangentLine('- A—b')).toEqual({ title: 'A', why: 'b', kind: 'tangent' });
   });
 
-  it('reads the [continue] and [tangent] tags', () => {
-    expect(parseTangentLine('- [continue] Next — why')).toEqual({
+  it('reads the [deeper] and [tangent] tags', () => {
+    expect(parseTangentLine('- [deeper] Next — why')).toEqual({
       title: 'Next',
       why: 'why',
-      kind: 'continue',
+      kind: 'deeper',
     });
     expect(parseTangentLine('- [tangent] Side — why')).toEqual({
       title: 'Side',
@@ -153,17 +153,18 @@ describe('parseTangentLine', () => {
     });
   });
 
-  it('takes [next] and [reply] as continue, in any case', () => {
-    expect(parseTangentLine('- [next] A')?.kind).toBe('continue');
-    expect(parseTangentLine('- [Reply] A')?.kind).toBe('continue');
-    expect(parseTangentLine('- [CONTINUE] A')?.kind).toBe('continue');
+  it('takes [dig deeper], [deeper] and [next] as deeper, in any case', () => {
+    expect(parseTangentLine('- [Dig deeper] A')?.kind).toBe('deeper');
+    expect(parseTangentLine('- [next] A')?.kind).toBe('deeper');
+    expect(parseTangentLine('- [CONTINUE] A')?.kind).toBe('deeper');
+    expect(parseTangentLine('- [DEEPER] A')?.kind).toBe('deeper');
     expect(parseTangentLine('- [Tangent] A')).toEqual({ title: 'A', why: null, kind: 'tangent' });
   });
 
   it('finds a tag inside or outside bold', () => {
-    const expected = { title: 'Where e comes from', why: 'next', kind: 'continue' };
-    expect(parseTangentLine('- **[continue] Where e comes from** — next')).toEqual(expected);
-    expect(parseTangentLine('- [continue] **Where e comes from** — next')).toEqual(expected);
+    const expected = { title: 'Where e comes from', why: 'next', kind: 'deeper' };
+    expect(parseTangentLine('- **[deeper] Where e comes from** — next')).toEqual(expected);
+    expect(parseTangentLine('- [deeper] **Where e comes from** — next')).toEqual(expected);
   });
 
   it('treats an untagged line as a tangent', () => {
@@ -171,7 +172,7 @@ describe('parseTangentLine', () => {
   });
 
   it('returns null for a tag with no title', () => {
-    expect(parseTangentLine('- [continue]')).toBeNull();
+    expect(parseTangentLine('- [deeper]')).toBeNull();
     expect(parseTangentLine('- [tangent]   ')).toBeNull();
   });
 });
@@ -179,11 +180,11 @@ describe('parseTangentLine', () => {
 describe('formatTangents', () => {
   it('round-trips through splitTangents', () => {
     const tangents: Tangent[] = [
-      { title: 'One', why: 'because', kind: 'continue' },
+      { title: 'One', why: 'because', kind: 'deeper' },
       { title: 'Two', why: null, kind: 'tangent' },
     ];
     const block = formatTangents(tangents);
-    expect(block).toBe('<tangents>\n- [continue] One — because\n- [tangent] Two\n</tangents>');
+    expect(block).toBe('<tangents>\n- [deeper] One — because\n- [tangent] Two\n</tangents>');
     expect(splitTangents(`Body.\n\n${block}`)).toEqual({
       body: 'Body.',
       tangents,
@@ -195,22 +196,23 @@ describe('formatTangents', () => {
 describe('groupTangents', () => {
   it('splits the list by kind, keeping the order', () => {
     const a: Tangent = { title: 'A', why: null, kind: 'tangent' };
-    const b: Tangent = { title: 'B', why: null, kind: 'continue' };
+    const b: Tangent = { title: 'B', why: null, kind: 'deeper' };
     const c: Tangent = { title: 'C', why: null, kind: 'tangent' };
-    expect(groupTangents([a, b, c])).toEqual({ continue: [b], tangent: [a, c] });
-    expect(groupTangents([])).toEqual({ continue: [], tangent: [] });
+    expect(groupTangents([a, b, c])).toEqual({ deeper: [b], tangent: [a, c] });
+    expect(groupTangents([])).toEqual({ deeper: [], tangent: [] });
   });
 });
 
 describe('tangentFooter', () => {
   const a: Tangent = { title: 'A', why: 'why a', kind: 'tangent' };
-  const b: Tangent = { title: 'B', why: null, kind: 'continue' };
+  const b: Tangent = { title: 'B', why: null, kind: 'deeper' };
   const c: Tangent = { title: 'C', why: null, kind: 'tangent' };
   const d: Tangent = { title: 'D', why: null, kind: 'tangent' };
 
-  it('offers every suggested tangent, open, while the reply has none of the user’s', () => {
+  it('offers every suggestion, open, while the reply has none of the user’s', () => {
     expect(tangentFooter([a, b, c], [])).toEqual({
       yours: [],
+      deeper: [b],
       offers: [a, c],
       folded: false,
       followed: 0,
@@ -221,6 +223,7 @@ describe('tangentFooter', () => {
     const followed = { id: 'x', title: 'C' };
     expect(tangentFooter([a, b, c, d], [followed])).toEqual({
       yours: [followed],
+      deeper: [b],
       offers: [a, d],
       folded: true,
       followed: 1,
@@ -250,11 +253,12 @@ describe('tangentFooter', () => {
     });
   });
 
-  it('matches only tangent suggestions: a next step is sent as a reply, never followed', () => {
-    expect(tangentFooter([b], [{ title: 'B' }])).toMatchObject({
-      offers: [],
-      folded: false,
-      followed: 0,
+  it('follows a dig-deeper suggestion as a tangent too', () => {
+    expect(tangentFooter([a, b], [{ title: 'B' }])).toMatchObject({
+      deeper: [],
+      offers: [a],
+      folded: true,
+      followed: 1,
     });
   });
 });
@@ -272,24 +276,24 @@ describe('suggestedFoldLabel', () => {
 });
 
 describe('tangentsAsMarkdown', () => {
-  it('rewrites the block as plain "Keep going" and "Tangents" lists', () => {
+  it('rewrites the block as plain "Dig deeper" and "Tangents" lists', () => {
     const reply =
-      'Body.\n\n<tangents>\n- [tangent] Why ice floats — density\n- [continue] Heavy water\n- Snow\n</tangents>';
+      'Body.\n\n<tangents>\n- [tangent] Why ice floats — density\n- [deeper] Heavy water\n- Snow\n</tangents>';
     expect(tangentsAsMarkdown(reply)).toBe(
-      'Body.\n\n**Keep going**\n\n- **Heavy water**\n\n**Tangents**\n\n- **Why ice floats** — density\n- **Snow**',
+      'Body.\n\n**Dig deeper**\n\n- **Heavy water**\n\n**Tangents**\n\n- **Why ice floats** — density\n- **Snow**',
     );
   });
 
-  it('writes only the Tangents list when nothing continues', () => {
+  it('writes only the Tangents list when nothing digs deeper', () => {
     const reply = 'Body.\n\n<tangents>\n- Why ice floats — density\n- Heavy water\n</tangents>';
     expect(tangentsAsMarkdown(reply)).toBe(
       'Body.\n\n**Tangents**\n\n- **Why ice floats** — density\n- **Heavy water**',
     );
   });
 
-  it('writes only the Keep going list when everything continues', () => {
-    expect(tangentsAsMarkdown('<tangents>\n- [continue] Next\n</tangents>')).toBe(
-      '**Keep going**\n\n- **Next**',
+  it('writes only the Dig deeper list when everything digs deeper', () => {
+    expect(tangentsAsMarkdown('<tangents>\n- [deeper] Next\n</tangents>')).toBe(
+      '**Dig deeper**\n\n- **Next**',
     );
   });
 

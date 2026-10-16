@@ -8,9 +8,7 @@ import {
   type TemplateRef,
 } from '@angular/core';
 import {
-  groupTangents,
-  KEEP_GOING_LABEL,
-  REPLY_ACTION,
+  DIG_DEEPER_LABEL,
   SUGGESTED_TANGENTS_LABEL,
   suggestedFoldLabel,
   tangentFooter,
@@ -30,17 +28,14 @@ let uid = 0;
  * is lit while on the open thread's chain (`chainIds`) or just come back
  * from (`cameFromIds`), and, where the app deletes from here, has a trash
  * button (`remove`).
- * "Keep going": next steps in the thread's topic, each sent as the next
- * message here (`send`), so only the newest reply of the thread on screen
- * (`latest`) offers them. "Suggested tangents": the side trips no tangent
- * follows yet, each a tangent to start (`open`); once the message has a
- * tangent of the user's they fold behind one button, so the footer changes
- * only when a tangent is started or deleted. Projected content (power and
- * Canvas: "Ask your own") ends that group when `withAsk` is set, and never
- * folds.
+ * Then the suggestions no tangent follows yet, each a tangent to start
+ * (`open`): "Dig deeper" (further into the reply's topic), then "Suggested
+ * tangents" (further out). Once the message has a tangent of the user's,
+ * both fold behind one button, so the footer changes only when a tangent is
+ * started or deleted. Projected content (power and Canvas: "Ask your own")
+ * ends the suggestions when `withAsk` is set, and never folds.
  *
- * It keeps a step from being sent twice and one suggestion opening at a
- * time; the app does the sending and opening. `locked`: the message's
+ * It keeps one suggestion opening at a time; the app does the opening. `locked`: the message's
  * thread can't generate (its funding needs the membership the user lacks),
  * so its suggestions fold and only the user's tangents open; `noun` names
  * that thread. `compact` shows the user's tangents as chips, each carrying
@@ -54,7 +49,7 @@ let uid = 0;
   host: { style: 'display: contents' },
   template: `
     @let f = footer();
-    @if (f.yours.length > 0 || keepGoing().length > 0 || f.offers.length > 0 || withAsk()) {
+    @if (f.yours.length > 0 || openCount() > 0 || withAsk()) {
       <div class="tangents">
         @if (f.yours.length > 0) {
           <div
@@ -131,36 +126,8 @@ let uid = 0;
             }
           </div>
         }
-        @if (keepGoing().length > 0) {
-          <div class="tangents-group" role="group" [attr.aria-labelledby]="ids.next">
-            <span class="tangents-group-label muted small" [id]="ids.next">{{ labels.next }}</span>
-            @for (t of keepGoing(); track t.title) {
-              <button
-                type="button"
-                class="tangent tangent-continue"
-                [disabled]="busy() || continuing() || opening() !== null || locked()"
-                [title]="
-                  locked()
-                    ? 'Continuing needs a membership (this ' + noun() + ' is on your own key)'
-                    : nextHint()
-                "
-                (click)="continueWith($event, t.title)"
-              >
-                <app-icon name="next" [size]="14" />
-                <span class="tangent-title">{{ t.title }}</span>
-                @if (t.why) {
-                  <span class="tangent-why muted">{{ t.why }}</span>
-                }
-              </button>
-            }
-          </div>
-        }
-        @if (f.offers.length > 0 || withAsk()) {
-          <div
-            class="tangents-group tangents-offers"
-            role="group"
-            [attr.aria-labelledby]="ids.offers"
-          >
+        @if (openCount() > 0 || withAsk()) {
+          <div class="tangents-group tangents-offers">
             @if (foldable()) {
               <button
                 type="button"
@@ -174,34 +141,29 @@ let uid = 0;
                 {{ foldLabel() }}
               </button>
             }
-            <!-- Names the group even while there is nothing under it to read. -->
-            <span
-              class="tangents-group-label muted small"
-              [class.sr-only]="!offersShown()"
-              [id]="ids.offers"
-              >{{ labels.offers }}</span
-            >
-            @if (f.offers.length > 0) {
+            @if (openCount() > 0) {
               <div class="tangents-offers-list" [id]="ids.offersList" [hidden]="!offersShown()">
-                @for (t of f.offers; track t.title) {
-                  <button
-                    type="button"
-                    class="tangent"
-                    [disabled]="opening() !== null || locked()"
-                    [title]="
-                      locked()
-                        ? startLockedTitle()
-                        : 'Go on a tangent about this (keeps the conversation so far)'
-                    "
-                    (click)="follow($event, t.title)"
-                  >
-                    <app-icon name="tangent" [size]="14" />
-                    <span class="sr-only">{{ labels.start }}</span>
-                    <span class="tangent-title">{{ t.title }}</span>
-                    @if (t.why) {
-                      <span class="tangent-why muted">{{ t.why }}</span>
+                @for (g of offerGroups(); track g.id) {
+                  <div class="tangents-group" role="group" [attr.aria-labelledby]="g.id">
+                    <span class="tangents-group-label muted small" [id]="g.id">{{ g.label }}</span>
+                    @for (t of g.tangents; track t.title) {
+                      <button
+                        type="button"
+                        class="tangent"
+                        [class.tangent-deeper]="t.kind === 'deeper'"
+                        [disabled]="opening() !== null || locked()"
+                        [title]="locked() ? startLockedTitle() : followTitle"
+                        (click)="follow($event, t.title)"
+                      >
+                        <app-icon name="tangent" [size]="14" />
+                        <span class="sr-only">{{ labels.start }}</span>
+                        <span class="tangent-title">{{ t.title }}</span>
+                        @if (t.why) {
+                          <span class="tangent-why muted">{{ t.why }}</span>
+                        }
+                      </button>
                     }
-                  </button>
+                  </div>
                 }
               </div>
             }
@@ -215,10 +177,6 @@ let uid = 0;
 export class SuggestionGroups {
   /** The finished reply's suggestions (none for any other message). */
   readonly tangents = input.required<readonly Tangent[]>();
-  /** The newest reply of the thread on screen: the only one offering next steps. */
-  readonly latest = input(false);
-  /** The reply is in a tangent, so a next step continues it rather than the main thread. */
-  readonly inTangent = input(false);
   /** The branches started from the message: the user's tangents. */
   readonly children = input<readonly Branch[]>([]);
   /** The selected branch's chain: a tangent of the user's on it is lit. */
@@ -227,14 +185,10 @@ export class SuggestionGroups {
   readonly cameFromIds = input<ReadonlySet<string>>(new Set());
   readonly locked = input(false);
   readonly noun = input<'thread' | 'lane'>('thread');
-  /** Something else is generating, so a next step waits. */
-  readonly busy = input(false);
   /** "Ask your own" is projected: the suggested group shows even with no suggestion. */
   readonly withAsk = input(false);
   /** A tangent's title as the app shows it. */
   readonly titleOf = input<(b: Branch) => string>((b) => b.title);
-  /** Sends a next step as the next message after the reply. */
-  readonly send = input.required<(title: string) => Promise<unknown>>();
   /** Starts the tangent following a suggestion, and opens it. */
   readonly open = input.required<(title: string) => Promise<unknown>>();
   /** Opens one of the user's tangents. */
@@ -248,7 +202,7 @@ export class SuggestionGroups {
 
   protected readonly labels = {
     yours: YOUR_TANGENTS_LABEL,
-    next: KEEP_GOING_LABEL,
+    deeper: DIG_DEEPER_LABEL,
     offers: SUGGESTED_TANGENTS_LABEL,
     open: 'Open tangent: ',
     back: ' (you were just here)',
@@ -256,15 +210,22 @@ export class SuggestionGroups {
   };
   protected readonly ids = {
     yours: `your-tangents-${++uid}`,
-    next: `keep-going-${uid}`,
+    deeper: `dig-deeper-${uid}`,
     offers: `suggested-tangents-${uid}`,
     offersList: `suggested-tangents-list-${uid}`,
   };
-  private readonly groups = computed(() => groupTangents(this.tangents()));
+  protected readonly followTitle = 'Go on a tangent about this (keeps the conversation so far)';
   protected readonly footer = computed(() => tangentFooter(this.tangents(), this.children()));
-  protected readonly keepGoing = computed(() => (this.latest() ? this.groups().continue : []));
-  protected readonly nextHint = computed(() =>
-    this.inTangent() ? REPLY_ACTION.hintInTangent : REPLY_ACTION.hint,
+  /** How many suggestions no tangent follows yet, of either kind. */
+  protected readonly openCount = computed(
+    () => this.footer().deeper.length + this.footer().offers.length,
+  );
+  /** The suggestions under their headings, leaving out an empty one. */
+  protected readonly offerGroups = computed(() =>
+    [
+      { id: this.ids.deeper, label: this.labels.deeper, tangents: this.footer().deeper },
+      { id: this.ids.offers, label: this.labels.offers, tangents: this.footer().offers },
+    ].filter((g) => g.tangents.length > 0),
   );
   /** Why a suggestion can't start here, in the thread's own word. */
   protected readonly startLockedTitle = computed(
@@ -272,23 +233,20 @@ export class SuggestionGroups {
   );
   /** The suggestions sit behind one button: the user has a tangent here, or none can start. */
   protected readonly foldable = computed(
-    () => this.footer().offers.length > 0 && (this.footer().folded || this.locked()),
+    () => this.openCount() > 0 && (this.footer().folded || this.locked()),
   );
   /** The folded suggestions are shown (per message, while it is on screen). */
   protected readonly expanded = signal(false);
   protected readonly offersShown = computed(
-    () => this.footer().offers.length > 0 && (!this.foldable() || this.expanded()),
+    () => this.openCount() > 0 && (!this.foldable() || this.expanded()),
   );
-  protected readonly foldLabel = computed(() => {
-    const f = this.footer();
-    return suggestedFoldLabel(f.offers.length, f.followed > 0);
-  });
+  protected readonly foldLabel = computed(() =>
+    suggestedFoldLabel(this.openCount(), this.footer().followed > 0),
+  );
   /** The suggestions' reasons by title: a tangent following one shows it as its tooltip. */
   private readonly whyOf = computed(
-    () => new Map(this.groups().tangent.map((t) => [t.title, t.why] as const)),
+    () => new Map(this.tangents().map((t) => [t.title, t.why] as const)),
   );
-  /** A next step is being sent. */
-  protected readonly continuing = signal(false);
   /** Title of the suggestion whose tangent is opening. */
   protected readonly opening = signal<string | null>(null);
 
@@ -320,17 +278,6 @@ export class SuggestionGroups {
   protected async removeYours(e: Event, b: Branch): Promise<void> {
     e.stopPropagation();
     await this.remove()?.(b);
-  }
-
-  protected async continueWith(e: Event, title: string): Promise<void> {
-    e.stopPropagation();
-    if (this.busy() || this.continuing() || this.opening() !== null || this.locked()) return;
-    this.continuing.set(true);
-    try {
-      await this.send()(title);
-    } finally {
-      this.continuing.set(false);
-    }
   }
 
   protected async follow(e: Event, title: string): Promise<void> {

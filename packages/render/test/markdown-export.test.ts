@@ -83,7 +83,7 @@ describe('payloadToMarkdown', () => {
 
 describe('tangents in shared replies', () => {
   const reply =
-    'The answer.\n\n<tangents>\n- [tangent] Why ice floats — density again\n- [continue] Heavy water\n</tangents>';
+    'The answer.\n\n<tangents>\n- [tangent] Why ice floats — density again\n- [deeper] Heavy water\n</tangents>';
   const payload = samplePayload({
     context: null,
     branches: [
@@ -109,10 +109,10 @@ describe('tangents in shared replies', () => {
     ],
   });
 
-  it('turns the block into "Keep going" and "Tangents" lists and keeps it out of fork excerpts', () => {
+  it('turns the block into "Dig deeper" and "Tangents" lists and keeps it out of fork excerpts', () => {
     const md = payloadToMarkdown(payload);
     expect(md).toContain(
-      '**AI:**\n\nThe answer.\n\n**Keep going**\n\n- **Heavy water**\n\n**Tangents**\n\n- **Why ice floats** — density again',
+      '**AI:**\n\nThe answer.\n\n**Dig deeper**\n\n- **Heavy water**\n\n**Tangents**\n\n- **Why ice floats** — density again',
     );
     expect(md).not.toContain('<tangents>\n- Why');
     expect(md).toContain('Tangent from: “The answer.”');

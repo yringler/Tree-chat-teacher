@@ -1,13 +1,13 @@
 import { Component, signal } from '@angular/core';
 import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
-import { REPLY_ACTION, type Branch, type Tangent } from '@tangent/shared';
+import type { Branch, Tangent } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { branch, render } from '../testing';
 import { SuggestionGroups } from './suggestion-groups';
 
 const SUGGESTED: readonly Tangent[] = [
-  { kind: 'continue', title: 'Diffraction', why: 'what a slit does to it next' },
+  { kind: 'deeper', title: 'Diffraction', why: 'what a slit does to it next' },
   { kind: 'tangent', title: 'Interference', why: 'why two waves add up' },
   { kind: 'tangent', title: 'Photons', why: 'the particle side' },
 ];
@@ -16,24 +16,22 @@ const SUGGESTED: readonly Tangent[] = [
 const PHOTONS = branch('b-photons', { title: 'Photons' });
 const OWN = branch('b-own', { title: 'Why is the sky blue', anchorQuote: 'the sky' });
 
-/** The footer, with `send` and `open` spies that settle when `settle` is called. */
+/** The footer, with an `open` spy that settles when `settle` is called. */
 async function groups(inputs: Record<string, unknown> = {}) {
   let settle = (): void => undefined;
   const pending = () =>
     new Promise<void>((resolve) => {
       settle = resolve;
     });
-  const send = vi.fn(pending);
   const open = vi.fn(pending);
   const openBranch = vi.fn();
   const r = await render(SuggestionGroups, {
-    inputs: { tangents: SUGGESTED, latest: true, send, open, openBranch, ...inputs },
+    inputs: { tangents: SUGGESTED, open, openBranch, ...inputs },
   });
-  return { ...r, send, open, openBranch, settle: () => settle(), user: userEvent.setup() };
+  return { ...r, open, openBranch, settle: () => settle(), user: userEvent.setup() };
 }
 
 const group = (name: string) => within(screen.getByRole('group', { name }));
-const step = () => group('Keep going').getByRole<HTMLButtonElement>('button', { name: /^Diff/ });
 const offer = (title: string) =>
   screen.getByRole<HTMLButtonElement>('button', { name: new RegExp(`^Start a tangent: ${title}`) });
 const yours = (title: string) =>
@@ -41,10 +39,12 @@ const yours = (title: string) =>
 const fold = () => screen.getByRole<HTMLButtonElement>('button', { expanded: false });
 
 describe('SuggestionGroups: before the user has a tangent here', () => {
-  it('Keep going, then every suggested tangent, open, each one to start', async () => {
+  it('Dig deeper, then Suggested tangents, open, each one to start', async () => {
     await groups();
     expect(screen.queryByRole('group', { name: 'Your tangents' })).toBeNull();
-    expect(group('Keep going').getAllByRole('button')).toHaveLength(1);
+    group('Dig deeper').getByRole('button', {
+      name: 'Start a tangent: Diffraction what a slit does to it next',
+    });
     expect(group('Suggested tangents').getAllByRole('button')).toHaveLength(2);
     group('Suggested tangents').getByRole('button', {
       name: 'Start a tangent: Photons the particle side',
@@ -52,78 +52,58 @@ describe('SuggestionGroups: before the user has a tangent here', () => {
     expect(screen.queryByRole('button', { expanded: false })).toBeNull();
   });
 
-  it('only the newest reply offers Keep going', async () => {
-    await groups({ latest: false });
-    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
-    group('Suggested tangents').getByRole('button', { name: /^Start a tangent: Interference/ });
-  });
-
   it('with nothing to offer, shows nothing', async () => {
     const g = await groups({ tangents: [] });
     expect(g.host.textContent?.trim()).toBe('');
   });
 
+  it('leaves out a heading with nothing under it', async () => {
+    await groups({ tangents: SUGGESTED.filter((t) => t.kind === 'tangent') });
+    expect(screen.queryByRole('group', { name: 'Dig deeper' })).toBeNull();
+    group('Suggested tangents');
+  });
+
   it('labels each group, without a landmark per message', async () => {
-    await groups({ children: [OWN] });
+    await groups();
     expect(screen.queryAllByRole('navigation')).toEqual([]);
     expect(screen.getAllByRole('group').map((g) => g.getAttribute('aria-labelledby'))).toEqual([
-      expect.stringMatching(/^your-tangents-/),
-      expect.stringMatching(/^keep-going-/),
+      expect.stringMatching(/^dig-deeper-/),
       expect.stringMatching(/^suggested-tangents-/),
     ]);
   });
 });
 
-describe('SuggestionGroups: Keep going', () => {
-  it('keeps the main thread moving, or inside a tangent, that tangent', async () => {
+describe('SuggestionGroups: suggestions', () => {
+  it('Dig deeper starts a tangent, as a suggested tangent does', async () => {
     const g = await groups();
-    expect(step().title).toBe(REPLY_ACTION.hint);
-    await g.set({ inTangent: true });
-    expect(step().title).toBe(REPLY_ACTION.hintInTangent);
+    await g.user.click(offer('Diffraction'));
+    expect(g.open).toHaveBeenCalledWith('Diffraction');
   });
 
-  it('sends a step once, until the send settles', async () => {
-    const g = await groups();
-    await g.user.click(step());
-    expect(g.send).toHaveBeenCalledWith('Diffraction');
-    expect(step().disabled).toBe(true);
-    await g.user.click(step());
-    expect(g.send).toHaveBeenCalledTimes(1);
-    g.settle();
-    await vi.waitFor(() => expect(step().disabled).toBe(false));
-  });
-
-  it('waits while something else is generating', async () => {
-    await groups({ busy: true });
-    expect(step().disabled).toBe(true);
-  });
-});
-
-describe('SuggestionGroups: suggested tangents', () => {
   it('starts one tangent at a time', async () => {
     const g = await groups();
     await g.user.click(offer('Photons'));
     expect(g.open).toHaveBeenCalledWith('Photons');
     expect(offer('Interference').disabled).toBe(true);
+    expect(offer('Diffraction').disabled).toBe(true);
     g.settle();
     await vi.waitFor(() => expect(offer('Interference').disabled).toBe(false));
   });
 
-  it('fold behind one button once the reply has a tangent of the user’s', async () => {
+  it('both kinds fold behind one button once the reply has a tangent of the user’s', async () => {
     const g = await groups({ children: [OWN] });
     const button = fold();
-    expect(button.textContent?.trim()).toBe('2 suggested tangents');
+    expect(button.textContent?.trim()).toBe('3 suggested tangents');
     const list = document.getElementById(button.getAttribute('aria-controls') ?? '');
     expect(list?.hidden).toBe(true);
     expect(screen.queryByRole('button', { name: /^Start a tangent/ })).toBeNull();
-    // The group keeps its name while folded; only the button shows.
-    screen.getByRole('group', { name: 'Suggested tangents' });
-    expect(screen.getByText('Suggested tangents').classList).toContain('sr-only');
 
     await g.user.click(button);
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(list?.hidden).toBe(false);
-    expect(screen.getByText('Suggested tangents').classList).not.toContain('sr-only');
+    group('Dig deeper');
+    group('Suggested tangents');
+    offer('Diffraction');
     offer('Interference');
     offer('Photons');
 
@@ -134,21 +114,21 @@ describe('SuggestionGroups: suggested tangents', () => {
 
   it('a followed suggestion leaves them: the button says how many more there are', async () => {
     const g = await groups({ children: [PHOTONS] });
-    expect(fold().textContent?.trim()).toBe('1 more suggested');
+    expect(fold().textContent?.trim()).toBe('2 more suggested');
     await g.user.click(fold());
+    offer('Diffraction');
     offer('Interference');
     expect(screen.queryByRole('button', { name: /^Start a tangent: Photons/ })).toBeNull();
   });
 
   it('locked: folded even without a tangent, saying why in the thread’s own word', async () => {
     const g = await groups({ locked: true, noun: 'lane' });
-    expect(step().disabled).toBe(true);
-    expect(step().title).toBe('Continuing needs a membership (this lane is on your own key)');
     const why = 'Starting a tangent needs a membership (this lane is on your own key)';
     expect(fold().title).toBe(why);
     await g.user.click(fold());
     expect(offer('Interference').disabled).toBe(true);
     expect(offer('Interference').title).toBe(why);
+    expect(offer('Diffraction').disabled).toBe(true);
   });
 });
 
@@ -160,10 +140,10 @@ describe('SuggestionGroups: your tangents', () => {
       'Open tangent: Why is the sky blue',
       'Open tangent: Photons',
     ]);
-    const labels = [...g.host.querySelectorAll('.tangents-group-label:not(.sr-only)')].map((l) =>
-      l.textContent?.trim(),
-    );
-    expect(labels).toEqual(['Your tangents', 'Keep going']);
+    const labels = [...g.host.querySelectorAll('.tangents-group-label')]
+      .filter((l) => !l.closest('[hidden]'))
+      .map((l) => l.textContent?.trim());
+    expect(labels).toEqual(['Your tangents']);
     await g.user.click(yours('Photons'));
     expect(g.openBranch).toHaveBeenCalledWith(PHOTONS);
     expect(g.open).not.toHaveBeenCalled();
@@ -254,7 +234,6 @@ describe('SuggestionGroups: your tangents', () => {
       [tangents]="tangents"
       [children]="children()"
       [withAsk]="true"
-      [send]="settled"
       [open]="settled"
       [openBranch]="opened"
       [rowExtra]="extra"
@@ -277,15 +256,21 @@ describe('SuggestionGroups in an app', () => {
   it('"Ask your own" stays in view while the suggestions are folded', async () => {
     await render(AppFooter);
     fold();
-    group('Suggested tangents').getByRole('textbox', { name: 'Ask your own' });
+    expect(screen.getByRole('textbox', { name: 'Ask your own' }).closest('[hidden]')).toBeNull();
   });
 
   it('with every suggestion followed, "Ask your own" still shows', async () => {
     const r = await render(AppFooter);
-    r.component.children.set([OWN, PHOTONS, branch('b-int', { title: 'Interference' })]);
+    r.component.children.set([
+      OWN,
+      PHOTONS,
+      branch('b-int', { title: 'Interference' }),
+      branch('b-dif', { title: 'Diffraction' }),
+    ]);
     await r.fixture.whenStable();
     expect(screen.queryByRole('button', { expanded: false })).toBeNull();
-    group('Suggested tangents').getByRole('textbox', { name: 'Ask your own' });
+    expect(screen.queryByRole('group', { name: 'Suggested tangents' })).toBeNull();
+    screen.getByRole('textbox', { name: 'Ask your own' });
   });
 
   it('ends each of the user’s tangents with the app’s details', async () => {

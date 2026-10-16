@@ -1,9 +1,11 @@
-// Suggested follow-ups: the offers a reply ends with, each either a next
-// step in the thread's topic ("continue") or a side trip ("tangent"), in a
-// block with a kind tag on each line
+// Suggested tangents: the offers a reply ends with, each either a question
+// that digs deeper into what the reply explained ("deeper") or a related
+// topic off to the side ("tangent"). Following either opens a tangent; the
+// kind only sorts them under the "Dig deeper" and "Suggested tangents"
+// headings. The prompt asks for them in a block with a kind tag on each line
 //
 //   <tangents>
-//   - [continue] Title — why it's the next step
+//   - [deeper] Title — why it's worth digging into
 //   - [tangent] Title — why it's worth following
 //   </tangents>
 //
@@ -12,11 +14,10 @@
 // which the server's prompt and the web apps use; the two must change
 // together.
 
-/// What following a suggestion does. [continueOn] advances the thread's main
-/// topic to its next step, so it is sent as a reply ("continue" is a Dart
-/// keyword); [tangent] clarifies something in the reply or explores a side
-/// topic, so it opens a tangent.
-enum TangentKind { continueOn, tangent }
+/// Where a suggestion leads: [deeper] is a question a reader of the reply
+/// would ask next, further into its topic; [tangent] is a related topic
+/// further out. Both open a tangent when followed.
+enum TangentKind { deeper, tangent }
 
 class Tangent {
   const Tangent({required this.title, required this.why, required this.kind});
@@ -74,13 +75,13 @@ final _spaces = RegExp(r'\s+');
 final _trailingPunctuation = RegExp(r'[.;,]+$');
 final _newline = RegExp(r'\r?\n');
 
-/// Kind tag; [next] and [reply] are taken as continue because models
-/// paraphrase the tag.
+/// Kind tag; [dig deeper], [continue] and [next] are taken as deeper because
+/// models paraphrase the tag.
 final _kindRe = RegExp(
-  r'^\[(continue|next|reply|tangent)\]\s*',
+  r'^\[(deeper|dig deeper|continue|next|tangent)\]\s*',
   caseSensitive: false,
 );
-const _maxContinue = 3;
+const _maxDeeper = 3;
 const _maxTangents = 6;
 const _maxTitleChars = 200;
 
@@ -98,14 +99,14 @@ String _unwrap(String text) => text
   if (m == null) return null;
   final tag = m[1]!.toLowerCase();
   return (
-    kind: tag == 'tangent' ? TangentKind.tangent : TangentKind.continueOn,
+    kind: tag == 'tangent' ? TangentKind.tangent : TangentKind.deeper,
     rest: text.substring(m.end),
   );
 }
 
 /// One line of the block as a suggestion, or null for blank or marker-only
-/// lines. The tag may sit outside or inside bold (`[continue] **X**`,
-/// `**[continue] X**`). A line without a tag is a tangent: operators'
+/// lines. The tag may sit outside or inside bold (`[deeper] **X**`,
+/// `**[deeper] X**`). A line without a tag is a tangent: operators'
 /// LEARN_SYSTEM_PROMPT and POOL_SYSTEM_PROMPT, saved custom prompts and
 /// power trees on the prompt they began with may not ask for tags, and
 /// models sometimes drop them; a side trip is the safe reading of an unknown
@@ -161,14 +162,12 @@ SplitTangents splitTangents(String content) {
   final tangents = <Tangent>[];
   // Keyed across both kinds: a title offered twice keeps its first kind.
   final seen = <String>{};
-  final count = {TangentKind.continueOn: 0, TangentKind.tangent: 0};
+  final count = {TangentKind.deeper: 0, TangentKind.tangent: 0};
   for (final line in inside.split(_newline)) {
     final tangent = parseTangentLine(line);
     if (tangent == null) continue;
     if (!seen.add(tangent.title.toLowerCase())) continue;
-    final cap = tangent.kind == TangentKind.continueOn
-        ? _maxContinue
-        : _maxTangents;
+    final cap = tangent.kind == TangentKind.deeper ? _maxDeeper : _maxTangents;
     if (count[tangent.kind]! >= cap) continue;
     count[tangent.kind] = count[tangent.kind]! + 1;
     tangents.add(tangent);
@@ -180,12 +179,12 @@ SplitTangents splitTangents(String content) {
 }
 
 /// The suggestions split by kind, each group in its original order.
-({List<Tangent> continueOn, List<Tangent> tangent}) groupTangents(
+({List<Tangent> deeper, List<Tangent> tangent}) groupTangents(
   List<Tangent> tangents,
 ) => (
-  continueOn: [
+  deeper: [
     for (final t in tangents)
-      if (t.kind == TangentKind.continueOn) t,
+      if (t.kind == TangentKind.deeper) t,
   ],
   tangent: [
     for (final t in tangents)
@@ -197,6 +196,7 @@ SplitTangents splitTangents(String content) {
 class TangentFooter<B> {
   const TangentFooter({
     required this.yours,
+    required this.deeper,
     required this.offers,
     required this.folded,
     required this.followed,
@@ -205,13 +205,17 @@ class TangentFooter<B> {
   /// The tangents started from the reply, in the order given: shown first.
   final List<B> yours;
 
+  /// The deeper suggestions no tangent follows yet, in their order.
+  final List<Tangent> deeper;
+
   /// The tangent suggestions no tangent follows yet, in their order.
   final List<Tangent> offers;
 
-  /// The offers start hidden behind one row ([suggestedFoldLabel]).
+  /// Both groups of suggestions start hidden behind one row
+  /// ([suggestedFoldLabel]).
   final bool folded;
 
-  /// How many tangent suggestions a tangent follows.
+  /// How many suggestions, of either kind, a tangent follows.
   final int followed;
 }
 
@@ -230,16 +234,22 @@ TangentFooter<B> tangentFooter<B>(
   required String Function(B) titleOf,
 }) {
   final taken = {for (final b in children) titleOf(b)};
-  final suggested = groupTangents(tangents).tangent;
-  final offers = [
-    for (final t in suggested)
+  final groups = groupTangents(tangents);
+  final deeper = [
+    for (final t in groups.deeper)
       if (!taken.contains(t.title)) t,
   ];
+  final offers = [
+    for (final t in groups.tangent)
+      if (!taken.contains(t.title)) t,
+  ];
+  final open = deeper.length + offers.length;
   return TangentFooter(
     yours: List.of(children),
+    deeper: deeper,
     offers: offers,
-    folded: children.isNotEmpty && offers.isNotEmpty,
-    followed: suggested.length - offers.length,
+    folded: children.isNotEmpty && open > 0,
+    followed: tangents.length - open,
   );
 }
 

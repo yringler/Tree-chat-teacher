@@ -20,14 +20,11 @@ import { ModeBadge } from '../ui/mode-badge';
   template: `
     <app-suggestion-groups
       [tangents]="suggestions()"
-      [latest]="store.isLatest(node().id)"
-      [inTangent]="inTangent()"
       [children]="children()"
       [chainIds]="chainIds()"
       [cameFromIds]="store.cameFromIds()"
       [locked]="locked()"
       [withAsk]="canAsk()"
-      [send]="sendStep"
       [open]="openTangent"
       [openBranch]="openBranch"
       [remove]="removeBranch"
@@ -74,14 +71,10 @@ export class TangentNav {
   readonly chainIds = input<ReadonlySet<string>>(new Set());
 
   protected readonly suggestions = computed(() => (this.finished() ? this.tangents() : []));
-  protected readonly inTangent = computed(
-    () => !!this.store.branchOf(this.node().id)?.parentBranchId,
-  );
   /** The message's branch can't generate (its funding needs the membership the user lacks). */
   protected readonly locked = computed(() => this.store.nodeLocked(this.node().id));
   /** "Ask your own": offered under a finished reply, while a branch can be generated on. */
   protected readonly canAsk = computed(() => this.finished() && this.store.account.canGenerate());
-  protected readonly sendStep = (title: string) => this.store.continueWith(this.node().id, title);
   protected readonly openTangent = (title: string) =>
     this.store.followTangent(this.node().id, title);
   protected readonly openBranch = (b: Branch) => this.store.openAtStart(b.id);

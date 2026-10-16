@@ -23,7 +23,7 @@ const REPLY = [
   'Light is a wave.',
   '',
   '<tangents>',
-  '- [continue] Diffraction — what a slit does to it next',
+  '- [deeper] Diffraction — what a slit does to it next',
   '- [tangent] Interference — why two waves add up',
   '- Photons',
   '</tangents>',
@@ -31,7 +31,7 @@ const REPLY = [
 
 /**
  * "What is light?" (u1) and its reply (a1) on `trunk`, which suggests one
- * next step and two tangents (one of them untagged).
+ * question to dig deeper into and two tangents (one of them untagged).
  */
 function tree(reply: Partial<ChatNode> = {}, extra: Partial<TreeDetail> = {}): TreeDetail {
   return detail(
@@ -155,31 +155,20 @@ describe('MessageItem: a finished reply', () => {
 const group = (name: string) => screen.getByRole('group', { name });
 const start = (title: string) => new RegExp(`^Start a tangent: ${title}`);
 
-describe('TangentNav: Keep going and Suggested tangents', () => {
-  it('splits the suggestions into Keep going and Suggested tangents; an untagged one is a tangent', async () => {
+describe('TangentNav: Dig deeper and Suggested tangents', () => {
+  it('splits the suggestions into Dig deeper and Suggested tangents; an untagged one is a tangent', async () => {
     await message('a1');
-    const next = within(group('Keep going'));
-    expect(next.getAllByRole('button')).toHaveLength(1);
-    next.getByRole('button', { name: /^Diffraction/ });
+    const deeper = within(group('Dig deeper'));
+    expect(deeper.getAllByRole('button')).toHaveLength(1);
+    deeper.getByRole('button', { name: start('Diffraction') });
     const side = within(group('Suggested tangents'));
     side.getByRole('button', { name: start('Interference') });
     side.getByRole('button', { name: 'Start a tangent: Photons' });
-    // "Ask your own" stays last, among the tangents.
-    side.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
+    // "Ask your own" comes after the suggestions.
+    screen.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
   });
 
-  it('a Keep going step is sent as the next message here', async () => {
-    const m = await message('a1');
-    const continueWith = vi.spyOn(m.store, 'continueWith').mockResolvedValue(true);
-    const step = within(group('Keep going')).getByRole<HTMLButtonElement>('button', {
-      name: /^Diffraction/,
-    });
-    expect(step.title).toBe('Got it, what’s next? Keeps the main lesson moving.');
-    await m.user.click(step);
-    expect(continueWith).toHaveBeenCalledWith('a1', 'Diffraction');
-  });
-
-  it('Keep going shows only on the latest reply; older ones keep their tangents', async () => {
+  it('Dig deeper shows on an older reply too, and opens a tangent', async () => {
     const d = tree(
       {},
       {
@@ -189,9 +178,12 @@ describe('TangentNav: Keep going and Suggested tangents', () => {
         ],
       },
     );
-    await message('a1', { d });
-    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
-    within(group('Suggested tangents')).getByRole('button', { name: start('Interference') });
+    const m = await message('a1', { d });
+    const follow = vi.spyOn(m.store, 'followTangent').mockResolvedValue(null);
+    await m.user.click(
+      within(group('Dig deeper')).getByRole('button', { name: start('Diffraction') }),
+    );
+    expect(follow).toHaveBeenCalledWith('a1', 'Diffraction');
   });
 
   it('each tangent is a tangent to follow', async () => {
@@ -230,13 +222,13 @@ describe('TangentNav: Keep going and Suggested tangents', () => {
       },
     );
     const m = await message('a1', { d, lapsed: true, credit: true });
-    const step = button(/^Diffraction/);
-    expect(step.disabled).toBe(true);
-    expect(step.title).toBe('Continuing needs a membership (this thread is on your own key)');
     const why = 'Starting a tangent needs a membership (this thread is on your own key)';
-    const more = button('1 more suggested');
+    const more = button('2 more suggested');
     expect(more.title).toBe(why);
     await m.user.click(more);
+    const diffraction = button(start('Diffraction'));
+    expect(diffraction.disabled).toBe(true);
+    expect(diffraction.title).toBe(why);
     const interference = button(start('Interference'));
     expect(interference.disabled).toBe(true);
     expect(interference.title).toBe(why);
@@ -251,7 +243,7 @@ describe('TangentNav: Keep going and Suggested tangents', () => {
 
   it('a reply still being written offers no suggestions yet', async () => {
     await message('a1', { d: tree({ status: 'streaming', content: 'Light is' }) });
-    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Dig deeper' })).toBeNull();
     expect(screen.queryByRole('group', { name: 'Suggested tangents' })).toBeNull();
     expect(screen.getByText('Generating…')).toBeTruthy();
   });

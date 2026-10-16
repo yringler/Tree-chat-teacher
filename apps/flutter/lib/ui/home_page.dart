@@ -171,7 +171,7 @@ class _NewLessonCardState extends State<_NewLessonCard> {
             const SizedBox(height: 4),
             Text(
               'Name a topic or ask a first question. Every answer ends with '
-              'next steps and tangents you can follow.',
+              'tangents you can follow, deeper in or off to the side.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 16),

@@ -6,7 +6,7 @@ import 'package:tangent/api/tangent_api.dart';
 /// The screens [ScreenApi] can open on, by `?screen=` name, and where each
 /// one starts.
 const screenLocations = {
-  // The main thread after its first reply, with next steps and tangents.
+  // The main thread after its first reply, with its suggestions.
   'lesson-reply': '/t/tides',
   // A tangent from that reply, with a reply of its own.
   'in-tangent': '/t/tides/b/bulge',
@@ -46,7 +46,7 @@ Tides are the sea rising and falling twice a day, and the **Moon** does most of 
 Its gravity pulls hardest on the water facing it, so the ocean heaps up into a bulge there. The Earth turns under that bulge, and each coast passes through it: high tide.
 
 <tangents>
-- [continue] Why two tides a day? — the bulge on the far side
+- [deeper] Why two tides a day? — the bulge on the far side
 - [tangent] What is a tidal bulge? — the shape the pull makes
 - [tangent] Spring and neap tides — when the Sun joins in
 - [tangent] Tidal locking — why we only ever see one face of the Moon
@@ -56,7 +56,7 @@ const _tangentReply = '''
 A tidal bulge is the ocean stretched into a slight egg shape, a metre or so high in open water, pointing at the Moon and away from it.
 
 <tangents>
-- [continue] How high does it get? — coasts that funnel it
+- [deeper] How high does it get? — coasts that funnel it
 - [tangent] Why away from the Moon too? — the pull is weaker there
 </tangents>''';
 
@@ -64,7 +64,7 @@ const _nextReply = '''
 Here is the next step: the bulge on the far side forms because the Moon pulls the Earth itself a little more than the water behind it.
 
 <tangents>
-- [continue] What sets the exact times? — the Moon's day is 24 h 50 min
+- [deeper] What sets the exact times? — the Moon's day is 24 h 50 min
 - [tangent] Inertia — what “left behind” really means
 </tangents>''';
 
@@ -74,7 +74,7 @@ The Moon pulls hardest on the side of the Earth facing it, less on the Earth's c
 Two bulges, one on each side, and every coast turns through both of them a day: two high tides.
 
 <tangents>
-- [continue] Why not exactly 12 hours apart? — the Moon moves on
+- [deeper] Why not exactly 12 hours apart? — the Moon moves on
 - [tangent] Is it really "left behind"? — the stretch, not a push
 </tangents>''';
 

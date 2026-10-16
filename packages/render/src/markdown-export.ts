@@ -35,7 +35,7 @@ export function sourcesMarkdown(sources: readonly ShareSource[] | undefined): st
 
 /**
  * A message as shared or exported: an assistant reply's `<tangents>` block
- * becomes plain "Keep going" and "Tangents" lists (there are no buttons to
+ * becomes plain "Dig deeper" and "Tangents" lists (there are no buttons to
  * follow them), and a grounded reply ends with its "Sources".
  */
 export function messageMarkdown(m: ShareMessage): string {
@@ -60,7 +60,7 @@ function oneLine(text: string): string {
  * breadcrumb (e.g. "Trunk › Side topic"), a "Tangent from: …" line quoting the
  * fork message excerpt, an optional anchor-quote blockquote, then messages as
  * "**User:**" / "**AI:**" blocks. Message content is emitted verbatim,
- * except that a reply's `<tangents>` block becomes "Keep going" and
+ * except that a reply's `<tangents>` block becomes "Dig deeper" and
  * "Tangents" lists.
  */
 export function payloadToMarkdown(payload: SharePayload): string {

@@ -22,14 +22,14 @@ const REPLY = [
   'A wave.',
   '',
   '<tangents>',
-  '- [continue] Diffraction — what a slit does to it next',
+  '- [deeper] Diffraction — what a slit does to it next',
   '- [tangent] Interference — why waves add up',
   '- Photons',
   '</tangents>',
 ].join('\n');
 
 /**
- * The trunk (own key): u1 → a1, which suggests a next step and two tangents
+ * The trunk (own key): u1 → a1, which suggests one to dig deeper and two tangents
  * (one untagged); lane "Photons" off a1, on credit. `more`: messages after a1.
  */
 function tree(reply: Partial<ChatNode> = {}, more: ChatNode[] = []): TreeDetail {
@@ -80,10 +80,10 @@ async function card(nodeId: string, opts: { lapsed?: boolean; d?: TreeDetail } =
 }
 
 const suggested = () => screen.getByRole('group', { name: 'Suggested tangents' });
-const keepGoing = () => screen.getByRole('group', { name: 'Keep going' });
+const digDeeper = () => screen.getByRole('group', { name: 'Dig deeper' });
 const lanes = () => screen.getByRole('group', { name: 'Your tangents' });
 /** The suggestions no lane follows, folded behind one button since "Photons" is followed. */
-const more = () => screen.getByRole<HTMLButtonElement>('button', { name: '1 more suggested' });
+const more = () => screen.getByRole<HTMLButtonElement>('button', { name: '2 more suggested' });
 const interference = () =>
   within(suggested()).getByRole<HTMLButtonElement>('button', {
     name: /^Start a tangent: Interference/,
@@ -180,33 +180,30 @@ describe('Card', () => {
     expect(c.ui.linkPick()?.fromNodeId).toBe('a1');
   });
 
-  it('splits the suggestions: Keep going and Suggested tangents, a followed one only as its lane', async () => {
+  it('splits the suggestions: Dig deeper and Suggested tangents, a followed one only as its lane', async () => {
     const c = await card('a1');
-    expect(within(keepGoing()).getAllByRole('button')).toHaveLength(1);
-    within(keepGoing()).getByRole('button', { name: /^Diffraction/ });
     // "Ask your own" stays in view while the suggestions are folded.
-    within(suggested()).getByRole('textbox', { name: 'Ask your own question in a new lane' });
+    screen.getByRole('textbox', { name: 'Ask your own question in a new lane' });
     await c.user.click(more());
+    expect(within(digDeeper()).getAllByRole('button')).toHaveLength(1);
+    within(digDeeper()).getByRole('button', { name: /^Start a tangent: Diffraction/ });
     interference();
     expect(within(suggested()).queryByRole('button', { name: /Photons/ })).toBeNull();
   });
 
-  it('a Keep going step is sent as the next message of the lane', async () => {
-    const c = await card('a1');
-    const continueWith = vi.spyOn(c.store, 'continueWith').mockResolvedValue(true);
-    await c.user.click(within(keepGoing()).getByRole('button', { name: /^Diffraction/ }));
-    expect(continueWith).toHaveBeenCalledWith('a1', 'Diffraction');
-  });
-
-  it('only the latest card of the lane offers Keep going', async () => {
-    await card('a1', {
+  it('a Dig deeper suggestion opens a lane, on an older card too', async () => {
+    const c = await card('a1', {
       d: tree({}, [
         node('u2', { role: 'user', parentId: 'a1', seq: 2, content: 'And then?' }),
         node('a2', { parentId: 'u2', seq: 3, content: 'It spreads.' }),
       ]),
     });
-    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
-    more();
+    const follow = vi.spyOn(c.store, 'followTangent').mockResolvedValue(null);
+    await c.user.click(more());
+    await c.user.click(
+      within(digDeeper()).getByRole('button', { name: /^Start a tangent: Diffraction/ }),
+    );
+    expect(follow).toHaveBeenCalledWith('a1', 'Diffraction');
   });
 
   it('asks your own question in a new lane', async () => {
@@ -220,14 +217,14 @@ describe('Card', () => {
 
   it('on a lane the membership locks: suggestions and questions are disabled and say why', async () => {
     const c = await card('a1', { lapsed: true });
-    const step = within(keepGoing()).getByRole<HTMLButtonElement>('button', {
-      name: /^Diffraction/,
-    });
-    expect(step.disabled).toBe(true);
-    expect(step.title).toBe('Continuing needs a membership (this lane is on your own key)');
     const why = 'Starting a tangent needs a membership (this lane is on your own key)';
     expect(more().title).toBe(why);
     await c.user.click(more());
+    const diffraction = within(digDeeper()).getByRole<HTMLButtonElement>('button', {
+      name: /^Start a tangent: Diffraction/,
+    });
+    expect(diffraction.disabled).toBe(true);
+    expect(diffraction.title).toBe(why);
     expect(interference().disabled).toBe(true);
     expect(interference().title).toBe(why);
     // The lane already following one still opens.
@@ -246,7 +243,7 @@ describe('Card', () => {
     });
     expect(screen.getByRole('alert').textContent).toContain('Cut off.');
     expect(screen.queryByRole('group', { name: 'Suggested tangents' })).toBeNull();
-    expect(screen.queryByRole('group', { name: 'Keep going' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Dig deeper' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Tangent from this message' })).toBeNull();
     // The lane already started off it stays the way there.
     within(lanes()).getByRole('button', { name: 'Open tangent: Photons' });

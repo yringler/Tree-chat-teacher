@@ -46,9 +46,9 @@ import { LearnFunding } from '../state/learn-funding';
       <section class="new-lesson card" aria-labelledby="new-lesson-title">
         <h1 id="new-lesson-title">New lesson</h1>
         <p class="muted">
-          Name a topic or ask a first question (optional). Every answer ends with next steps and
-          tangents you can follow, and you can select any part of an answer to ask about it on the
-          side.
+          Name a topic or ask a first question (optional). Every answer ends with tangents you can
+          follow, deeper in or off to the side, and you can select any part of an answer to ask
+          about it on the side.
         </p>
         <form class="form" (submit)="$event.preventDefault(); start()">
           <app-composer

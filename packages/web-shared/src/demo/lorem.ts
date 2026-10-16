@@ -18,7 +18,7 @@ import { getAdjectives, getNouns, sentence as txtSentence, setRandom, setTemplat
 /*
  * "Fun lorem ipsum" for the demo: English-ish nonsense from txtgen, shaped
  * like a Learn reply (short paragraphs, sometimes a list or a bold phrase,
- * ending with a `<tangents>` block of next steps and tangents). Nothing here
+ * ending with a `<tangents>` block of suggestions to dig deeper and tangents). Nothing here
  * calls a model.
  */
 
@@ -150,22 +150,22 @@ function words(random: Random): Words {
   return { noun, noun2, adjective: pick(random, getAdjectives()) };
 }
 
-/** Next steps in the lesson's topic (sent as replies). */
-const CONTINUES: readonly ((w: Words) => Tangent)[] = [
+/** Questions further into the reply's topic (each opens a tangent, under Dig deeper). */
+const DEEPER: readonly ((w: Words) => Tangent)[] = [
   (w) => ({
-    title: `What comes after the ${w.adjective} ${w.noun}`,
-    why: `the next step of the same lesson`,
-    kind: 'continue',
+    title: `How the ${w.adjective} ${w.noun} works`,
+    why: `what happens inside it`,
+    kind: 'deeper',
   }),
   (w) => ({
-    title: `Putting ${plural(w.noun)} to work`,
-    why: `the idea in practice, one step further`,
-    kind: 'continue',
+    title: `What ${plural(w.noun)} are made of`,
+    why: `the same idea, one layer down`,
+    kind: 'deeper',
   }),
   (w) => ({
-    title: `How ${plural(w.noun)} lead to ${plural(w.noun2)}`,
-    why: `where the lesson goes from here`,
-    kind: 'continue',
+    title: `Why ${plural(w.noun)} lead to ${plural(w.noun2)}`,
+    why: `the mechanism behind it`,
+    kind: 'deeper',
   }),
 ];
 
@@ -229,12 +229,12 @@ function draw(
 }
 
 /**
- * Suggestions as the prompt asks for them: one or two next steps, then two
+ * Suggestions as the prompt asks for them: one or two to dig deeper, then two
  * to four tangents, built from templates and txtgen words (no two alike).
  */
 export function loremTangents(random: Random = Math.random): Tangent[] {
-  const next = draw(random, CONTINUES, between(random, 1, 2));
-  return [...next, ...draw(random, TANGENTS, between(random, 2, 4))];
+  const deeper = draw(random, DEEPER, between(random, 1, 2));
+  return [...deeper, ...draw(random, TANGENTS, between(random, 2, 4))];
 }
 
 function sentences(random: Random, count: number): string {
@@ -258,7 +258,7 @@ function boldSome(random: Random, text: string): string {
  * A Learn-shaped reply in Markdown: 1–3 short paragraphs (Max writes
  * more), sometimes a bulleted list or a bold phrase, always ending
  * with a `<tangents>` block (the prompt's format, with kind tags; the app
- * turns it into Keep going and Tangents buttons).
+ * turns it into Dig deeper and Suggested tangents buttons).
  */
 export function loremReply(model: string, random: Random = Math.random): string {
   return withRandom(random, () => {
