@@ -86,6 +86,8 @@ export class LearnFunding {
   private readonly reported = signal<{ asked: Payer; used: Payer } | null>(null);
   /** The open lesson's part in a switch (LessonStore): true when it sent a waiting message. */
   private switched: (payer: Payer) => boolean = () => false;
+  /** What follows a fact the payer goes by (LessonStore: the provider list). */
+  private factsHook: () => void = () => undefined;
 
   /** This server sells Tangent credit. */
   readonly creditOffered = computed(() => this.account.me()?.builtInCredit ?? false);
@@ -98,13 +100,23 @@ export class LearnFunding {
     () => this.keyStatus()?.learnProviders ?? [OPENROUTER_PROVIDER_ID],
   );
   /**
-   * The own key replies run on while the learner pays with one: the one they
-   * picked where this server offers it, else OpenRouter.
+   * The own key the learner is shown: the one they picked where this server
+   * offers it, else OpenRouter, as the server decides. Calls name the pick
+   * itself (`PaymentChoice.requestedKey`), so a key status still loading, or
+   * one that failed, shows OpenRouter here but never asks for it.
    */
   readonly ownKey = computed<LearnKeyProvider>(() => {
     const chosen = this.choice.chosenKey();
     return chosen && this.ownKeyOptions().includes(chosen) ? chosen : OPENROUTER_PROVIDER_ID;
   });
+  /**
+   * The key the calls name for replies: the requested own key while the
+   * learner pays with one, else OpenRouter's endpoint (credit and the pool
+   * run on it). The provider list follows it (LessonStore).
+   */
+  readonly replyKey = computed<LearnKeyProvider>(() =>
+    this.payer() === 'own-key' ? this.choice.requestedKey() : OPENROUTER_PROVIDER_ID,
+  );
   /** "OpenRouter" or "Anthropic". */
   readonly ownKeyLabel = computed(() => LEARN_KEY_LABELS[this.ownKey()]);
   /**
@@ -141,10 +153,7 @@ export class LearnFunding {
   });
 
   constructor() {
-    this.choice.resolveWith(
-      () => this.payer(),
-      () => this.ownKey(),
-    );
+    this.choice.resolveWith(() => this.payer());
   }
 
   /**
@@ -323,6 +332,15 @@ export class LearnFunding {
     this.switched = hook;
   }
 
+  /**
+   * What to do once any fact the payer and `replyKey` go by changes: a pick,
+   * the key status, the balance, the membership or the pool. Every write of
+   * them comes through here (`/api/me` is read once, before the lessons).
+   */
+  whenFactsChange(hook: () => void): void {
+    this.factsHook = hook;
+  }
+
   /** A reply started on `used`, as the server reports it (the stream's `start`). */
   paidWith(used: Payer): void {
     this.reported.set({ asked: this.payer(), used });
@@ -357,6 +375,7 @@ export class LearnFunding {
   /** What the server said the latest reply ran on may no longer hold. */
   private factsChanged(): void {
     this.reported.set(null);
+    this.factsHook();
   }
 
   private useMembership(membership: MembershipInfo): void {

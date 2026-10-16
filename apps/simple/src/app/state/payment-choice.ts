@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { computed, Injectable, signal } from '@angular/core';
 import {
   LEARN_KEY_PROVIDERS,
   MODE_HEADER,
@@ -34,7 +34,7 @@ function remember(key: string, value: string): void {
  * The learner's picks of who pays and of which own key (both remembered in
  * this browser) and what every API call names (API_HEADERS, see
  * app.config.ts): the mode header that makes the server generate as Learn
- * does, the payer, and the own key. LearnFunding resolves both from the
+ * does, the payer, and the own key. LearnFunding resolves the payer from the
  * picks and what it knows (`resolveWith`); it calls the API, which reads
  * these headers, so this holder is what keeps the two apart.
  */
@@ -46,13 +46,20 @@ export class PaymentChoice {
   readonly chosenKey = signal<LearnKeyProvider | null>(
     stored(OWN_KEY_STORAGE_KEY, LEARN_KEY_PROVIDERS),
   );
+  /**
+   * The own key every call names: the pick (OpenRouter until there is one),
+   * whether or not the key status has been read. The server replaces a key
+   * it doesn't offer with OpenRouter, so a status still loading, or one that
+   * failed, never moves the learner off the key they picked.
+   */
+  readonly requestedKey = computed<LearnKeyProvider>(
+    () => this.chosenKey() ?? OPENROUTER_PROVIDER_ID,
+  );
   private payer: () => Payer = () => this.chosen() ?? 'own-key';
-  private ownKey: () => LearnKeyProvider = () => this.chosenKey() ?? OPENROUTER_PROVIDER_ID;
 
-  /** The payer and the own key the calls name from now on. */
-  resolveWith(payer: () => Payer, ownKey: () => LearnKeyProvider): void {
+  /** The payer the calls name from now on. */
+  resolveWith(payer: () => Payer): void {
     this.payer = payer;
-    this.ownKey = ownKey;
   }
 
   choose(payer: Payer): void {
@@ -70,7 +77,7 @@ export class PaymentChoice {
     return {
       [MODE_HEADER]: 'simple',
       [PAYMENT_HEADER]: this.payer(),
-      [OWN_KEY_HEADER]: this.ownKey(),
+      [OWN_KEY_HEADER]: this.requestedKey(),
     };
   }
 }

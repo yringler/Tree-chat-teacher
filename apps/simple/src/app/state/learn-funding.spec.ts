@@ -681,15 +681,30 @@ describe('LearnFunding paid-by pill', () => {
       'x-tangent-payment': 'credit',
       'x-tangent-own-key': 'openrouter',
     });
-    // The Anthropic key is named only once the server offers it.
+    // The pick is named before the key status is read (the server replaces a key it doesn't offer).
     choice.chooseKey('anthropic');
-    expect(choice.headers()['x-tangent-own-key']).toBe('openrouter');
+    expect(choice.headers()['x-tangent-own-key']).toBe('anthropic');
     funding.keyStatus.set({
       enabled: true,
       hasKey: false,
       providers: [],
-      learnProviders: ['openrouter', 'anthropic'],
+      learnProviders: ['openrouter'],
     });
+    expect(choice.headers()['x-tangent-own-key']).toBe('anthropic');
+    // What the learner is shown follows what the server offers.
+    expect(funding.ownKey()).toBe('openrouter');
+  });
+
+  it('names the stored Anthropic pick while the key status loads, and when it fails', async () => {
+    const { funding, api } = setup(async () => summary(membership({ status: 'active' })));
+    const choice = injectors.get(funding)!.get(PaymentChoice);
+    choice.chooseKey('anthropic');
+    pick(funding, 'own-key');
+    expect(funding.keyStatus()).toBeNull();
+    expect(choice.headers()['x-tangent-own-key']).toBe('anthropic');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    api.keyStatus.mockRejectedValueOnce(new Error('offline'));
+    await funding.refreshKey();
     expect(choice.headers()['x-tangent-own-key']).toBe('anthropic');
   });
 
