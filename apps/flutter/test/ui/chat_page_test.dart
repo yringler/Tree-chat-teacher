@@ -260,6 +260,50 @@ void main() {
     expect(find.text('Why does it pull?'), findsOneWidget);
   });
 
+  testWidgets('a message is deleted once the learner says so; a deleted '
+      'tangent leaves the screen', (tester) async {
+    api.details['t1'] = treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        branch('side', parent: 'trunk', fork: 'a1', title: 'Moon gravity'),
+      ],
+      nodes: [
+        userNode,
+        answer('The moon pulls the sea.'),
+        node('s1', branch: 'side', seq: 0, content: 'Why does it pull?'),
+      ],
+    );
+    api.deleteAnswer = const DeletedMessages(
+      branchIds: ['side'],
+      nodeIds: ['s1'],
+    );
+    await pumpApp(tester, api, location: '/t/t1/b/side');
+
+    await tester.tap(find.byTooltip('Delete message').last);
+    await settle(tester);
+    expect(
+      find.text(
+        'Delete this message? It starts the tangent “Moon gravity”, which '
+        'goes with it (1 message). Replies still being written there are '
+        'stopped. This cannot be undone.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel'));
+    await settle(tester);
+    expect(api.deletedMessages, isEmpty);
+
+    await tester.tap(find.byTooltip('Delete message').last);
+    await settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await settle(tester);
+    expect(api.deletedMessages, ['s1']);
+    expect(find.text('Why does it pull?'), findsNothing);
+    expect(find.text('Tangent · Moon gravity'), findsNothing);
+    expect(find.text('Why tides?'), findsOneWidget);
+  });
+
   testWidgets('every tangent from a reply opens at its start', (tester) async {
     final long = List.filled(60, 'The moon pulls the sea.').join('\n\n');
     ChatNode answer(String id, String branchId) => node(
@@ -710,6 +754,8 @@ void main() {
 
       await tester.tap(fold);
       await settle(tester);
+      await tester.ensureVisible(find.text('Tidal locking'));
+      await tester.pump();
       await tester.tap(find.text('Tidal locking'));
       await settle(tester);
       expect(api.createdBranches.single.title, 'Tidal locking');

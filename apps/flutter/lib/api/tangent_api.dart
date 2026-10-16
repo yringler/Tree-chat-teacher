@@ -112,4 +112,10 @@ abstract interface class TangentApi {
 
   /// Stops a reply; its stream then ends with an error event (`cancelled`).
   Future<void> cancel(String nodeId);
+
+  /// Deletes one of the learner's messages with everything after it on its
+  /// thread: the later messages, and the tangents started from them. The
+  /// first message of a tangent takes the tangent. Replies being written
+  /// there are stopped.
+  Future<DeletedMessages> deleteMessage(String nodeId);
 }

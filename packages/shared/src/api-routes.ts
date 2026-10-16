@@ -43,6 +43,7 @@ import {
   usageQuerySchema,
   type ContextPlanResponse,
   type DeleteBranchResponse,
+  type DeleteMessageResponse,
   type KeyStatusResponse,
   type LoginOptionsResponse,
   type MeResponse,
@@ -288,6 +289,12 @@ export const API_ROUTES = {
   /** Reconnect: `snapshot`, then the live events. */
   streamNode: { method: 'GET', path: '/nodes/:nodeId/stream', reply: stream<StreamEvent>() },
   cancelNode: { method: 'POST', path: '/nodes/:nodeId/cancel', reply: empty },
+  /** One of the user's messages with everything after it in its thread (DeleteMessageResponse). */
+  deleteMessage: {
+    method: 'DELETE',
+    path: '/nodes/:nodeId',
+    reply: json<DeleteMessageResponse>(),
+  },
   reviewNode: {
     method: 'POST',
     path: '/nodes/:nodeId/review',

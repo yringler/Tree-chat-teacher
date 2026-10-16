@@ -526,6 +526,26 @@ describe('Learn: finding your way around a lesson', () => {
     }
   });
 
+  it('the learner deletes their message with what follows it, once they say so', async () => {
+    const p = await page();
+    const del = vi.spyOn(p.store, 'deleteMessage').mockResolvedValue(true);
+    const ask = vi.fn(() => false);
+    vi.stubGlobal('confirm', ask);
+    try {
+      const trash = screen.getByRole('button', { name: 'Delete message' });
+      await p.user.click(trash);
+      expect(ask).toHaveBeenCalledWith(
+        'Delete this message? Everything after it goes too: 1 later message. Replies still being written there are stopped. This cannot be undone.',
+      );
+      expect(del).not.toHaveBeenCalled();
+      ask.mockReturnValue(true);
+      await p.user.click(trash);
+      expect(del).toHaveBeenCalledWith('u1');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('clicking a message marks it; clicking a control in it does not', async () => {
     const p = await page();
     const focus = vi.spyOn(p.store, 'focus').mockImplementation(() => undefined);

@@ -371,6 +371,42 @@ export function describeRepositories(name: string, factory: () => Repositories):
         expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-04-01T00:00:00.000Z');
       });
 
+      it('deleteMessages cuts the branch from a seq on, with the given branches whole', async () => {
+        const { tree, trunk, b1, b2, t, a, c } = await seedMultiBranch();
+        await repos.summaries.putSummary(summaryOf(tree, t[0]!));
+        await repos.summaries.putSummary(summaryOf(tree, t[2]!));
+        await repos.summaries.putSummary(summaryOf(tree, a[1]!));
+        const doomed = makeShare(tree, { scope: 'path', targetNodeId: t[3]!.id });
+        const kept = makeShare(tree, { scope: 'path', targetNodeId: t[0]!.id });
+        await repos.shares.createShare(doomed, '{"v":1}');
+        await repos.shares.createShare(kept, null);
+        const toCut = makeLink(t[0]!, t[2]!);
+        const toBelow = makeLink(t[0]!, c[1]!, { createdAt: '2026-01-03T00:00:01.000Z' });
+        for (const l of [toCut, toBelow]) await repos.trees.createLink(l, 'x');
+        const other = await seedMultiBranch();
+
+        await repos.trees.deleteMessages(
+          tree.id,
+          { branchId: trunk.id, fromSeq: 1 },
+          [b1.id, b2.id],
+          '2026-04-01T00:00:00.000Z',
+        );
+
+        expect(await repos.trees.listBranches(tree.id)).toEqual([trunk]);
+        expect(await repos.trees.listNodes(tree.id)).toEqual([t[0]]);
+        expect(await repos.trees.listLinks(tree.id)).toEqual([]);
+        expect(await repos.summaries.getSummary(t[0]!.id, 'h', 'm')).not.toBeNull();
+        expect(await repos.summaries.getSummary(t[2]!.id, 'h', 'm')).toBeNull();
+        expect(await repos.summaries.getSummary(a[1]!.id, 'h', 'm')).toBeNull();
+        expect(await repos.shares.getShare(doomed.id)).toBeNull();
+        expect(await repos.shares.getSnapshot(doomed.id)).toBeNull();
+        expect(await repos.shares.getShare(kept.id)).not.toBeNull();
+        expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-04-01T00:00:00.000Z');
+        expect(await repos.trees.listNodes(other.tree.id)).toHaveLength(
+          t.length + a.length + c.length,
+        );
+      });
+
       it('deleteBranches only touches the given tree', async () => {
         const { tree, b1, a } = await seedMultiBranch();
         const other = await seedMultiBranch();

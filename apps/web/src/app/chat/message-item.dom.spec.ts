@@ -93,9 +93,10 @@ describe('MessageItem: a finished reply', () => {
     expect(article.textContent).not.toContain('<tangents>');
   });
 
-  it('offers Tangent ↳, Review, Link and Copy', async () => {
+  it('offers Tangent ↳, Review, Link and Copy, but no Delete', async () => {
     await message('a1');
     for (const name of ['Tangent ↳', 'Review', 'Link…', 'Copy message']) button(name);
+    expect(screen.queryByRole('button', { name: 'Delete message' })).toBeNull();
   });
 
   it('Tangent ↳ opens the tangent dialog on it', async () => {
@@ -111,6 +112,27 @@ describe('MessageItem: a finished reply', () => {
     expect(await navigator.clipboard.readText()).toBe('Light is a wave.');
     await vi.waitFor(() => button('Copied'));
     expect(TestBed.inject(ToastStore).toasts()[0]?.text).toBe('Copied to clipboard');
+  });
+
+  it('a question deletes, with what follows it, once the user says so', async () => {
+    const m = await message('u1');
+    const del = vi.spyOn(m.store, 'deleteMessage').mockResolvedValue(true);
+    const ask = vi.fn(() => false);
+    vi.stubGlobal('confirm', ask);
+    try {
+      await m.user.click(button('Delete message'));
+      expect(ask).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^Delete this message\? Everything after it goes too: 1 later message\./,
+        ),
+      );
+      expect(del).not.toHaveBeenCalled();
+      ask.mockReturnValue(true);
+      await m.user.click(button('Delete message'));
+      expect(del).toHaveBeenCalledWith('u1');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('a question has no Review', async () => {

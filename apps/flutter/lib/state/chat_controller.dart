@@ -216,6 +216,42 @@ class ChatController extends ChangeNotifier {
     }
   }
 
+  /// What to ask before deleting [node] (see [deleteMessageQuestion]); null
+  /// for a reply, which can't be deleted.
+  String? deleteQuestion(
+    ChatNode node, {
+    required String Function(Branch) titleOf,
+  }) => deleteMessageQuestion(
+    node,
+    branches: _branches,
+    nodes: _nodes.values,
+    titleOf: titleOf,
+  );
+
+  /// Deletes [node], one of the learner's messages, with everything after
+  /// it on its thread (see [TangentApi.deleteMessage]). Completes with true
+  /// once it is gone, and false when the server refused (see [notice]).
+  /// The page moves off a branch that went with it.
+  Future<bool> deleteMessage(ChatNode node) async {
+    _notice = null;
+    try {
+      final deleted = await api.deleteMessage(node.id);
+      _branches.removeWhere((id, _) => deleted.branchIds.contains(id));
+      for (final id in deleted.nodeIds) {
+        _nodes.remove(id);
+        _status.remove(id);
+      }
+      // Counts and the last update in the lesson list.
+      unawaited(lessons.refresh());
+      _notify();
+      return true;
+    } on Object catch (error) {
+      _fail(error);
+      _notify();
+      return false;
+    }
+  }
+
   void dismissNotice() {
     _notice = null;
     _notify();
@@ -290,7 +326,10 @@ class ChatController extends ChangeNotifier {
           _nodes[nodeId] = node.copyWith(content: node.content + text);
         }
         _status.remove(nodeId);
+      // A reply only ends in the thread it started in: one deleted while it
+      // was written (its stream ends after the delete) stays deleted.
       case DoneEvent(:final node, :final branch):
+        if (!_nodes.containsKey(node.id)) break;
         _nodes[node.id] = node;
         _branches[branch.id] = branch;
         _status.remove(node.id);
@@ -298,6 +337,7 @@ class ChatController extends ChangeNotifier {
         unawaited(lessons.refresh());
       case ErrorEvent(:final nodeId, :final message, :final node):
         if (node != null) {
+          if (!_nodes.containsKey(node.id)) break;
           _nodes[node.id] = node;
           _status.remove(node.id);
         } else if (nodeId != null) {

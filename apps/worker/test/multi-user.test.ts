@@ -433,6 +433,7 @@ const OWNED_ROUTES: Record<string, { init?: CallInit; modes?: readonly Mode[] }>
   // The deletes last, though each is a 404 that deletes nothing.
   'DELETE /api/links/:linkId': { init: { method: 'DELETE' } },
   'DELETE /api/shares/:shareId': { init: { method: 'DELETE' } },
+  'DELETE /api/nodes/:nodeId': { init: { method: 'DELETE' } },
   'DELETE /api/branches/:branchId': { init: { method: 'DELETE' } },
   'DELETE /api/trees/:treeId': { init: { method: 'DELETE' } },
 };

@@ -70,6 +70,19 @@ export interface TreeRepository {
     branchIds: readonly string[],
     treeUpdatedAt: string,
   ): Promise<void>;
+  /**
+   * Atomically deletes the nodes of `cut.branchId` from `cut.fromSeq` on and
+   * the given branches of `treeId` whole, with what deleteBranches deletes
+   * along with nodes; then bumps the tree's updatedAt. The caller passes
+   * every branch hanging off the cut nodes, with their subtrees (see
+   * ChatService.deleteMessage).
+   */
+  deleteMessages(
+    treeId: string,
+    cut: { branchId: string; fromSeq: number },
+    branchIds: readonly string[],
+    treeUpdatedAt: string,
+  ): Promise<void>;
 
   getNode(nodeId: string): Promise<ChatNode | null>;
   /** By branch id, then seq. */

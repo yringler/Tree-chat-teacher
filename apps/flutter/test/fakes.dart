@@ -152,6 +152,16 @@ class FakeTangentApi implements TangentApi {
   final sends = <ScriptedStream>[];
   final resumes = <ScriptedStream>[];
   final cancelled = <String>[];
+
+  /// The messages `deleteMessage` was asked to delete, and what it answers.
+  final deletedMessages = <String>[];
+  DeletedMessages deleteAnswer = const DeletedMessages(
+    branchIds: [],
+    nodeIds: [],
+  );
+
+  /// Thrown by `deleteMessage`, when set.
+  ApiException? refuseDeleteMessage;
   var signedOut = false;
   var _meCalls = 0;
   var _branchCount = 0;
@@ -325,6 +335,14 @@ class FakeTangentApi implements TangentApi {
 
   @override
   Future<void> cancel(String nodeId) async => cancelled.add(nodeId);
+
+  @override
+  Future<DeletedMessages> deleteMessage(String nodeId) async {
+    deletedMessages.add(nodeId);
+    final refusal = refuseDeleteMessage;
+    if (refusal != null) throw refusal;
+    return deleteAnswer;
+  }
 }
 
 /// Pumps frames until routes and loads settle. Not `pumpAndSettle`: a reply

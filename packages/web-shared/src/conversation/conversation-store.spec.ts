@@ -5,6 +5,7 @@ import type {
   CreateBranchRequest,
   CreateLinkRequest,
   DeleteBranchResponse,
+  DeleteMessageResponse,
   StreamEvent,
   TreeDetail,
   TreeSummary,
@@ -50,6 +51,11 @@ function fakeApi() {
       treeId: 't1',
       branchIds: ['side', 'deep'],
       nodeIds: ['u2', 'a2', 'u3'],
+    })),
+    deleteMessage: vi.fn(async (_id: string): Promise<DeleteMessageResponse> => ({
+      treeId: 't1',
+      branchIds: ['side', 'deep', 'other'],
+      nodeIds: ['u1', 'a1', 'u2', 'a2', 'u3', 'u4'],
     })),
     createLink: vi.fn(async (req: CreateLinkRequest) => ({
       link: link('l-new', req.fromNodeId, req.toNodeId, req.note ?? null),
@@ -1031,6 +1037,56 @@ describe('ConversationStore branches', () => {
     await s.store.deleteBranch('side');
     expect(signals[0]?.aborted).toBe(true);
     expect(s.store.live().size).toBe(0);
+  });
+
+  it('deleting a message the selection is below moves to the end of its thread', async () => {
+    const s = showing('deep');
+    await expect(s.store.deleteMessage('u1')).resolves.toBe(true);
+    expect(s.api.deleteMessage).toHaveBeenCalledWith('u1');
+    expect(s.go).toHaveBeenCalledWith('trunk', null, true);
+    const idx = s.store.index();
+    expect([...(idx?.branches.keys() ?? [])]).toEqual(['trunk']);
+    expect(idx?.nodes.size).toBe(0);
+    expect(s.store.links()).toEqual([]);
+    expect(s.store.toasts.at(-1)?.text).toBe('Deleted the message and 3 side questions after it');
+  });
+
+  it("deleting a tangent's first message moves to the message it came from", async () => {
+    const s = showing('deep');
+    s.api.deleteMessage.mockResolvedValueOnce({
+      treeId: 't1',
+      branchIds: ['side', 'deep'],
+      nodeIds: ['u2', 'a2', 'u3'],
+    });
+    await s.store.deleteMessage('u2');
+    expect(s.go).toHaveBeenCalledWith('trunk', 'a1', true);
+    expect(s.store.toasts.at(-1)?.text).toBe('Deleted the side question and 1 below it');
+  });
+
+  it('a deleted message the selection marks unmarks it; a selection elsewhere stays', async () => {
+    const reply = { treeId: 't1', branchIds: [], nodeIds: ['a2'] };
+    const marked = showing('side');
+    marked.store.setRoute('t1', 'side', 'a2');
+    marked.api.deleteMessage.mockResolvedValueOnce(reply);
+    await marked.store.deleteMessage('u2');
+    expect(marked.go).toHaveBeenCalledWith('side', null, true);
+    expect(marked.store.toasts.at(-1)?.text).toBe('Message deleted');
+
+    const elsewhere = showing('other');
+    elsewhere.api.deleteMessage.mockResolvedValueOnce(reply);
+    await elsewhere.store.deleteMessage('u2');
+    expect(elsewhere.go).not.toHaveBeenCalled();
+    expect(elsewhere.store.index()?.nodes.has('a2')).toBe(false);
+  });
+
+  it('a refused message delete leaves everything as it was', async () => {
+    const s = showing('side');
+    const refused = new ApiError(400, 'bad_request', 'Only your own messages can be deleted');
+    s.api.deleteMessage.mockRejectedValueOnce(refused);
+    await expect(s.store.deleteMessage('a1')).resolves.toBe(false);
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.index()?.nodes.size).toBe(6);
+    expect(s.store.failures).toEqual([refused]);
   });
 
   it('a refused delete leaves everything as it was', async () => {

@@ -115,4 +115,98 @@ void main() {
       expect(api.sends, isEmpty);
     });
   });
+
+  group('deleteMessage', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+    final u1 = node('u1', branch: 'trunk', seq: 0);
+    final a1 = node('a1', branch: 'trunk', seq: 1, role: Role.assistant);
+    final u2 = node('u2', branch: 'trunk', seq: 2);
+    final a2 = node(
+      'a2',
+      branch: 'trunk',
+      seq: 3,
+      role: Role.assistant,
+      status: NodeStatus.streaming,
+    );
+    final s1 = node('s1', branch: 'side', seq: 0);
+
+    setUp(() async {
+      api = FakeTangentApi()
+        ..details['t1'] = treeDetail(
+          branches: [
+            branch('trunk'),
+            branch('side', parent: 'trunk', fork: 'a1'),
+          ],
+          nodes: [u1, a1, u2, a2, s1],
+        );
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+      await chat.load();
+    });
+
+    tearDown(() => chat.dispose());
+
+    test('takes what the server deleted out of the lesson', () async {
+      chat.selectBranch('side');
+      api.deleteAnswer = const DeletedMessages(
+        branchIds: ['side'],
+        nodeIds: ['u1', 'a1', 'u2', 'a2', 's1'],
+      );
+      expect(await chat.deleteMessage(u1), isTrue);
+      expect(api.deletedMessages, ['u1']);
+      expect(chat.branchById('side'), isNull);
+      expect(chat.branchId, 'trunk');
+      expect(chat.thread, isEmpty);
+    });
+
+    test('a reply being written stays deleted when its stream ends', () async {
+      api.deleteAnswer = const DeletedMessages(
+        branchIds: [],
+        nodeIds: ['u2', 'a2'],
+      );
+      await chat.deleteMessage(u2);
+      api.resumes.single.controller.add(
+        ErrorEvent(
+          nodeId: 'a2',
+          message: 'Cancelled',
+          node: node(
+            'a2',
+            branch: 'trunk',
+            seq: 3,
+            role: Role.assistant,
+            status: NodeStatus.error,
+          ),
+        ),
+      );
+      await api.resumes.single.controller.close();
+      await pumpEventQueue();
+      expect([for (final n in chat.thread) n.id], ['u1', 'a1']);
+    });
+
+    test('a refusal leaves the lesson as it was, and says why', () async {
+      api.refuseDeleteMessage = const ApiException(
+        status: 409,
+        code: 'conflict',
+        message: 'Still writing',
+      );
+      expect(await chat.deleteMessage(u2), isFalse);
+      expect(chat.thread, hasLength(4));
+      expect(chat.notice, isNotNull);
+    });
+
+    test('asks before deleting a message, never a reply', () {
+      expect(
+        chat.deleteQuestion(u2, titleOf: (b) => b.title),
+        'Delete this message? Everything after it goes too: 1 later message. '
+        'Replies still being written there are stopped. This cannot be undone.',
+      );
+      expect(chat.deleteQuestion(a1, titleOf: (b) => b.title), isNull);
+    });
+  });
 }

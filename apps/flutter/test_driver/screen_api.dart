@@ -334,4 +334,9 @@ class ScreenApi implements TangentApi {
 
   @override
   Future<void> cancel(String nodeId) async {}
+
+  /// Keeps the lesson as it is, so every screen shows the same messages.
+  @override
+  Future<DeletedMessages> deleteMessage(String nodeId) async =>
+      const DeletedMessages(branchIds: [], nodeIds: []);
 }

@@ -186,6 +186,102 @@ describe('ChatService.deleteBranch', () => {
   });
 });
 
+describe('ChatService.deleteMessage', () => {
+  /** trunk: m1, m2, m3; a off m2's reply → a1 under a; b off m1's reply. */
+  async function fixture() {
+    const ctx = setup({ autoTitle: false });
+    const { chat } = ctx;
+    const { tree } = await chat.createTree({});
+    const m1 = await send(chat, tree.trunkBranchId, 'first');
+    const m2 = await send(chat, tree.trunkBranchId, 'second');
+    const m3 = await send(chat, tree.trunkBranchId, 'third');
+    const a = await chat.createBranch({ fromNodeId: m2.begin.assistantNode.id });
+    const aMsg = await send(chat, a.id, 'in a');
+    const a1 = await chat.createBranch({ fromNodeId: aMsg.begin.assistantNode.id });
+    const a1Msg = await send(chat, a1.id, 'in a1');
+    const b = await chat.createBranch({ fromNodeId: m1.begin.assistantNode.id });
+    const bMsg = await send(chat, b.id, 'in b');
+    return { ...ctx, tree, m1, m2, m3, a, aMsg, a1, a1Msg, b, bMsg };
+  }
+
+  const ids = (
+    ...sends: { begin: { userNode: { id: string }; assistantNode: { id: string } } }[]
+  ) => sends.flatMap((x) => [x.begin.userNode.id, x.begin.assistantNode.id]).sort();
+
+  it('deletes the message, the messages after it and the tangents started from them', async () => {
+    const { chat, repos, tree, m1, m2, m3, a, aMsg, a1, a1Msg, b, bMsg } = await fixture();
+    const link = await chat.createLink({
+      fromNodeId: m1.begin.userNode.id,
+      toNodeId: m3.begin.assistantNode.id,
+    });
+    const before = (await chat.getTreeDetail(tree.id)).tree.updatedAt;
+
+    const res = await chat.deleteMessage(m2.begin.userNode.id);
+
+    expect(res.treeId).toBe(tree.id);
+    expect(res.branchIds).toEqual([a.id, a1.id]);
+    expect(res.nodeIds.sort()).toEqual(ids(m2, m3, aMsg, a1Msg));
+    const detail = await chat.getTreeDetail(tree.id);
+    expect(detail.branches.map((x) => x.id).sort()).toEqual([tree.trunkBranchId, b.id].sort());
+    expect(detail.nodes.map((n) => n.id).sort()).toEqual(ids(m1, bMsg));
+    expect(detail.tree.updatedAt > before).toBe(true);
+    expect(await repos.trees.getLink(link.link.id)).toBeNull();
+
+    // The thread goes on from the message before the deleted one.
+    const next = await chat.beginSend(tree.trunkBranchId, 'second, again');
+    expect(next.userNode).toMatchObject({ seq: 2, parentId: m1.begin.assistantNode.id });
+  });
+
+  it('deletes a tangent whose first message it is, with the tangents below it', async () => {
+    const { chat, tree, m1, m2, m3, a, aMsg, a1, a1Msg } = await fixture();
+    const res = await chat.deleteMessage(aMsg.begin.userNode.id);
+    expect(res).toEqual({
+      treeId: tree.id,
+      branchIds: [a.id, a1.id],
+      nodeIds: expect.arrayContaining(ids(aMsg, a1Msg)) as string[],
+    });
+    expect(res.nodeIds).toHaveLength(4);
+    expect((await chat.getTreeDetail(tree.id)).nodes.map((n) => n.id).sort()).toEqual(
+      expect.arrayContaining(ids(m1, m2, m3)),
+    );
+  });
+
+  it("empties the conversation from the main thread's first message", async () => {
+    const { chat, tree, a, a1, b } = await fixture();
+    const res = await chat.deleteMessage((await chat.getTreeDetail(tree.id)).nodes[0]!.id);
+    expect(res.branchIds.sort()).toEqual([a.id, a1.id, b.id].sort());
+    const detail = await chat.getTreeDetail(tree.id);
+    expect(detail.branches.map((x) => x.id)).toEqual([tree.trunkBranchId]);
+    expect(detail.nodes).toEqual([]);
+  });
+
+  it('refuses replies and unknown messages', async () => {
+    const { chat, m2 } = await fixture();
+    await expect(chat.deleteMessage(m2.begin.assistantNode.id)).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    await expect(chat.deleteMessage('missing')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('refuses while a reply is generating after it, unless the caller stops it', async () => {
+    const { chat, tree, m2, m3, a, a1 } = await fixture();
+    const begin = await chat.beginSend(a1.id, 'slow one');
+    await expect(chat.deleteMessage(m3.begin.userNode.id)).resolves.toMatchObject({
+      branchIds: [],
+    });
+    await expect(chat.deleteMessage(m2.begin.userNode.id)).rejects.toThrow(ConflictError);
+
+    const stopped: string[][] = [];
+    const res = await chat.deleteMessage(m2.begin.userNode.id, {
+      stopGenerations: async (branchIds) => {
+        stopped.push([...branchIds]);
+      },
+    });
+    expect(stopped).toEqual([[tree.trunkBranchId, a.id, a1.id]]);
+    expect(res.nodeIds).toContain(begin.assistantNode.id);
+  });
+});
+
 describe('ChatService sending', () => {
   it('streams a reply and persists it with usage', async () => {
     const { chat, repos } = setup({ autoTitle: false });

@@ -72,3 +72,84 @@ List<OutlineEntry> branchOutline(String trunkId, Map<String, Branch> branches) {
   if (trunk != null) visit(trunk, 0);
   return outline;
 }
+
+/// The question asked before deleting [node], one of the learner's
+/// messages, which takes everything after it on its thread: the later
+/// messages, and the tangents started from them with everything below. The
+/// first message of a tangent takes the tangent (named by [titleOf]). Null
+/// for a reply. The web apps ask the same (`deleteMessageQuestion` in
+/// packages/web-shared/src/core/delete-branch.ts).
+String? deleteMessageQuestion(
+  ChatNode node, {
+  required Map<String, Branch> branches,
+  required Iterable<ChatNode> nodes,
+  required String Function(Branch) titleOf,
+}) {
+  final branch = branches[node.branchId];
+  if (branch == null || node.role != Role.user) return null;
+  const tail =
+      'Replies still being written there are stopped. This cannot be undone.';
+  final children = <String, List<Branch>>{};
+  final atNode = <String, List<Branch>>{};
+  for (final b in branches.values) {
+    final parent = b.parentBranchId;
+    if (parent != null) (children[parent] ??= []).add(b);
+    final fork = b.branchPointNodeId;
+    if (fork != null) (atNode[fork] ??= []).add(b);
+  }
+  final counts = <String, int>{};
+  for (final n in nodes) {
+    counts[n.branchId] = (counts[n.branchId] ?? 0) + 1;
+  }
+  ({int branches, int messages}) subtree(Branch root) {
+    var count = 0;
+    var messages = 0;
+    final seen = <String>{};
+    final stack = [root];
+    while (stack.isNotEmpty) {
+      final b = stack.removeLast();
+      if (!seen.add(b.id)) continue;
+      count++;
+      messages += counts[b.id] ?? 0;
+      stack.addAll(children[b.id] ?? const []);
+    }
+    return (branches: count, messages: messages);
+  }
+
+  String messagesCount(int n) => '$n message${n == 1 ? '' : 's'}';
+  String tangents(int n) => '$n tangent${n == 1 ? '' : 's'}';
+
+  if (node.seq == 0 && branch.parentBranchId != null) {
+    final size = subtree(branch);
+    final below = size.branches - 1;
+    final along = below > 0
+        ? ' along with the ${tangents(below)} below it'
+        : '';
+    return 'Delete this message? It starts the tangent “${titleOf(branch)}”, '
+        'which goes with it$along (${messagesCount(size.messages)}). $tail';
+  }
+  final cut = [
+    for (final n in nodes)
+      if (n.branchId == branch.id && n.seq >= node.seq) n,
+  ];
+  var branchCount = 0;
+  var branchMessages = 0;
+  for (final n in cut) {
+    for (final b in atNode[n.id] ?? const <Branch>[]) {
+      final size = subtree(b);
+      branchCount += size.branches;
+      branchMessages += size.messages;
+    }
+  }
+  final later = cut.length - 1;
+  final parts = [
+    if (later > 0) '$later later message${later == 1 ? '' : 's'}',
+    if (branchCount > 0)
+      tangents(branchCount) +
+          (branchMessages > 0 ? ' (${messagesCount(branchMessages)})' : ''),
+  ];
+  return parts.isEmpty
+      ? 'Delete this message? $tail'
+      : 'Delete this message? Everything after it goes too: '
+            '${parts.join(' and ')}. $tail';
+}

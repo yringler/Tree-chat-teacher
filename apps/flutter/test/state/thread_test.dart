@@ -113,4 +113,66 @@ void main() {
       ['trunk'],
     );
   });
+
+  group('deleteMessageQuestion', () {
+    // The cases of the web's (packages/web-shared/src/core/delete-branch.spec.ts).
+    // trunk: u1 a1 u2 a2; early from a1 (e1); side from a2 (s1 s2 s3);
+    // deeper from s2 (d1).
+    final branches = byId([
+      branch('trunk'),
+      branch('early', parent: 'trunk', fork: 'a1'),
+      branch('side', parent: 'trunk', fork: 'a2', title: 'side'),
+      branch('deeper', parent: 'side', fork: 's2', title: 'deeper'),
+    ]);
+    final nodes = [
+      node('u1', branch: 'trunk', seq: 0),
+      node('a1', branch: 'trunk', seq: 1, role: Role.assistant),
+      node('u2', branch: 'trunk', seq: 2),
+      node('a2', branch: 'trunk', seq: 3, role: Role.assistant),
+      node('e1', branch: 'early', seq: 0),
+      node('s1', branch: 'side', seq: 0),
+      node('s2', branch: 'side', seq: 1, role: Role.assistant),
+      node('s3', branch: 'side', seq: 2),
+      node('d1', branch: 'deeper', seq: 0),
+    ];
+    String? ask(String id) => deleteMessageQuestion(
+      nodes.firstWhere((n) => n.id == id),
+      branches: branches,
+      nodes: nodes,
+      titleOf: (b) => b.title,
+    );
+    const tail =
+        'Replies still being written there are stopped. This cannot be undone.';
+
+    test('names the later messages and the tangents started from them', () {
+      expect(
+        ask('u2'),
+        'Delete this message? Everything after it goes too: '
+        '1 later message and 2 tangents (4 messages). $tail',
+      );
+      expect(
+        ask('u1'),
+        'Delete this message? Everything after it goes too: '
+        '3 later messages and 3 tangents (5 messages). $tail',
+      );
+      expect(ask('s3'), 'Delete this message? $tail');
+    });
+
+    test('says that the first message of a tangent takes the tangent', () {
+      expect(
+        ask('s1'),
+        'Delete this message? It starts the tangent “side”, which goes with '
+        'it along with the 1 tangent below it (4 messages). $tail',
+      );
+      expect(
+        ask('d1'),
+        'Delete this message? It starts the tangent “deeper”, which goes with '
+        'it (1 message). $tail',
+      );
+    });
+
+    test('is null for a reply', () {
+      expect(ask('a1'), isNull);
+    });
+  });
 }

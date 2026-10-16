@@ -275,6 +275,10 @@ class HttpTangentApi implements TangentApi {
     await _send('POST', ['nodes', nodeId, 'cancel']);
   }
 
+  @override
+  Future<DeletedMessages> deleteMessage(String nodeId) async =>
+      DeletedMessages.fromJson(await _object('DELETE', ['nodes', nodeId]));
+
   /// One reply's events, reconnecting through `GET /api/nodes/:id/stream`
   /// when a body ends or fails before `done` or `error`. Without [open] it
   /// starts by reconnecting to [nodeId]. A refusal of [open] throws before

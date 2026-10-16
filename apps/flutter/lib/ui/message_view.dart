@@ -27,6 +27,7 @@ class MessageView extends StatelessWidget {
     required this.onAskAbout,
     this.latest = false,
     this.onContinue,
+    this.onDelete,
   });
 
   final ChatNode node;
@@ -61,6 +62,10 @@ class MessageView extends StatelessWidget {
   /// "Ask about this" on words selected in a finished reply.
   final ValueChanged<String> onAskAbout;
 
+  /// Deletes the learner's message with everything after it, once they say
+  /// so; null on a reply.
+  final VoidCallback? onDelete;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -76,7 +81,26 @@ class MessageView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            label,
+            Row(
+              children: [
+                label,
+                const Spacer(),
+                if (onDelete != null)
+                  // Small, so the row stays about as tall as its label.
+                  IconButton(
+                    tooltip: 'Delete message',
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size.square(32),
+                      padding: EdgeInsets.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    iconSize: 18,
+                    color: tokens.fgMuted,
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: onDelete,
+                  ),
+              ],
+            ),
             const SizedBox(height: 4),
             Container(
               width: double.infinity,

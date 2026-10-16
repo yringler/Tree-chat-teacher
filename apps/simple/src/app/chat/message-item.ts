@@ -16,6 +16,7 @@ import {
   type ChatNode,
 } from '@tangent/shared';
 import {
+  confirmDeleteMessage,
   Icon,
   MarkdownService,
   RelatedLinks,
@@ -67,6 +68,17 @@ import { branchTitle } from './titles';
             (click)="ui.dialogs.open({ kind: 'connect', sourceNodeId: n.id })"
           >
             <app-icon name="link" [size]="14" /> Connect
+          </button>
+        }
+        @if (n.role === 'user') {
+          <button
+            type="button"
+            class="icon-btn msg-delete"
+            aria-label="Delete message"
+            title="Delete this message, with everything after it in this thread"
+            (click)="remove()"
+          >
+            <app-icon name="trash" [size]="14" />
           </button>
         }
       </header>
@@ -238,6 +250,15 @@ export class MessageItem {
       relatedLinks(idx, this.store.linksByNode(), this.node().id, connectionTitleOf),
     );
   });
+
+  /** Deletes the learner's message with everything after it, once they say so. */
+  protected remove(): void {
+    void confirmDeleteMessage(this.store, this.node().id, {
+      title: branchTitle,
+      noun: { one: 'tangent', many: 'tangents' },
+      consequences: 'Replies still being written there are stopped.',
+    });
+  }
 
   protected removeConnection(linkId: string): void {
     if (!confirm('Remove this connection? Both messages stay as they are.')) return;

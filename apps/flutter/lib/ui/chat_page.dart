@@ -756,6 +756,9 @@ class _ChatPageState extends State<ChatPage> {
       onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),
       onAskAbout: (text) => _askAbout(node, text),
       onOpenTangent: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),
+      onDelete: node.role == Role.user
+          ? () => unawaited(_deleteMessage(node))
+          : null,
     );
     final forked = i > 0 && thread[i - 1].branchId != node.branchId;
     if (!forked) return message;
@@ -767,6 +770,44 @@ class _ChatPageState extends State<ChatPage> {
         message,
       ],
     );
+  }
+
+  /// Asks, then deletes [node] with everything after it on its thread. When
+  /// the tangent on screen goes with it, moves to where the message was: its
+  /// thread, or the thread a deleted tangent came from.
+  Future<void> _deleteMessage(ChatNode node) async {
+    final question = _chat.deleteQuestion(node, titleOf: tangentTitle);
+    if (question == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete message?'),
+        content: Text(question),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (!(confirmed ?? false) || !mounted) return;
+    final from = _chat.branchById(node.branchId);
+    if (!await _chat.deleteMessage(node) || !mounted || from == null) return;
+    final open = widget.branchId;
+    if (open == null || _chat.branchById(open) != null) return;
+    final back =
+        _chat.branchById(from.id) ??
+        _chat.branchById(from.parentBranchId ?? from.id);
+    if (back != null) _open(back);
   }
 
   String _branchTitle(String branchId) {

@@ -9,8 +9,8 @@ import { generationLimits, inputBudgetResponse } from '../input-limit.js';
 import { chatOf, keysOf } from './request-chat.js';
 
 /**
- * Branches: creating, editing and deleting them, and what a send on one
- * would see (its context and input budget). Only `context?resolve=true`
+ * Branches: creating, editing and deleting them (and a message with what
+ * follows it), and what a send on one would see (its context and input budget). Only `context?resolve=true`
  * generates (missing summaries), so only it passes the gate.
  */
 export function branchRoutes(): Hono<AppBindings> {
@@ -27,6 +27,10 @@ export function branchRoutes(): Hono<AppBindings> {
     const branch = await chatOf(c).getOwnedBranch(c.req.param('branchId'));
     // Through the tree's Durable Object: it owns the generations it has to stop first.
     return treeSession(c.env, branch.treeId).deleteBranch(branch.id, c.var.account);
+  });
+  api.delete('/nodes/:nodeId', async (c) => {
+    const node = await chatOf(c).getOwnedNode(c.req.param('nodeId'));
+    return treeSession(c.env, node.treeId).deleteMessage(node.id, c.var.account);
   });
   api.get(
     '/branches/:branchId/context',
