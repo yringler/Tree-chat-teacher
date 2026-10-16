@@ -18,10 +18,12 @@ Future<void> showPaymentDialog(BuildContext context, {bool refused = false}) =>
     );
 
 /// How replies are paid for, as in the web app's Learn: the learner's own
-/// OpenRouter key (they pay OpenRouter directly; where the membership is
-/// required it needs one, which the web app sells), Tangent credit, or the
-/// open pool while it is on. The key is posted once and the field cleared:
-/// the server seals it into a cookie the app can't read.
+/// key, OpenRouter's or (where the server offers it) Anthropic's, on which
+/// Learn runs a fixed pair of models (they pay that provider directly; where
+/// the membership is required it needs one, which the web app sells),
+/// Tangent credit, or the open pool while it is on. The key is posted once
+/// and the field cleared: the server seals it into a cookie the app can't
+/// read.
 class PaymentDialog extends StatefulWidget {
   const PaymentDialog({super.key, this.refused = false});
 
@@ -82,9 +84,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
                   Text(
                     session.ownKeyAllowed
                         ? 'Your message wasn’t sent: replies run on your own '
-                              'OpenRouter key, and none is saved. Save your '
-                              'key, or pick another way to pay, then send it '
-                              'again.'
+                              '${session.ownKey.label} key, and none is saved. '
+                              'Save your key, or pick another way to pay, then '
+                              'send it again.'
                         : 'Your message wasn’t sent: replies on your own key '
                               'need a membership. Pick another way to pay, '
                               'then send it again.',
@@ -136,7 +138,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
           value: Payer.ownKey,
           enabled: session.ownKeyAllowed,
           contentPadding: EdgeInsets.zero,
-          title: const Text('Use my own OpenRouter key'),
+          title: const Text('Use my own API key'),
           subtitle: Text(_ownKeyText(session)),
         ),
         if (session.creditOffered)
@@ -167,12 +169,52 @@ class _PaymentDialogState extends State<PaymentDialog> {
   );
 
   static String _ownKeyText(SessionController session) {
+    final provider = session.ownKey.label;
     if (!session.ownKeyAllowed) {
-      return 'Needs a membership: it covers Tangent while OpenRouter bills '
+      return 'Needs a membership: it covers Tangent while $provider bills '
           'you directly. Become a member in Tangent Learn on the web.';
     }
-    return 'You pay OpenRouter directly.';
+    return 'You pay $provider directly.';
   }
+
+  /// What each own key gets Learn, so the learner picks knowing it.
+  static String _keyHint(LearnKey key) => switch (key) {
+    LearnKey.openRouter => 'Replies use the model Learn picks for tutoring.',
+    LearnKey.anthropic =>
+      'Replies use Claude Sonnet; titles and summaries use Claude Haiku. To '
+          'pick other models, use power mode.',
+  };
+
+  /// Where to create each key, and what one looks like.
+  static (String, String) _keyPage(LearnKey key) => switch (key) {
+    LearnKey.openRouter => ('https://openrouter.ai/settings/keys', 'sk-or-…'),
+    LearnKey.anthropic => (
+      'https://console.anthropic.com/settings/keys',
+      'sk-ant-…',
+    ),
+  };
+
+  Widget _keyChoice(SessionController session) => RadioGroup<LearnKey>(
+    groupValue: session.ownKey,
+    onChanged: (key) {
+      if (key == null || _busy) return;
+      setState(() => _error = null);
+      unawaited(session.chooseKey(key));
+    },
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Which key'),
+        for (final key in session.ownKeyOptions)
+          RadioListTile<LearnKey>(
+            value: key,
+            contentPadding: EdgeInsets.zero,
+            title: Text(key.label),
+            subtitle: Text(_keyHint(key)),
+          ),
+      ],
+    ),
+  );
 
   List<Widget> _ownKey(BuildContext context, SessionController session) {
     if (!session.ownKeyAllowed) {
@@ -190,13 +232,19 @@ class _PaymentDialogState extends State<PaymentDialog> {
     if (!status.enabled) {
       return [const Text('This server can’t store your own key.')];
     }
-    final saved = status.hasOpenRouterKey;
+    final key = session.ownKey;
+    final saved = status.has(key);
+    final (keyPage, keyShape) = _keyPage(key);
     return [
+      if (session.ownKeyOptions.length > 1) ...[
+        _keyChoice(session),
+        const SizedBox(height: 8),
+      ],
       Row(
         children: [
           Expanded(
             child: Text(
-              saved ? 'Your OpenRouter key is saved.' : 'No key saved.',
+              saved ? 'Your ${key.label} key is saved.' : 'No key saved.',
             ),
           ),
           if (saved)
@@ -216,14 +264,14 @@ class _PaymentDialogState extends State<PaymentDialog> {
         autocorrect: false,
         enableSuggestions: false,
         decoration: InputDecoration(
-          labelText: saved ? 'Replace your key' : 'Your OpenRouter API key',
-          hintText: 'sk-or-…',
+          labelText: saved ? 'Replace your key' : 'Your ${key.label} API key',
+          hintText: keyShape,
         ),
         onSubmitted: (_) => _save(session),
       ),
       const SizedBox(height: 8),
       Text(
-        'Create one at openrouter.ai. It is stored encrypted '
+        'Create one with ${key.label}. It is stored encrypted '
         '${kIsWeb ? 'in this browser' : 'on this device'} until it goes 7 '
         'days unused.',
         style: Theme.of(context).textTheme.bodySmall,
@@ -238,11 +286,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
             label: Text(_busy ? 'Saving…' : 'Save key'),
           ),
           TextButton(
-            onPressed: () => openLink(
-              context,
-              'https://openrouter.ai/settings/keys',
-              newTab: true,
-            ),
+            onPressed: () => openLink(context, keyPage, newTab: true),
             child: const Text('Get a key'),
           ),
         ],

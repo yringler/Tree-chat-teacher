@@ -7,6 +7,10 @@ abstract interface class TangentApi {
   /// Who pays for replies from here on (`x-tangent-payment`).
   set payer(Payer payer);
 
+  /// Which own key replies run on while the learner pays with one
+  /// (`x-tangent-own-key`).
+  set ownKey(LearnKey key);
+
   // Sign-in (Better Auth under /api/auth).
 
   Future<LoginOptions> loginOptions();
@@ -72,16 +76,16 @@ abstract interface class TangentApi {
   Future<PoolStatus> poolStatus();
   Future<BillingSummary> billing();
 
-  // The learner's own OpenRouter key. The server seals it into the
-  // `__Host-llmkey` cookie and never returns any part of it.
+  // The learner's own keys. The server seals them into the
+  // `__Host-llmkey` cookie and never returns any part of them.
 
   Future<KeyStatus> keyStatus();
 
-  /// Saves [apiKey] as the learner's OpenRouter key, once the server has
-  /// checked it with OpenRouter; a rejected key throws `bad_request`.
-  Future<void> saveKey(String apiKey);
+  /// Saves [apiKey] as the learner's [key], once the server has checked it
+  /// with that provider; a rejected key throws `bad_request`.
+  Future<void> saveKey(LearnKey key, String apiKey);
 
-  Future<void> forgetKey();
+  Future<void> forgetKey(LearnKey key);
 
   // Lessons.
 

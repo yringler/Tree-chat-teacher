@@ -85,6 +85,11 @@ class FakeTangentApi implements TangentApi {
   @override
   set payer(Payer payer) => payerSet = payer;
 
+  LearnKey? ownKeySet;
+
+  @override
+  set ownKey(LearnKey key) => ownKeySet = key;
+
   /// Answers to `me()` in turn; the last one repeats.
   List<Object> meAnswers = [signedInMe];
   LoginOptions loginOptionsAnswer = const LoginOptions(
@@ -109,6 +114,9 @@ class FakeTangentApi implements TangentApi {
 
   /// The keys `saveKey` was given.
   final savedKeys = <String>[];
+
+  /// Whose keys `forgetKey` was asked to forget.
+  final forgotten = <LearnKey>[];
   List<ProviderInfo> providersAnswer = const [
     ProviderInfo(id: 'other'),
     ProviderInfo(id: 'openrouter'),
@@ -249,19 +257,28 @@ class FakeTangentApi implements TangentApi {
   Future<KeyStatus> keyStatus() async => keyStatusAnswer;
 
   @override
-  Future<void> saveKey(String apiKey) async {
+  Future<void> saveKey(LearnKey key, String apiKey) async {
     final refusal = refuseKey;
     if (refusal != null) throw refusal;
     savedKeys.add(apiKey);
-    keyStatusAnswer = const KeyStatus(
+    final before = keyStatusAnswer;
+    keyStatusAnswer = KeyStatus(
       enabled: true,
-      providers: [openRouterProviderId],
+      providers: [...before.providers.where((id) => id != key.id), key.id],
+      learnProviders: before.learnProviders,
     );
   }
 
   @override
-  Future<void> forgetKey() async =>
-      keyStatusAnswer = const KeyStatus(enabled: true, providers: []);
+  Future<void> forgetKey(LearnKey key) async {
+    forgotten.add(key);
+    final before = keyStatusAnswer;
+    keyStatusAnswer = KeyStatus(
+      enabled: true,
+      providers: before.providers.where((id) => id != key.id).toList(),
+      learnProviders: before.learnProviders,
+    );
+  }
 
   @override
   Future<List<ProviderInfo>> providers() async => providersAnswer;

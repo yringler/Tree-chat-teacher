@@ -174,15 +174,19 @@ Matcher apiError(int status, String code, {String? message, String? pool}) =>
 
 void main() {
   group('requests', () {
-    test('send the mode, payer and accept headers', () async {
+    test('send the mode, payer, own key and accept headers', () async {
       final f = fake((_) => json({'enabled': true, 'model': null}));
       await f.api.poolStatus();
-      f.api.payer = Payer.pool;
+      f.api
+        ..payer = Payer.pool
+        ..ownKey = LearnKey.anthropic;
       await f.api.poolStatus();
       final [first, second] = f.seen;
       expect(first.url.toString(), 'https://tangent.test/api/pool/status');
       expect(first.headers['x-tangent-mode'], 'simple');
       expect(first.headers['x-tangent-payment'], 'own-key');
+      expect(first.headers['x-tangent-own-key'], 'openrouter');
+      expect(second.headers['x-tangent-own-key'], 'anthropic');
       expect(first.headers['accept'], 'application/json, text/event-stream');
       expect(first.headers.containsKey('content-type'), isFalse);
       expect(second.headers['x-tangent-payment'], 'pool');
@@ -337,24 +341,27 @@ void main() {
           headers: {'set-cookie': cookie},
         );
 
-    test('status, save and forget name the OpenRouter key', () async {
+    test('status, save and forget name the key', () async {
       final f = fake(
         (request) => request.url.path == '/api/key/status'
             ? json({
                 'enabled': true,
                 'hasKey': true,
-                'providers': ['anthropic', 'openrouter'],
+                'providers': ['openai', 'openrouter'],
+                'learnProviders': ['openrouter', 'anthropic', 'unknown'],
               })
             : empty(),
       );
       final status = await f.api.keyStatus();
       expect(status.enabled, isTrue);
-      expect(status.hasOpenRouterKey, isTrue);
-      await f.api.saveKey('sk-or-1');
-      await f.api.forgetKey();
+      expect(status.has(LearnKey.openRouter), isTrue);
+      expect(status.has(LearnKey.anthropic), isFalse);
+      expect(status.learnProviders, [LearnKey.openRouter, LearnKey.anthropic]);
+      await f.api.saveKey(LearnKey.anthropic, 'sk-ant-1');
+      await f.api.forgetKey(LearnKey.openRouter);
       final [_, save, forget] = f.seen;
       expect((save.method, save.url.path), ('POST', '/api/key'));
-      expect(save.json, {'provider': 'openrouter', 'apiKey': 'sk-or-1'});
+      expect(save.json, {'provider': 'anthropic', 'apiKey': 'sk-ant-1'});
       expect((forget.method, forget.url.path), ('DELETE', '/api/key'));
       expect(forget.json, {'provider': 'openrouter'});
     });
@@ -372,7 +379,7 @@ void main() {
       );
       await f.api.poolStatus();
       expect(f.seen.last.headers.containsKey('cookie'), isFalse);
-      await f.api.saveKey('sk-or-1');
+      await f.api.saveKey(LearnKey.openRouter, 'sk-or-1');
       expect(kept.token, sealed);
       await f.api.poolStatus();
       expect(f.seen.last.headers['cookie'], '__Host-llmkey=$sealed');
@@ -427,8 +434,8 @@ void main() {
 
     test('the web build leaves the cookie to the browser', () async {
       final f = fake((_) => setting(setKey));
-      await f.api.saveKey('sk-or-1');
-      await f.api.forgetKey();
+      await f.api.saveKey(LearnKey.openRouter, 'sk-or-1');
+      await f.api.forgetKey(LearnKey.openRouter);
       expect(f.seen.last.headers.containsKey('cookie'), isFalse);
     });
 

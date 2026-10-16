@@ -152,13 +152,24 @@ class BillingSummary {
 
 /// `GET /api/key/status`. Never any part of a key.
 class KeyStatus {
-  const KeyStatus({required this.enabled, required this.providers});
+  const KeyStatus({
+    required this.enabled,
+    required this.providers,
+    this.learnProviders = const [LearnKey.openRouter],
+  });
 
   factory KeyStatus.fromJson(Json json) => KeyStatus(
     enabled: json.boolean('enabled'),
     providers: (json['providers'] as List<Object?>? ?? const [])
         .whereType<String>()
         .toList(),
+    learnProviders: [
+      for (final key in LearnKey.values)
+        if ((json['learnProviders'] as List<Object?>? ?? const []).contains(
+          key.id,
+        ))
+          key,
+    ],
   );
 
   /// The server can store keys (it has a key encryption secret).
@@ -167,12 +178,28 @@ class KeyStatus {
   /// Provider ids with a saved key.
   final List<String> providers;
 
-  /// Learn's replies run on the learner's OpenRouter key.
-  bool get hasOpenRouterKey => providers.contains(openRouterProviderId);
+  /// The own keys this server lets Learn reply on.
+  final List<LearnKey> learnProviders;
+
+  /// The learner's [key] is saved.
+  bool has(LearnKey key) => providers.contains(key.id);
 }
 
-/// The provider Learn runs on (`OPENROUTER_PROVIDER_ID` in packages/shared).
-const openRouterProviderId = 'openrouter';
+/// One of the learner's own keys Learn can reply on (`LEARN_KEY_PROVIDERS`
+/// and `LEARN_KEY_LABELS` in packages/shared/src/billing.ts), named by its
+/// provider id in `x-tangent-own-key`.
+enum LearnKey {
+  openRouter('openrouter', 'OpenRouter'),
+  anthropic('anthropic', 'Anthropic');
+
+  const LearnKey(this.id, this.label);
+
+  /// The provider id: the key cookie's entry and the header's value.
+  final String id;
+
+  /// "OpenRouter" or "Anthropic".
+  final String label;
+}
 
 /// An entry of `GET /api/providers`.
 class ProviderInfo {

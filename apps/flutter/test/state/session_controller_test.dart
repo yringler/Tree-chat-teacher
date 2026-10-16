@@ -29,7 +29,7 @@ void main() {
     ..poolStatusAnswer = PoolStatus(enabled: poolEnabled, modelLabel: null)
     ..keyStatusAnswer = KeyStatus(
       enabled: true,
-      providers: [if (hasKey) openRouterProviderId],
+      providers: [if (hasKey) LearnKey.openRouter.id],
     );
 
   Future<Payer> payerFor({
@@ -202,6 +202,38 @@ void main() {
       ).codeSentTo(),
       isNull,
     );
+  });
+
+  test('the own key is the one picked where the server offers it', () async {
+    final store = MemoryStore();
+    final api = apiWith(creditMicros: 0, poolEnabled: true, hasKey: true);
+    final session = SessionController(api, keyChoiceStore: store);
+    await session.start();
+    expect(session.ownKey, LearnKey.openRouter);
+    expect(api.ownKeySet, LearnKey.openRouter);
+    expect(session.payer, Payer.ownKey);
+
+    // Not offered here: OpenRouter, whatever was picked.
+    await session.chooseKey(LearnKey.anthropic);
+    expect(store.value, 'anthropic');
+    expect(session.ownKey, LearnKey.openRouter);
+
+    api.keyStatusAnswer = const KeyStatus(
+      enabled: true,
+      providers: ['openrouter'],
+      learnProviders: [LearnKey.openRouter, LearnKey.anthropic],
+    );
+    final next = SessionController(api, keyChoiceStore: store);
+    await next.start();
+    expect(next.ownKey, LearnKey.anthropic);
+    expect(api.ownKeySet, LearnKey.anthropic);
+    // Its own entry counts: OpenRouter's saved key is no Anthropic key.
+    expect(next.hasOwnKey, isFalse);
+    expect(next.payer, Payer.pool);
+
+    await next.saveKey('sk-ant-1');
+    expect(next.hasOwnKey, isTrue);
+    expect(next.payer, Payer.ownKey);
   });
 
   test('picked own key without a key is blocked', () async {
