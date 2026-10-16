@@ -105,6 +105,31 @@ describe('Card', () => {
     expect(follow).toHaveBeenCalledWith('a1', 'Interference');
   });
 
+  it('a question deletes, with the lanes after it, once the user says so', async () => {
+    const c = await card('u1');
+    const del = vi.spyOn(c.store, 'deleteMessage').mockResolvedValue(true);
+    const ask = vi.fn(() => false);
+    vi.stubGlobal('confirm', ask);
+    try {
+      const trash = screen.getByRole('button', { name: 'Delete message' });
+      await c.user.click(trash);
+      expect(ask).toHaveBeenCalledWith(
+        'Delete this message? Everything after it goes too: 1 later message and 1 lane. Replies still being written there are stopped, and shares of those messages stop working. This cannot be undone.',
+      );
+      expect(del).not.toHaveBeenCalled();
+      ask.mockReturnValue(true);
+      await c.user.click(trash);
+      expect(del).toHaveBeenCalledWith('u1');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('a reply has no Delete', async () => {
+    await card('a1');
+    expect(screen.queryByRole('button', { name: 'Delete message' })).toBeNull();
+  });
+
   it('the lane on the selected chain is lit', async () => {
     const c = await card('a1');
     c.store.setRoute('t1', 'photons', null);

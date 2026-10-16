@@ -196,6 +196,7 @@ export class ApiClient {
   updateBranch = (branchId: string, req: UpdateBranchRequest) =>
     this.call(R.updateBranch, { params: { branchId }, body: req });
   deleteBranch = (branchId: string) => this.call(R.deleteBranch, { params: { branchId } });
+  deleteMessage = (nodeId: string) => this.call(R.deleteMessage, { params: { nodeId } });
   /** `limits`: plan like a send with power's settings (the server ignores them in Learn). */
   getContext = (
     branchId: string,

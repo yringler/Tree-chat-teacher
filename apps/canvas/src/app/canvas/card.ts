@@ -15,6 +15,7 @@ import {
   type ChatNode,
 } from '@tangent/shared';
 import {
+  confirmDeleteMessage,
   Icon,
   MarkdownService,
   RelatedLinks,
@@ -95,6 +96,17 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
             (click)="branch($event)"
           >
             <app-icon name="tangent" [size]="15" />
+          </button>
+        }
+        @if (n.role === 'user') {
+          <button
+            type="button"
+            class="icon-btn card-delete"
+            title="Delete this message, with everything after it in this lane"
+            aria-label="Delete message"
+            (click)="remove($event)"
+          >
+            <app-icon name="trash" [size]="15" />
           </button>
         }
       </header>
@@ -324,6 +336,17 @@ export class Card {
       fromNodeId: this.node().id,
       quote: null,
       ...(text ? { message: text, onCreated: () => this.askText.set('') } : {}),
+    });
+  }
+
+  /** Deletes the user's message with everything after it, once they say so. */
+  protected remove(e: Event): void {
+    e.stopPropagation();
+    void confirmDeleteMessage(this.store, this.node().id, {
+      title: laneTitle,
+      noun: { one: 'lane', many: 'lanes' },
+      consequences:
+        'Replies still being written there are stopped, and shares of those messages stop working.',
     });
   }
 

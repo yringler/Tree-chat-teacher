@@ -21,6 +21,7 @@ import type {
   CreateBranchRequest,
   CreateTreeRequest,
   DeleteBranchResponse,
+  DeleteMessageResponse,
   NodeLink,
   Payer,
   SendMessageRequest,
@@ -59,6 +60,7 @@ export type ConversationApi = Pick<
   | 'createBranch'
   | 'updateBranch'
   | 'deleteBranch'
+  | 'deleteMessage'
   | 'createLink'
   | 'updateLink'
   | 'deleteLink'
@@ -709,7 +711,50 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     }
   }
 
-  private removeBranches(res: DeleteBranchResponse): void {
+  /**
+   * Deletes one of the user's messages with everything after it in its
+   * branch, and the branches started from those messages; replies generating
+   * there stop. The first message of a branch takes the branch. If the
+   * selection goes with it, moves to where the message was: the end of its
+   * branch, or for a whole branch the message it branched from. The caller
+   * confirms first.
+   */
+  async deleteMessage(nodeId: string): Promise<boolean> {
+    const idx = this.index();
+    const node = idx?.nodes.get(nodeId);
+    const branch = node ? idx?.branches.get(node.branchId) : undefined;
+    try {
+      const res = await this.api.deleteMessage(nodeId);
+      const selected = this.selectedBranchId();
+      const focused = this.focusedNodeId();
+      const branchGone = branch !== undefined && res.branchIds.includes(branch.id);
+      if (branch && selected && res.branchIds.includes(selected)) {
+        if (branchGone && branch.parentBranchId) {
+          this.go(branch.parentBranchId, branch.branchPointNodeId, true);
+        } else this.go(branch.id, null, true);
+      } else if (branch && focused && res.nodeIds.includes(focused)) {
+        this.go(branch.id, null, true);
+      }
+      this.removeBranches(res);
+      const tangents = res.branchIds.length - (branchGone ? 1 : 0);
+      const noun = (n: number) => `${n} ${this.copy.branch}${n === 1 ? '' : 's'}`;
+      this.notify(
+        branchGone
+          ? tangents > 0
+            ? `Deleted the ${this.copy.branch} and ${tangents} below it`
+            : `${capitalized(this.copy.branch)} deleted`
+          : tangents > 0
+            ? `Deleted the message and ${noun(tangents)} after it`
+            : 'Message deleted',
+      );
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    }
+  }
+
+  private removeBranches(res: DeleteBranchResponse | DeleteMessageResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
     // Their generations were stopped server-side; stop following them here too.

@@ -128,6 +128,7 @@ describe('ApiClient', () => {
         { title: 'B' },
       ],
       ['deleteBranch', (a) => a.deleteBranch('b'), 'DELETE', '/api/branches/b'],
+      ['deleteMessage', (a) => a.deleteMessage('n'), 'DELETE', '/api/nodes/n'],
       [
         'getContext',
         (a) => a.getContext('b', 'n', true, { maxInputTokens: 8000 }),

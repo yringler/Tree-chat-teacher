@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import type { ChatNode } from '@tangent/shared';
-import { Icon, ToastStore } from '@tangent/web-shared';
+import { confirmDeleteMessage, Icon, ToastStore } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -17,7 +17,7 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
   linked: 'Already linked',
 };
 
-/** A message's header buttons: Branch from here, Review, Link, Copy; "Link here" in pick mode. */
+/** A message's header buttons: Branch from here, Review, Link, Copy, Delete (the user's); "Link here" in pick mode. */
 @Component({
   selector: 'app-message-actions',
   imports: [Icon],
@@ -75,6 +75,17 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
       >
         <app-icon name="copy" [size]="14" />
       </button>
+      @if (node().role === 'user') {
+        <button
+          type="button"
+          class="icon-btn msg-delete"
+          aria-label="Delete message"
+          title="Delete this message, with everything after it in this thread"
+          (click)="remove($event)"
+        >
+          <app-icon name="trash" [size]="14" />
+        </button>
+      }
     }
   `,
 })
@@ -133,6 +144,16 @@ export class MessageActions {
     if (!pick || this.pick() !== 'open') return;
     this.ui.linkPick.set(null);
     await this.store.createLink(pick.fromNodeId, this.node().id);
+  }
+
+  protected async remove(e: Event): Promise<void> {
+    e.stopPropagation();
+    await confirmDeleteMessage(this.store, this.node().id, {
+      title: (b) => b.title,
+      noun: { one: 'tangent', many: 'tangents' },
+      consequences:
+        'Replies still generating there are stopped, and shares of those messages stop working.',
+    });
   }
 
   protected async copy(e: Event): Promise<void> {

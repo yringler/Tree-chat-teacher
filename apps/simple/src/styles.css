@@ -578,6 +578,11 @@ button.crumb:hover {
   color: var(--fg-muted);
 }
 
+.msg-delete {
+  margin-left: auto;
+  color: var(--fg-muted);
+}
+
 .msg-status {
   margin: 4px 0;
   font-style: italic;
