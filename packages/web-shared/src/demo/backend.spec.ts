@@ -532,6 +532,7 @@ describe('power demo backend', () => {
       enabled: false,
       hasKey: false,
       providers: [],
+      learnProviders: ['openrouter'],
     });
     await expect(api.listShares()).resolves.toEqual([]);
     await expect(

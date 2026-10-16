@@ -15,7 +15,14 @@ export function uniq(prefix: string): string {
 /** A user's account `u_<userId>` in Learn mode on credit (the built-in provider), with a fresh user id. */
 export function simpleAccount(userId = uniq('user')): LearnAccount {
   const id = `u_${userId}`;
-  return { id, mode: 'simple', userId, billingAccountId: id, payer: 'credit' };
+  return {
+    id,
+    mode: 'simple',
+    userId,
+    billingAccountId: id,
+    payer: 'credit',
+    ownKey: 'openrouter',
+  };
 }
 
 /** The same user's account `u_<userId>` in power mode, with the built-in provider. */

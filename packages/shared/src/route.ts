@@ -20,6 +20,13 @@ export interface ProviderRoute {
  */
 export const OPENROUTER_PROVIDER_ID = 'openrouter';
 
+/**
+ * The Anthropic endpoint: one of power's providers, and the key-cookie entry
+ * of the user's own Anthropic key, which Learn can reply on too
+ * (`LEARN_KEY_PROVIDERS`).
+ */
+export const ANTHROPIC_PROVIDER_ID = 'anthropic';
+
 /** Separator of `routeKey`; provider ids are config ids and never contain it. */
 const CREDIT_SUFFIX = '@credit';
 

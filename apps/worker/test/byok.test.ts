@@ -84,6 +84,7 @@ describe('bring-your-own-key API', () => {
       enabled: true,
       hasKey: false,
       providers: [],
+      learnProviders: ['openrouter'],
     });
   });
 
@@ -104,7 +105,12 @@ describe('bring-your-own-key API', () => {
     const sealed = sealedFrom(res);
     const status = await call('/api/key/status', { cookie: sealed });
     const text = await status.text();
-    expect(JSON.parse(text)).toEqual({ enabled: true, hasKey: true, providers: ['ant'] });
+    expect(JSON.parse(text)).toEqual({
+      enabled: true,
+      hasKey: true,
+      providers: ['ant'],
+      learnProviders: ['openrouter'],
+    });
     expect(text).not.toContain('alpha');
 
     const providers = await ok<ProviderInfo[]>(

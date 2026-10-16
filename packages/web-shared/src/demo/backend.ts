@@ -32,6 +32,7 @@ import {
   MAX_TOP_UP_CENTS,
   MICROS_PER_USD,
   MIN_TOP_UP_CENTS,
+  OPENROUTER_PROVIDER_ID,
   type ApiError,
   type AccountMode,
   type ApiErrorCode,
@@ -373,7 +374,12 @@ export class DemoBackend {
 
     // Keys and shares (power): nothing stored, nothing published
     keyStatus: () =>
-      json({ enabled: false, hasKey: false, providers: [] } satisfies KeyStatusResponse),
+      json({
+        enabled: false,
+        hasKey: false,
+        providers: [],
+        learnProviders: [OPENROUTER_PROVIDER_ID],
+      } satisfies KeyStatusResponse),
     saveKey: 'unsupported',
     forgetKey: 'unsupported',
     listShares: () => json([]),

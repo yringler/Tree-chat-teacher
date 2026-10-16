@@ -55,6 +55,7 @@ export function learner(
     enabled: ownKey !== null,
     hasKey: ownKey === true,
     providers: ownKey ? ['openrouter'] : [],
+    learnProviders: ['openrouter'],
   });
   if (facts.chosen) TestBed.inject(PaymentChoice).chosen.set(facts.chosen);
   return funding;

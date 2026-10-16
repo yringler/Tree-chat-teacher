@@ -40,7 +40,7 @@ function account(mode: 'power' | 'simple'): AccountContext {
   const ids = { id: 'a', userId: null, billingAccountId: 'b' };
   return mode === 'power'
     ? { ...ids, mode, creditOffered: true, operatorKeys: true }
-    : { ...ids, mode, payer: 'credit' };
+    : { ...ids, mode, payer: 'credit', ownKey: 'openrouter' };
 }
 
 describe('generationLimits', () => {

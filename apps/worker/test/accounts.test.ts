@@ -1,7 +1,10 @@
+import { DEFAULT_PROVIDER_CONFIGS } from '@tangent/providers';
 import {
   MODE_HEADER,
+  OWN_KEY_HEADER,
   PAYMENT_HEADER,
   type MeResponse,
+  type Payer,
   type ProviderConfig,
   type TreeDetail,
 } from '@tangent/shared';
@@ -16,7 +19,18 @@ import {
 } from '../src/auth/account.js';
 import { callPayer, isPoolFunded, type AppEnv, type Identity } from '../src/env.js';
 import { providerConfigs, providerEnv } from '../src/provider-configs.js';
-import { creditRegistryFor, providersFor, registryFor } from '../src/registries.js';
+import {
+  chatService,
+  chatSettingsFor,
+  creditRegistryFor,
+  providersFor,
+  registryFor,
+} from '../src/registries.js';
+import {
+  LEARN_ANTHROPIC_BACKGROUND_MODEL,
+  LEARN_ANTHROPIC_REPLY_MODEL,
+} from '../src/simple-mode.js';
+import { makeTree, makeTrunk } from './fixtures.js';
 import { BASE } from './http.js';
 import { devPowerAccount } from './mocks/billing-helpers.js';
 
@@ -59,11 +73,11 @@ describe('resolveAccount', () => {
   const withEnv = (overrides: Partial<AppEnv> = {}) => ({ ...env, ...overrides }) as AppEnv;
   const user = (email: string) => ({ userId: 'usr1', email, devMode: false });
   const dev = { userId: null, email: null, devMode: true };
-  const power: AccountRequest = { mode: 'power', payment: 'own-key' };
-  const learn = (payment: AccountRequest['payment']): AccountRequest => ({
-    mode: 'simple',
-    payment,
-  });
+  const power: AccountRequest = { mode: 'power', payment: 'own-key', ownKey: 'openrouter' };
+  const learn = (
+    payment: AccountRequest['payment'],
+    ownKey: AccountRequest['ownKey'] = 'openrouter',
+  ): AccountRequest => ({ mode: 'simple', payment, ownKey });
 
   it('dev bypass: default_simple in every mode', () => {
     expect(resolveAccount(withEnv(), dev, power)).toEqual({
@@ -80,6 +94,7 @@ describe('resolveAccount', () => {
       userId: null,
       billingAccountId: DEV_ACCOUNT_ID,
       payer: 'own-key',
+      ownKey: 'openrouter',
     });
   });
 
@@ -98,6 +113,7 @@ describe('resolveAccount', () => {
       userId: 'usr1',
       billingAccountId: 'u_usr1',
       payer: 'own-key',
+      ownKey: 'openrouter',
     });
   });
 
@@ -147,14 +163,14 @@ describe('resolveAccount', () => {
   });
 
   it('power never uses the pool, whatever the payment header', () => {
-    const pool: AccountRequest = { mode: 'power', payment: 'pool' };
+    const pool: AccountRequest = { ...power, payment: 'pool' };
     const account = resolveAccount(withEnv(), user('a@example.org'), pool);
     expect(account).toMatchObject({ mode: 'power' });
     expect(account).not.toHaveProperty('payer');
   });
 
   it('power has Tangent credit whenever it is offered, whatever the payment header', () => {
-    const credit: AccountRequest = { mode: 'power', payment: 'credit' };
+    const credit: AccountRequest = { ...power, payment: 'credit' };
     const offered = (e: AppEnv, request: AccountRequest) =>
       callPayer(resolveAccount(e, user('a@example.org'), request), 'credit') === 'credit';
     expect(offered(withEnv(), power)).toBe(true);
@@ -163,17 +179,141 @@ describe('resolveAccount', () => {
     expect(offered(withEnv({ BUILT_IN_PROVIDER: '', BUILT_IN_API_KEY: '' }), power)).toBe(false);
   });
 
-  it('reads the mode and payment headers, defaulting to power and own-key', () => {
-    expect(accountRequest(new Headers())).toEqual({ mode: 'power', payment: 'own-key' });
+  it('reads the mode, payment and own-key headers, defaulting to power, own-key and OpenRouter', () => {
+    const openrouter = { ownKey: 'openrouter' };
+    expect(accountRequest(new Headers())).toEqual({
+      mode: 'power',
+      payment: 'own-key',
+      ...openrouter,
+    });
     expect(
       accountRequest(new Headers({ [MODE_HEADER]: 'simple', [PAYMENT_HEADER]: 'credit' })),
-    ).toEqual({ mode: 'simple', payment: 'credit' });
+    ).toEqual({ mode: 'simple', payment: 'credit', ...openrouter });
     expect(
       accountRequest(new Headers({ [MODE_HEADER]: 'Simple', [PAYMENT_HEADER]: 'free' })),
-    ).toEqual({ mode: 'power', payment: 'own-key' });
+    ).toEqual({ mode: 'power', payment: 'own-key', ...openrouter });
     expect(
       accountRequest(new Headers({ [MODE_HEADER]: 'simple', [PAYMENT_HEADER]: 'pool' })),
-    ).toEqual({ mode: 'simple', payment: 'pool' });
+    ).toEqual({ mode: 'simple', payment: 'pool', ...openrouter });
+    expect(
+      accountRequest(new Headers({ [MODE_HEADER]: 'simple', [OWN_KEY_HEADER]: 'anthropic' })),
+    ).toEqual({ mode: 'simple', payment: 'own-key', ownKey: 'anthropic' });
+    // An unknown key is OpenRouter, as no header is: the worst it does is ask for that key.
+    for (const value of ['Anthropic', 'openai', 'fake', ''])
+      expect(
+        accountRequest(new Headers({ [MODE_HEADER]: 'simple', [OWN_KEY_HEADER]: value })),
+      ).toMatchObject(openrouter);
+  });
+
+  it("Learn's own key is the one asked for where the deployment offers it, else OpenRouter", () => {
+    const who = user('a@example.org');
+    const withAnthropic = withEnv({ PROVIDERS: JSON.stringify([LEARN_ANTHROPIC]) });
+    expect(resolveAccount(withAnthropic, who, learn('own-key', 'anthropic'))).toMatchObject({
+      payer: 'own-key',
+      ownKey: 'anthropic',
+    });
+    // The test env's PROVIDERS has no `anthropic` endpoint: nothing to reply through.
+    expect(resolveAccount(withEnv(), who, learn('own-key', 'anthropic'))).toMatchObject({
+      ownKey: 'openrouter',
+    });
+    // The power defaults have one.
+    expect(
+      resolveAccount(withEnv({ PROVIDERS: '' }), who, learn('own-key', 'anthropic')),
+    ).toMatchObject({ ownKey: 'anthropic' });
+  });
+});
+
+/** Power's Anthropic endpoint, as an operator configures it (here on the mock upstream). */
+const LEARN_ANTHROPIC = {
+  id: 'anthropic',
+  kind: 'anthropic',
+  label: 'Anthropic',
+  baseUrl: 'https://llm.test',
+  apiKeySecret: 'ANTHROPIC_API_KEY',
+  defaultModel: 'claude-opus-5-5',
+  models: [
+    { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
+    { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
+    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+  ],
+};
+
+describe("Learn on the learner's own Anthropic key", () => {
+  const e = {
+    ...env,
+    PROVIDERS: JSON.stringify([LEARN_ANTHROPIC]),
+    ANTHROPIC_API_KEY: 'sk-ant-goodSERVER',
+  } as AppEnv;
+  const who = { userId: 'usr3', email: 'c@example.org', devMode: false };
+  const onKey = (ownKey: 'openrouter' | 'anthropic', payment: Payer = 'own-key') =>
+    resolveAccount(e, who, { mode: 'simple', payment, ownKey });
+
+  it('the fixed models come from the Anthropic defaults', () => {
+    const anthropic = DEFAULT_PROVIDER_CONFIGS.find((c) => c.id === 'anthropic')!;
+    const ids = anthropic.models.map((m) => m.id);
+    expect(ids).toContain(LEARN_ANTHROPIC_REPLY_MODEL);
+    expect(ids).toContain(LEARN_ANTHROPIC_BACKGROUND_MODEL);
+    expect(LEARN_ANTHROPIC_REPLY_MODEL).toMatch(/sonnet/);
+    expect(LEARN_ANTHROPIC_BACKGROUND_MODEL).toMatch(/haiku/);
+  });
+
+  it("replies on power's Anthropic endpoint with the user's key, on Sonnet only, never the operator's key", () => {
+    const keys = { anthropic: 'sk-ant-goodUSER', openrouter: 'sk-or-user' };
+    const registry = registryFor(e, onKey('anthropic'), keys);
+    expect(registry.list()).toEqual([
+      expect.objectContaining({
+        id: 'anthropic',
+        defaultModel: LEARN_ANTHROPIC_REPLY_MODEL,
+        models: [{ id: LEARN_ANTHROPIC_REPLY_MODEL, label: 'Claude Sonnet 5.5' }],
+        openModels: false,
+        keySource: 'user',
+        available: true,
+      }),
+    ]);
+    expect(providersFor(e, onKey('anthropic'), keys).map((p) => p.id)).toEqual(['anthropic']);
+    // Without the user's key it is unavailable: ANTHROPIC_API_KEY is never the fallback.
+    expect(registryFor(e, onKey('anthropic')).list()[0]).toMatchObject({
+      available: false,
+      keySource: null,
+    });
+    // On OpenRouter, credit or the pool, Learn keeps its built-in provider.
+    expect(
+      registryFor(e, onKey('openrouter'), keys)
+        .list()
+        .map((p) => p.id),
+    ).toEqual(['openrouter']);
+    expect(
+      registryFor(e, onKey('anthropic', 'credit'), keys)
+        .list()
+        .map((p) => p.id),
+    ).toEqual(['openrouter']);
+  });
+
+  it('every branch replies on Sonnet whatever it stores; titles and summaries run on Haiku', () => {
+    const account = onKey('anthropic');
+    const chat = chatService(e, account, { apiKeys: { anthropic: 'sk-ant-goodUSER' } });
+    const tree = makeTree();
+    for (const [providerId, model] of [
+      ['openrouter', 'deepseek/deepseek-v4.1-flash'],
+      ['anthropic', 'claude-opus-5-5'],
+      ['anthropic', LEARN_ANTHROPIC_BACKGROUND_MODEL],
+    ] as const)
+      expect(
+        chat.runnableBranch(makeTrunk(tree, { providerId, model, funding: 'credit' })),
+      ).toMatchObject({
+        providerId: 'anthropic',
+        model: LEARN_ANTHROPIC_REPLY_MODEL,
+        funding: 'own-key',
+      });
+    expect(chatSettingsFor(e, account)).toMatchObject({
+      summaryProviderId: 'anthropic',
+      summaryModel: LEARN_ANTHROPIC_BACKGROUND_MODEL,
+      summaryEffort: null,
+      autoTitle: true,
+    });
+    // On OpenRouter (or credit), the background model as before.
+    expect(chatSettingsFor(e, onKey('openrouter')).summaryProviderId).toBe('openrouter');
+    expect(chatSettingsFor(e, onKey('anthropic', 'credit')).summaryProviderId).toBe('openrouter');
   });
 });
 
@@ -210,7 +350,11 @@ describe('power provider configs', () => {
 
   it('Tangent credit takes the operator key only, never a user key, in a registry of its own', () => {
     const identity = { userId: 'usr2', email: 'b@example.org', devMode: false };
-    const account = resolveAccount(withEnv(), identity, { mode: 'power', payment: 'own-key' });
+    const account = resolveAccount(withEnv(), identity, {
+      mode: 'power',
+      payment: 'own-key',
+      ownKey: 'openrouter',
+    });
     const keys = { openrouter: 'sk-user', tangent: 'sk-user', ant: 'sk-ant-good' };
     const credit = creditRegistryFor(withEnv(), account)!;
     expect(credit.list()).toEqual([
@@ -228,7 +372,11 @@ describe('power provider configs', () => {
     const noCredit = { ...devPowerAccount(), userId: 'usr2', creditOffered: false };
     expect(creditRegistryFor(withEnv(), noCredit)).toBeNull();
     // Learn has one registry for every funding; it never has a credit registry.
-    const learn = resolveAccount(withEnv(), identity, { mode: 'simple', payment: 'credit' });
+    const learn = resolveAccount(withEnv(), identity, {
+      mode: 'simple',
+      payment: 'credit',
+      ownKey: 'openrouter',
+    });
     expect(creditRegistryFor(withEnv(), learn)).toBeNull();
   });
 });

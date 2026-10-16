@@ -4,6 +4,7 @@
 // before anything is written or sent upstream.
 import { DomainError, PoolBlockedError, poolBlock, ValidationError } from '@tangent/core';
 import {
+  LEARN_KEY_LABELS,
   learnPayer,
   type BranchFunding,
   type PoolBlockDetails,
@@ -18,6 +19,7 @@ import type { authUsers, poolIdentities } from '../db/schema.js';
 import {
   callPayer,
   isPoolFunded,
+  learnOwnKey,
   type AccountContext,
   type AppContext,
   type AppEnv,
@@ -27,7 +29,6 @@ import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
 import { creditSold, poolAvailable } from '../availability.js';
 import { registryFor, routeRegistryFor } from '../registries.js';
-import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
 import { assertMember, needsMembership } from './membership.js';
 import { assertCanSpend, requireCreditPrice, USAGE_HOLD_MICROS } from './service.js';
@@ -206,7 +207,7 @@ export async function assertCanGenerate(
       check.model,
       {
         userKeys: callPayer(account, check.funding) === 'own-key',
-        keyLabel: account.mode === 'simple' ? LEARN_KEY_LABEL : undefined,
+        keyLabel: account.mode === 'simple' ? LEARN_KEY_LABELS[learnOwnKey(account)] : undefined,
       },
     );
   }

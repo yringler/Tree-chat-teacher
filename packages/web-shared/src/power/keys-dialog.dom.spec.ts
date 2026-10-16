@@ -38,7 +38,12 @@ async function open(opts: { builtInCredit?: boolean; keysEnabled?: boolean } = {
     ),
     saveKey: vi.fn(async (_provider: string, _key: string) => undefined),
     forgetKey: vi.fn(async (_provider?: string) => undefined),
-    keyStatus: vi.fn(async () => ({ enabled: true, hasKey: true, providers: ['anthropic'] })),
+    keyStatus: vi.fn(async () => ({
+      enabled: true,
+      hasKey: true,
+      providers: ['anthropic'],
+      learnProviders: ['openrouter'],
+    })),
     providers: vi.fn(async () => PROVIDERS),
   };
   const store = new Store(
@@ -57,6 +62,7 @@ async function open(opts: { builtInCredit?: boolean; keysEnabled?: boolean } = {
     enabled: opts.keysEnabled ?? true,
     hasKey: true,
     providers: ['anthropic'],
+    learnProviders: ['openrouter'],
   });
   const r = await render(KeysDialog, {
     providers: [{ provide: PowerConversationStore, useValue: store }, provideAnyRoute()],
