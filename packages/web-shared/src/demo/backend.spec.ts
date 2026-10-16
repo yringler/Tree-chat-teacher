@@ -774,6 +774,17 @@ describe('demo backend links', () => {
     expect((await api.getTree(detail.tree.id)).links).toEqual([kept]);
   });
 
+  it('deletes a message with what follows it', async () => {
+    const { api } = setup({ seed: false });
+    const { detail, reply, branch, deeper } = await lesson(api);
+    const question = detail.nodes.find((n) => n.id === reply.parentId)!;
+    const res = await api.deleteMessage(question.id);
+    expect(res.branchIds).toContain(branch.id);
+    expect(res.nodeIds).toEqual(expect.arrayContaining([question.id, reply.id, deeper.id]));
+    const after = await api.getTree(detail.tree.id);
+    expect(after.nodes.some((n) => res.nodeIds.includes(n.id))).toBe(false);
+  });
+
   it('keeps links across a reload', async () => {
     const storage = memoryStorage();
     const { api } = setup({ storage, seed: false });

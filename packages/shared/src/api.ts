@@ -316,6 +316,20 @@ export interface DeleteBranchResponse {
   nodeIds: string[];
 }
 
+/**
+ * Deleting one of the user's messages removes it with everything after it in
+ * its thread: the later messages, and every tangent started from one of them
+ * with everything below it. The first message of a tangent takes the tangent
+ * with it.
+ */
+export interface DeleteMessageResponse {
+  treeId: string;
+  /** The tangents that went with it (none when nothing hung off what was deleted). */
+  branchIds: string[];
+  /** The message, the messages after it, and those of the deleted tangents. */
+  nodeIds: string[];
+}
+
 /** Most links one tree may hold (`POST /api/links` beyond it is 400). */
 export const MAX_LINKS_PER_TREE = 1000;
 /** Longest note a link may carry. */

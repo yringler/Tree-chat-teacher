@@ -11,6 +11,7 @@ import {
   type CreateLinkRequest,
   type CreateTreeRequest,
   type DeleteBranchResponse,
+  type DeleteMessageResponse,
   type NodeLink,
   type ProviderRegistry,
   type ReviewEvent,
@@ -222,6 +223,13 @@ export class ChatService {
     options?: { stopGenerations?: (branchIds: ReadonlySet<string>) => Promise<void> },
   ): Promise<DeleteBranchResponse> {
     return this.trees.deleteBranch(branchId, options);
+  }
+
+  deleteMessage(
+    nodeId: string,
+    options?: { stopGenerations?: (branchIds: ReadonlySet<string>) => Promise<void> },
+  ): Promise<DeleteMessageResponse> {
+    return this.trees.deleteMessage(nodeId, options);
   }
 
   createLink(request: CreateLinkRequest): Promise<{ link: NodeLink; created: boolean }> {

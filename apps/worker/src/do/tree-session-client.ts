@@ -75,6 +75,8 @@ export function treeSession(env: AppEnv, treeId: string) {
       call('/cancel', { nodeId, ...accountParams(account) }, { method: 'POST' }),
     deleteBranch: (branchId: string, account: AccountContext) =>
       call('/delete-branch', { branchId, ...accountParams(account) }, { method: 'POST' }),
+    deleteMessage: (nodeId: string, account: AccountContext) =>
+      call('/delete-message', { nodeId, ...accountParams(account) }, { method: 'POST' }),
     deleteTree: (account: AccountContext) =>
       call('/delete-tree', accountParams(account), { method: 'POST' }),
     holdCandidate: (body: SessionHoldBody) => call('/hold-candidate', {}, post(body)),

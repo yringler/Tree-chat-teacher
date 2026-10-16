@@ -123,13 +123,14 @@ interface SendTarget extends GenerationLimits {
  *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=&account            → 204
  *   POST /delete-branch?treeId=&branchId=&account   → DeleteBranchResponse
+ *   POST /delete-message?treeId=&nodeId=&account    → DeleteMessageResponse
  *   POST /delete-tree?treeId=&account               → 204
  *   POST /hold-candidate?treeId=     body SessionHoldBody → SessionHoldResponse
  *   POST /commit-candidate?treeId=   body SessionCommitBody → CommitCandidateResponse
  * The Worker resolves every branch/node id through the caller's account
  * before calling in, so the DO doesn't re-check ownership except where the
- * ChatService does it anyway (beginSend, deleteBranch, deleteTree,
- * commitCandidate).
+ * ChatService does it anyway (beginSend, deleteBranch, deleteMessage,
+ * deleteTree, commitCandidate).
  *
  * Compare candidates stream from the Worker (like reviews), never through a
  * run here: a finished one is only held in this DO's storage for
@@ -141,7 +142,7 @@ interface SendTarget extends GenerationLimits {
 export class TreeSession extends DurableObject<AppEnv> {
   private readonly hub = new GenerationHub({ keepAliveMs: KEEPALIVE_MS });
   private recovered = false;
-  /** Serializes beginSend (and branch deletion, and candidate commits) within this tree. */
+  /** Serializes beginSend (and branch and message deletion, and candidate commits) within this tree. */
   private sendLock: Promise<unknown> = Promise.resolve();
 
   override async fetch(request: Request): Promise<Response> {
@@ -182,6 +183,9 @@ export class TreeSession extends DurableObject<AppEnv> {
       }
       if (request.method === 'POST' && url.pathname === '/delete-branch') {
         return await this.deleteBranch(chat, url.searchParams.get('branchId') ?? '');
+      }
+      if (request.method === 'POST' && url.pathname === '/delete-message') {
+        return await this.deleteMessage(chat, url.searchParams.get('nodeId') ?? '');
       }
       if (request.method === 'POST' && url.pathname === '/delete-tree') {
         return await this.deleteTree(chat, treeId);
@@ -316,6 +320,17 @@ export class TreeSession extends DurableObject<AppEnv> {
   private async deleteBranch(chat: ChatService, branchId: string): Promise<Response> {
     const deleted = this.sendLock.then(() =>
       chat.deleteBranch(branchId, {
+        stopGenerations: (branchIds) => this.hub.stop((node) => branchIds.has(node.branchId)),
+      }),
+    );
+    this.sendLock = deleted.catch(() => undefined);
+    return Response.json(await deleted);
+  }
+
+  /** Like `deleteBranch`, for a message with everything after it in its thread. */
+  private async deleteMessage(chat: ChatService, nodeId: string): Promise<Response> {
+    const deleted = this.sendLock.then(() =>
+      chat.deleteMessage(nodeId, {
         stopGenerations: (branchIds) => this.hub.stop((node) => branchIds.has(node.branchId)),
       }),
     );

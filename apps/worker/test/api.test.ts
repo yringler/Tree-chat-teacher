@@ -2,6 +2,7 @@ import type {
   Branch,
   ContextPlanResponse,
   DeleteBranchResponse,
+  DeleteMessageResponse,
   ProviderInfo,
   ReviewEvent,
   StreamEvent,
@@ -349,6 +350,42 @@ describe('owner API', () => {
     expect(
       (await call(`/api/branches/${detail.tree.trunkBranchId}`, { method: 'DELETE' })).status,
     ).toBe(400);
+  });
+
+  it('deletes a message with what follows it, stopping its running reply', async () => {
+    const detail = await newTree('slow');
+    const first = (await sendMessage(detail.tree.trunkBranchId, 'short'))[0];
+    if (first?.type !== 'start') throw new Error('expected start');
+    const res = await call(`/api/branches/${detail.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'please write a long answer about everything' },
+    });
+    const reader = res.body!.getReader();
+    const start = parseSse(new TextDecoder().decode((await reader.read()).value))[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+
+    const deleted = await ok<DeleteMessageResponse>(
+      call(`/api/nodes/${start.userNode.id}`, { method: 'DELETE' }),
+    );
+    expect(deleted).toEqual({
+      treeId: detail.tree.id,
+      branchIds: [],
+      nodeIds: [start.userNode.id, start.assistantNode.id],
+    });
+    let rest = '';
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      rest += new TextDecoder().decode(chunk.value);
+    }
+    expect(parseSse(rest).at(-1)).toMatchObject({ type: 'error', message: 'Cancelled' });
+
+    const after = await ok<TreeDetail>(call(`/api/trees/${detail.tree.id}`));
+    expect(after.nodes.map((n) => n.id)).toEqual([first.userNode.id, first.assistantNode.id]);
+    expect((await call(`/api/nodes/${start.userNode.id}`, { method: 'DELETE' })).status).toBe(404);
+    expect((await call(`/api/nodes/${first.assistantNode.id}`, { method: 'DELETE' })).status).toBe(
+      400,
+    );
   });
 
   it('deletes a tree through its session, stopping a running reply', async () => {

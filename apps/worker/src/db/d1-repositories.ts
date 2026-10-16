@@ -19,7 +19,7 @@ import {
   type Tree,
   type TreeSummary,
 } from '@tangent/shared';
-import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, inArray, sql, type SQL } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 import { fromSqlRow, type SqlRow } from './rows.js';
@@ -346,6 +346,33 @@ export function createD1Repositories(d1: D1Database): Repositories {
     );
   }
 
+  /**
+   * Deletes the nodes `where` picks, with the links touching them, the
+   * summaries anchored on them and the shares targeting them. The node ids
+   * are selected in subqueries, so only what `where` binds is bound.
+   */
+  function nodeDeletes(where: SQL | undefined): Batch {
+    const doomedNodes = db.select({ id: nodes.id }).from(nodes).where(where);
+    return [
+      // The node FKs would cascade too; this keeps it explicit. One statement
+      // per end, so each binds `where` once.
+      db.delete(nodeLinks).where(inArray(nodeLinks.sourceNodeId, doomedNodes)),
+      db.delete(nodeLinks).where(inArray(nodeLinks.targetNodeId, doomedNodes)),
+      db.delete(summaries).where(inArray(summaries.anchorNodeId, doomedNodes)),
+      // Snapshots go via FK cascade.
+      db.delete(shares).where(inArray(shares.targetNodeId, doomedNodes)),
+      db.delete(nodes).where(where),
+    ];
+  }
+
+  /** Deletes whole branches with their nodes (`nodeDeletes`), chunked under D1's parameter limit. */
+  function branchDeletes(treeId: string, branchIds: readonly string[]): Batch {
+    return chunkArray(branchIds, MAX_BOUND_PARAMS - 1).flatMap((chunk) => [
+      ...nodeDeletes(and(eq(nodes.treeId, treeId), inArray(nodes.branchId, chunk))),
+      db.delete(branches).where(and(eq(branches.treeId, treeId), inArray(branches.id, chunk))),
+    ]);
+  }
+
   const shareSelect = () =>
     db
       .select({ share: shares, treeTitle: trees.title })
@@ -475,28 +502,25 @@ export function createD1Repositories(d1: D1Database): Repositories {
     },
 
     async deleteBranches(treeId, branchIds, treeUpdatedAt) {
-      // One batch (= one transaction). Node ids are selected in subqueries so
-      // only branch ids are bound, chunked under D1's parameter limit.
-      const items: Batch = [];
-      for (const chunk of chunkArray(branchIds, MAX_BOUND_PARAMS - 1)) {
-        const doomedNodes = db
-          .select({ id: nodes.id })
-          .from(nodes)
-          .where(and(eq(nodes.treeId, treeId), inArray(nodes.branchId, chunk)));
-        items.push(
-          // The node FKs would cascade too; this keeps it explicit. One statement
-          // per end, so each binds the chunk once.
-          db.delete(nodeLinks).where(inArray(nodeLinks.sourceNodeId, doomedNodes)),
-          db.delete(nodeLinks).where(inArray(nodeLinks.targetNodeId, doomedNodes)),
-          db.delete(summaries).where(inArray(summaries.anchorNodeId, doomedNodes)),
-          // Snapshots go via FK cascade.
-          db.delete(shares).where(inArray(shares.targetNodeId, doomedNodes)),
-          db.delete(nodes).where(and(eq(nodes.treeId, treeId), inArray(nodes.branchId, chunk))),
-          db.delete(branches).where(and(eq(branches.treeId, treeId), inArray(branches.id, chunk))),
-        );
-      }
-      items.push(db.update(trees).set({ updatedAt: treeUpdatedAt }).where(eq(trees.id, treeId)));
-      await runBatch(db, items);
+      // One batch (= one transaction).
+      await runBatch(db, [
+        ...branchDeletes(treeId, branchIds),
+        db.update(trees).set({ updatedAt: treeUpdatedAt }).where(eq(trees.id, treeId)),
+      ]);
+    },
+
+    async deleteMessages(treeId, cut, branchIds, treeUpdatedAt) {
+      await runBatch(db, [
+        ...nodeDeletes(
+          and(
+            eq(nodes.treeId, treeId),
+            eq(nodes.branchId, cut.branchId),
+            gte(nodes.seq, cut.fromSeq),
+          ),
+        ),
+        ...branchDeletes(treeId, branchIds),
+        db.update(trees).set({ updatedAt: treeUpdatedAt }).where(eq(trees.id, treeId)),
+      ]);
     },
 
     async getNode(nodeId) {

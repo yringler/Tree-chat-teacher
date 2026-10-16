@@ -44,6 +44,31 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
       if (nodeIds.has(l.sourceNodeId) || nodeIds.has(l.targetNodeId)) state.links.delete(id);
     }
   };
+  /** Deletes the tree's nodes that `doomed` picks, with the links, summaries and shares on them. */
+  const dropNodes = (treeId: string, doomed: (n: ChatNode) => boolean): void => {
+    const nodeIds = new Set<string>();
+    for (const [id, n] of state.nodes) {
+      if (n.treeId === treeId && doomed(n)) {
+        nodeIds.add(id);
+        state.nodes.delete(id);
+      }
+    }
+    dropLinksOf(nodeIds);
+    for (const [key, s] of state.summaries) {
+      if (nodeIds.has(s.anchorNodeId)) state.summaries.delete(key);
+    }
+    for (const [id, s] of state.shares) {
+      if (s.targetNodeId !== null && nodeIds.has(s.targetNodeId)) {
+        state.shares.delete(id);
+        state.snapshots.delete(id);
+      }
+    }
+  };
+  const dropBranches = (treeId: string, ids: ReadonlySet<string>): void => {
+    for (const [id, b] of state.branches) {
+      if (b.treeId === treeId && ids.has(id)) state.branches.delete(id);
+    }
+  };
 
   return {
     dump: () => state,
@@ -119,26 +144,18 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
       },
       async deleteBranches(treeId, branchIds, treeUpdatedAt) {
         const ids = new Set(branchIds);
-        const nodeIds = new Set<string>();
-        for (const [id, b] of state.branches) {
-          if (b.treeId === treeId && ids.has(id)) state.branches.delete(id);
-        }
-        for (const [id, n] of state.nodes) {
-          if (n.treeId === treeId && ids.has(n.branchId)) {
-            nodeIds.add(id);
-            state.nodes.delete(id);
-          }
-        }
-        dropLinksOf(nodeIds);
-        for (const [key, s] of state.summaries) {
-          if (nodeIds.has(s.anchorNodeId)) state.summaries.delete(key);
-        }
-        for (const [id, s] of state.shares) {
-          if (s.targetNodeId !== null && nodeIds.has(s.targetNodeId)) {
-            state.shares.delete(id);
-            state.snapshots.delete(id);
-          }
-        }
+        dropBranches(treeId, ids);
+        dropNodes(treeId, (n) => ids.has(n.branchId));
+        const t = state.trees.get(treeId);
+        if (t) t.updatedAt = treeUpdatedAt;
+      },
+      async deleteMessages(treeId, cut, branchIds, treeUpdatedAt) {
+        const ids = new Set(branchIds);
+        dropBranches(treeId, ids);
+        dropNodes(
+          treeId,
+          (n) => ids.has(n.branchId) || (n.branchId === cut.branchId && n.seq >= cut.fromSeq),
+        );
         const t = state.trees.get(treeId);
         if (t) t.updatedAt = treeUpdatedAt;
       },

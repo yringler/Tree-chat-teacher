@@ -20,6 +20,7 @@ import {
   type CreateLinkRequest,
   type CreateTreeRequest,
   type DeleteBranchResponse,
+  type DeleteMessageResponse,
   type NodeLink,
   type SettingsResponse,
   type Tree,
@@ -286,6 +287,61 @@ export class TreeService {
       .filter((n) => doomed.has(n.branchId))
       .map((n) => n.id);
     await this.repo.deleteBranches(tree.id, branchIds, this.ctx.now());
+    return { treeId: tree.id, branchIds, nodeIds };
+  }
+
+  /**
+   * Deletes one of the user's messages with everything after it in its
+   * branch: the later messages, and every branch started from one of them
+   * with every branch below it. The first message of a tangent deletes the
+   * tangent (deleteBranch), so no empty tangent is left; the trunk's first
+   * message empties the conversation. A reply can't be deleted on its own,
+   * which would leave the message it answers unanswered.
+   *
+   * `stopGenerations` as in deleteBranch. The message's own branch is among
+   * the ids it is handed: a reply generating there comes after the message.
+   */
+  async deleteMessage(
+    nodeId: string,
+    options: { stopGenerations?: (branchIds: ReadonlySet<string>) => Promise<void> } = {},
+  ): Promise<DeleteMessageResponse> {
+    const node = await this.ctx.owned.node(nodeId);
+    if (node.role !== 'user') {
+      throw new ValidationError('Only your own messages can be deleted');
+    }
+    const { branch, tree } = await this.ctx.owned.branch(node.branchId);
+    if (node.seq === 0 && branch.parentBranchId !== null) {
+      return this.deleteBranch(branch.id, options);
+    }
+
+    const cut = (n: ChatNode) => n.branchId === branch.id && n.seq >= node.seq;
+    const before = indexTree(
+      await this.repo.listBranches(tree.id),
+      await this.repo.listNodes(tree.id),
+    );
+    const branchIds = (before.nodesByBranch.get(branch.id) ?? [])
+      .filter(cut)
+      .flatMap((n) => before.branchesAtNode.get(n.id) ?? [])
+      .flatMap((b) => [b.id, ...descendantBranches(before, b.id).map((d) => d.id)]);
+    const below = new Set(branchIds);
+    const doomed = (n: ChatNode) => cut(n) || below.has(n.branchId);
+    if (options.stopGenerations) {
+      await options.stopGenerations(new Set([branch.id, ...branchIds]));
+    } else {
+      const streaming = await this.repo.listStreamingNodes(tree.id);
+      if (streaming.some(doomed)) {
+        throw new ConflictError(
+          'A reply is still being generated after this message; stop it first',
+        );
+      }
+    }
+    const nodeIds = (await this.repo.listNodes(tree.id)).filter(doomed).map((n) => n.id);
+    await this.repo.deleteMessages(
+      tree.id,
+      { branchId: branch.id, fromSeq: node.seq },
+      branchIds,
+      this.ctx.now(),
+    );
     return { treeId: tree.id, branchIds, nodeIds };
   }
 

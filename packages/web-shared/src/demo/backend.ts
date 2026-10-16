@@ -432,6 +432,7 @@ export class DemoBackend {
         json(await this.chat.updateBranch(params.branchId, R.updateBranch.body.parse(body ?? {}))),
       ),
     deleteBranch: async ({ params }) => this.saved(json(await this.deleteBranch(params.branchId))),
+    deleteMessage: async ({ params }) => this.saved(json(await this.deleteMessage(params.nodeId))),
     getContext: async ({ params, url }) => {
       const { nodeId, resolve, ...limits } = R.getContext.query.parse(
         Object.fromEntries(url.searchParams),
@@ -750,6 +751,17 @@ export class DemoBackend {
   private async deleteBranch(branchId: string) {
     const deleted = this.lock.then(() =>
       this.chat.deleteBranch(branchId, {
+        stopGenerations: (branchIds) => this.hub.stop((node) => branchIds.has(node.branchId)),
+      }),
+    );
+    this.lock = deleted.catch(() => undefined);
+    return deleted;
+  }
+
+  /** Like `deleteBranch`, for a message with everything after it in its thread. */
+  private async deleteMessage(nodeId: string) {
+    const deleted = this.lock.then(() =>
+      this.chat.deleteMessage(nodeId, {
         stopGenerations: (branchIds) => this.hub.stop((node) => branchIds.has(node.branchId)),
       }),
     );
