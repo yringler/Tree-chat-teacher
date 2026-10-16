@@ -13,13 +13,13 @@ The **Context Inspector** shows exactly what will be sent and why. Every reply s
 
 These apps share one Worker and one sign-in:
 
-| App                   | Path       | Code           | What it is                                                                                                                                                             |
-| --------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Power                 | `/`        | `apps/web`     | Every control: context modes, inspector, reviewer, system prompts, shares, export, backups. Runs on the user's own API keys, or on prepaid Tangent credit.             |
-| Learn                 | `/learn/`  | `apps/simple`  | A tutor with nothing to configure: Normal and Max models, Compare, tangents, "Ask about this". Own OpenRouter or Anthropic key, Tangent credit, or the free open pool. |
-| Canvas (exp.)         | `/canvas/` | `apps/canvas`  | The power app's conversations as lanes on one pannable surface, each streaming on its own.                                                                             |
-| Admin                 | `/admin/`  | `apps/admin`   | For the operator: users, share permissions, credit, waivers, the pool.                                                                                                 |
-| Learn (Flutter, exp.) | `/app/`    | `apps/flutter` | Learn in Flutter, on the web and on Android (public on Google Play; iOS is untried): sign-in, lessons, the chat and its tangents.                                      |
+| App                   | Path       | Code           | What it is                                                                                                                                                       |
+| --------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Power                 | `/`        | `apps/web`     | Every control: context modes, inspector, reviewer, system prompts, shares, export, backups. Runs on the user's own API keys, or on prepaid Tangent credit.       |
+| Learn                 | `/learn/`  | `apps/simple`  | A tutor with nothing to configure: one model, tangents, "Ask about this", Check sources. Own OpenRouter or Anthropic key, Tangent credit, or the free open pool. |
+| Canvas (exp.)         | `/canvas/` | `apps/canvas`  | The power app's conversations as lanes on one pannable surface, each streaming on its own.                                                                       |
+| Admin                 | `/admin/`  | `apps/admin`   | For the operator: users, share permissions, credit, waivers, the pool.                                                                                           |
+| Learn (Flutter, exp.) | `/app/`    | `apps/flutter` | Learn in Flutter, on the web and on Android (public on Google Play; iOS is untried): sign-in, lessons, the chat and its tangents.                                |
 
 The Worker also renders the public pages (landing, `/pricing`, `/pool`, `/privacy`, `/terms`), the share viewer (`/s/…`), and in-browser demos at `/demo`, `/learn/demo` and `/canvas/demo` that need no account and call no model.
 
