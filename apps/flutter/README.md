@@ -191,5 +191,6 @@ Then run the workflow with a track. A new personal developer account may
 have to run a closed test before production unlocks; Play Console shows the
 requirement.
 
-iOS isn't set up: it needs a macOS runner with Xcode, a paid Apple Developer
-membership, and a signing certificate and provisioning profile on the runner.
+iOS isn't set up. The Apple Developer membership exists; it still needs a macOS
+runner with Xcode, and a signing certificate and provisioning profile on the
+runner.
