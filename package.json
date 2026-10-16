@@ -22,13 +22,13 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
-    "eslint": "^10.11.0",
-    "knip": "^6.40.0",
+    "eslint": "^10.12.0",
+    "knip": "^6.41.0",
     "madge": "8.0.0",
-    "prettier": "^3.6.0",
+    "prettier": "^3.9.10",
     "turbo": "2.11.7",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.0",
+    "typescript-eslint": "^8.71.1",
     "vitest": "~4.1.11"
   }
 }
