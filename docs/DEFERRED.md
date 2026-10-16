@@ -104,3 +104,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **No reminder when a hold can be released.** A hold with a recorded NCMEC or law-enforcement report can be released after a year, and one without whenever it is no longer needed; nothing tells the operator either, so holds stay until someone looks at `/admin/`. The daily cron could email the legal contact about holds past their year.
 - **No revoke button on the public page.** The page has no session and its CSP forbids forms, so owners revoke links in the app.
 - **The admin page shows no audit trail and can't hold an unreported share.** `GET /api/admin/users/:userId/events` and `POST /api/admin/shares/:shareId/hold` exist, but the admin app only holds shares from the reports queue and doesn't list a user's events; until it does, a law-enforcement request about a share nobody reported is held through the API.
+
+## Tooling
+
+- **vitest stays on 4.** Under vitest 5 the worker's workers project fails once a few files have shared one runtime (`isolate: false` in `apps/worker/vitest.config.ts`): workerd closes the runner's WebSocket with 1009, message too large. Every other package passes on 5. Moving needs the cause found in `@cloudflare/vitest-plugin` (or a release that fixes it), then `vitest` and both `@vitest/coverage-*` bumped together.

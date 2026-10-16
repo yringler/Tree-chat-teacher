@@ -13,24 +13,24 @@
     "coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@angular/common": "^22.2.0",
-    "@angular/compiler": "^22.2.0",
-    "@angular/core": "^22.2.0",
-    "@angular/platform-browser": "^22.2.0",
-    "@angular/router": "^22.2.0",
+    "@angular/common": "^22.2.2",
+    "@angular/compiler": "^22.2.2",
+    "@angular/core": "^22.2.2",
+    "@angular/platform-browser": "^22.2.2",
+    "@angular/router": "^22.2.2",
     "@tangent/shared": "workspace:*",
     "@tangent/web-shared": "workspace:*",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@angular/build": "^22.2.0",
-    "@angular/cli": "^22.2.0",
-    "@angular/compiler-cli": "^22.2.0",
+    "@angular/build": "^22.2.2",
+    "@angular/cli": "^22.2.2",
+    "@angular/compiler-cli": "^22.2.2",
     "@testing-library/dom": "10.4.2",
     "@testing-library/user-event": "14.6.7",
     "@vitest/coverage-v8": "~4.1.11",
-    "happy-dom": "20.14.5",
+    "happy-dom": "21.0.1",
     "typescript": "~6.0.3",
     "vitest": "~4.1.11"
   }

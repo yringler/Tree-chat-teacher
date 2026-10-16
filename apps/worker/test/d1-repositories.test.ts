@@ -373,7 +373,13 @@ describe('node error kinds', () => {
     const complete = makeNode(trunk, rows.length + 1, null, { error: REPLY_CUT_OFF_ERROR });
     await repos.trees.appendNodes([...rows, other, complete], 'x');
     const migration = env.TEST_MIGRATIONS.find((m) => m.name === '0001_node_error_kind.sql');
-    const backfill = migration?.queries.filter((q) => q.trimStart().startsWith('UPDATE')) ?? [];
+    // A query keeps the SQL comments above it, drizzle's statement breakpoint among them.
+    const isUpdate = (q: string) =>
+      q
+        .replace(/^--.*$/gm, '')
+        .trimStart()
+        .startsWith('UPDATE');
+    const backfill = migration?.queries.filter(isUpdate) ?? [];
     expect(backfill).toHaveLength(6);
     for (const q of backfill) await env.DB.prepare(q).run();
     const kinds = await Promise.all(

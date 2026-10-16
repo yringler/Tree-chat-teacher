@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
+import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-plugin';
 import { defineConfig } from 'vitest/config';
 import { coverage } from '../../vitest.coverage.js';
 import { MOCK_UPSTREAM, TEST_BINDINGS } from './test/bindings.js';
@@ -23,7 +23,7 @@ import { mockResend, RESEND_ORIGIN } from './test/mocks/resend.js';
  * Worker, its Durable Objects and the test files themselves, and runs in the
  * Node host process. The mocks are therefore plain Node modules imported here;
  * their module state lives in Node and persists across requests in a run.
- * vitest-pool-workers 0.22 has no `fetchMock` export, so this is the single
+ * The Workers Vitest plugin has no `fetchMock` export, so this is the single
  * interception point; a test can drive a mock's control endpoints (if it
  * defines any) with a plain `fetch()` to that origin.
  */

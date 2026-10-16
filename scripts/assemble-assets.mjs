@@ -49,7 +49,7 @@ const sources = [
   },
 ];
 // Kept across runs: git tracks it so the directory exists before any build
-// (wrangler and vitest-pool-workers both read `assets.directory`).
+// (wrangler and the Workers Vitest plugin both read `assets.directory`).
 const KEEP = new Set(['.gitkeep']);
 // Only meaningful at the root of the assets directory; a copy under learn/ would be served as a file.
 const ROOT_ONLY = new Set(['_headers', '_redirects']);

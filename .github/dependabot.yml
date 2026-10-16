@@ -1,18 +1,30 @@
 # Weekly update PRs, each run through CI like any other. Minor and patch bumps of npm packages
-# arrive as one grouped PR; major bumps come one PR per package, since they're the ones that break.
+# arrive as one grouped PR; major bumps come one PR per package, since they're the ones that break,
+# except for families that only work at one shared version, which move together.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    # The default of 5 holds back the rest of a week's majors until one is merged or closed.
+    open-pull-requests-limit: 10
     groups:
+      # vitest and its coverage providers peer on the exact same version.
+      vitest:
+        patterns: [vitest, '@vitest/*']
       npm-minor-and-patch:
         update-types: [minor, patch]
     ignore:
       # Pinned to the release whose Chromium build is installed (apps/e2e/playwright.config.ts).
       - dependency-name: '@playwright/test'
+      # Follows the Node major in .nvmrc, so types never offer APIs the runtime lacks.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']
