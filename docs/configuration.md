@@ -109,7 +109,7 @@ Free credit the operator funds with admin adjustments, for Learn users who can't
 - `POOL_MAX_INPUT_TOKENS`: var; default `16000`. Input-token cap of one pool call.
 - `POOL_MAX_OUTPUT_TOKENS`: var; default `8192`. Output cap of one pool call, thinking included.
 - `POOL_MAX_MESSAGE_CHARS`: var; default `4000`. The longest message a pool send accepts.
-- `POOL_REQUESTS_PER_DAY`, `POOL_SPEND_MICROS_PER_DAY`: vars; default `30` and `100000` ($0.10). Per user and UTC day: replies, and spend (settled charges plus pending holds).
+- `POOL_REQUESTS_PER_DAY`, `POOL_SPEND_MICROS_PER_DAY`: vars; default `10` and `100000` ($0.10). Per user and UTC day: replies, and spend (settled charges plus pending holds).
 - `POOL_IP_REQUESTS_PER_DAY`, `POOL_IP_SPEND_MICROS_PER_DAY`: vars; default `60` and `300000` ($0.30). The same per network (IPv4 address or IPv6 /64), all users together.
 - `POOL_DAILY_GLOBAL_MICROS`, `POOL_DAILY_GLOBAL_BPS`: vars; default `5000000` ($5) and `2000` (20%). What the pool may spend per UTC day, all users together: the lower of this amount and this share of the pool's balance at 00:00 UTC plus what was added since.
 - `POOL_USER_PER_MINUTE`, `POOL_IP_PER_MINUTE`: vars; default `6` and `20`. Pool replies per minute, per user and per network.
