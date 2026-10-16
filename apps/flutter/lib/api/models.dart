@@ -15,6 +15,7 @@ extension JsonRead on Json {
   bool? boolOrNull(String key) => _asOrNull<bool>(key);
   Json obj(String key) => _as<Map<String, Object?>>(key);
   Json? objOrNull(String key) => _asOrNull<Map<String, Object?>>(key);
+  List<String> strList(String key) => _as<List<Object?>>(key).cast<String>();
   List<Json> objList(String key) =>
       _as<List<Object?>>(key).cast<Map<String, Object?>>();
   List<Json>? objListOrNull(String key) =>
@@ -347,6 +348,22 @@ class TreeDetail {
   final Tree tree;
   final List<Branch> branches;
   final List<ChatNode> nodes;
+}
+
+/// `DELETE /api/nodes/:id`: what went with a deleted message.
+class DeletedMessages {
+  const DeletedMessages({required this.branchIds, required this.nodeIds});
+
+  factory DeletedMessages.fromJson(Json json) => DeletedMessages(
+    branchIds: json.strList('branchIds'),
+    nodeIds: json.strList('nodeIds'),
+  );
+
+  /// The tangents that went with it.
+  final List<String> branchIds;
+
+  /// The message, the messages after it, and those of the deleted tangents.
+  final List<String> nodeIds;
 }
 
 /// Who pays for a reply (`x-tangent-payment`).
