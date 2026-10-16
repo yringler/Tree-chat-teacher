@@ -6,7 +6,6 @@ import {
   HELP_REPLAY,
   HELP_RULE,
   HELP_SHORTCUTS,
-  HELP_TEST,
   REPLY_ACTION,
   TANGENT_ACTION,
 } from '@tangent/shared';
@@ -30,7 +29,6 @@ describe('TangentHelp', () => {
     expect(screen.getByText(TANGENT_ACTION.label).classList).toContain('is-primary');
     expect(screen.getByText(HELP_DEFAULT.label)).toBeTruthy();
     expect(screen.getByText(HELP_DEFAULT.text)).toBeTruthy();
-    expect(screen.getByText(HELP_TEST)).toBeTruthy();
     expect(screen.getByText(HELP_ANALOGY)).toBeTruthy();
     expect(screen.getByRole('img', { name: /main thread/i })).toBeTruthy();
     expect(h.host.innerHTML).not.toContain('branch');

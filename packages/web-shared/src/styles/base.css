@@ -1128,9 +1128,8 @@ app-android-app-banner {
  * tangents" comes first and looks taken rather than offered (a solid border,
  * an accent bar and a chevron to open): it is the only place a message says
  * the user left from here, so the way back must not hide among the offers.
- * Then the offers: a "Keep going" group of next steps and a "Suggested
- * tangents" group of side trips, labelled alike so neither outranks the
- * other.
+ * Then the offers: a "Dig deeper" group and a "Suggested tangents" group,
+ * labelled alike so neither outranks the other.
  */
 .tangents {
   /* Holds its visually hidden labels, so they stay inside the scrolling message list. */

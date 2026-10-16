@@ -51,8 +51,8 @@ class HelpButton extends StatelessWidget {
   );
 }
 
-/// When to reply and when to go on a tangent, short enough to read at a
-/// glance: the words of the web's help sheet (tangent_help_copy.dart), with
+/// Going on tangents, and the plain reply beside them, short enough to read
+/// at a glance: the words of the web's help sheet (tangent_help_copy.dart), with
 /// the two actions wearing the look of the composer's buttons, so the help
 /// names what the learner sees.
 class TangentHelp extends StatelessWidget {
@@ -97,8 +97,6 @@ class TangentHelp extends StatelessWidget {
           text: helpDefault.text,
         ),
         const SizedBox(height: 4),
-        Text(helpTest, style: muted),
-        const SizedBox(height: 8),
         Text(helpAnalogy, style: muted),
         if (showReplay) ...[
           const SizedBox(height: 16),

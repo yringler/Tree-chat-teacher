@@ -36,7 +36,6 @@ void main() {
       helpRule,
       for (final item in helpItems) ...[item.label, item.text],
       helpDefault.label,
-      helpTest,
       helpAnalogy,
     ]) {
       expect(inHelp(text), findsOneWidget, reason: text);

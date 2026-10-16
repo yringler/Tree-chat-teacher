@@ -144,8 +144,6 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
       <app-suggestion-groups
         (pointerdown)="$event.stopPropagation()"
         [tangents]="tangents()"
-        [latest]="latest()"
-        [inTangent]="inTangent()"
         [children]="children()"
         [chainIds]="store.chainIds()"
         [cameFromIds]="store.cameFromIds()"
@@ -154,7 +152,6 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
         [withAsk]="complete()"
         [titleOf]="laneTitle"
         [compact]="true"
-        [send]="sendStep"
         [open]="openTangent"
         [openBranch]="openBranch"
       >
@@ -266,17 +263,12 @@ export class Card {
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
   protected readonly tangents = computed(() => (this.complete() ? this.split().tangents : []));
-  /** Inside a tangent, the next step continues that tangent rather than the main thread. */
-  protected readonly inTangent = computed(
-    () => !!this.store.index()?.branches.get(this.node().branchId)?.parentBranchId,
-  );
   /** The card's lane can't generate (its funding needs the membership the user lacks). */
   protected readonly locked = computed(() => {
     const b = this.store.index()?.branches.get(this.node().branchId);
     return !!b && this.store.account.routeLocked(b);
   });
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
-  protected readonly sendStep = (title: string) => this.store.continueWith(this.node().id, title);
   protected readonly openTangent = (title: string) =>
     this.store.followTangent(this.node().id, title);
   protected readonly openBranch = (b: Branch) => this.store.go(b.id);

@@ -1,17 +1,19 @@
 /*
- * Suggested follow-ups: the offers a reply ends with, each either a next
- * step in the thread's topic ("continue") or a side trip ("tangent"). The
- * default prompt (DEFAULT_SYSTEM_PROMPT, ./default-prompt.ts) asks for them
- * in a fixed block with a kind tag on each line,
+ * Suggested tangents: the offers a reply ends with, each either a question
+ * that digs deeper into what the reply explained ("deeper") or a related
+ * topic off to the side ("tangent"). Following either opens a tangent; the
+ * kind only sorts them under two headings. The default prompt
+ * (DEFAULT_SYSTEM_PROMPT, ./default-prompt.ts) asks for them in a fixed
+ * block with a kind tag on each line,
  *
  *   <tangents>
- *   - [continue] Title — why it's the next step
+ *   - [deeper] Title — why it's worth digging into
  *   - [tangent] Title — why it's worth following
  *   </tangents>
  *
- * which the apps turn into "Keep going" and "Suggested tangents" buttons
+ * which the apps turn into "Dig deeper" and "Suggested tangents" buttons
  * (under the reply's "Your tangents") and keep out of the rendered reply;
- * shares and exports show "Keep going" and "Tangents" as plain lists. The
+ * shares and exports show them as plain lists. The
  * block stays in the stored message (and so in later context), so the model
  * sees what it already offered. The tag lives in the text rather than in a
  * provider's structured output, so it streams through every provider the
@@ -23,11 +25,11 @@ export const TANGENTS_OPEN = `<${TANGENTS_TAG}>`;
 export const TANGENTS_CLOSE = `</${TANGENTS_TAG}>`;
 
 /**
- * What following a suggestion does. `continue` advances the thread's main
- * topic to its next step, so it is sent as a reply; `tangent` clarifies
- * something in the reply or explores a side topic, so it opens a tangent.
+ * Where a suggestion leads: `deeper` is a question a reader of the reply
+ * would ask next, further into its topic; `tangent` is a related topic
+ * further out. Both open a tangent when followed.
  */
-export type TangentKind = 'continue' | 'tangent';
+export type TangentKind = 'deeper' | 'tangent';
 
 export interface Tangent {
   /** Short, specific title; also the message sent when it is followed. */
@@ -37,8 +39,8 @@ export interface Tangent {
   kind: TangentKind;
 }
 
-/** The heading over the `continue` suggestions. */
-export const KEEP_GOING_LABEL = 'Keep going';
+/** The heading over the `deeper` suggestions no tangent follows yet. */
+export const DIG_DEEPER_LABEL = 'Dig deeper';
 /** The heading over the `tangent` suggestions in shares and exports. */
 export const TANGENTS_LABEL = 'Tangents';
 /** The heading over the tangents started from a reply, in the apps. */
@@ -60,9 +62,9 @@ const CLOSE_RE = /<\/tangents\s*>/i;
 const MARKER_RE = /^\s*(?:[-*•]|\d+[.)])\s+/;
 /** Title / reason separator: a spaced em or en dash, a spaced hyphen, or a colon followed by a space. */
 const SEPARATOR_RE = /\s+[—–-]\s+|\s*—\s*|:\s+/;
-/** Kind tag; [next] and [reply] are taken as continue because models paraphrase the tag. */
-const KIND_RE = /^\[(continue|next|reply|tangent)\]\s*/i;
-const MAX_CONTINUE = 3;
+/** Kind tag; [dig deeper], [continue] and [next] are taken as deeper because models paraphrase the tag. */
+const KIND_RE = /^\[(deeper|dig deeper|continue|next|tangent)\]\s*/i;
+const MAX_DEEPER = 3;
 const MAX_TANGENTS = 6;
 const MAX_TITLE_CHARS = 200;
 
@@ -81,13 +83,13 @@ function takeKind(text: string): { kind: TangentKind; rest: string } | null {
   const m = KIND_RE.exec(text);
   if (!m) return null;
   const tag = (m[1] ?? '').toLowerCase();
-  return { kind: tag === 'tangent' ? 'tangent' : 'continue', rest: text.slice(m[0].length) };
+  return { kind: tag === 'tangent' ? 'tangent' : 'deeper', rest: text.slice(m[0].length) };
 }
 
 /**
  * One line of the block → a suggestion, or null for blank or marker-only
- * lines. The tag may sit outside or inside bold (`[continue] **X**`,
- * `**[continue] X**`). A line without a tag is a tangent: operators'
+ * lines. The tag may sit outside or inside bold (`[deeper] **X**`,
+ * `**[deeper] X**`). A line without a tag is a tangent: operators'
  * LEARN_SYSTEM_PROMPT and POOL_SYSTEM_PROMPT, saved custom prompts and power
  * trees on the prompt they began with may not ask for tags, and models
  * sometimes drop them; a side trip is the safe reading of an unknown offer.
@@ -131,14 +133,14 @@ export function splitTangents(content: string): SplitTangents {
   const tangents: Tangent[] = [];
   // Keyed across both kinds: a title offered twice keeps its first kind.
   const seen = new Set<string>();
-  const count: Record<TangentKind, number> = { continue: 0, tangent: 0 };
+  const count: Record<TangentKind, number> = { deeper: 0, tangent: 0 };
   for (const line of inside.split(/\r?\n/)) {
     const t = parseTangentLine(line);
     if (!t) continue;
     const key = t.title.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    if (count[t.kind] >= (t.kind === 'continue' ? MAX_CONTINUE : MAX_TANGENTS)) continue;
+    if (count[t.kind] >= (t.kind === 'deeper' ? MAX_DEEPER : MAX_TANGENTS)) continue;
     count[t.kind]++;
     tangents.push(t);
   }
@@ -156,11 +158,11 @@ export function formatTangents(tangents: readonly Tangent[]): string {
 
 /** The suggestions split by kind, each group in its original order. */
 export function groupTangents(tangents: readonly Tangent[]): {
-  continue: Tangent[];
+  deeper: Tangent[];
   tangent: Tangent[];
 } {
   return {
-    continue: tangents.filter((t) => t.kind === 'continue'),
+    deeper: tangents.filter((t) => t.kind === 'deeper'),
     tangent: tangents.filter((t) => t.kind === 'tangent'),
   };
 }
@@ -169,11 +171,13 @@ export function groupTangents(tangents: readonly Tangent[]): {
 export interface TangentFooter<B> {
   /** The tangents started from the reply, in the order given: shown first. */
   yours: B[];
+  /** The `deeper` suggestions no tangent follows yet, in their order. */
+  deeper: Tangent[];
   /** The `tangent` suggestions no tangent follows yet, in their order. */
   offers: Tangent[];
-  /** The offers start hidden behind one row (`suggestedFoldLabel`). */
+  /** Both groups of suggestions start hidden behind one row (`suggestedFoldLabel`). */
   folded: boolean;
-  /** How many `tangent` suggestions a tangent follows. */
+  /** How many suggestions, of either kind, a tangent follows. */
   followed: number;
 }
 
@@ -193,13 +197,16 @@ export function tangentFooter<B extends { readonly title: string }>(
   children: readonly B[],
 ): TangentFooter<B> {
   const taken = new Set(children.map((b) => b.title));
-  const suggested = groupTangents(tangents).tangent;
-  const offers = suggested.filter((t) => !taken.has(t.title));
+  const groups = groupTangents(tangents);
+  const deeper = groups.deeper.filter((t) => !taken.has(t.title));
+  const offers = groups.tangent.filter((t) => !taken.has(t.title));
+  const open = deeper.length + offers.length;
   return {
     yours: [...children],
+    deeper,
     offers,
-    folded: children.length > 0 && offers.length > 0,
-    followed: suggested.length - offers.length,
+    folded: children.length > 0 && open > 0,
+    followed: tangents.length - open,
   };
 }
 
@@ -218,7 +225,7 @@ function markdownList(label: string, tangents: readonly Tangent[]): string {
 }
 
 /**
- * A reply with its suggestions block rewritten as plain Markdown "Keep going"
+ * A reply with its suggestions block rewritten as plain Markdown "Dig deeper"
  * and "Tangents" lists (shares and exports, which have no buttons), leaving
  * out an empty group. A reply without a block comes back unchanged; a
  * half-written block is dropped.
@@ -228,7 +235,7 @@ export function tangentsAsMarkdown(content: string): string {
   const { body, tangents } = splitTangents(content);
   const groups = groupTangents(tangents);
   const lists = [
-    groups.continue.length > 0 ? markdownList(KEEP_GOING_LABEL, groups.continue) : '',
+    groups.deeper.length > 0 ? markdownList(DIG_DEEPER_LABEL, groups.deeper) : '',
     groups.tangent.length > 0 ? markdownList(TANGENTS_LABEL, groups.tangent) : '',
   ].filter((l) => l !== '');
   if (lists.length === 0) return body;

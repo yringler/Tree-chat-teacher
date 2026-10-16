@@ -659,20 +659,6 @@ describe('ConversationStore moving around the tree', () => {
     expect(s.go).toHaveBeenLastCalledWith('nowhere', null);
   });
 
-  it('continues with a suggestion only from the newest message of the branch on screen', async () => {
-    const s = showing('side');
-    expect(await s.store.continueWith('a1', 'Next step')).toBe(false);
-    expect(await s.store.continueWith('u4', 'Next step')).toBe(false);
-    expect(s.api.sendMessage).not.toHaveBeenCalled();
-    expect(await s.store.continueWith('a2', 'Next step')).toBe(true);
-    expect(s.api.sendMessage).toHaveBeenCalledExactlyOnceWith(
-      'side',
-      { content: 'Next step' },
-      expect.any(AbortSignal),
-    );
-    expect(s.api.createBranch).not.toHaveBeenCalled();
-  });
-
   it('opens a tangent already followed at its first message', async () => {
     const s = showing();
     await s.store.followTangent('a1', 'other');

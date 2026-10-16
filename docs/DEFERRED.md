@@ -69,7 +69,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 
 ## Reply and tangent guidance
 
-- **Suggestions aren't provider-native structured output.** They are a `[continue]`/`[tangent]`-tagged block in the reply's text ([DECISIONS](DECISIONS.md#reply-or-tangent)). JSON mode or tool calls would split the streamed Markdown, need code per provider, and a new SSE event or column to carry them.
+- **Suggestions aren't provider-native structured output.** They are a `[deeper]`/`[tangent]`-tagged block in the reply's text ([DECISIONS](DECISIONS.md#reply-or-tangent)). JSON mode or tool calls would split the streamed Markdown, need code per provider, and a new SSE event or column to carry them.
 - **No walkthrough in power or Canvas.** It is for a learner's first conversation, and these are surfaces for people past it; power has the help without **Replay the walkthrough**. Adding it means reporting power's screen events to `Walkthrough` and adding the `data-coach` targets.
 - **No help sheet in Canvas.** Its "Reading the canvas" help only says tangent. `TangentHelp` would go in its dialog stack like power's.
 - **Power's Send keeps the label Send,** with the Next hint as its tooltip: power starts tangents from a message's **Tangent ↳** action, and a Tangent and Next pair in its composer would need its own design.

@@ -494,7 +494,7 @@ function PricingBody(props: { facts: PricingFacts }) {
   const keysFree = membership === null;
   const learn: Row[] = [
     {
-      label: 'Straight answers, suggested next steps and tangents, and “Ask about this”',
+      label: 'Straight answers, suggested tangents, and “Ask about this”',
       free: true,
       credit: true,
       key: true,

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import type { ChatNode } from '@tangent/shared';
+import { TANGENT_ACTION, type ChatNode } from '@tangent/shared';
 import { confirmDeleteMessage, Icon, ToastStore } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
 import { TreeStore } from '../state/tree-store';
@@ -43,7 +43,7 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
           class="btn btn-ghost btn-sm msg-tangent"
           (mousedown)="captureSelection()"
           (click)="branch($event)"
-          title="Tangent from here (b): Wait, what’s that? Explore on the side without derailing the conversation."
+          [title]="tangentTitle"
         >
           Tangent ↳
         </button>
@@ -93,6 +93,7 @@ export class MessageActions {
   protected readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   private readonly toast = inject(ToastStore);
+  protected readonly tangentTitle = `Tangent from here (b): ${TANGENT_ACTION.hint}`;
 
   readonly node = input.required<ChatNode>();
   /** The rendered message, whose selected text "Tangent ↳" quotes. */

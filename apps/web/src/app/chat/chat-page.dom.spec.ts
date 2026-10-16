@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import type { TreeDetail } from '@tangent/shared';
+import { REPLY_ACTION, type TreeDetail } from '@tangent/shared';
 import {
   branch,
   detail,
@@ -105,7 +105,7 @@ describe('ChatPage', () => {
     expect(within(chat).getByText('A wave.')).toBeTruthy();
     expect(composer()?.placeholder).toBe('Continue this thread…');
     expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
-      'Next ➜: Got it, what’s next? Keeps the main lesson moving.',
+      `${REPLY_ACTION.label}: ${REPLY_ACTION.hint}`,
     );
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?{Enter}');
@@ -206,7 +206,7 @@ describe('ChatPage', () => {
     expect(screen.getByText('A wave', { selector: 'blockquote' })).toBeTruthy();
     expect(composer()?.placeholder).toBe('Ask your question…');
     expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
-      'Next ➜: Got it, what’s next? Keeps this tangent moving.',
+      `${REPLY_ACTION.label}: ${REPLY_ACTION.hintInTangent}`,
     );
   });
 

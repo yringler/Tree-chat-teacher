@@ -1,6 +1,12 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { CONTINUE_MESSAGE, REPLY_ACTION, type ChatNode, type TreeDetail } from '@tangent/shared';
+import {
+  CONTINUE_MESSAGE,
+  REPLY_ACTION,
+  TANGENT_ACTION,
+  type ChatNode,
+  type TreeDetail,
+} from '@tangent/shared';
 import { BillingClient, Walkthrough } from '@tangent/web-shared';
 import {
   appProviders,
@@ -107,12 +113,10 @@ describe('Learn: the lesson page', () => {
     const [tangent, next] = within(dock()).getAllByRole('button', { name: /Tangent ↳|Next ➜/ });
     expect(tangent?.textContent?.trim()).toBe('Tangent ↳');
     expect(tangent?.dataset['action']).toBe('tangent');
-    expect(tangent?.title).toBe(
-      'Wait, what’s that? Explore on the side without derailing the lesson. (Enter)',
-    );
+    expect(tangent?.title).toBe(`${TANGENT_ACTION.hint} (Enter)`);
     expect(next?.textContent?.trim()).toBe('Next ➜');
     expect(next?.dataset['action']).toBe('next');
-    expect(next?.title).toBe('Got it, what’s next? Keeps the main lesson moving. (Ctrl+Enter)');
+    expect(next?.title).toBe(`${REPLY_ACTION.hint} (Ctrl+Enter)`);
     expect(within(dock()).queryByRole('button', { name: 'Send' })).toBeNull();
   });
 
@@ -159,7 +163,7 @@ describe('Learn: the lesson page', () => {
     const p = await page(branchyLesson(), {}, 'side');
     expect(composer()?.placeholder).toBe('Ask anything in this tangent…');
     const next = within(dock()).getByRole('button', { name: 'Next ➜' });
-    expect(next.title).toBe('Got it, what’s next? Keeps this tangent moving. (Ctrl+Enter)');
+    expect(next.title).toBe(`${REPLY_ACTION.hintInTangent} (Ctrl+Enter)`);
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'More?');
     await p.user.click(next);
@@ -558,46 +562,39 @@ describe('Learn: finding your way around a lesson', () => {
   });
 });
 
-/** A reply ending with suggestions: one to keep going, one tangent, and one the model left untagged. */
+/** A reply ending with suggestions: one to dig deeper, one tangent, and one the model left untagged. */
 const SUGGESTED = [
   'A wave.',
   '',
   '<tangents>',
-  '- [continue] Colour — what sets it',
+  '- [deeper] Colour — what sets it',
   '- [tangent] Photons — the particle side',
   '- Diffraction — how it bends round edges',
   '</tangents>',
 ].join('\n');
 
-/** A reply suggesting one next step, with no reason given. */
-const ONE_STEP = 'A wave.\n\n<tangents>\n- [continue] Next\n</tangents>';
-const nextStep = () =>
-  within(screen.getByRole('group', { name: 'Keep going' })).getByRole<HTMLButtonElement>('button', {
-    name: 'Next',
-  });
-
 describe('Learn: suggestions after a reply', () => {
   it('come in two labelled groups, an untagged one under Suggested tangents', async () => {
     await page(lesson('normal-model', { content: SUGGESTED }));
-    const keep = screen.getByRole('group', { name: 'Keep going' });
+    const deeper = screen.getByRole('group', { name: 'Dig deeper' });
     const side = screen.getByRole('group', { name: 'Suggested tangents' });
-    expect(within(keep).getByText('Keep going')).toBeTruthy();
+    expect(within(deeper).getByText('Dig deeper')).toBeTruthy();
     const titles = (group: HTMLElement) =>
       within(group)
         .getAllByRole('button')
         .map((b) => b.querySelector('.tangent-title')?.textContent);
-    expect(titles(keep)).toEqual(['Colour']);
+    expect(titles(deeper)).toEqual(['Colour']);
     expect(titles(side)).toEqual(['Photons', 'Diffraction']);
   });
 
-  it('Keep going sends the suggestion as the lesson’s next message', async () => {
+  it('a Dig deeper suggestion opens a tangent of its own', async () => {
     const p = await page(lesson('normal-model', { content: SUGGESTED }));
-    const continueWith = vi.spyOn(p.store, 'continueWith').mockResolvedValue(true);
     const follow = vi.spyOn(p.store, 'followTangent').mockResolvedValue(null);
-    const keep = screen.getByRole('group', { name: 'Keep going' });
-    await p.user.click(within(keep).getByRole('button', { name: /Colour/ }));
-    expect(continueWith).toHaveBeenCalledWith('a1', 'Colour');
-    expect(follow).not.toHaveBeenCalled();
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    const deeper = screen.getByRole('group', { name: 'Dig deeper' });
+    await p.user.click(within(deeper).getByRole('button', { name: /^Start a tangent: Colour/ }));
+    expect(follow).toHaveBeenCalledWith('a1', 'Colour');
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('a tangent suggestion opens a tangent of its own', async () => {
@@ -623,10 +620,13 @@ describe('Learn: suggestions after a reply', () => {
     const yours = within(screen.getByRole('group', { name: 'Your tangents' }));
     const photons = yours.getByRole('button', { name: 'Open tangent: Photons' });
     expect(photons.title).toBe('the particle side');
-    const more = screen.getByRole('button', { name: '1 more suggested' });
+    const more = screen.getByRole('button', { name: '2 more suggested' });
     expect(more.getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByRole('button', { name: /Photons the particle side/ })).toBeNull();
     await p.user.click(more);
+    within(screen.getByRole('group', { name: 'Dig deeper' })).getByRole('button', {
+      name: /^Start a tangent: Colour/,
+    });
     within(screen.getByRole('group', { name: 'Suggested tangents' })).getByRole('button', {
       name: /^Start a tangent: Diffraction/,
     });
@@ -634,7 +634,7 @@ describe('Learn: suggestions after a reply', () => {
     expect(go).toHaveBeenLastCalledWith('photons', null);
   });
 
-  it('Keep going shows only on the latest reply; older ones keep their tangents', async () => {
+  it('Dig deeper shows on an older reply too', async () => {
     const d = lesson('normal-model', { content: SUGGESTED });
     d.nodes.push(
       node('u2', { parentId: 'a1', seq: 2, role: 'user', content: 'Colour' }),
@@ -642,23 +642,8 @@ describe('Learn: suggestions after a reply', () => {
     );
     await page(d);
     const older = document.getElementById('msg-a1')!;
-    expect(within(older).queryByRole('group', { name: 'Keep going' })).toBeNull();
+    within(older).getByRole('group', { name: 'Dig deeper' });
     within(older).getByRole('group', { name: 'Suggested tangents' });
-  });
-
-  it('Keep going says it keeps the lesson moving', async () => {
-    await page(lesson('normal-model', { content: ONE_STEP }));
-    expect(nextStep().title).toBe(REPLY_ACTION.hint);
-  });
-
-  it('inside a tangent, Keep going says it keeps that tangent moving', async () => {
-    const d = branchyLesson();
-    await page(
-      { ...d, nodes: d.nodes.map((n) => (n.id === 'a3' ? { ...n, content: ONE_STEP } : n)) },
-      {},
-      'deep',
-    );
-    expect(nextStep().title).toBe(REPLY_ACTION.hintInTangent);
   });
 });
 

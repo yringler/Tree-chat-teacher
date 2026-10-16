@@ -12,8 +12,8 @@ import 'theme.dart';
 
 /// One message of the thread: the learner's, or the tutor's reply rendered
 /// as Markdown with its footer once it's complete: the tangents the learner
-/// started from it first, next steps ("Keep going") on the newest reply
-/// only, then the tangents it suggests.
+/// started from it first, then the tangents it suggests ("Dig deeper", then
+/// "Suggested tangents").
 class MessageView extends StatelessWidget {
   const MessageView({
     super.key,
@@ -25,8 +25,6 @@ class MessageView extends StatelessWidget {
     required this.onFollow,
     required this.onOpenTangent,
     required this.onAskAbout,
-    this.latest = false,
-    this.onContinue,
     this.onDelete,
   });
 
@@ -45,17 +43,9 @@ class MessageView extends StatelessWidget {
   /// The tangents the learner just came back from.
   final Set<String> cameFromIds;
 
-  /// Starts a tangent that follows a suggestion; null while that isn't
-  /// possible (e.g. a send is in flight).
+  /// Starts a tangent that follows a suggestion of either kind; null while
+  /// that isn't possible (e.g. a send is in flight).
   final ValueChanged<Tangent>? onFollow;
-
-  /// The newest reply of the thread on screen. Only it offers next steps:
-  /// on an older reply, the thread has already moved on.
-  final bool latest;
-
-  /// Sends a next step as a reply on the thread on screen; null while that
-  /// isn't possible.
-  final ValueChanged<Tangent>? onContinue;
 
   final ValueChanged<Branch> onOpenTangent;
 
@@ -119,8 +109,6 @@ class MessageView extends StatelessWidget {
     final streaming = node.status == NodeStatus.streaming;
     final complete = node.status == NodeStatus.complete;
     final suggestions = complete ? split.tangents : const <Tangent>[];
-    final groups = groupTangents(suggestions);
-    final nextSteps = latest ? groups.continueOn : const <Tangent>[];
     final footer = tangentFooter(
       suggestions,
       tangents,
@@ -152,16 +140,15 @@ class MessageView extends StatelessWidget {
           if (footer.yours.isNotEmpty)
             _YourTangents(
               tangents: footer.yours,
-              suggested: groups.tangent,
+              suggested: suggestions,
               chainIds: chainIds,
               cameFromIds: cameFromIds,
               onOpen: onOpenTangent,
             ),
-          if (nextSteps.isNotEmpty)
-            _KeepGoing(steps: nextSteps, onContinue: onContinue),
-          if (footer.offers.isNotEmpty)
-            _SuggestedTangents(
+          if (footer.deeper.isNotEmpty || footer.offers.isNotEmpty)
+            _Suggestions(
               id: node.id,
+              deeper: footer.deeper,
               offers: footer.offers,
               folded: footer.folded,
               followed: footer.followed,
@@ -342,7 +329,8 @@ class _YourTangents extends StatelessWidget {
 
   final List<Branch> tangents;
 
-  /// The reply's tangent suggestions, whose reason a followed one shows.
+  /// The reply's suggestions of either kind, whose reason a followed one
+  /// shows.
   final List<Tangent> suggested;
   final Set<String> chainIds;
   final Set<String> cameFromIds;
@@ -473,43 +461,18 @@ class _YourTangentRow extends StatelessWidget {
   }
 }
 
-/// The next steps the newest reply offers; one is sent as a reply.
-class _KeepGoing extends StatelessWidget {
-  const _KeepGoing({required this.steps, required this.onContinue});
-
-  final List<Tangent> steps;
-  final ValueChanged<Tangent>? onContinue;
-
-  @override
-  Widget build(BuildContext context) {
-    final onContinue = this.onContinue;
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionLabel(keepGoingLabel),
-          for (final step in steps)
-            _TangentButton(
-              tangent: step,
-              icon: Icons.arrow_forward,
-              onPressed: onContinue == null ? null : () => onContinue(step),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The tangents a reply suggests that the learner hasn't taken. Before they
-/// take one from the reply, the first shows and the rest wait behind a row,
-/// since a phone has little height to spare. Once they have ([folded]), all
-/// of them wait behind one row: the learner has read them, and the footer
-/// then changes only when a tangent is started, never while they read on or
-/// a reply streams in.
-class _SuggestedTangents extends StatefulWidget {
-  const _SuggestedTangents({
+/// The suggestions of a reply that the learner hasn't taken, each a tangent
+/// to start: "Dig deeper" (further into the reply's topic), then "Suggested
+/// tangents" (further out). Before they take one from the reply, the first
+/// of each group shows and the rest wait behind a row, since a phone has
+/// little height to spare. Once they have ([folded]), both groups wait
+/// behind one row: the learner has read them, and the footer then changes
+/// only when a tangent is started, never while they read on or a reply
+/// streams in.
+class _Suggestions extends StatefulWidget {
+  const _Suggestions({
     required this.id,
+    required this.deeper,
     required this.offers,
     required this.folded,
     required this.followed,
@@ -518,6 +481,7 @@ class _SuggestedTangents extends StatefulWidget {
 
   /// The reply's id, to name the rows the fold row shows.
   final String id;
+  final List<Tangent> deeper;
   final List<Tangent> offers;
   final bool folded;
 
@@ -526,15 +490,15 @@ class _SuggestedTangents extends StatefulWidget {
   final ValueChanged<Tangent>? onFollow;
 
   @override
-  State<_SuggestedTangents> createState() => _SuggestedTangentsState();
+  State<_Suggestions> createState() => _SuggestionsState();
 }
 
-class _SuggestedTangentsState extends State<_SuggestedTangents> {
+class _SuggestionsState extends State<_Suggestions> {
   /// The learner asked for the rows that are hidden.
   bool _open = false;
 
   @override
-  void didUpdateWidget(_SuggestedTangents oldWidget) {
+  void didUpdateWidget(_Suggestions oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Suggestions that have just folded start out of the way.
     if (oldWidget.folded != widget.folded) _open = false;
@@ -549,6 +513,19 @@ class _SuggestedTangentsState extends State<_SuggestedTangents> {
     );
   }
 
+  /// The two groups under their headings, leaving out an empty one, each
+  /// showing [shown] of its suggestions.
+  List<Widget> _groups(Iterable<Tangent> Function(List<Tangent>) shown) => [
+    for (final (label, group) in [
+      (digDeeperLabel, widget.deeper),
+      (suggestedTangentsLabel, widget.offers),
+    ])
+      if (group.isNotEmpty) ...[
+        _SectionLabel(label),
+        for (final tangent in shown(group)) _row(tangent),
+      ],
+  ];
+
   Widget _foldButton(String label) => TextButton.icon(
     style: TextButton.styleFrom(
       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -560,7 +537,7 @@ class _SuggestedTangentsState extends State<_SuggestedTangents> {
 
   @override
   Widget build(BuildContext context) {
-    final offers = widget.offers;
+    final count = widget.deeper.length + widget.offers.length;
     if (widget.folded) {
       final rows = 'suggested-tangents-${widget.id}';
       return Padding(
@@ -576,7 +553,7 @@ class _SuggestedTangentsState extends State<_SuggestedTangents> {
                 // ids up when the set changes and drops one it can't find.
                 controlsNodes: _open ? {rows} : null,
                 child: _foldButton(
-                  suggestedFoldLabel(offers.length, more: widget.followed > 0),
+                  suggestedFoldLabel(count, more: widget.followed > 0),
                 ),
               ),
             ),
@@ -588,10 +565,7 @@ class _SuggestedTangentsState extends State<_SuggestedTangents> {
                   padding: const EdgeInsets.only(top: 6),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const _SectionLabel(suggestedTangentsLabel),
-                      for (final tangent in offers) _row(tangent),
-                    ],
+                    children: _groups((group) => group),
                   ),
                 ),
               ),
@@ -599,15 +573,14 @@ class _SuggestedTangentsState extends State<_SuggestedTangents> {
         ),
       );
     }
-    final shown = _open ? offers : offers.take(1);
-    final hidden = offers.length - shown.length;
+    final groups = [widget.deeper, widget.offers].where((g) => g.isNotEmpty);
+    final hidden = _open ? 0 : count - groups.length;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionLabel(suggestedTangentsLabel),
-          for (final tangent in shown) _row(tangent),
+          ..._groups((group) => _open ? group : group.take(1)),
           if (hidden > 0) _foldButton(suggestedFoldLabel(hidden, more: true)),
         ],
       ),
@@ -619,15 +592,11 @@ class _TangentButton extends StatelessWidget {
   const _TangentButton({
     required this.tangent,
     required this.onPressed,
-    this.icon = Icons.subdirectory_arrow_right,
     this.action,
   });
 
   final Tangent tangent;
   final VoidCallback? onPressed;
-
-  /// The tangent arrow, or another for a next step.
-  final IconData icon;
 
   /// What a tap does, said before the title to a screen reader.
   final String? action;
@@ -657,7 +626,11 @@ class _TangentButton extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: [
-                  Icon(icon, size: 18, color: theme.colorScheme.primary),
+                  Icon(
+                    Icons.subdirectory_arrow_right,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(

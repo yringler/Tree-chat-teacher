@@ -600,7 +600,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   }
 
   /**
-   * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
+   * Follows a suggestion (either kind) under `fromNodeId`: a `path`
    * branch titled after it (a user title, so auto-titling keeps it), on the
    * route new branches from that message take (`newBranchRoute`), whose
    * first message is the title. A tangent already followed from that
@@ -614,18 +614,6 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     }
     if (!this.canBranchFrom(fromNodeId)) return null;
     return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
-  }
-
-  /**
-   * Sends a "Keep going" suggestion under `fromNodeId` as the next message
-   * of its branch, as the composer would. A next step only makes sense at
-   * the end of the thread on screen, so from any other message it does
-   * nothing and resolves false.
-   */
-  continueWith(fromNodeId: string, text: string): Promise<boolean> {
-    const branch = this.branchOf(fromNodeId);
-    if (!branch || !this.isLatest(fromNodeId)) return Promise.resolve(false);
-    return this.send(branch.id, text);
   }
 
   /**

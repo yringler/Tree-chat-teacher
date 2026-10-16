@@ -6,14 +6,13 @@ import {
   HELP_REPLAY,
   HELP_RULE,
   HELP_SHORTCUTS,
-  HELP_TEST,
   MAIN_THREAD_LABEL,
   TANGENT_ACTION,
 } from '@tangent/shared';
 
 /**
- * "How tangents work": when to reply and when to go on a tangent, short
- * enough to read at a glance. Each app hosts it in its own Modal (titled
+ * "How tangents work": going on tangents, and the plain reply beside them,
+ * short enough to read at a glance. Each app hosts it in its own Modal (titled
  * `HELP_TITLE`); the words come from @tangent/shared, which the landing page
  * and the Flutter app use too. The two actions wear the look of the
  * composer's buttons, so the help names what the learner sees.
@@ -61,7 +60,6 @@ import {
           <dd>{{ fallback.text }}</dd>
         </div>
       </dl>
-      <p class="muted">{{ test }}</p>
       <p class="muted">{{ analogy }}</p>
       <div class="tangent-help-foot">
         @if (showReplay()) {
@@ -83,7 +81,6 @@ export class TangentHelp {
   protected readonly rule = HELP_RULE;
   protected readonly items = HELP_ITEMS;
   protected readonly fallback = HELP_DEFAULT;
-  protected readonly test = HELP_TEST;
   protected readonly analogy = HELP_ANALOGY;
   protected readonly replayLabel = HELP_REPLAY;
   protected readonly shortcutsLabel = HELP_SHORTCUTS;

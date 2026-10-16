@@ -88,8 +88,8 @@ describe('demo backend', () => {
     expect(tangent.branchPointNodeId).toBe(point.id);
     const offered = splitTangents(point.content).tangents;
     expect(offered.find((t) => t.title === tangent.title)?.kind).toBe('tangent');
-    // The first reply also offers a next step, shown under Keep going.
-    expect(offered.some((t) => t.kind === 'continue')).toBe(true);
+    // The first reply also offers one to dig deeper into.
+    expect(offered.some((t) => t.kind === 'deeper')).toBe(true);
     expect(detail.nodes.find((n) => n.branchId === tangent.id && n.role === 'user')?.content).toBe(
       tangent.title,
     );

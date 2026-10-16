@@ -130,14 +130,10 @@ import { branchTitle } from './titles';
 
       <app-suggestion-groups
         [tangents]="suggestions()"
-        [latest]="store.isLatest(n.id)"
-        [inTangent]="inTangent()"
         [children]="children()"
         [chainIds]="store.chainIds()"
         [cameFromIds]="store.cameFromIds()"
-        [busy]="store.busy()"
         [titleOf]="branchTitle"
-        [send]="keepGoingWith"
         [open]="openTangent"
         [openBranch]="openBranch"
         [remove]="removeBranch"
@@ -220,10 +216,6 @@ export class MessageItem {
 
   /** The tutor's suggestions, offered once the reply is complete. */
   protected readonly suggestions = computed(() => (this.askable() ? this.split().tangents : []));
-  /** Inside a tangent, the next step continues that tangent rather than the main lesson. */
-  protected readonly inTangent = computed(
-    () => !!this.store.branchOf(this.node().id)?.parentBranchId,
-  );
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
   protected readonly depth = computed(() => this.store.depthOf(this.node().branchId));
   /** A finished reply on a provider that can search, while nothing else is generating. */
@@ -269,12 +261,6 @@ export class MessageItem {
     void this.store.updateLinkNote(edit.linkId, edit.note);
   }
 
-  /** Sends a "Keep going" suggestion as the next message of the open thread, unmarking any message first. */
-  protected readonly keepGoingWith = (title: string) => {
-    const n = this.node();
-    if (this.store.focusedNodeId()) this.store.go(n.branchId, null, true);
-    return this.store.continueWith(n.id, title);
-  };
   protected readonly openTangent = (title: string) =>
     this.store.followTangent(this.node().id, title);
   /** A tangent opens at its first message. */

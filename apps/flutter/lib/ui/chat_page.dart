@@ -389,7 +389,7 @@ class _ChatPageState extends State<ChatPage> {
           tooltip: _chat.isSideBranch
               ? replyAction.hintInTangent
               : replyAction.hint,
-          semanticsLabel: 'Send as next step',
+          semanticsLabel: 'Send as next message',
           primary: false,
           onPressed: _sendNext,
         ),
@@ -751,8 +751,6 @@ class _ChatPageState extends State<ChatPage> {
       tangents: _chat.tangentsAt(node),
       chainIds: chainIds,
       cameFromIds: _chat.cameFromIds,
-      latest: node.id == _chat.asideFrom?.id,
-      onContinue: _chat.sending ? null : (t) => unawaited(_send(t.title)),
       onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),
       onAskAbout: (text) => _askAbout(node, text),
       onOpenTangent: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),

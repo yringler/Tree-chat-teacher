@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { HELP_RULE } from '@tangent/shared';
 import { AuthService, Walkthrough } from '@tangent/web-shared';
 import { appProviders, render } from '@tangent/web-shared/testing';
 import { screen, within } from '@testing-library/dom';
@@ -55,7 +56,7 @@ describe('Learn header: How tangents work', () => {
     const ui = TestBed.inject(UiStore);
     const user = userEvent.setup();
     const dialog = screen.getByRole('dialog', { name: 'How tangents work' });
-    expect(dialog.textContent).toContain('Reply = the next step. Tangent = a side trip.');
+    expect(dialog.textContent).toContain(HELP_RULE);
     await user.click(within(dialog).getByRole('button', { name: 'Replay the walkthrough' }));
     expect(replay).toHaveBeenCalledOnce();
     expect(ui.dialogs.list()).toEqual([]);
