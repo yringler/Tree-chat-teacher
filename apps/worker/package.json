@@ -27,7 +27,7 @@
     "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.23.0",
+    "@cloudflare/vitest-plugin": "^1.4.3",
     "@vitest/coverage-istanbul": "~4.1.11",
     "drizzle-kit": "^0.31.11",
     "typescript": "~6.0.3",

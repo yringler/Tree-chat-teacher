@@ -5,7 +5,7 @@
     // Server-rendered public pages (src/http/*.tsx): Hono's JSX, escaped by default.
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-    "types": ["./worker-configuration.d.ts", "@cloudflare/vitest-pool-workers/types"]
+    "types": ["./worker-configuration.d.ts", "@cloudflare/vitest-plugin/types"]
   },
   "include": ["src", "test", "worker-configuration.d.ts"]
 }

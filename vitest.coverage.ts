@@ -7,7 +7,7 @@ import type { CoverageOptions } from 'vitest/node';
  * `coverage/`; `scripts/coverage-summary.mjs` prints the per-package totals.
  *
  * V8 coverage for the Node packages; the worker runs inside workerd
- * (`@cloudflare/vitest-pool-workers`), which only supports Istanbul's
+ * (`@cloudflare/vitest-plugin`), which only supports Istanbul's
  * instrumented coverage, so it passes `istanbul`.
  */
 export function coverage(provider: 'v8' | 'istanbul' = 'v8'): CoverageOptions {
