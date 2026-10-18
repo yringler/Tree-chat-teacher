@@ -661,7 +661,7 @@ describe('openai-compatible web search (OpenRouter)', () => {
         prompt_tokens: 900,
         completion_tokens: 40,
         cost: 0.0075,
-        server_tool_use: { web_search_requests: 1 },
+        server_tool_use_details: { web_search_requests: 1 },
       },
     }),
     'data: [DONE]\n\n',
@@ -715,6 +715,25 @@ describe('openai-compatible web search (OpenRouter)', () => {
     expect(first?.excerpt?.length).toBe(300);
     expect(events).toContainEqual({ type: 'billing', costUsd: 0.0075, webSearches: 1 });
     expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'stop' });
+  });
+
+  it('reports every search OpenRouter ran, even one that cited nothing', async () => {
+    const stream = [
+      chunk({ role: 'assistant', content: 'No sources needed.' }, 'stop'),
+      chunk({}, null, {
+        usage: {
+          prompt_tokens: 900,
+          completion_tokens: 40,
+          cost: 0.0121,
+          server_tool_use_details: { web_search_requests: 2 },
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(WS, () => sseResponse(stream).response);
+    const events = await collect(provider.stream(req({ webSearch: { mode: 'auto', maxUses: 2 } })));
+    expect(events.some((e) => e.type === 'citations')).toBe(false);
+    expect(events).toContainEqual({ type: 'billing', costUsd: 0.0121, webSearches: 2 });
   });
 
   it('sends the tool with the turn instructions after the history, not in the system prompt', async () => {

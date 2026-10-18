@@ -203,7 +203,7 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * `tool_choice` or `plugins` then. `url_citation` annotations (in
  * `delta.annotations` or `message.annotations`) become `citations` events, a
  * streamed web-search tool call an `activity` event, and
- * `usage.server_tool_use.web_search_requests` a `billing.webSearches`.
+ * `usage.server_tool_use_details.web_search_requests` a `billing.webSearches`.
  *
  * Billing (OpenRouter): yields `{type:'billing', generationId}` right after a
  * 2xx response when the `x-generation-id` header is present (before any
@@ -425,7 +425,7 @@ export function createOpenAiCompatibleProvider(
           const u = usageOf(usage);
           if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
           const costUsd = num(usage['cost']);
-          const stu = usage['server_tool_use'];
+          const stu = usage['server_tool_use_details'];
           const webSearches = isRecord(stu) ? num(stu['web_search_requests']) : undefined;
           if (costUsd !== undefined || webSearches !== undefined) {
             yield {
