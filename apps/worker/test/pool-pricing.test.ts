@@ -13,7 +13,7 @@ import {
   poolInputLimitTokens,
   worstCaseHoldMicros,
 } from '../src/pool/pricing.js';
-import { poolSettlement } from '../src/pool/settle-policy.js';
+import { meteredSettlement } from '../src/billing/settle-policy.js';
 
 const FLASH: ModelPrice = {
   inMicrosPerMTok: 100_000,
@@ -253,7 +253,7 @@ describe('pool pricing with prompt caching', () => {
 
   it('settles tokens with the reported cache share', () => {
     expect(
-      poolSettlement({
+      meteredSettlement({
         dispatched: true,
         inputTokens: 1000,
         outputTokens: 10,
@@ -263,7 +263,7 @@ describe('pool pricing with prompt caching', () => {
       }),
     ).toEqual({ reason: 'tokens', costNanos: 1_170_000 });
     expect(
-      poolSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 10, price: CACHED }),
+      meteredSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 10, price: CACHED }),
     ).toEqual({ reason: 'tokens', costNanos: 2_600_000 });
   });
 });
@@ -271,16 +271,16 @@ describe('pool pricing with prompt caching', () => {
 describe('pool settle policy', () => {
   const price = { ...FLASH };
   it('releases what never left, or was refused upstream', () => {
-    expect(poolSettlement({ dispatched: false, costUsd: 1 })).toEqual({
+    expect(meteredSettlement({ dispatched: false, costUsd: 1 })).toEqual({
       reason: 'released',
       costNanos: 0,
     });
-    expect(poolSettlement({ dispatched: true, upstream: 'not_sent' })).toEqual({
+    expect(meteredSettlement({ dispatched: true, upstream: 'not_sent' })).toEqual({
       reason: 'released',
       costNanos: 0,
     });
     expect(
-      poolSettlement({
+      meteredSettlement({
         dispatched: true,
         upstream: 'rejected',
         inputTokens: 1,
@@ -295,7 +295,7 @@ describe('pool settle policy', () => {
 
   it('charges reported cost, then a lookup, then tokens, then the hold', () => {
     expect(
-      poolSettlement({
+      meteredSettlement({
         dispatched: true,
         upstream: 'stream',
         costUsd: 0.001,
@@ -306,7 +306,7 @@ describe('pool settle policy', () => {
       costNanos: 1_000_000,
     });
     expect(
-      poolSettlement({
+      meteredSettlement({
         dispatched: true,
         generationCostUsd: 0.002,
         inputTokens: 1,
@@ -318,21 +318,21 @@ describe('pool settle policy', () => {
       costNanos: 2_000_000,
     });
     expect(
-      poolSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 500, price }),
+      meteredSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 500, price }),
     ).toEqual({
       reason: 'tokens',
       costNanos: 300_000,
     });
     // One count alone (a stream cut short), or no price: the hold.
-    expect(poolSettlement({ dispatched: true, inputTokens: 1000, price })).toEqual({
+    expect(meteredSettlement({ dispatched: true, inputTokens: 1000, price })).toEqual({
       reason: 'hold',
       costNanos: null,
     });
-    expect(poolSettlement({ dispatched: true, inputTokens: 1, outputTokens: 1 })).toEqual({
+    expect(meteredSettlement({ dispatched: true, inputTokens: 1, outputTokens: 1 })).toEqual({
       reason: 'hold',
       costNanos: null,
     });
-    expect(poolSettlement({ dispatched: true })).toEqual({ reason: 'hold', costNanos: null });
+    expect(meteredSettlement({ dispatched: true })).toEqual({ reason: 'hold', costNanos: null });
   });
 });
 

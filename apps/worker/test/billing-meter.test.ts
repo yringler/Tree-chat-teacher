@@ -261,18 +261,26 @@ describe('usage meter', () => {
     });
   });
 
-  it('settles at 0 when the call never reached the upstream (no generation id)', async () => {
-    const h = await harness();
-    const events = await h.run([
-      { type: 'error', error: { code: 'network', message: 'connect failed', retryable: true } },
-    ]);
-    expect(events.at(-1)?.type).toBe('error');
-    expect((await h.rows())[0]).toMatchObject({
-      status: 'settled',
-      cost_nanos: 0,
-      charge_micros: 0,
-    });
-  });
+  it.each(['not_sent', 'rejected'] as const)(
+    'releases at 0 a call the upstream never ran (%s)',
+    async (upstream) => {
+      const h = await harness();
+      const events = await h.run([
+        { type: 'usage', usage: { inputTokens: 12 } },
+        {
+          type: 'error',
+          error: { code: 'network', message: 'connect failed', retryable: true, upstream },
+        },
+      ]);
+      expect(events.at(-1)?.type).toBe('error');
+      expect((await h.rows())[0]).toMatchObject({
+        status: 'settled',
+        settle_reason: 'released',
+        cost_nanos: 0,
+        charge_micros: 0,
+      });
+    },
+  );
 
   it('reconciles an aborted run via /api/v1/generation (404, then 200)', async () => {
     const h = await harness();
@@ -377,8 +385,12 @@ describe('usage meter', () => {
       ],
       { stopAfter: 1 },
     );
-    // No id, no cost when the consumer left: nothing billed upstream that we can see.
-    expect((await h.rows())[0]).toMatchObject({ status: 'settled', charge_micros: 0 });
+    // Sent, but no id, cost or tokens when the consumer left: the hold covers what it may have cost.
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'hold',
+      charge_micros: USAGE_HOLD_MICROS,
+    });
   });
 
   it('fails as an event (no upstream call) when the pending row cannot be written', async () => {
@@ -576,6 +588,74 @@ describe('usage meter holds on credit', () => {
     ]);
     expect(provider.calls).toBe(0);
     expect(await h.rows()).toEqual([]);
+  });
+});
+
+describe('credit calls sent without a reported cost or generation id', () => {
+  /** `max` at $150 in, $600 out per million tokens: a hold of 60_750 µ$ for 5 in, 100 out. */
+  const priced = {
+    ...env,
+    MODEL_PRICES: JSON.stringify({ max: { in: 150_000_000, out: 600_000_000, context: 200_000 } }),
+  } as AppEnv;
+  const failedMidStream: ProviderEvent = {
+    type: 'error',
+    error: { code: 'network', message: 'lost', retryable: true, upstream: 'stream' },
+  };
+
+  it('charges the tokens it used at the list price, after an error mid-stream', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'delta', text: 'Hel' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        failedMidStream,
+      ],
+      { env: priced },
+    );
+    // 12 × 150 + 34 × 600 = 22_200 µ$.
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 22_200_000,
+      charge_micros: 22_200,
+      input_tokens: 12,
+      output_tokens: 34,
+    });
+  });
+
+  it('charges the tokens of a call that finished without reporting its cost', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'delta', text: 'Hello' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { env: priced },
+    );
+    expect((await h.rows())[0]).toMatchObject({ settle_reason: 'tokens', charge_micros: 22_200 });
+  });
+
+  it.each<[string, ProviderEvent[]]>([
+    ['no usage', [{ type: 'delta', text: 'Hel' }, failedMidStream]],
+    ['the input alone', [{ type: 'usage', usage: { inputTokens: 12 } }, failedMidStream]],
+    [
+      'an error that says nothing of how far it got',
+      [
+        { type: 'usage', usage: { inputTokens: 12 } },
+        { type: 'error', error: { code: 'unknown', message: '?', retryable: false } },
+      ],
+    ],
+  ])('charges the hold when the tokens are unknown (%s)', async (_name, script) => {
+    const h = await harness();
+    await h.run(script, { env: priced });
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'hold',
+      cost_nanos: null,
+      hold_micros: 60_750,
+      charge_micros: 60_750,
+    });
   });
 });
 

@@ -5,7 +5,7 @@
 //   2. Stamp `dispatched_at` (awaited) right before the upstream call, which
 //      runs with the pool's output cap and a timeout; a reservation too close
 //      to its TTL for the call to finish first is refused instead.
-//   3. Settle by the pool's policy (pool/settle-policy.ts): released at 0 when
+//   3. Settle by the metered policy (billing/settle-policy.ts): released at 0 when
 //      nothing can have been billed, else the reported cost, a generation
 //      lookup, tokens × price, or the full hold. A charge never exceeds the
 //      hold; the excess is recorded as overage.
@@ -27,7 +27,7 @@ import {
   poolInputLimitTokens,
   worstCaseHoldMicros,
 } from './pricing.js';
-import { poolSettlement, type PoolSettlement } from './settle-policy.js';
+import { meteredSettlement, type MeteredSettlement } from '../billing/settle-policy.js';
 import { logEvent } from '../log.js';
 
 /** A pool reservation was refused: the call is failed before anything is sent. */
@@ -75,8 +75,8 @@ class PoolRun extends ObservedRun {
     return this.dispatched;
   }
 
-  private settlement(generationCostUsd: number | null = null): PoolSettlement {
-    return poolSettlement({
+  private settlement(generationCostUsd: number | null = null): MeteredSettlement {
+    return meteredSettlement({
       dispatched: this.dispatched,
       upstream: this.upstream,
       costUsd: this.costUsd,
@@ -89,7 +89,7 @@ class PoolRun extends ObservedRun {
     });
   }
 
-  private apply(s: PoolSettlement): Promise<void> {
+  private apply(s: MeteredSettlement): Promise<void> {
     return this.settleOrDefer({
       costNanos: s.costNanos ?? 0,
       reason: s.reason,

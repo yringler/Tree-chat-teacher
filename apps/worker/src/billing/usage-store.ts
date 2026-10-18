@@ -24,10 +24,9 @@ const STORED_FUNDING = {
 
 /**
  * How a row settled. `cost`: the cost the stream reported; `generation`: from
- * OpenRouter's generation lookup; `tokens`: tokens × the price table (pool);
- * `hold`: the full hold (pool, nothing observed); `released`: charged 0
- * because nothing was billed upstream (the pool's refund of a reservation);
- * `unresolved`: given up at 0 (personal).
+ * OpenRouter's generation lookup; `tokens`: tokens × the model's price;
+ * `hold`: the full hold (sent, nothing observed); `released`: charged 0
+ * because nothing was billed upstream; `unresolved`: given up at 0 (personal).
  */
 export type SettleReason = 'cost' | 'generation' | 'tokens' | 'hold' | 'released' | 'unresolved';
 
