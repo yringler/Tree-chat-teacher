@@ -294,8 +294,7 @@ export function createOpenAiCompatibleProvider(
     headers['content-type'] = 'application/json';
 
     return guardStream(request.signal, secrets, async function* () {
-      if (missing !== undefined)
-        throw new ProviderFailure({ ...missingSecretError(missing), upstream: 'not_sent' });
+      if (missing !== undefined) throw new ProviderFailure(missingSecretError(missing));
       const { signal } = request;
       const caps = capabilities(request.model);
 

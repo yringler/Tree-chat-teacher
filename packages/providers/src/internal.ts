@@ -322,8 +322,9 @@ export function getFetch(env: ProviderEnv): typeof fetch {
   return env.fetch ?? ((input, init) => globalThis.fetch(input, init));
 }
 
+/** A call without its secret is never sent, so the open pool releases its hold. */
 export function missingSecretError(name: string): ProviderError {
-  return providerError('config', `Missing secret ${name}`);
+  return { ...providerError('config', `Missing secret ${name}`), upstream: 'not_sent' };
 }
 
 export { isRecord };

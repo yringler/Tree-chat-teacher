@@ -208,7 +208,29 @@ describe('anthropic provider', () => {
     expect(await collect(provider.stream(req()))).toEqual([
       {
         type: 'error',
-        error: { code: 'config', message: 'Missing secret CF_AIG_TOKEN', retryable: false },
+        error: {
+          code: 'config',
+          message: 'Missing secret CF_AIG_TOKEN',
+          retryable: false,
+          upstream: 'not_sent',
+        },
+      },
+    ]);
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('yields a never-sent config error when the API key is missing', async () => {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(CONFIG, { secrets: {}, fetch: m.fetch });
+    expect(await collect(provider.stream(req()))).toEqual([
+      {
+        type: 'error',
+        error: {
+          code: 'config',
+          message: 'Missing secret ANTHROPIC_API_KEY',
+          retryable: false,
+          upstream: 'not_sent',
+        },
       },
     ]);
     expect(m.calls).toHaveLength(0);
