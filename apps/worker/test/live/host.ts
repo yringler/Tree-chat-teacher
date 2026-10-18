@@ -243,18 +243,26 @@ export function createLiveHost(options: LiveHostOptions): (request: Request) => 
       case '/__record/stop': {
         const done = recording;
         recording = null;
-        if (!done?.captured) return Response.json({ written: null });
+        if (!done?.captured || field('keep') !== true) return Response.json({ written: null });
         const captured = await done.captured;
-        const text = sanitizeRecording(
-          {
-            adapter: done.adapter,
-            scenario: done.scenario,
-            model: done.model,
-            expectation: done.expectation,
-            ...captured,
-          },
-          options.secrets,
-        );
+        let text: string;
+        try {
+          text = sanitizeRecording(
+            {
+              adapter: done.adapter,
+              scenario: done.scenario,
+              model: done.model,
+              expectation: done.expectation,
+              ...captured,
+            },
+            options.secrets,
+          );
+        } catch (e) {
+          return Response.json({
+            written: null,
+            refused: e instanceof Error ? e.message : String(e),
+          });
+        }
         const file = `${done.adapter}/${done.scenario}.json`;
         options.writeFixture(file, text);
         return Response.json({ written: file });

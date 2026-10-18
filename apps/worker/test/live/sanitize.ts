@@ -30,7 +30,7 @@ const REDACTED_KEYS: ReadonlySet<string> = new Set([
 const EMPTIED_TEXT_KEYS: ReadonlySet<string> = new Set(['reasoning', 'thinking', 'summary']);
 /** Text of fetched pages, which belongs to their publishers. */
 const PAGE_TEXT_KEYS: ReadonlySet<string> = new Set(['content', 'cited_text', 'snippet']);
-const ID_KEYS: ReadonlySet<string> = new Set(['id', 'tool_use_id', 'user_id']);
+const ID_KEYS: ReadonlySet<string> = new Set(['id', 'tool_use_id', 'user_id', 'request_id']);
 
 /** What may never appear in a fixture, whatever field it hides in. */
 const SECRET_PATTERNS: readonly RegExp[] = [/sk-[A-Za-z0-9]/, /bearer\s/i, /authorization/i];

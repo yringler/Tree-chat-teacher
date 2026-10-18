@@ -375,21 +375,28 @@ export function scenario(
 
 /**
  * Records the next chat call's response as `<adapter>/<name>.json` under
- * packages/providers/test/fixtures/live when the run records (TANGENT_LIVE_RECORD=1).
+ * packages/providers/test/fixtures/live when the run records (TANGENT_LIVE_RECORD=1),
+ * and only when the stream met its expectation: a fixture is a contract the adapters
+ * must keep replaying.
  */
-export async function recorded<T>(
+export async function recorded(
   fixture: { adapter: string; name: string; model: string; expectation: ContractExpectation },
-  run: () => Promise<T>,
-): Promise<T> {
+  run: () => Promise<LiveResult>,
+): Promise<LiveResult> {
   await control('/__record/start', {
     adapter: fixture.adapter,
     scenario: fixture.name,
     model: fixture.model,
     expectation: fixture.expectation,
   });
+  let keep = false;
   try {
-    return await run();
+    const result = await run();
+    keep = checkContract(result.summary, fixture.expectation).failures.length === 0;
+    return result;
   } finally {
-    await control('/__record/stop', {});
+    const { refused } = await control<{ refused?: string }>('/__record/stop', { keep });
+    // The sanitizer found something key-like: the scenario stands, the fixture is not written.
+    if (refused) console.warn(`fixture ${fixture.adapter}/${fixture.name} not written: ${refused}`);
   }
 }
