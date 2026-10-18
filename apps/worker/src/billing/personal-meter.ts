@@ -11,8 +11,9 @@
 //   3. At the terminal event, settle by the metered policy (settle-policy.ts):
 //      released at 0 when nothing can have been billed upstream, else the
 //      reported cost; failing that, with a generation id, reconcile in the
-//      background via OpenRouter; else the tokens it used at the list price,
-//      or the full hold when they are unknown.
+//      background via OpenRouter; else the tokens it used at the list price;
+//      else, when the user stopped it, its estimated input at the input price;
+//      else the full hold.
 import type { GenerateRequest, ProviderErrorCode, UsagePurpose } from '@tangent/shared';
 import { DomainError, PaymentRequiredError } from '@tangent/core';
 import type { ModelPrice } from '../config.js';
@@ -64,6 +65,8 @@ class PersonalRun extends ObservedRun {
     private readonly reserved: boolean,
     /** The model's list price, to price the tokens of a call that reports no cost. */
     private readonly price: ModelPrice,
+    /** The estimated input tokens its hold was sized with. */
+    private readonly heldInputTokens: number,
   ) {
     super(env, usageId, markupBps, feeBps, defer, options, request);
   }
@@ -83,6 +86,8 @@ class PersonalRun extends ObservedRun {
       cacheReadTokens: this.cacheReadTokens,
       cacheWriteTokens: this.cacheWriteTokens,
       price: this.price,
+      userStopped: this.userStopped,
+      heldInputTokens: this.heldInputTokens,
     });
     if ((s.reason === 'tokens' || s.reason === 'hold') && this.generationId !== null) {
       // OpenRouter knows the real cost; failing that, the cron settles the row.
@@ -120,13 +125,8 @@ export function createUsageMeter(
       const rates = CREDIT_RATES;
       // The hold bounds the output: a request without a cap gets the provider's.
       const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
-      const holdMicros = creditHoldMicros(
-        env,
-        price,
-        estimatedInputTokens(request),
-        upstream.maxOutputTokens,
-        rates,
-      );
+      const inputTokens = estimatedInputTokens(request);
+      const holdMicros = creditHoldMicros(env, price, inputTokens, upstream.maxOutputTokens, rates);
       const run = (usageId: string, r: typeof rates, reserved: boolean) =>
         new PersonalRun(
           env,
@@ -138,6 +138,7 @@ export function createUsageMeter(
           upstream,
           reserved,
           price,
+          inputTokens,
         );
       if (tag?.reservationId) {
         const claimed = await repriceReservation(

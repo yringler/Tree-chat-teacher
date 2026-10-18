@@ -152,6 +152,16 @@ async function harness(account: AccountContext = simpleAccount()): Promise<Harne
 }
 
 const COST = 0.001234;
+
+/**
+ * `max` at $150 in, $600 out per million tokens. `request()`'s 'hi' is 5
+ * estimated input tokens: a hold of 60_750 µ$ for 5 in, 100 out, and 750 µ$
+ * for its input alone.
+ */
+const PRICED = {
+  ...env,
+  MODEL_PRICES: JSON.stringify({ max: { in: 150_000_000, out: 600_000_000, context: 200_000 } }),
+} as AppEnv;
 const tag: UsageTag = {
   purpose: 'reply',
   treeId: 'tree_1',
@@ -383,13 +393,14 @@ describe('usage meter', () => {
         { type: 'billing', costUsd: 1 },
         { type: 'done', stopReason: null },
       ],
-      { stopAfter: 1 },
+      { stopAfter: 1, env: PRICED },
     );
-    // Sent, but no id, cost or tokens when the consumer left: the hold covers what it may have cost.
+    // Sent, but no id, cost or tokens when the consumer left: its estimated input, at the input price.
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
-      settle_reason: 'hold',
-      charge_micros: USAGE_HOLD_MICROS,
+      settle_reason: 'tokens',
+      cost_nanos: 750_000,
+      charge_micros: 750,
     });
   });
 
@@ -592,11 +603,7 @@ describe('usage meter holds on credit', () => {
 });
 
 describe('credit calls sent without a reported cost or generation id', () => {
-  /** `max` at $150 in, $600 out per million tokens: a hold of 60_750 µ$ for 5 in, 100 out. */
-  const priced = {
-    ...env,
-    MODEL_PRICES: JSON.stringify({ max: { in: 150_000_000, out: 600_000_000, context: 200_000 } }),
-  } as AppEnv;
+  const priced = PRICED;
   const failedMidStream: ProviderEvent = {
     type: 'error',
     error: { code: 'network', message: 'lost', retryable: true, upstream: 'stream' },
@@ -656,6 +663,58 @@ describe('credit calls sent without a reported cost or generation id', () => {
       hold_micros: 60_750,
       charge_micros: 60_750,
     });
+  });
+});
+
+describe('credit calls the user stopped', () => {
+  /** Runs `script` on PRICED, aborting the caller's signal before the event at `abortAt`. */
+  async function stopped(script: ProviderEvent[], abortAt: number): Promise<UsageRow | undefined> {
+    const h = await harness();
+    const ac = new AbortController();
+    const meter = createUsageMeter(PRICED, h.account, (p) => h.deferred.push(p), FAST);
+    const provider = scriptedProvider(script, (i) => {
+      if (i === abortAt) ac.abort();
+      return Promise.resolve();
+    });
+    for await (const _ of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request(undefined, ac.signal)))
+      void _;
+    await h.settleBackground();
+    return (await h.rows())[0];
+  }
+  const aborted: ProviderEvent = {
+    type: 'error',
+    error: { code: 'aborted', message: 'Request aborted', retryable: false },
+  };
+
+  it('charges its estimated input at the input price when nothing was reported', async () => {
+    expect(await stopped([{ type: 'delta', text: 'Hel' }, aborted], 1)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 750_000,
+      charge_micros: 750,
+    });
+  });
+
+  it('charges the input it reported, at the input price, when the output is unknown', async () => {
+    const row = await stopped([{ type: 'usage', usage: { inputTokens: 12 } }, aborted], 1);
+    // 12 × 150 = 1_800 µ$.
+    expect(row).toMatchObject({ settle_reason: 'tokens', charge_micros: 1_800 });
+  });
+
+  it('charges the tokens it reported, as any call', async () => {
+    const row = await stopped(
+      [{ type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } }, aborted],
+      1,
+    );
+    expect(row).toMatchObject({ settle_reason: 'tokens', charge_micros: 22_200 });
+  });
+
+  it('charges the hold for an abort the user did not ask for', async () => {
+    const h = await harness();
+    await h.run([{ type: 'delta', text: 'Hel' }, aborted], { env: PRICED });
+    expect((await h.rows())[0]).toMatchObject({ settle_reason: 'hold', charge_micros: 60_750 });
   });
 });
 

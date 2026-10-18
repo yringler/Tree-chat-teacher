@@ -333,6 +333,24 @@ describe('pool settle policy', () => {
       costNanos: null,
     });
     expect(meteredSettlement({ dispatched: true })).toEqual({ reason: 'hold', costNanos: null });
+    // A call the user stopped with nothing reported: its input at the input price, no output.
+    const stoppedAt = { dispatched: true, userStopped: true, heldInputTokens: 1000, price };
+    expect(meteredSettlement(stoppedAt)).toEqual({
+      reason: 'tokens',
+      costNanos: costFromTokensNanos(price, 1000, 0, { readTokens: 0, writeTokens: 0 }),
+    });
+    expect(meteredSettlement({ ...stoppedAt, inputTokens: 10 })).toEqual({
+      reason: 'tokens',
+      costNanos: costFromTokensNanos(price, 10, 0, { readTokens: 0, writeTokens: 0 }),
+    });
+    expect(meteredSettlement({ ...stoppedAt, heldInputTokens: null })).toEqual({
+      reason: 'hold',
+      costNanos: null,
+    });
+    expect(meteredSettlement({ ...stoppedAt, userStopped: false })).toEqual({
+      reason: 'hold',
+      costNanos: null,
+    });
   });
 });
 

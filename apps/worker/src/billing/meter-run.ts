@@ -31,8 +31,11 @@ export interface MeterRun {
   dispatch(): Promise<boolean>;
   /** Taps every provider event (`billing`, `usage`, ...). */
   observe(event: ProviderEvent): void;
-  /** Settles inline when the cost is known, else defers reconciliation. */
-  finish(): Promise<void>;
+  /**
+   * Settles inline when the cost is known, else defers reconciliation.
+   * `consumerStopped`: the stream's reader stopped before its terminal event.
+   */
+  finish(stop?: { consumerStopped: boolean }): Promise<void>;
 }
 
 /** Test seams; production uses the defaults. */
@@ -64,6 +67,7 @@ export abstract class ObservedRun implements MeterRun {
   protected webSearches: number | null = null;
   protected idWrite: Promise<void> = Promise.resolve();
   private finished = false;
+  private consumerStopped = false;
 
   constructor(
     protected readonly env: AppEnv,
@@ -73,7 +77,14 @@ export abstract class ObservedRun implements MeterRun {
     protected readonly defer: (p: Promise<unknown>) => void,
     protected readonly options: UsageMeterOptions,
     readonly request: GenerateRequest,
+    /** The caller's signal: aborted when the user stopped the call (not by a timeout of the meter's own). */
+    private readonly callerSignal: AbortSignal = request.signal,
   ) {}
+
+  /** The user stopped the call: aborted it, or stopped reading it. */
+  protected get userStopped(): boolean {
+    return this.consumerStopped || this.callerSignal.aborted;
+  }
 
   dispatch(): Promise<boolean> {
     return Promise.resolve(true);
@@ -124,9 +135,10 @@ export abstract class ObservedRun implements MeterRun {
     }
   }
 
-  async finish(): Promise<void> {
+  async finish(stop?: { consumerStopped: boolean }): Promise<void> {
     if (this.finished) return;
     this.finished = true;
+    this.consumerStopped = stop?.consumerStopped ?? false;
     try {
       await this.settleRun();
     } catch (e) {

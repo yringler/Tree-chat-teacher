@@ -7,8 +7,9 @@
 //      to its TTL for the call to finish first is refused instead.
 //   3. Settle by the metered policy (billing/settle-policy.ts): released at 0 when
 //      nothing can have been billed, else the reported cost, a generation
-//      lookup, tokens × price, or the full hold. A charge never exceeds the
-//      hold; the excess is recorded as overage.
+//      lookup, tokens × price, for a call the user stopped (not one timed
+//      out) its input bound at the input price, or the full hold. A charge
+//      never exceeds the hold; the excess is recorded as overage.
 import type { GenerateRequest } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
 import { ObservedRun, type UsageMeter, type UsageMeterOptions } from '../billing/meter-run.js';
@@ -62,8 +63,11 @@ class PoolRun extends ObservedRun {
     options: UsageMeterOptions,
     request: GenerateRequest,
     private readonly pool: PoolParams,
+    /** The input bound its hold was sized with. */
+    private readonly heldInputTokens: number,
+    callerSignal: AbortSignal,
   ) {
-    super(env, usageId, markupBps, feeBps, defer, options, request);
+    super(env, usageId, markupBps, feeBps, defer, options, request, callerSignal);
   }
 
   override async dispatch(): Promise<boolean> {
@@ -86,6 +90,8 @@ class PoolRun extends ObservedRun {
       cacheReadTokens: this.cacheReadTokens,
       cacheWriteTokens: this.cacheWriteTokens,
       price: this.pool.price,
+      userStopped: this.userStopped,
+      heldInputTokens: this.heldInputTokens,
     });
   }
 
@@ -183,7 +189,19 @@ export function createPoolUsageMeter(
         signal: AbortSignal.any([request.signal, AbortSignal.timeout(POOL_CALL_TIMEOUT_MS)]),
       };
       // The pool pays the true cost: no markup.
-      return new PoolRun(env, usageId, 0, feeBps, defer, options, upstream, pool);
+      const heldInputTokens = Math.min(inputBoundTokens(request), price.contextTokens);
+      return new PoolRun(
+        env,
+        usageId,
+        0,
+        feeBps,
+        defer,
+        options,
+        upstream,
+        pool,
+        heldInputTokens,
+        request.signal,
+      );
     },
   };
 }
