@@ -1,4 +1,5 @@
 import { KeyRequiredError } from '@tangent/core';
+import { PROVIDER_KINDS } from '@tangent/providers';
 import type { ProviderConfig } from '@tangent/shared';
 import type { MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
@@ -183,11 +184,9 @@ export class KeyTooLargeError extends Error {
 export function keyShapeProblem(config: ProviderConfig, apiKey: string): string | null {
   if (!/^[\x21-\x7e]+$/.test(apiKey)) return 'An API key has no spaces or special characters';
   if (apiKey.length < 20) return 'That is too short to be an API key';
-  if (config.kind === 'anthropic' && !config.baseUrl && !apiKey.startsWith('sk-ant-')) {
-    return 'Anthropic API keys start with "sk-ant-"';
-  }
-  if (config.kind === 'openai-compatible' && !config.baseUrl && !apiKey.startsWith('sk-')) {
-    return 'OpenAI API keys start with "sk-"';
+  const endpoint = PROVIDER_KINDS[config.kind].defaultEndpoint;
+  if (endpoint && !config.baseUrl && !apiKey.startsWith(endpoint.keyPrefix)) {
+    return `${endpoint.vendor} API keys start with "${endpoint.keyPrefix}"`;
   }
   return null;
 }

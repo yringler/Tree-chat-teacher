@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isProviderAvailable, type ProviderConfig } from '@tangent/shared';
+import { PROVIDER_KINDS } from '../src/kinds.js';
 import {
   DEFAULT_PROVIDER_CONFIGS,
-  PROVIDER_FACTORIES,
   createProviderRegistry,
   parseProviderConfigs,
 } from '../src/registry.js';
@@ -21,11 +21,7 @@ const FAKE: ProviderConfig = {
 
 describe('provider registry', () => {
   it('registers all kinds', () => {
-    expect(Object.keys(PROVIDER_FACTORIES).sort()).toEqual([
-      'anthropic',
-      'fake',
-      'openai-compatible',
-    ]);
+    expect(Object.keys(PROVIDER_KINDS).sort()).toEqual(['anthropic', 'fake', 'openai-compatible']);
   });
 
   it('has the documented defaults, which round-trip through the parser', () => {
