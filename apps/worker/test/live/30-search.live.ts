@@ -20,10 +20,11 @@ import {
 } from './harness.js';
 
 /**
- * What each reported search adds to the cost, USD, at the deployment's engine and
- * result count: about $0.0035 for Exa at 5 results when this was pinned (2026-10).
+ * What a reply's search adds to its cost, USD, at the deployment's engine and result
+ * count: about $0.007 for Exa at 5 results when this was pinned (2026-10), the same
+ * whether OpenRouter reported one search or two.
  */
-const SEARCH_FEE_BAND = { min: 0.002, max: 0.006 };
+const SEARCH_FEE_BAND = { min: 0.004, max: 0.012 };
 
 describe('openrouter web search', () => {
   const provider = builtInProvider();
@@ -64,13 +65,13 @@ describe('openrouter web search', () => {
     const { engine, maxResults } = appConfig(env).grounding;
     const searches = summary.billing.webSearches ?? 0;
     if (tokens !== null && reported !== undefined && searches > 0) {
-      const each = (reported - tokens) / searches;
+      const fee = reported - tokens;
       outcome.notes = [
-        `${searches} searches at $${each.toFixed(6)} each (${engine}, ${maxResults} results)`,
+        `search fee $${fee.toFixed(6)} for ${searches} reported searches (${engine}, ${maxResults} results)`,
       ];
-      if (each < SEARCH_FEE_BAND.min || each > SEARCH_FEE_BAND.max)
+      if (fee < SEARCH_FEE_BAND.min || fee > SEARCH_FEE_BAND.max)
         outcome.failures.push(
-          `a search added $${each.toFixed(6)}, outside $${SEARCH_FEE_BAND.min}–$${SEARCH_FEE_BAND.max}: is the fee still in the reported cost, at the same rate?`,
+          `the search added $${fee.toFixed(6)}, outside $${SEARCH_FEE_BAND.min}–$${SEARCH_FEE_BAND.max}: is the fee still in the reported cost, at the same rate?`,
         );
     }
     if (summary.searchActivity === 0)
