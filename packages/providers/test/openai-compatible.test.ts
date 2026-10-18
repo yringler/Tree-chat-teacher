@@ -1114,6 +1114,27 @@ describe('openai-compatible prompt caching', () => {
     });
   });
 
+  it('reports prompt_tokens as the input total and completion_tokens as the output total', async () => {
+    // Both already include their parts (cached input, thinking): neither is added again.
+    const stream = [
+      chunk({}, 'stop'),
+      chunk({}, null, {
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 50,
+          prompt_tokens_details: { cached_tokens: 800 },
+          completion_tokens_details: { reasoning_tokens: 30 },
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(OPENROUTER, () => sseResponse(stream).response);
+    expect(await collect(provider.stream(req()))).toContainEqual({
+      type: 'usage',
+      usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 800, reasoningTokens: 30 },
+    });
+  });
+
   it("reports DeepSeek's prompt_cache_hit_tokens as cache reads", async () => {
     const stream = [
       chunk({}, 'stop'),

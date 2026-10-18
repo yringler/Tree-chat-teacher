@@ -607,6 +607,58 @@ describe('anthropic prompt caching', () => {
   });
 });
 
+describe('anthropic usage', () => {
+  it("reports message_start's input and message_delta's output, each only as sent", async () => {
+    // Anthropic's real shape: the input (and its cache split) at the start, a final
+    // message_delta with the output alone; the consumer folds them field by field.
+    const stream = [
+      frame('message_start', {
+        type: 'message_start',
+        message: {
+          id: 'msg_03',
+          usage: {
+            input_tokens: 20,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 980,
+            output_tokens: 2,
+          },
+        },
+      }),
+      frame('message_delta', {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+        usage: { output_tokens: 75 },
+      }),
+      frame('message_stop', { type: 'message_stop' }),
+    ];
+    const { provider } = setup(() => sseResponse(stream).response);
+    expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
+      {
+        type: 'usage',
+        usage: { inputTokens: 1000, outputTokens: 2, cacheReadTokens: 980, cacheWriteTokens: 0 },
+      },
+      { type: 'usage', usage: { outputTokens: 75 } },
+      { type: 'done', stopReason: 'end_turn' },
+    ]);
+  });
+
+  it('reports no input total without input_tokens, even with the cache counts', async () => {
+    const stream = [
+      frame('message_delta', {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+        usage: { cache_read_input_tokens: 500, output_tokens: 9 },
+      }),
+      frame('message_stop', { type: 'message_stop' }),
+    ];
+    const { provider } = setup(() => sseResponse(stream).response);
+    expect((await collect(provider.stream(req())))[0]).toEqual({
+      type: 'usage',
+      usage: { outputTokens: 9, cacheReadTokens: 500 },
+    });
+  });
+});
+
 describe('anthropic web search', () => {
   const WS: ProviderConfig = { ...CONFIG, options: { webSearch: true } };
   const webSearch = { mode: 'auto', maxUses: 1 } as const;

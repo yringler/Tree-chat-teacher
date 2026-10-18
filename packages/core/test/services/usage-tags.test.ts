@@ -115,6 +115,35 @@ describe('ChatService usage tags', () => {
   });
 });
 
+/** Reports usage the way Anthropic does: the input first, a later event with the output alone. */
+class SplitUsageProvider extends ScriptedProvider {
+  override async *stream(req: GenerateRequest): AsyncIterable<ProviderEvent> {
+    for await (const event of super.stream(req)) {
+      if (event.type !== 'usage') yield event;
+      else if (event.usage.inputTokens !== undefined)
+        yield {
+          type: 'usage',
+          usage: { inputTokens: 1000, outputTokens: 2, cacheReadTokens: 980, cacheWriteTokens: 0 },
+        };
+      else {
+        yield { type: 'usage', usage: { outputTokens: 75 } };
+        yield { type: 'usage', usage: { inputTokens: 1001 } };
+      }
+    }
+  }
+}
+
+describe('ChatService usage folding', () => {
+  it('keeps each field of the latest usage event that reports it', async () => {
+    const { chat, repos } = setupWith(new SplitUsageProvider(), false);
+    const { tree } = await chat.createTree({});
+    const root = await send(chat, tree.trunkBranchId, 'ROOT');
+    const usage = { inputTokens: 1001, outputTokens: 75 };
+    expect(root.last).toMatchObject({ type: 'done', node: { usage } });
+    expect((await repos.trees.getNode(root.begin.assistantNode.id))?.usage).toEqual(usage);
+  });
+});
+
 describe('ChatService with billing events', () => {
   it('completes replies, summaries and titles normally and stores only the text', async () => {
     const { chat, repos, provider } = setupWith(new BillingProvider());
