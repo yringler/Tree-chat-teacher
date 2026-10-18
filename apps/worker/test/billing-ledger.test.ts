@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { getBalance, grantCredit, hasGrant } from '../src/billing/ledger.js';
 import { assertCanSpend, getBillingSummary, listUsage } from '../src/billing/service.js';
 import { paymentsConfigured } from '../src/billing/payments/index.js';
+import { markDispatched, markUnresolved, settleUsage } from '../src/billing/usage-store.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
   devPowerAccount,
@@ -12,6 +13,7 @@ import {
   powerAccount,
   simpleAccount,
   uniq,
+  usageRow,
 } from './mocks/billing-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -378,5 +380,118 @@ describe('usage history', () => {
     await expect(listUsage(env, account, 'not-a-cursor', 10)).rejects.toBeInstanceOf(
       ValidationError,
     );
+  });
+});
+
+describe('settleUsage and markUnresolved', () => {
+  /** A pending row (hold 1_000 µ$, markup 10%, fee 5.5%) on credit or the pool. */
+  async function pendingRow(funding: 'personal' | 'pool', webSearches = 0): Promise<string> {
+    const id = await insertUsage(env, { accountId: uniq('acct'), holdMicros: 1_000 });
+    await env.DB.prepare('UPDATE usage_events SET funding = ?, web_searches = ? WHERE id = ?')
+      .bind(funding, webSearches, id)
+      .run();
+    return id;
+  }
+  const at = new Date('2026-10-18T12:00:00.000Z');
+
+  it.each<[string, 'personal' | 'pool', number, number, number, boolean]>([
+    // 2_000_000 n$ × 1.055 × 1.1 = 2_321 µ$, above the 1_000 hold.
+    ['credit charges above its hold, unclamped', 'personal', 2_000_000, 2_321, 0, false],
+    ['the pool clamps to its hold, the rest overage', 'pool', 2_000_000, 1_000, 1_321, true],
+    // 500_000 n$ × 1.055 × 1.1 = 580.25 → 581 µ$.
+    ['credit below its hold', 'personal', 500_000, 581, 0, false],
+    ['the pool below its hold', 'pool', 500_000, 581, 0, false],
+  ])('%s', async (_name, funding, costNanos, charge, overage, clamped) => {
+    const id = await pendingRow(funding);
+    const result = await settleUsage(env.DB, id, {
+      costNanos,
+      markupBps: 1000,
+      feeBps: 550,
+      inputTokens: 10,
+      outputTokens: 5,
+      now: at,
+    });
+    expect(result).toEqual({ changed: true, clamped });
+    expect(await usageRow(env, id)).toMatchObject({
+      status: 'settled',
+      cost_nanos: costNanos,
+      charge_micros: charge,
+      overage_micros: overage,
+      settle_reason: 'cost',
+      input_tokens: 10,
+      output_tokens: 5,
+      settled_at: at.toISOString(),
+    });
+  });
+
+  it.each(['personal', 'pool'] as const)(
+    'charges the full hold on %s with chargeHold, and no cost',
+    async (funding) => {
+      const id = await pendingRow(funding);
+      const result = await settleUsage(env.DB, id, {
+        costNanos: 5,
+        markupBps: 1000,
+        feeBps: 550,
+        reason: 'hold',
+        chargeHold: true,
+      });
+      expect(result).toEqual({ changed: true, clamped: false });
+      expect(await usageRow(env, id)).toMatchObject({
+        charge_micros: 1_000,
+        cost_nanos: null,
+        overage_micros: 0,
+        settle_reason: 'hold',
+      });
+    },
+  );
+
+  it('keeps the stored search count when none is given, and replaces it when one is', async () => {
+    const kept = await pendingRow('personal', 2);
+    await settleUsage(env.DB, kept, { costNanos: 0, markupBps: 0, feeBps: 0, webSearches: null });
+    expect((await usageRow(env, kept)).web_searches).toBe(2);
+    const replaced = await pendingRow('personal', 2);
+    await settleUsage(env.DB, replaced, { costNanos: 0, markupBps: 0, feeBps: 0, webSearches: 0 });
+    expect((await usageRow(env, replaced)).web_searches).toBe(0);
+  });
+
+  it('with requireUndispatched, leaves a dispatched row pending', async () => {
+    const id = await pendingRow('pool');
+    expect(await markDispatched(env.DB, id)).toBe(true);
+    const released = { costNanos: 0, markupBps: 0, feeBps: 0, reason: 'released' as const };
+    expect(await settleUsage(env.DB, id, { ...released, requireUndispatched: true })).toEqual({
+      changed: false,
+      clamped: false,
+    });
+    expect((await usageRow(env, id)).status).toBe('pending');
+    expect(await settleUsage(env.DB, id, released)).toEqual({ changed: true, clamped: false });
+  });
+
+  it('settles once: a second writer changes nothing', async () => {
+    const id = await pendingRow('personal');
+    const s = { costNanos: 1_000_000, markupBps: 1000, feeBps: 550 };
+    expect((await settleUsage(env.DB, id, s)).changed).toBe(true);
+    expect(await settleUsage(env.DB, id, { ...s, costNanos: 9_000_000 })).toEqual({
+      changed: false,
+      clamped: false,
+    });
+    expect(await markUnresolved(env.DB, id)).toBe(false);
+    // 1_000_000 n$ × 1.055 × 1.1 = 1_160.5 → 1_161 µ$.
+    expect(await usageRow(env, id)).toMatchObject({ status: 'settled', charge_micros: 1161 });
+  });
+
+  it('marks a pending row unresolved at 0, once', async () => {
+    const id = await pendingRow('personal');
+    expect(await markUnresolved(env.DB, id, at)).toBe(true);
+    expect(await markUnresolved(env.DB, id, at)).toBe(false);
+    expect(await settleUsage(env.DB, id, { costNanos: 1, markupBps: 0, feeBps: 0 })).toEqual({
+      changed: false,
+      clamped: false,
+    });
+    expect(await usageRow(env, id)).toMatchObject({
+      status: 'unresolved',
+      charge_micros: 0,
+      settle_reason: 'unresolved',
+      settled_at: at.toISOString(),
+    });
   });
 });
