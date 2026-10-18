@@ -904,6 +904,47 @@ describe('Pool meter', () => {
     expect(await available(poolId)).toBe(100_000 - 159);
   });
 
+  it('releases at 0 a dispatched call its provider never sent (a missing key)', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 100_000);
+    const deferred: Promise<unknown>[] = [];
+    const meter = createPoolUsageMeter(
+      env,
+      params(poolId),
+      await newUser(env),
+      (x) => deferred.push(x),
+      FAST,
+    );
+    const keyless = createProviderRegistry(
+      [
+        {
+          id: 'openrouter',
+          kind: 'openai-compatible',
+          label: 'Tangent',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKeySecret: 'BUILT_IN_API_KEY',
+          defaultModel: 'normal',
+          models: [{ id: 'normal', label: 'Normal' }],
+        },
+      ],
+      { secrets: {} },
+    );
+    const events = await drain(
+      meteredRegistry(keyless, meter, () => true)
+        .get('openrouter')!
+        .stream(genRequest(tag())),
+    );
+    expect(events).toEqual([
+      { type: 'error', error: expect.objectContaining({ code: 'config', upstream: 'not_sent' }) },
+    ]);
+    await settleAll(deferred);
+    const [row] = await poolRows(poolId);
+    expect(row!.dispatched_at).not.toBeNull();
+    expect(row).toMatchObject({ status: 'settled', charge_micros: 0, settle_reason: 'released' });
+    expect(await available(poolId)).toBe(100_000);
+  });
+
   it('settles observed tokens at the cache prices the stream reports', async () => {
     quiet();
     const poolId = uniq('pool');
