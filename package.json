@@ -12,6 +12,7 @@
     "assemble": "node scripts/assemble-assets.mjs",
     "dev": "pnpm --filter @tangent/worker dev",
     "test": "turbo run test --concurrency=1 --continue",
+    "test:live": "NODE_USE_ENV_PROXY=1 pnpm --filter @tangent/worker test:live",
     "coverage": "turbo run coverage --concurrency=1 --continue && node scripts/coverage-summary.mjs",
     "e2e": "pnpm --filter @tangent/e2e e2e",
     "typecheck": "turbo run typecheck && tsc -p scripts/model-eval",

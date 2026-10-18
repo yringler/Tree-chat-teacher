@@ -21,3 +21,5 @@ apps/e2e/test-results/
 apps/e2e/playwright-report/
 # Turborepo's local cache and run logs.
 .turbo/
+# The live contract suite's report (apps/worker/test/live).
+apps/worker/.live/

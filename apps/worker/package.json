@@ -12,6 +12,7 @@
     "cf-typegen": "wrangler types",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "coverage": "vitest run --coverage"
   },
   "dependencies": {

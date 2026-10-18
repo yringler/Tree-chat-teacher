@@ -49,8 +49,11 @@ export default tseslint.config(
             'vitest.coverage.ts',
             'packages/*/vitest.config.ts',
             'apps/worker/vitest.config.ts',
+            'apps/worker/vitest.live.config.ts',
             'apps/worker/drizzle.config.ts',
           ],
+          // One over the default of 8: the tool configs above, each package's vitest config.
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 9,
         },
         tsconfigRootDir: import.meta.dirname,
       },

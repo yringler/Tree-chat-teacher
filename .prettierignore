@@ -15,3 +15,6 @@ docs/audits/
 
 # The Flutter app: `dart format` owns its code, and Flutter's tools write its platform files.
 apps/flutter/
+
+# Responses the live contract suite recorded, written as its host serialises them.
+packages/providers/test/fixtures/live/
