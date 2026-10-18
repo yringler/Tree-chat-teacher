@@ -16,7 +16,7 @@ import type { AppEnv } from '../../src/env.js';
 import { creditPrice } from '../../src/pool/model-prices.js';
 import { chargeFromTokensMicros, costFromTokensNanos } from '../../src/pool/pricing.js';
 import { creditRegistryFor, registryFor } from '../../src/registries.js';
-import { powerAccount, simpleAccount } from '../mocks/billing-helpers.js';
+import { devPowerAccount, powerAccount, simpleAccount } from '../mocks/billing-helpers.js';
 import { LIVE_CONTROL } from './bindings.js';
 import type { ReportFooter, ReportRow, ScenarioStatus } from './report.js';
 
@@ -87,6 +87,11 @@ export function builtInProvider(e: AppEnv = env): LlmProvider {
 /** The built-in provider as power's Tangent credit gets it: any OpenRouter model. */
 export function creditProvider(e: AppEnv = env): LlmProvider {
   return creditRegistryFor(e, powerAccount())!.get('openrouter')!;
+}
+
+/** Power's own-key providers (`PROVIDERS`, else the defaults) on the server's keys. */
+export function powerProvider(id: 'anthropic' | 'openai', e: AppEnv = env): LlmProvider {
+  return registryFor(e, devPowerAccount()).get(id)!;
 }
 
 // ---- Prices
@@ -175,6 +180,29 @@ export async function callWithRetry(call: LiveCall): Promise<LiveResult> {
       return { ...result, attempts: attempt };
     await new Promise((r) => setTimeout(r, 2_000 * attempt));
   }
+}
+
+// ---- The prompt cache
+
+/**
+ * A prompt prefix of about `tokens` tokens, the same on every call, so a second call
+ * can read what the first wrote to the prompt cache.
+ */
+export function cachePrefix(tokens: number): string {
+  const facts: string[] = [];
+  for (let i = 1; facts.length * 12 < tokens; i++)
+    facts.push(`Fact ${i}: ${i} times ${i} is ${i * i}, and ${i} plus ${i} is ${i + i}.`);
+  return `You are a concise tutor. Reference table:\n${facts.join('\n')}`;
+}
+
+/** A soft check: the second of two identical calls read from the prompt cache. */
+export function cacheWarnings(first: Outcome, second: Outcome, explicit: boolean): string[] {
+  const warnings: string[] = [];
+  if (explicit && (first.summary?.usage.cacheWriteTokens ?? 0) === 0)
+    warnings.push('the first call reported no cache write');
+  if ((second.summary?.usage.cacheReadTokens ?? 0) === 0)
+    warnings.push('the second call read nothing from the prompt cache');
+  return warnings;
 }
 
 // ---- Scenarios and the report

@@ -8,6 +8,8 @@ import { describe } from 'vitest';
 import { RECONCILE_RETRY_DELAYS_MS } from '../../src/billing/reconcile.js';
 import {
   BAD_KEYS,
+  cachePrefix,
+  cacheWarnings,
   builtInProvider,
   callWithRetry,
   creditProvider,
@@ -20,32 +22,10 @@ import {
   recorded,
   scenario,
   worstUsd,
-  type Outcome,
 } from './harness.js';
 
 const ask = (content: string): ChatMessage[] => [{ role: 'user', content }];
 const SYSTEM = 'You are a concise tutor.';
-
-/**
- * A prompt prefix of about `tokens` tokens, the same on every call, so a second call
- * can read what the first wrote to the prompt cache.
- */
-export function cachePrefix(tokens: number): string {
-  const facts: string[] = [];
-  for (let i = 1; facts.length * 12 < tokens; i++)
-    facts.push(`Fact ${i}: ${i} times ${i} is ${i * i}, and ${i} plus ${i} is ${i + i}.`);
-  return `You are a concise tutor. Reference table:\n${facts.join('\n')}`;
-}
-
-/** A soft check: the second of two identical calls read from the prompt cache. */
-export function cacheWarnings(first: Outcome, second: Outcome, explicit: boolean): string[] {
-  const warnings: string[] = [];
-  if (explicit && (first.summary?.usage.cacheWriteTokens ?? 0) === 0)
-    warnings.push('the first call reported no cache write');
-  if ((second.summary?.usage.cacheReadTokens ?? 0) === 0)
-    warnings.push('the second call read nothing from the prompt cache');
-  return warnings;
-}
 
 describe('openrouter (built-in provider)', () => {
   const provider = builtInProvider();
