@@ -437,29 +437,21 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ],
       const SizedBox(height: 20),
-      // Google comes first, as on the web apps. On the device it signs in with
-      // a captcha token, as the email does, so the one human check sits right
-      // under it, above the email: the check shows its own progress beside
-      // the button that waits for it, and nothing appears or moves once it
-      // passes.
-      if (deviceGoogle) ...[
-        GoogleSignInButton(
-          onPressed: !_busy && _token != null
-              ? () => unawaited(_googleOnDeviceSignIn(googleClientId))
-              : null,
-        ),
-        const SizedBox(height: 12),
-        captcha,
-        const SizedBox(height: 8),
-        const _Divider('or by email'),
-        const SizedBox(height: 8),
-      ] else if (browserGoogle || browserGithub) ...[
-        if (browserGoogle) ...[
+      // Google comes first, as on the web apps. The one human check sits under
+      // the email field, so the short sign-in options read together above it;
+      // on the device Google waits for the check, as the email does.
+      if (deviceGoogle || browserGoogle || browserGithub) ...[
+        if (deviceGoogle)
+          GoogleSignInButton(
+            onPressed: !_busy && _token != null
+                ? () => unawaited(_googleOnDeviceSignIn(googleClientId))
+                : null,
+          )
+        else if (browserGoogle)
           GoogleSignInButton(
             onPressed: _busy ? null : () => unawaited(_social('google')),
           ),
-          const SizedBox(height: 8),
-        ],
+        if (deviceGoogle || browserGoogle) const SizedBox(height: 8),
         if (browserGithub) ...[
           SizedBox(
             width: double.infinity,
@@ -481,7 +473,8 @@ class _LoginPageState extends State<LoginPage> {
         decoration: const InputDecoration(labelText: 'Email'),
         onSubmitted: (_) => unawaited(_send()),
       ),
-      if (!deviceGoogle) ...[const SizedBox(height: 16), captcha],
+      const SizedBox(height: 16),
+      captcha,
       const SizedBox(height: 16),
       SizedBox(
         width: double.infinity,

@@ -23,6 +23,7 @@ Future<SessionController> pumpLogin(
   bool googleOnDevice = false,
   bool? googleEnabled = true,
   GoogleIdTokenSource? googleIdToken,
+  CaptchaBuilder captcha = fakeCaptcha,
   TokenStore? signInStore,
   DateTime Function()? now,
 }) async {
@@ -36,7 +37,7 @@ Future<SessionController> pumpLogin(
       walkthrough: WalkthroughController(api: api, session: session),
       child: MaterialApp(
         home: LoginPage(
-          captcha: fakeCaptcha,
+          captcha: captcha,
           native: native,
           googleOnDevice: googleOnDevice,
           googleEnabled: googleEnabled,
@@ -394,7 +395,7 @@ void main() {
     expect(session.status, SessionStatus.signedIn);
   });
 
-  testWidgets('Android puts Google first, its captcha under it', (
+  testWidgets('Android puts Google first, the captcha under the email', (
     tester,
   ) async {
     final api = FakeTangentApi()
@@ -403,12 +404,35 @@ void main() {
     await pumpLogin(tester, api, native: true, googleOnDevice: true);
     double top(Finder finder) => tester.getTopLeft(finder).dy;
     final google = top(find.byType(GoogleSignInButton));
-    final captcha = top(find.text('Solve'));
     final email = top(find.byType(TextField));
-    expect(google, lessThan(captcha));
-    expect(captcha, lessThan(email));
+    final captcha = top(find.text('Solve'));
+    expect(google, lessThan(email));
+    expect(email, lessThan(captcha));
     expect(find.text('Solve'), findsOneWidget, reason: 'one shared check');
-    expect(top(find.text('Email me a code')), greaterThan(email));
+    expect(top(find.text('Email me a code')), greaterThan(captcha));
+  });
+
+  testWidgets('a small phone shows Google through the send button at once', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(
+      tester,
+      api,
+      native: true,
+      googleOnDevice: true,
+      // The device's Turnstile box is 160 high.
+      captcha: ({key, required siteKey, required onToken}) =>
+          SizedBox(key: key, height: 160, child: const Text('Solve')),
+    );
+    final google = tester.getRect(find.byType(GoogleSignInButton));
+    final send = tester.getRect(find.text('Email me a code'));
+    expect(send.bottom - google.top, lessThan(640));
   });
 
   /// Taps the device's Google button after the captcha, with Google's
