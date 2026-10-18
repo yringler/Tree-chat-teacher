@@ -6,10 +6,9 @@
 // same way, so a hold always covers its charge. Exact integer (BigInt) math,
 // rounded in the pool's favour.
 import { CHARS_PER_TOKEN, renderOverheadBytes, utf8Bytes } from '@tangent/core';
-import { BPS_SCALE, bpsOf, chargeMicros, type ChatMessage } from '@tangent/shared';
+import { chargeMicros, type ChatMessage } from '@tangent/shared';
 import type { ModelPrice } from '../config.js';
 
-const TOKENS_PER_PRICE_UNIT = 1_000_000n;
 /** Per-message framing tokens and a constant for the request envelope (generous). */
 const TOKENS_PER_MESSAGE = 4;
 const TOKENS_PER_REQUEST = 16;
@@ -101,8 +100,11 @@ export function maxInputMicrosPerMTok(price: ModelPrice): number {
 }
 
 /**
- * `ceil((inTok·maxIn + outTok·out) / 10⁶ × (1 + fee))` micro-USD: a bound on
- * the true cost (input at `maxInputMicrosPerMTok`), no markup.
+ * A bound on the true cost of `inputTokens` in (at `maxInputMicrosPerMTok`)
+ * and `outputTokens` out, in micro-USD, with the fee and no markup. Rounded
+ * as a token-priced settle is (to nano-USD, then up to micro-USD,
+ * `chargeFromTokensMicros`): a single rounding can come out a micro-dollar
+ * below that settle.
  */
 function priceMicros(
   price: ModelPrice,
@@ -113,8 +115,12 @@ function priceMicros(
   const raw =
     tokensOf(inputTokens) * BigInt(maxInputMicrosPerMTok(price)) +
     tokensOf(outputTokens) * BigInt(price.outMicrosPerMTok);
-  const divisor = TOKENS_PER_PRICE_UNIT * BPS_SCALE;
-  return Number((raw * (BPS_SCALE + bpsOf(feeBps)) + divisor - 1n) / divisor);
+  return chargeMicros(nanosOfRaw(raw), 0, feeBps);
+}
+
+/** A price in micro-USD × 10⁶ (µ$/MTok × tokens) as nano-USD, rounded up. */
+function nanosOfRaw(raw: bigint): number {
+  return Number((raw + 999n) / 1000n);
 }
 
 /**
@@ -200,7 +206,7 @@ export function costFromTokensNanos(
   // µ$/MTok × tokens / 10⁶ = µ$; × 1000 = n$.
   const raw =
     inputRaw(price, inputTokens, cache) + tokensOf(outputTokens) * BigInt(price.outMicrosPerMTok);
-  return Number((raw + 999n) / 1000n);
+  return nanosOfRaw(raw);
 }
 
 /** What a token-priced call is charged: its true cost plus `markupBps` (0 on the pool). */

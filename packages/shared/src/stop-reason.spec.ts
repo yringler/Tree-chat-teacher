@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   errorKindOf,
+  failedStopError,
   isCutOffReply,
   isLengthStop,
   isStoppedReply,
@@ -8,16 +9,42 @@ import {
   REPLY_CUT_OFF_ERROR,
   REPLY_EMPTY_ERROR,
   REPLY_INTERRUPTED_ERROR,
+  REPLY_REFUSED_ERROR,
   REPLY_STREAM_ENDED_ERROR,
   REPLY_THINKING_ONLY_ERROR,
+  REPLY_UPSTREAM_ERROR,
 } from './stop-reason.js';
 
 describe('isLengthStop', () => {
-  it('is true for the output cap (OpenAI/OpenRouter `length`, Anthropic `max_tokens`) only', () => {
-    expect(isLengthStop('length')).toBe(true);
-    expect(isLengthStop('max_tokens')).toBe(true);
-    for (const other of ['stop', 'end_turn', 'tool_calls', 'content_filter', '', null, undefined])
+  it('is true for the stops that cut a reply off, and only those', () => {
+    // The output cap (OpenAI/OpenRouter, Anthropic), Anthropic's context window, and its
+    // paused server-tool turn, which can't be resumed.
+    for (const cut of ['length', 'max_tokens', 'model_context_window_exceeded', 'pause_turn'])
+      expect(isLengthStop(cut)).toBe(true);
+    for (const other of [
+      'stop',
+      'end_turn',
+      'tool_calls',
+      'content_filter',
+      'refusal',
+      'error',
+      '',
+      null,
+      undefined,
+    ])
       expect(isLengthStop(other)).toBe(false);
+  });
+});
+
+describe('failedStopError', () => {
+  it('fails a reply the model refused or the upstream ended with an error', () => {
+    expect(failedStopError('refusal')).toBe(REPLY_REFUSED_ERROR);
+    expect(failedStopError('error')).toBe(REPLY_UPSTREAM_ERROR);
+  });
+
+  it('is null for every other stop', () => {
+    for (const other of ['stop', 'end_turn', 'length', 'max_tokens', 'pause_turn', '', null])
+      expect(failedStopError(other)).toBeNull();
   });
 });
 

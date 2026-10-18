@@ -32,7 +32,7 @@ import {
   looksLikeContextLength,
   missingSecretError,
   providerError,
-  redact,
+  upstreamMessage,
   resolveCapabilities,
   resolveApiKey,
   resolveConfigHeaders,
@@ -294,8 +294,7 @@ export function createOpenAiCompatibleProvider(
     headers['content-type'] = 'application/json';
 
     return guardStream(request.signal, secrets, async function* () {
-      if (missing !== undefined)
-        throw new ProviderFailure({ ...missingSecretError(missing), upstream: 'not_sent' });
+      if (missing !== undefined) throw new ProviderFailure(missingSecretError(missing));
       const { signal } = request;
       const caps = capabilities(request.model);
 
@@ -408,7 +407,10 @@ export function createOpenAiCompatibleProvider(
           yield {
             type: 'error',
             error: {
-              ...providerError(codeForStreamError(errRec, message), redact(message, secrets)),
+              ...providerError(
+                codeForStreamError(errRec, message),
+                upstreamMessage(message, secrets),
+              ),
               upstream: 'stream',
             },
           };

@@ -1,17 +1,20 @@
-// How an open pool call is settled: one pure function shared by the meter, the expiry alarm and the cron.
+// How a metered call is settled, on credit or the open pool: one pure
+// function shared by both meters, the pool's expiry alarm and its cron.
 //
-// A reservation is released in full only when nothing can have been billed
-// upstream: the request was never dispatched, or it failed before it was sent
-// or was rejected with a non-2xx status. Once dispatched, the call is charged
-// what it is known to have cost (reported cost, a generation lookup, tokens ×
-// the price table), and the full hold when nothing was observed: the operator
-// never pays for upstream work the pool did not pay for.
+// A call is charged nothing only when nothing can have been billed upstream:
+// the request was never dispatched, or it failed before it was sent or was
+// rejected with a non-2xx status. Once dispatched, the call is charged what
+// it is known to have cost (reported cost, a generation lookup, tokens × the
+// model's price), and the full hold when nothing was observed: Tangent never
+// pays OpenRouter for work the call's payer was not charged for. The one
+// exception is a call the user stopped: it is charged its input at the input
+// price, so stopping a reply never costs its whole output cap.
 import { costUsdToNanos, type ProviderUpstream } from '@tangent/shared';
-import type { SettleReason } from '../billing/usage-store.js';
+import type { SettleReason } from './usage-store.js';
 import type { ModelPrice } from '../config.js';
-import { costFromTokensNanos } from './pricing.js';
+import { costFromTokensNanos } from '../pool/pricing.js';
 
-export interface PoolSettleFacts {
+export interface SettleFacts {
   /** `dispatched_at` is set: the request was handed to the provider. */
   dispatched: boolean;
   /** From the call's terminal error event, when the provider knows it. */
@@ -25,11 +28,15 @@ export interface PoolSettleFacts {
   /** Of `inputTokens`, those read from / written to the prompt cache, when reported. */
   cacheReadTokens?: number | null;
   cacheWriteTokens?: number | null;
-  /** The pool model's price, to price observed tokens; null = no tokens settlement. */
+  /** The model's price (the pool's, or credit's list price), to price observed tokens; null = no tokens settlement. */
   price?: ModelPrice | null;
+  /** The user stopped the call (aborted it, or stopped reading), rather than it failing. */
+  userStopped?: boolean;
+  /** The input tokens the meter sized the hold with (its estimate or bound). */
+  heldInputTokens?: number | null;
 }
 
-export type PoolSettlement =
+export type MeteredSettlement =
   | { reason: 'released'; costNanos: 0 }
   | { reason: Extract<SettleReason, 'cost' | 'generation' | 'tokens'>; costNanos: number }
   | { reason: 'hold'; costNanos: null };
@@ -43,12 +50,13 @@ function tokens(n: number | null | undefined): n is number {
 }
 
 /**
- * The settlement of a pool call, in this order: released (never sent, or
+ * The settlement of a metered call, in this order: released (never sent, or
  * refused upstream) → reported cost → generation lookup → tokens × price
- * (both counts observed) → the full hold. Costs are nano-USD before fees; the settle applies the row's
- * fee and clamps the charge to its hold.
+ * (both counts observed) → for a call the user stopped, its input (reported,
+ * else the hold's) at the input price → the full hold. Costs are nano-USD before fees; the
+ * settle applies the row's fee and markup, and clamps a pool charge to its hold.
  */
-export function poolSettlement(f: PoolSettleFacts): PoolSettlement {
+export function meteredSettlement(f: SettleFacts): MeteredSettlement {
   if (!f.dispatched) return { reason: 'released', costNanos: 0 };
   if (f.upstream === 'not_sent' || f.upstream === 'rejected')
     return { reason: 'released', costNanos: 0 };
@@ -65,6 +73,13 @@ export function poolSettlement(f: PoolSettleFacts): PoolSettlement {
         writeTokens: f.cacheWriteTokens ?? null,
       }),
     };
+  }
+  if (f.userStopped && f.price) {
+    const input = tokens(f.inputTokens) ? f.inputTokens : f.heldInputTokens;
+    if (tokens(input)) {
+      const noCache = { readTokens: 0, writeTokens: 0 };
+      return { reason: 'tokens', costNanos: costFromTokensNanos(f.price, input, 0, noCache) };
+    }
   }
   return { reason: 'hold', costNanos: null };
 }

@@ -59,7 +59,12 @@ describe('provider registry', () => {
     ).toEqual([
       {
         type: 'error',
-        error: { code: 'config', message: 'Missing secret ANTHROPIC_API_KEY', retryable: false },
+        error: {
+          code: 'config',
+          message: 'Missing secret ANTHROPIC_API_KEY',
+          retryable: false,
+          upstream: 'not_sent',
+        },
       },
     ]);
     await expect(
@@ -112,6 +117,48 @@ describe('provider registry', () => {
     expect(reg.defaultProviderId()).toBe('local');
   });
 
+  it('fails every call of an unavailable provider as never sent, whatever its kind', async () => {
+    const reg = createProviderRegistry(DEFAULT_PROVIDER_CONFIGS, { secrets: {} });
+    for (const config of DEFAULT_PROVIDER_CONFIGS) {
+      const events = await collect(
+        reg.get(config.id)!.stream({
+          model: config.defaultModel,
+          system: null,
+          messages: [],
+          signal: signal(),
+        }),
+      );
+      expect(events).toEqual([
+        { type: 'error', error: expect.objectContaining({ code: 'config', upstream: 'not_sent' }) },
+      ]);
+    }
+  });
+
+  it('fails a provider without any key source as never sent', async () => {
+    const config: ProviderConfig = {
+      id: 'nokey',
+      kind: 'anthropic',
+      label: 'No key',
+      defaultModel: 'claude-opus-5-5',
+      models: [],
+    };
+    const reg = createProviderRegistry([config], { secrets: {} });
+    const events = await collect(
+      reg.get('nokey')!.stream({ model: 'x', system: null, messages: [], signal: signal() }),
+    );
+    expect(events).toEqual([
+      {
+        type: 'error',
+        error: {
+          code: 'config',
+          message: 'Provider "nokey" has no apiKeySecret configured',
+          retryable: false,
+          upstream: 'not_sent',
+        },
+      },
+    ]);
+  });
+
   it('requires extra header secrets for availability', async () => {
     const configs: ProviderConfig[] = [
       {
@@ -133,7 +180,12 @@ describe('provider registry', () => {
     expect(events).toEqual([
       {
         type: 'error',
-        error: { code: 'config', message: 'Missing secret CF_AIG_TOKEN', retryable: false },
+        error: {
+          code: 'config',
+          message: 'Missing secret CF_AIG_TOKEN',
+          retryable: false,
+          upstream: 'not_sent',
+        },
       },
     ]);
   });

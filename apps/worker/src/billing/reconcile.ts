@@ -20,7 +20,12 @@ export const RECONCILE_RETRY_DELAYS_MS: readonly number[] = [1_000, 3_000, 10_00
 const MINUTE = 60_000;
 /** The cron leaves younger rows to the in-flight stream / its deferred reconcile. */
 export const CRON_MIN_AGE_MS = 2 * MINUTE;
-/** A row that never got a generation id never reached OpenRouter: settle at 0. */
+/**
+ * A row still pending this long without a generation id is released at 0. Its
+ * meter settles a call that was sent (by tokens, else the hold); the cron can't
+ * tell one whose meter died from one never sent, since a pending row stores
+ * neither its tokens nor how far the call got.
+ */
 export const CRON_NO_ID_AGE_MS = 10 * MINUTE;
 /** Give up (charge 0, `unresolved`, logged) after this long. */
 export const CRON_GIVE_UP_AGE_MS = 24 * 60 * MINUTE;

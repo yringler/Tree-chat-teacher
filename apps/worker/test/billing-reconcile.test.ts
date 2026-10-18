@@ -1,6 +1,6 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { reconcilePendingUsage } from '../src/billing/reconcile.js';
+import { reconcileGeneration, reconcilePendingUsage } from '../src/billing/reconcile.js';
 import { builtInApiKey } from '../src/simple-mode.js';
 import { CRON_JOBS } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
@@ -98,6 +98,53 @@ describe('usage reconciliation cron', () => {
 
     // A second run is a no-op for everything already resolved.
     expect(await reconcilePendingUsage(env, NOW)).toEqual({ settled: 0, unresolved: 0 });
+  });
+
+  it('counts one search for reported results, and keeps the stored count for none', async () => {
+    const accountId = uniq('acct');
+    const row = async (results: number) => {
+      const generationId = uniq('gen-search');
+      await scriptGeneration(generationId, [{ costUsd: 0.001, numSearchResults: results }]);
+      const id = await insertUsage(env, { accountId, generationId, createdAt: ago(5 * MIN) });
+      await env.DB.prepare('UPDATE usage_events SET web_searches = 3 WHERE id = ?').bind(id).run();
+      return id;
+    };
+    const none = await row(0);
+    const five = await row(5);
+    await reconcilePendingUsage(env, NOW);
+    expect(await usageRow(env, none)).toMatchObject({ status: 'settled', web_searches: 3 });
+    expect(await usageRow(env, five)).toMatchObject({ status: 'settled', web_searches: 1 });
+  });
+
+  it('settles a cancelled generation at what OpenRouter reports, $0 included', async () => {
+    const generationId = uniq('gen-cancelled');
+    await scriptGeneration(generationId, [{ costUsd: 0, cancelled: true }]);
+    const id = await insertUsage(env, {
+      accountId: uniq('acct'),
+      generationId,
+      createdAt: ago(5 * MIN),
+    });
+    await reconcilePendingUsage(env, NOW);
+    expect(await usageRow(env, id)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'generation',
+      cost_nanos: 0,
+      charge_micros: 0,
+    });
+  });
+
+  it("settles inline with the stream's own search count over OpenRouter's results", async () => {
+    const generationId = uniq('gen-inline');
+    await scriptGeneration(generationId, [{ costUsd: 0.001, numSearchResults: 5 }]);
+    const id = await insertUsage(env, { accountId: uniq('acct'), generationId });
+    const target = { usageId: id, markupBps: 0, feeBps: 0, webSearches: 2 };
+    expect(await reconcileGeneration(env, target, generationId, { delaysMs: [0] })).toBe(true);
+    expect(await usageRow(env, id)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'generation',
+      charge_micros: 1_000,
+      web_searches: 2,
+    });
   });
 
   it('survives OpenRouter errors and still gives up on old rows without a key', async () => {

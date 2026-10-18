@@ -13,7 +13,7 @@ import {
   poolInputLimitTokens,
   worstCaseHoldMicros,
 } from '../src/pool/pricing.js';
-import { poolSettlement } from '../src/pool/settle-policy.js';
+import { meteredSettlement } from '../src/billing/settle-policy.js';
 
 const FLASH: ModelPrice = {
   inMicrosPerMTok: 100_000,
@@ -116,6 +116,67 @@ describe('pool pricing', () => {
       }
     }
   });
+
+  it('holds at least the settle where rounding the cost to nanos first adds a micro-dollar', () => {
+    // 20 bound input tokens at 44_751 µ$/MTok, 1 output token at $1/MTok, a 5.5% fee:
+    // 1_895_020 µ$/10⁶ × 1.055 = 1.9992 µ$ in one rounding, but the settle rounds
+    // 1_895.02 n$ up to 1_896 first, and 1_896 × 1.055 = 2_000.28 n$ → 3 µ$.
+    const price: ModelPrice = {
+      inMicrosPerMTok: 44_751,
+      outMicrosPerMTok: 1_000_000,
+      contextTokens: 1000,
+    };
+    const request = { system: null, messages: [msg('')] };
+    expect(inputBoundTokens(request)).toBe(20);
+    const settle = chargeFromTokensMicros(price, 20, 1, 550, 0);
+    expect(settle).toBe(3);
+    expect(worstCaseHoldMicros(price, request, 1, 550)).toBeGreaterThanOrEqual(settle);
+  });
+
+  it('holds at least what the call settles at, over seeded random prices, sizes and fees', () => {
+    let a = 20261018;
+    /** A seeded PRNG (mulberry32), so a failing case reproduces. */
+    const rand = (): number => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+    };
+    const int = (max: number): number => Math.floor(rand() ** 2 * (max + 1));
+    for (let i = 0; i < 20_000; i++) {
+      const inPrice = 1 + int(20_000_000);
+      const price: ModelPrice = {
+        inMicrosPerMTok: inPrice,
+        outMicrosPerMTok: 1 + int(80_000_000),
+        contextTokens: 1_000_000,
+        ...(rand() < 0.5
+          ? {
+              cacheReadMicrosPerMTok: Math.ceil(inPrice / 10),
+              cacheWriteMicrosPerMTok: Math.ceil(inPrice * 1.25),
+            }
+          : {}),
+      };
+      const bound = 20 + int(2000);
+      const request = { system: null, messages: [msg('x'.repeat(bound - 20))] };
+      const outTok = int(4000);
+      const fee = int(1500);
+      const hold = worstCaseHoldMicros(price, request, outTok, fee);
+      // The settle's input is at most the bound, at its reported cache split or none.
+      const inTok = bound - int(bound);
+      const read = int(inTok);
+      const caches = [
+        {},
+        { readTokens: read, writeTokens: int(inTok - read) },
+        { readTokens: read },
+      ];
+      for (const cache of caches) {
+        const settle = chargeFromTokensMicros(price, inTok, outTok, fee, 0, cache);
+        const at = JSON.stringify({ price, bound, inTok, outTok, fee, cache });
+        expect(hold, at).toBeGreaterThanOrEqual(settle);
+      }
+    }
+  });
 });
 
 describe('pool pricing with prompt caching', () => {
@@ -192,7 +253,7 @@ describe('pool pricing with prompt caching', () => {
 
   it('settles tokens with the reported cache share', () => {
     expect(
-      poolSettlement({
+      meteredSettlement({
         dispatched: true,
         inputTokens: 1000,
         outputTokens: 10,
@@ -202,7 +263,7 @@ describe('pool pricing with prompt caching', () => {
       }),
     ).toEqual({ reason: 'tokens', costNanos: 1_170_000 });
     expect(
-      poolSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 10, price: CACHED }),
+      meteredSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 10, price: CACHED }),
     ).toEqual({ reason: 'tokens', costNanos: 2_600_000 });
   });
 });
@@ -210,16 +271,16 @@ describe('pool pricing with prompt caching', () => {
 describe('pool settle policy', () => {
   const price = { ...FLASH };
   it('releases what never left, or was refused upstream', () => {
-    expect(poolSettlement({ dispatched: false, costUsd: 1 })).toEqual({
+    expect(meteredSettlement({ dispatched: false, costUsd: 1 })).toEqual({
       reason: 'released',
       costNanos: 0,
     });
-    expect(poolSettlement({ dispatched: true, upstream: 'not_sent' })).toEqual({
+    expect(meteredSettlement({ dispatched: true, upstream: 'not_sent' })).toEqual({
       reason: 'released',
       costNanos: 0,
     });
     expect(
-      poolSettlement({
+      meteredSettlement({
         dispatched: true,
         upstream: 'rejected',
         inputTokens: 1,
@@ -234,7 +295,7 @@ describe('pool settle policy', () => {
 
   it('charges reported cost, then a lookup, then tokens, then the hold', () => {
     expect(
-      poolSettlement({
+      meteredSettlement({
         dispatched: true,
         upstream: 'stream',
         costUsd: 0.001,
@@ -245,7 +306,7 @@ describe('pool settle policy', () => {
       costNanos: 1_000_000,
     });
     expect(
-      poolSettlement({
+      meteredSettlement({
         dispatched: true,
         generationCostUsd: 0.002,
         inputTokens: 1,
@@ -257,21 +318,39 @@ describe('pool settle policy', () => {
       costNanos: 2_000_000,
     });
     expect(
-      poolSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 500, price }),
+      meteredSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 500, price }),
     ).toEqual({
       reason: 'tokens',
       costNanos: 300_000,
     });
     // One count alone (a stream cut short), or no price: the hold.
-    expect(poolSettlement({ dispatched: true, inputTokens: 1000, price })).toEqual({
+    expect(meteredSettlement({ dispatched: true, inputTokens: 1000, price })).toEqual({
       reason: 'hold',
       costNanos: null,
     });
-    expect(poolSettlement({ dispatched: true, inputTokens: 1, outputTokens: 1 })).toEqual({
+    expect(meteredSettlement({ dispatched: true, inputTokens: 1, outputTokens: 1 })).toEqual({
       reason: 'hold',
       costNanos: null,
     });
-    expect(poolSettlement({ dispatched: true })).toEqual({ reason: 'hold', costNanos: null });
+    expect(meteredSettlement({ dispatched: true })).toEqual({ reason: 'hold', costNanos: null });
+    // A call the user stopped with nothing reported: its input at the input price, no output.
+    const stoppedAt = { dispatched: true, userStopped: true, heldInputTokens: 1000, price };
+    expect(meteredSettlement(stoppedAt)).toEqual({
+      reason: 'tokens',
+      costNanos: costFromTokensNanos(price, 1000, 0, { readTokens: 0, writeTokens: 0 }),
+    });
+    expect(meteredSettlement({ ...stoppedAt, inputTokens: 10 })).toEqual({
+      reason: 'tokens',
+      costNanos: costFromTokensNanos(price, 10, 0, { readTokens: 0, writeTokens: 0 }),
+    });
+    expect(meteredSettlement({ ...stoppedAt, heldInputTokens: null })).toEqual({
+      reason: 'hold',
+      costNanos: null,
+    });
+    expect(meteredSettlement({ ...stoppedAt, userStopped: false })).toEqual({
+      reason: 'hold',
+      costNanos: null,
+    });
   });
 });
 

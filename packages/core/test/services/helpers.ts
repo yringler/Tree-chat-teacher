@@ -39,6 +39,8 @@ export class ScriptedProvider implements LlmProvider {
   reasoning = false;
   /** `done.stopReason` of chat replies (`length`: cut off at the cap). */
   chatStopReason = 'end_turn';
+  /** `done.stopReason` of summaries (`length`: cut off at the cap). */
+  summaryStopReason = 'end_turn';
   /** Text of chat replies instead of the default echo (`''`: an empty reply). */
   chatText: string | null = null;
   /** Set by a test that counts tokens (with capability `supportsTokenCount`). */
@@ -112,7 +114,13 @@ export class ScriptedProvider implements LlmProvider {
       yield { type: 'citations', citations: this.citations };
       yield { type: 'billing', costUsd: 0.008, webSearches: 1 };
     }
-    yield { type: 'done', stopReason: kind === 'chat' ? this.chatStopReason : 'end_turn' };
+    const stopReason =
+      kind === 'chat'
+        ? this.chatStopReason
+        : kind === 'summary'
+          ? this.summaryStopReason
+          : 'end_turn';
+    yield { type: 'done', stopReason };
   }
 
   chatCalls(): GenerateRequest[] {

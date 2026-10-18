@@ -349,8 +349,12 @@ function unavailableReason(config: ProviderConfig, env: ProviderEnv): ProviderEr
   return providerError('config', `Provider "${config.id}" has no apiKeySecret configured`);
 }
 
-/** Keeps metadata/capabilities of the real provider, but every call fails with a config error. */
-function unavailableProvider(inner: LlmProvider, error: ProviderError): LlmProvider {
+/**
+ * Keeps metadata/capabilities of the real provider, but every call fails with
+ * a config error, as never sent (the open pool releases its hold).
+ */
+function unavailableProvider(inner: LlmProvider, reason: ProviderError): LlmProvider {
+  const error: ProviderError = { ...reason, upstream: 'not_sent' };
   return {
     id: inner.id,
     kind: inner.kind,
