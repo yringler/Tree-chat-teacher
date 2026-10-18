@@ -180,6 +180,8 @@ export function createLiveHost(options: LiveHostOptions): (request: Request) => 
       case '/__settings':
         return Response.json({
           budgetUsd: options.budgetUsd,
+          spentUsd: committedUsd,
+          keyUsageStartUsd: footer.keyUsageStartUsd,
           allowUnlimitedKey: options.allowUnlimitedKey,
           record: options.record,
         });

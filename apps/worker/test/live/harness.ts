@@ -40,6 +40,10 @@ async function control<T>(path: string, body?: unknown): Promise<T> {
 
 export interface LiveSettings {
   budgetUsd: number;
+  /** Committed against the budget so far. */
+  spentUsd: number;
+  /** The key's usage at the preflight. */
+  keyUsageStartUsd?: number;
   allowUnlimitedKey: boolean;
   record: boolean;
 }
@@ -97,6 +101,39 @@ export function creditProvider(e: AppEnv = env): LlmProvider {
 /** Power's own-key providers (`PROVIDERS`, else the defaults) on the server's keys. */
 export function powerProvider(id: 'anthropic' | 'openai', e: AppEnv = env): LlmProvider {
   return registryFor(e, devPowerAccount()).get(id)!;
+}
+
+// ---- The key's own account
+
+export const KEY_URL = 'https://openrouter.ai/api/v1/key';
+
+/** `GET /api/v1/key`'s `data`, the fields the preflight and postflight read. */
+export interface KeyInfo {
+  usage: number;
+  limit: number | null;
+  limitRemaining: number | null;
+}
+
+/** The key's limit and usage; fails on a field that moved or changed type. */
+export async function keyInfo(): Promise<KeyInfo> {
+  const key = liveKey('BUILT_IN_API_KEY');
+  if (!key) throw new Error('no OpenRouter key');
+  const res = await fetch(KEY_URL, { headers: { authorization: `Bearer ${key}` } });
+  if (!res.ok) throw new Error(`GET /api/v1/key: HTTP ${res.status}`);
+  const body: unknown = await res.json();
+  const data =
+    typeof body === 'object' && body !== null && 'data' in body ? (body.data as unknown) : null;
+  if (typeof data !== 'object' || data === null) throw new Error('GET /api/v1/key: no data');
+  const field = (name: string): unknown => (data as Record<string, unknown>)[name];
+  const usage = field('usage');
+  const limit = field('limit');
+  const remaining = field('limit_remaining');
+  if (typeof usage !== 'number') throw new Error('GET /api/v1/key: data.usage is not a number');
+  if (limit !== null && typeof limit !== 'number')
+    throw new Error('GET /api/v1/key: data.limit is neither a number nor null');
+  if (remaining !== null && typeof remaining !== 'number')
+    throw new Error('GET /api/v1/key: data.limit_remaining is neither a number nor null');
+  return { usage, limit, limitRemaining: remaining };
 }
 
 // ---- Prices
