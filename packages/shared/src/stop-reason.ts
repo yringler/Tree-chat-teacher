@@ -11,12 +11,43 @@ import type { ChatNode, NodeErrorKind } from './domain.js';
  * from a failure.
  */
 
-/** Upstream finish reasons of a reply cut off at its output cap (OpenAI/OpenRouter, Anthropic). */
-const LENGTH_STOP_REASONS: ReadonlySet<string> = new Set(['length', 'max_tokens']);
+/**
+ * Upstream finish reasons of a reply cut off before it finished: its output
+ * cap (OpenAI/OpenRouter `length`, Anthropic `max_tokens`), Anthropic's
+ * context window (`model_context_window_exceeded`), and Anthropic's
+ * `pause_turn`, a server-tool turn paused for the caller to resume, which
+ * nothing here resumes, so the learner continues it like a cut-off reply.
+ */
+const LENGTH_STOP_REASONS: ReadonlySet<string> = new Set([
+  'length',
+  'max_tokens',
+  'model_context_window_exceeded',
+  'pause_turn',
+]);
 
-/** Whether a provider's `done.stopReason` means the output cap ended the reply. */
+/** Whether a provider's `done.stopReason` means the reply was cut off (`LENGTH_STOP_REASONS`). */
 export function isLengthStop(stopReason: string | null | undefined): boolean {
   return stopReason != null && LENGTH_STOP_REASONS.has(stopReason);
+}
+
+/** `ChatNode.error` of a reply the model refused to write (Anthropic `refusal`). */
+export const REPLY_REFUSED_ERROR = 'The model declined to answer. Try rephrasing your message.';
+
+/**
+ * `ChatNode.error` of a reply the upstream ended with an error it didn't
+ * describe (OpenRouter's `finish_reason: 'error'` without an error object).
+ */
+export const REPLY_UPSTREAM_ERROR = 'The provider failed while writing the reply.';
+
+/** Stop reasons that end a reply as a failure, with their `ChatNode.error`. */
+const FAILED_STOP_REASONS: ReadonlyMap<string, string> = new Map([
+  ['refusal', REPLY_REFUSED_ERROR],
+  ['error', REPLY_UPSTREAM_ERROR],
+]);
+
+/** The error a provider's `done.stopReason` fails a reply with, or null when it doesn't. */
+export function failedStopError(stopReason: string | null | undefined): string | null {
+  return stopReason == null ? null : (FAILED_STOP_REASONS.get(stopReason) ?? null);
 }
 
 /** `ChatNode.error` of a reply cut off at its length limit; its partial text is kept. */

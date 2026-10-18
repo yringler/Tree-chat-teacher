@@ -1,7 +1,9 @@
 import {
   REPLY_CUT_OFF_ERROR,
   REPLY_EMPTY_ERROR,
+  REPLY_REFUSED_ERROR,
   REPLY_THINKING_ONLY_ERROR,
+  REPLY_UPSTREAM_ERROR,
   isCutOffReply,
 } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
@@ -20,7 +22,7 @@ describe('replies cut off or empty', () => {
     return { ...s, ...result, node, branchId };
   }
 
-  it.each(['length', 'max_tokens'])(
+  it.each(['length', 'max_tokens', 'model_context_window_exceeded', 'pause_turn'])(
     'stores a reply stopped by %s as a cut-off error that keeps its text',
     async (stopReason) => {
       const { last, node } = await replyWith(stopReason, 'Half of the deriv');
@@ -71,6 +73,29 @@ describe('replies cut off or empty', () => {
     const { last, node } = await replyWith('stop', '  \n');
     expect(last).toMatchObject({ type: 'error', message: REPLY_EMPTY_ERROR });
     expect(node).toMatchObject({ status: 'error', error: REPLY_EMPTY_ERROR, errorKind: 'empty' });
+  });
+
+  it.each([
+    ['refusal', REPLY_REFUSED_ERROR],
+    ['error', REPLY_UPSTREAM_ERROR],
+  ])('fails a reply stopped by %s as a provider error that keeps its text', async (stop, error) => {
+    const { last, node } = await replyWith(stop, 'Half of the deriv');
+    expect(last).toMatchObject({ type: 'error', message: error });
+    expect(node).toMatchObject({
+      status: 'error',
+      error,
+      errorKind: 'provider',
+      content: 'Half of the deriv',
+    });
+  });
+
+  it('fails a refusal without any text as refused, not as empty', async () => {
+    const { node } = await replyWith('refusal', '');
+    expect(node).toMatchObject({
+      status: 'error',
+      error: REPLY_REFUSED_ERROR,
+      errorKind: 'provider',
+    });
   });
 
   it('completes a reply that stopped on its own', async () => {
