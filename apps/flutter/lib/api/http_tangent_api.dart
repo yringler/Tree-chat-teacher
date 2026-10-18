@@ -133,12 +133,22 @@ class HttpTangentApi implements TangentApi {
   }
 
   /// Keeps the signed session token a sign-in answered with (Better Auth's
-  /// bearer plugin), for a client that keeps it itself.
+  /// bearer plugin), for a client that keeps it itself. Without one such a
+  /// client would stay signed out with nothing said, so that is an error.
   Future<void> _keepSessionToken(http.StreamedResponse response) async {
     await response.stream.drain<void>();
     final token = response.headers['set-auth-token'];
     final store = tokens;
-    if (store == null || token == null || token.isEmpty) return;
+    if (store == null) return;
+    if (token == null || token.isEmpty) {
+      throw ApiException(
+        status: response.statusCode,
+        code: 'no_session_token',
+        message:
+            'The server signed you in but sent the app no session. '
+            'Please try again.',
+      );
+    }
     await store.write(token);
     _token = Future.value(token);
   }
