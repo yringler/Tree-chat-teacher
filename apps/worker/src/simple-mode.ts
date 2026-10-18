@@ -1,5 +1,5 @@
 import { appChatSettings, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
-import { isOpenRouterBaseUrl, parseProviderConfigs, providerTraits } from '@tangent/providers';
+import { parseProviderConfigs, providerTraits } from '@tangent/providers';
 import {
   ANTHROPIC_PROVIDER_ID,
   OPENROUTER_PROVIDER_ID,
@@ -362,16 +362,14 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
 
 /**
  * What Learn offers, as the public pages (landing, pricing) describe it, read
- * from the built-in provider's config: whether it is OpenRouter (so credit
- * takes "any OpenRouter model"), the Max power suggests on credit (null when
- * it lists none), whether its replies can search the web, and
- * whether a search costs about 1¢ (OpenRouter's Exa price covers up to 10
- * results; other engines and more results cost differently). Null when
+ * from the built-in provider's config: the Max power suggests on credit (null
+ * when it lists none), whether its replies can search the web, and whether a
+ * search costs about 1¢ (OpenRouter's Exa price covers up to 10 results;
+ * other engines, other catalogs and more results cost differently). Null when
  * BUILT_IN_PROVIDER is invalid, so a page falls back to wording that claims
  * none of these.
  */
 export interface LearnOffer {
-  openRouter: boolean;
   /** The label of power's Max on Tangent credit; null when the provider lists no Max. */
   powerMax: string | null;
   search: boolean;
@@ -385,12 +383,11 @@ export function learnOffer(env: AppEnv): LearnOffer | null {
   } catch {
     return null;
   }
-  const openRouter = config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
+  const openRouterPrices = providerTraits(config).catalog === 'openrouter';
   const { engine, maxResults } = appConfig(env).grounding;
   return {
-    openRouter,
     powerMax: tierModel(config.models, 'max')?.label ?? null,
     search: config.options?.['webSearch'] === true,
-    searchAboutOneCent: openRouter && engine === 'exa' && maxResults <= 10,
+    searchAboutOneCent: openRouterPrices && engine === 'exa' && maxResults <= 10,
   };
 }

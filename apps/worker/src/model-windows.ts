@@ -13,7 +13,7 @@
 // Tangent credit's and the pool's windows bound the size of their holds and
 // their input caps, so they stay the lower of theirs and the model's. An
 // output limit OpenRouter reports only ever lowers the configured one.
-import { decorateProvider, isOpenRouterBaseUrl } from '@tangent/providers';
+import { decorateProvider, providerTraits } from '@tangent/providers';
 import type {
   LlmProvider,
   ProviderCapabilities,
@@ -172,7 +172,7 @@ function windowConfigured(config: ProviderConfig, model: string): boolean {
 }
 
 /**
- * `registry` with each OpenRouter provider (`configs`, by id) able to
+ * `registry` with each provider on OpenRouter's catalog (`configs`, by id) able to
  * resolve a model's real limits (`LlmProvider.resolveCapabilities`, which
  * ChatService budgets with), looked up once per model (`lookup`, default
  * `modelWindow`). Other providers pass through: their model ids aren't
@@ -185,9 +185,7 @@ export function withModelWindows(
   lookup: (model: string) => Promise<ModelWindow | null> = (model) => modelWindow(env, model),
 ): ProviderRegistry {
   const openRouter = new Map(
-    configs
-      .filter((c) => c.kind === 'openai-compatible' && isOpenRouterBaseUrl(c.baseUrl))
-      .map((c) => [c.id, c]),
+    configs.filter((c) => providerTraits(c).catalog === 'openrouter').map((c) => [c.id, c]),
   );
   if (openRouter.size === 0) return registry;
   const looked = new Map<string, Promise<ModelWindow | null>>();

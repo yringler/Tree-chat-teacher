@@ -1,4 +1,4 @@
-import { isOpenRouterBaseUrl, PROVIDER_KINDS } from '@tangent/providers';
+import { PROVIDER_KINDS, providerTraits } from '@tangent/providers';
 import type { ProviderConfig } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
 import { poolModel, poolRequest } from '../pool/params.js';
@@ -105,7 +105,7 @@ export function hostedAi(env: AppEnv): HostedAi | null {
   } catch {
     return null;
   }
-  const openRouter = config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
+  const openRouter = providerTraits(config).catalog === 'openrouter';
   const routing = asRecord(asRecord(config.options?.['extraBody'])['provider']);
   // The operator's explicit `allow_fallbacks` wins over the pinning's default (openai-compatible.ts).
   const fallbacks = routing['allow_fallbacks'] !== false;

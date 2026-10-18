@@ -8,5 +8,4 @@ export * from './verify.js';
 export * from './openrouter-generation.js';
 export * from './prompt-cache.js';
 export * from './traits.js';
-export { isOpenRouterBaseUrl } from './internal.js';
 export * from './decorate.js';
