@@ -6,21 +6,24 @@
 //      while the balance covers it (and, for a call a user starts, fewer than
 //      USAGE_MAX_PENDING are in flight), in one statement, or, for a reply
 //      reserved before its nodes were written (`UsageTag.reservationId`), that
-//      row repriced and stamped dispatched. Awaited; no row, no call.
+//      row repriced. Either records the input estimate the hold was sized
+//      with, and is stamped dispatched right before the call goes upstream,
+//      so the cron can charge that input if this meter dies. Awaited; no row
+//      (or no stamp), no call.
 //   2. Tap `billing` (generation id, reported cost) and `usage` (tokens).
-//   3. At the terminal event: settle inline when the cost is known; else, with a
-//      generation id, reconcile in the background via OpenRouter; else (the
-//      request never reached OpenRouter) settle at 0.
-import {
-  type GenerateRequest,
-  type ProviderErrorCode,
-  type UsagePurpose,
-  costUsdToNanos,
-} from '@tangent/shared';
+//   3. At the terminal event, settle by the metered policy (settle-policy.ts):
+//      released at 0 when nothing can have been billed upstream, else the
+//      reported cost; failing that, with a generation id, reconcile in the
+//      background via OpenRouter; else the tokens it used at the list price;
+//      else, when the user stopped it, its estimated input at the input price;
+//      else the full hold.
+import type { GenerateRequest, ProviderErrorCode, UsagePurpose } from '@tangent/shared';
 import { DomainError, PaymentRequiredError } from '@tangent/core';
+import type { ModelPrice } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { ObservedRun, type UsageMeter, type UsageMeterOptions } from './meter-run.js';
+import { meteredSettlement } from './settle-policy.js';
 import {
   creditHoldMicros,
   CREDIT_RATES,
@@ -51,6 +54,8 @@ export class CreditRefusedError extends Error {
 }
 
 class PersonalRun extends ObservedRun {
+  private dispatched = false;
+
   constructor(
     env: AppEnv,
     usageId: string,
@@ -59,25 +64,45 @@ class PersonalRun extends ObservedRun {
     defer: (p: Promise<unknown>) => void,
     options: UsageMeterOptions,
     request: GenerateRequest,
-    /** The row was reserved before the reply's nodes were written: stamp it, so no release takes it. */
-    private readonly reserved: boolean,
+    /** The model's list price, to price the tokens of a call that reports no cost. */
+    private readonly price: ModelPrice,
+    /** The estimated input tokens its hold was sized with. */
+    private readonly heldInputTokens: number,
   ) {
     super(env, usageId, markupBps, feeBps, defer, options, request);
   }
 
-  override dispatch(): Promise<boolean> {
-    return this.reserved ? markDispatched(this.env.DB, this.usageId) : Promise.resolve(true);
+  override async dispatch(): Promise<boolean> {
+    // Stamped, so no release takes a reserved reply's row and the cron knows the call was sent.
+    this.dispatched = await markDispatched(this.env.DB, this.usageId);
+    return this.dispatched;
   }
 
   protected async settleRun(): Promise<void> {
-    if (this.costUsd !== null) {
-      await this.settleOrDefer({ costNanos: costUsdToNanos(this.costUsd), reason: 'cost' });
-    } else if (this.generationId !== null) {
+    const s = meteredSettlement({
+      dispatched: this.dispatched,
+      upstream: this.upstream,
+      costUsd: this.costUsd,
+      inputTokens: this.inputTokens,
+      outputTokens: this.outputTokens,
+      cacheReadTokens: this.cacheReadTokens,
+      cacheWriteTokens: this.cacheWriteTokens,
+      price: this.price,
+      userStopped: this.userStopped,
+      heldInputTokens: this.heldInputTokens,
+    });
+    if ((s.reason === 'tokens' || s.reason === 'hold') && this.generationId !== null) {
+      // OpenRouter knows the real cost; failing that, the cron settles the row.
       this.defer(this.reconcileLater(this.generationId));
-    } else {
-      // Never reached OpenRouter (failed before a response): nothing was billed upstream.
-      await this.settleOrDefer({ costNanos: 0, reason: 'released' });
+      return;
     }
+    await this.settleOrDefer({
+      costNanos: s.costNanos ?? 0,
+      reason: s.reason,
+      chargeHold: s.reason === 'hold',
+      // A run that never dispatched must not release a row another run has dispatched.
+      requireUndispatched: !this.dispatched && s.reason === 'released',
+    });
   }
 }
 
@@ -102,15 +127,20 @@ export function createUsageMeter(
       const rates = CREDIT_RATES;
       // The hold bounds the output: a request without a cap gets the provider's.
       const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
-      const holdMicros = creditHoldMicros(
-        env,
-        price,
-        estimatedInputTokens(request),
-        upstream.maxOutputTokens,
-        rates,
-      );
-      const run = (usageId: string, r: typeof rates, reserved: boolean) =>
-        new PersonalRun(env, usageId, r.markupBps, r.feeBps, defer, options, upstream, reserved);
+      const inputTokens = estimatedInputTokens(request);
+      const holdMicros = creditHoldMicros(env, price, inputTokens, upstream.maxOutputTokens, rates);
+      const run = (usageId: string, r: typeof rates) =>
+        new PersonalRun(
+          env,
+          usageId,
+          r.markupBps,
+          r.feeBps,
+          defer,
+          options,
+          upstream,
+          price,
+          inputTokens,
+        );
       if (tag?.reservationId) {
         const claimed = await repriceReservation(
           env.DB,
@@ -118,8 +148,9 @@ export function createUsageMeter(
           account.billingAccountId,
           holdMicros,
           tag.nodeId,
+          inputTokens,
         );
-        if (claimed) return run(tag.reservationId, claimed, true);
+        if (claimed) return run(tag.reservationId, claimed);
         // Already used (a reply retried without its web search), or too dear for the balance:
         // reserved afresh below, where a refusal says which.
       }
@@ -138,6 +169,7 @@ export function createUsageMeter(
           providerId,
           model,
           holdMicros,
+          heldInputTokens: inputTokens,
           ...rates,
           createdAt: new Date().toISOString(),
         },
@@ -151,7 +183,7 @@ export function createUsageMeter(
           refusal instanceof PaymentRequiredError ? 'payment_required' : 'rate_limit',
         );
       }
-      return run(usageId, rates, false);
+      return run(usageId, rates);
     },
   };
 }

@@ -24,10 +24,9 @@ const STORED_FUNDING = {
 
 /**
  * How a row settled. `cost`: the cost the stream reported; `generation`: from
- * OpenRouter's generation lookup; `tokens`: tokens × the price table (pool);
- * `hold`: the full hold (pool, nothing observed); `released`: charged 0
- * because nothing was billed upstream (the pool's refund of a reservation);
- * `unresolved`: given up at 0 (personal).
+ * OpenRouter's generation lookup; `tokens`: tokens × the model's price;
+ * `hold`: the full hold (sent, nothing observed); `released`: charged 0
+ * because nothing was billed upstream; `unresolved`: given up at 0 (personal).
  */
 export type SettleReason = 'cost' | 'generation' | 'tokens' | 'hold' | 'released' | 'unresolved';
 
@@ -114,15 +113,18 @@ const AVAILABLE_SQL = `(SELECT COALESCE(SUM(amount_micros), 0) FROM credit_grant
  */
 export async function reservePersonalUsage(
   db: D1Database,
-  row: PendingUsageRow,
+  row: PendingUsageRow & {
+    /** The input tokens the hold was sized with; null for a reply reserved before its prompt exists. */
+    heldInputTokens: number | null;
+  },
   maxPending: number | null,
 ): Promise<boolean> {
   const result = await db
     .prepare(
       `INSERT INTO usage_events
          (id, account_id, tree_id, node_id, branch_id, user_id, funding, ip_key, purpose,
-          provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
-       SELECT ?2, ?1, ?3, ?4, ?5, ?6, '${STORED_FUNDING.credit}', NULL, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13
+          provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at, held_input_tokens)
+       SELECT ?2, ?1, ?3, ?4, ?5, ?6, '${STORED_FUNDING.credit}', NULL, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13, ?15
        WHERE ${AVAILABLE_SQL} >= ?10
          AND ${USER_EXISTS_SQL}
          AND (?14 IS NULL OR
@@ -143,6 +145,7 @@ export async function reservePersonalUsage(
       row.feeBps,
       row.createdAt,
       maxPending,
+      row.heldInputTokens,
     )
     .run();
   return (result.meta.changes ?? 0) > 0;
@@ -150,8 +153,9 @@ export async function reservePersonalUsage(
 
 /**
  * Personal credit: sets a pending, undispatched reservation's hold to
- * `holdMicros` once the call's own worst case is known, and its node (the
- * reply's, unknown when it was reserved). Lowering the hold always succeeds;
+ * `holdMicros` once the call's own worst case is known, with the input
+ * tokens it was sized with, and its node (the reply's, unknown when it was
+ * reserved). Lowering the hold always succeeds;
  * raising it only while the rest of the available balance covers the
  * increase, in the same statement. Resolves the row's markup and fee, or
  * null when it is no longer such a row or the balance can't cover the hold.
@@ -162,16 +166,17 @@ export async function repriceReservation(
   accountId: string,
   holdMicros: number,
   nodeId: string | null,
+  heldInputTokens: number,
 ): Promise<{ feeBps: number; markupBps: number } | null> {
   const row = await db
     .prepare(
-      `UPDATE usage_events SET hold_micros = ?3, node_id = COALESCE(node_id, ?4)
+      `UPDATE usage_events SET hold_micros = ?3, node_id = COALESCE(node_id, ?4), held_input_tokens = ?5
        WHERE id = ?2 AND account_id = ?1 AND funding = '${STORED_FUNDING.credit}' AND status = 'pending'
          AND dispatched_at IS NULL
          AND (?3 <= hold_micros OR ${AVAILABLE_SQL} + hold_micros >= ?3)
        RETURNING fee_bps, markup_bps`,
     )
-    .bind(accountId, usageId, holdMicros, nodeId)
+    .bind(accountId, usageId, holdMicros, nodeId, heldInputTokens)
     .first<Pick<UsageSql, 'fee_bps' | 'markup_bps'>>();
   return row ? { feeBps: row.fee_bps, markupBps: row.markup_bps } : null;
 }
@@ -195,12 +200,14 @@ export async function setGenerationId(
 }
 
 /**
- * Stamps `dispatched_at` right before the request goes to the provider (a
- * pool call, or a reply reserved on credit before its nodes were written), so
- * `releaseUndispatched` leaves the row to its meter. Resolves false when the
- * row is no longer pending (expired meanwhile), or was created before
- * `createdNotBefore` (too close to its TTL for the call to end before the
- * expiry alarm may release it): the call must then not be made.
+ * Stamps `dispatched_at` right before the request goes to the provider (every
+ * pool and credit call), so `releaseUndispatched` and the backstops leave the
+ * row to its meter, and the backstops know it may have been billed upstream.
+ * A reservation is repriced only before this (`repriceReservation`), so a
+ * reply's retry takes a fresh row. Resolves false when the row is no longer
+ * pending (expired meanwhile), or was created before `createdNotBefore` (too
+ * close to its TTL for the call to end before the expiry alarm may release
+ * it): the call must then not be made.
  */
 export async function markDispatched(
   db: D1Database,
@@ -255,7 +262,7 @@ export interface Settlement {
   /** Pool `hold` settlements: charge the row's full hold instead of the cost. */
   chargeHold?: boolean;
   /**
-   * Settle only while `dispatched_at` is still NULL (expiry's `released`), so
+   * Settle only while `dispatched_at` is still NULL (a backstop's `released`), so
    * a call stamped after the row was read is never released at 0.
    */
   requireUndispatched?: boolean;

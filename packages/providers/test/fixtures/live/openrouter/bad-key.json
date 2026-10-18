@@ -1,0 +1,16 @@
+{
+  "adapter": "openrouter",
+  "scenario": "bad-key",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "expectation": {
+    "outcome": "error",
+    "error": {
+      "code": "auth",
+      "upstream": "rejected",
+      "status": 401
+    }
+  },
+  "status": 401,
+  "contentType": "application/json",
+  "body": "{\"error\":{\"message\":\"User not found.\",\"code\":401}}"
+}

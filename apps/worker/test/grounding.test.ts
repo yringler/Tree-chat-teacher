@@ -19,6 +19,7 @@ const CONFIG: ProviderConfig = {
   id: 'openrouter',
   kind: 'openai-compatible',
   label: 'OpenRouter',
+  baseUrl: 'https://openrouter.ai/api/v1',
   models: [],
   defaultModel: 'm',
 };
@@ -46,11 +47,17 @@ describe('grounding settings', () => {
       ignoreBranchSetting: false,
     });
     // The engine and results per search are the searching openai-compatible configs' options.
-    const [searching, plain, anthropic, own] = withSearchOptions(e, [
+    const [searching, plain, anthropic, own, openai] = withSearchOptions(e, [
       { ...CONFIG, options: { webSearch: true } },
       CONFIG,
       { ...CONFIG, kind: 'anthropic', options: { webSearch: true } },
       { ...CONFIG, options: { webSearch: true, webSearchEngine: 'exa', webSearchMaxResults: 3 } },
+      {
+        ...CONFIG,
+        id: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        options: { webSearch: true },
+      },
     ]);
     expect(searching?.options).toEqual({
       webSearch: true,
@@ -61,6 +68,8 @@ describe('grounding settings', () => {
     expect(anthropic?.options).toEqual({ webSearch: true });
     // The vars win over a config's own, so the search runs as the public pages describe it.
     expect(own?.options).toMatchObject({ webSearchEngine: 'parallel', webSearchMaxResults: 25 });
+    // An endpoint without OpenRouter's search tool runs no search, so takes no search options.
+    expect(openai?.options).toEqual({ webSearch: true });
   });
 
   it('defaults to auto with 5 Exa results, and refuses an unknown policy or too many results', () => {

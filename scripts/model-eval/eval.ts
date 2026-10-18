@@ -27,6 +27,10 @@
  * rerun resumes), results.json, report.md, and with --blind report-blind.md
  * plus blind-key.json. Keep real conversations and outputs out of the repo.
  *
+ * Grounding: put web search in a config's `extraBody` (e.g. `{"plugins": [{"id": "web"}]}`
+ * or an `openrouter:web_search` tool); results then record the search count
+ * and the cited sources. The dry-run estimate leaves search fees out.
+ *
  * Repeat runs (to measure variance): run the same configs into separate --out
  * directories. A pinned provider your account's data policy excludes (e.g.
  * "deepseek" with paid-training providers off) fails with 404 "No endpoints

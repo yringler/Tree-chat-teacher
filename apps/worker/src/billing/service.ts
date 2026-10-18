@@ -221,6 +221,8 @@ export async function reserveCreditReply(
       providerId: target.providerId,
       model: target.model,
       holdMicros,
+      // Its prompt doesn't exist yet: the meter records its estimate when it reprices the row.
+      heldInputTokens: null,
       ...CREDIT_RATES,
       createdAt: new Date().toISOString(),
     },

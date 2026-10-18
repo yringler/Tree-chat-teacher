@@ -141,6 +141,20 @@ describe('bring-your-own-key', () => {
       expect(calls[0]!.headers['authorization']).toBe('Bearer sk-abc');
     });
 
+    // OpenRouter's `/models` is public and answers 200 to any key; `/key` needs a valid one.
+    it('openai-compatible on OpenRouter: GET {baseUrl}/key, so a wrong key is rejected', async () => {
+      for (const baseUrl of [
+        'https://openrouter.ai/api/v1',
+        'https://gateway.ai.cloudflare.com/v1/acct/gw/openrouter/',
+      ]) {
+        const { fetch, calls } = mockFetch(() => jsonResponse(401, {}));
+        const cfg = { ...OPENAI, baseUrl };
+        expect(await verifyApiKey(cfg, 'sk-or-v1-bad', { secrets: {}, fetch })).toBe('rejected');
+        expect(calls[0]!.url).toBe(`${baseUrl.replace(/\/$/, '')}/key`);
+        expect(calls[0]!.headers['authorization']).toBe('Bearer sk-or-v1-bad');
+      }
+    });
+
     it('network failure → unverified', async () => {
       const fetch = (() => Promise.reject(new TypeError('offline'))) as typeof globalThis.fetch;
       expect(await verifyApiKey(ANTHROPIC, USER_KEY, { secrets: {}, fetch })).toBe('unverified');

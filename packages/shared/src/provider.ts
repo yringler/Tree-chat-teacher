@@ -69,7 +69,8 @@ export interface ModelInfo {
   /**
    * The reasoning effort to ask this model for (`GenerateRequest.reasoning`
    * overrides it per call); absent = send none, the model's own default.
-   * Sent on OpenRouter only. Server-side config: not listed to clients.
+   * Sent where the endpoint takes one (the provider's effort trait). Server-side
+   * config: not listed to clients.
    */
   effort?: ReasoningEffort;
   /**
@@ -84,11 +85,11 @@ export interface ModelInfo {
 
 /**
  * How hard a reasoning model thinks: `none` asks it not to (OpenRouter
- * `reasoning: {enabled: false}`), `low` and `high` are OpenRouter's
- * `reasoning.effort`. There is deliberately no `max` (nor `xhigh`): at its
- * top effort a model is far more verbose, and in Artificial Analysis'
- * measurements it almost never admits it doesn't know, the worst trade for
- * a learning app.
+ * `reasoning: {enabled: false}`; the lowest effort an endpoint without an off
+ * switch accepts), `low` and `high` are the endpoint's own levels. There is
+ * deliberately no `max` (nor `xhigh`): at its top effort a model is far more
+ * verbose, and in Artificial Analysis' measurements it almost never admits it
+ * doesn't know, the worst trade for a learning app.
  */
 export type ReasoningEffort = 'none' | 'low' | 'high';
 
@@ -142,8 +143,8 @@ export interface GenerateRequest {
    * `ModelInfo.effort`: e.g. `none` for short structured answers whose output
    * cap thinking would use up (the pool's topic classifier), or the
    * background effort of summaries and titles. Absent = the model's
-   * `effort`, else none sent. Sent only where the endpoint takes it
-   * (OpenRouter); elsewhere ignored.
+   * `effort`, else none sent. Sent only where the endpoint takes it (the
+   * provider's effort trait); elsewhere ignored.
    */
   reasoning?: ReasoningEffort;
 }

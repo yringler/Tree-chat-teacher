@@ -27,6 +27,7 @@ pnpm format                                    # Prettier and dart format write;
 pnpm build                                     # the apps into apps/worker/site/
 pnpm knip                                      # unused files, exports and dependencies
 pnpm e2e                                       # Playwright, own wrangler dev on :8790 (E2E_PORT), fresh DB
+TANGENT_LIVE=1 TANGENT_LIVE_OPENROUTER_KEY=… pnpm test:live  # spends real money: docs/runbooks/live-contract-tests.md
 pnpm --filter @tangent/worker db:generate      # the migration for a schema.ts change
 ```
 

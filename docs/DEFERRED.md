@@ -23,7 +23,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 
 ## Web search
 
-- **No native search on OpenAI.** The Responses API search isn't wired up, so the default `openai` config doesn't set `options.webSearch`. (Anthropic's own `web_search` tool is wired up for own-key configs.)
+- **No native search on OpenAI.** The Responses API search isn't wired up, so an openai-compatible config that doesn't reach OpenRouter can't set `options.webSearch` (it is refused when `PROVIDERS` is parsed). (Anthropic's own `web_search` tool is wired up for own-key configs.)
 - **Reviews don't search.** A review with sources would need the tool on the reviewer call and somewhere to show its citations.
 - **Canvas shows no source list and has no Check sources button.** Cards render the reply text, so inline citation links do show.
 - **The new-branch dialog has no grounding choice.** New branches inherit the parent's setting; Branch settings change it afterwards.

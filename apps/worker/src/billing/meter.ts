@@ -130,8 +130,8 @@ async function* meteredStream(
       yield event;
     }
   } finally {
-    // The consumer stopped early, the provider ended without a terminal event, or dispatch failed.
-    if (!finished) await run.finish();
+    // The consumer stopped reading early (a provider never throws, and always ends in a terminal event).
+    if (!finished) await run.finish({ consumerStopped: true });
     log?.write(run.usageId);
   }
 }

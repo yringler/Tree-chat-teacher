@@ -39,21 +39,6 @@ export function usesExplicitCacheControl(model: string): boolean {
   return /^~?anthropic\//i.test(model.trim());
 }
 
-/** Whether a base URL reaches OpenRouter: openrouter.ai, or AI Gateway's OpenRouter route. */
-export function isOpenRouterBaseUrl(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false;
-  try {
-    const url = new URL(baseUrl);
-    if (url.hostname === 'openrouter.ai') return true;
-    return (
-      url.hostname === 'gateway.ai.cloudflare.com' &&
-      url.pathname.replace(/\/+$/, '').endsWith('/openrouter')
-    );
-  } catch {
-    return false;
-  }
-}
-
 /** `options.promptCache`: true or false when set to a boolean, else undefined (automatic). */
 export function promptCacheOption(
   options: Record<string, unknown> | undefined,

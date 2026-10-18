@@ -71,6 +71,33 @@ describe('ChatService summary resolution', () => {
   });
 });
 
+describe('ChatService summary cut off at its cap', () => {
+  it('uses the summary for this send but never caches it', async () => {
+    const { chat, provider, repos } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    const root = await send(chat, tree.trunkBranchId, 'ROOT');
+    const branch = await chat.createBranch({
+      fromNodeId: root.begin.assistantNode.id,
+      contextMode: 'summary',
+    });
+    provider.summaryStopReason = 'length';
+
+    const first = await send(chat, branch.id, 'Q1');
+    expect(first.last.type).toBe('done');
+    expect(provider.summaryCalls()).toHaveLength(1);
+    expect(provider.chatCalls().at(-1)!.system ?? '').toContain('SUMMARY(');
+    expect(repos.dump().summaries.size).toBe(0);
+
+    // Not cached, so the next send summarizes again; a whole summary is then kept.
+    provider.summaryStopReason = 'end_turn';
+    await send(chat, branch.id, 'Q2');
+    expect(provider.summaryCalls()).toHaveLength(2);
+    expect(repos.dump().summaries.size).toBe(1);
+    await send(chat, branch.id, 'Q3');
+    expect(provider.summaryCalls()).toHaveLength(2);
+  });
+});
+
 describe('ChatService failed compaction', () => {
   it('drops the oldest messages instead, and warns', async () => {
     const { chat, provider } = setup({ autoTitle: false, maxInputTokens: 3000 });

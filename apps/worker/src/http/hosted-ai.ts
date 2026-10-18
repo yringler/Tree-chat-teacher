@@ -1,4 +1,4 @@
-import { isOpenRouterBaseUrl } from '@tangent/providers';
+import { PROVIDER_KINDS, providerTraits } from '@tangent/providers';
 import type { ProviderConfig } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
 import { poolModel, poolRequest } from '../pool/params.js';
@@ -89,8 +89,8 @@ function hostOf(url: string | undefined): string | null {
 
 /** Who runs a non-OpenRouter endpoint, for the policy. */
 function endpointName(config: ProviderConfig): string {
-  if (config.kind === 'anthropic') return 'Anthropic';
-  return hostOf(config.baseUrl ?? 'https://api.openai.com/v1') ?? config.label;
+  const kind = PROVIDER_KINDS[config.kind];
+  return kind.vendor ?? hostOf(config.baseUrl ?? kind.defaultEndpoint?.url) ?? config.label;
 }
 
 /**
@@ -105,7 +105,7 @@ export function hostedAi(env: AppEnv): HostedAi | null {
   } catch {
     return null;
   }
-  const openRouter = config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
+  const openRouter = providerTraits(config).catalog === 'openrouter';
   const routing = asRecord(asRecord(config.options?.['extraBody'])['provider']);
   // The operator's explicit `allow_fallbacks` wins over the pinning's default (openai-compatible.ts).
   const fallbacks = routing['allow_fallbacks'] !== false;

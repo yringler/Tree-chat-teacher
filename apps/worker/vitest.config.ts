@@ -153,6 +153,7 @@ const NODE_SUITES = [
   'test/generation-guard.test.ts',
   'test/learn-tiers.test.ts',
   'test/legal.test.ts',
+  'test/live/sanitize.test.ts',
   'test/log.test.ts',
   'test/payments-port.test.ts',
   'test/polar-adapter-map.test.ts',

@@ -18,8 +18,9 @@
     // Flutter's own tools, installed with the Flutter SDK rather than from npm.
     "apps/flutter": { "ignoreBinaries": ["flutter", "dart"] },
     "apps/worker": {
-      // The node test project's `cloudflare:workers`, reached through a vitest.config.ts alias.
-      "entry": ["test/node/cloudflare-workers.ts"],
+      // The node test project's `cloudflare:workers`, reached through a vitest.config.ts alias,
+      // and the live contract suite, run only by `pnpm test:live`.
+      "entry": ["test/node/cloudflare-workers.ts", "test/live/*.live.ts"],
       // `cloudflare:test` and `cloudflare:workers` are workerd's built-in modules, not a package.
       "ignoreDependencies": ["cloudflare"],
     },

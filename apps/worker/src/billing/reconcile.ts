@@ -3,14 +3,16 @@
 // after the stream and a cron backstop.
 import { costUsdToNanos } from '@tangent/shared';
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
-import { appConfig } from '../config.js';
+import { appConfig, type ModelPrice } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
 import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
+import { creditPrice } from '../pool/model-prices.js';
 import { POOL_EXPIRE_BATCH, POOL_GIVE_UP_MS, POOL_RESERVATION_TTL_MS } from '../pool/params.js';
 import { builtInApiKey } from '../simple-mode.js';
+import { meteredSettlement } from './settle-policy.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
 import { logEvent } from '../log.js';
 
@@ -20,7 +22,14 @@ export const RECONCILE_RETRY_DELAYS_MS: readonly number[] = [1_000, 3_000, 10_00
 const MINUTE = 60_000;
 /** The cron leaves younger rows to the in-flight stream / its deferred reconcile. */
 export const CRON_MIN_AGE_MS = 2 * MINUTE;
-/** A row that never got a generation id never reached OpenRouter: settle at 0. */
+/**
+ * A row still pending this long without a generation id has lost its meter
+ * (which settles it within seconds of the call's end). Never sent
+ * (`dispatched_at` unset), it is released at 0; sent, it is charged the input
+ * its hold was sized with at the input price, as a call the user stopped,
+ * since a meter that died is Tangent's failure; with no estimate or price,
+ * its hold.
+ */
 export const CRON_NO_ID_AGE_MS = 10 * MINUTE;
 /** Give up (charge 0, `unresolved`, logged) after this long. */
 export const CRON_GIVE_UP_AGE_MS = 24 * 60 * MINUTE;
@@ -112,14 +121,19 @@ type PendingRow = Pick<
   | 'created_at'
   | 'input_tokens'
   | 'output_tokens'
+  | 'model'
+  | 'dispatched_at'
+  | 'held_input_tokens'
 >;
 
 /**
  * Cron backstop (`scheduled`, every 10 minutes) for pending personal usage
  * rows older than 2 minutes: with a generation id → settle from OpenRouter's
- * reported cost; without one after 10 minutes → settle at 0; still pending
- * after 24 hours → `unresolved` at 0, logged for manual review. Open pool
- * rows are filtered out in SQL (a backlog of them never starves these) and
+ * reported cost, still pending after 24 hours → `unresolved` at 0, logged
+ * for manual review; without one after 10 minutes → by the metered rule
+ * (`meteredSettlement`, see CRON_NO_ID_AGE_MS): released at 0 if never sent,
+ * else its estimated input at the input price, else its hold. Open pool rows
+ * are filtered out in SQL (a backlog of them never starves these) and
  * expired by `reconcilePoolUsage` instead.
  */
 export async function reconcilePendingUsage(
@@ -128,7 +142,8 @@ export async function reconcilePendingUsage(
 ): Promise<{ settled: number; unresolved: number }> {
   const nowMs = now.getTime();
   const { results } = await env.DB.prepare(
-    `SELECT id, generation_id, markup_bps, fee_bps, created_at, input_tokens, output_tokens
+    `SELECT id, generation_id, markup_bps, fee_bps, created_at, input_tokens, output_tokens,
+            model, dispatched_at, held_input_tokens
      FROM usage_events WHERE status = 'pending' AND funding <> 'pool' AND created_at < ?
      ORDER BY created_at LIMIT ?`,
   )
@@ -136,6 +151,13 @@ export async function reconcilePendingUsage(
     .all<PendingRow>();
 
   const key = builtInApiKey(env);
+  // Per model for this run. A failed lookup leaves its rows for the next run, until they give up.
+  const prices = new Map<string, Promise<ModelPrice | null>>();
+  const priceOf = (model: string, age: number): Promise<ModelPrice | null> => {
+    let price = prices.get(model);
+    if (!price) prices.set(model, (price = creditPrice(env, model)));
+    return age > CRON_GIVE_UP_AGE_MS ? price.catch(() => null) : price;
+  };
   let settled = 0;
   let unresolved = 0;
   for (const row of results) {
@@ -165,14 +187,26 @@ export async function reconcilePendingUsage(
           }
         }
       } else if (age > CRON_NO_ID_AGE_MS) {
-        const zero = {
-          costNanos: 0,
+        const dispatched = row.dispatched_at !== null;
+        const s = meteredSettlement({
+          dispatched,
+          inputTokens: row.input_tokens,
+          outputTokens: row.output_tokens,
+          price: dispatched ? await priceOf(row.model, age) : null,
+          meterLost: true,
+          heldInputTokens: row.held_input_tokens,
+        });
+        const { changed } = await settleUsage(env.DB, row.id, {
+          costNanos: s.costNanos ?? 0,
           markupBps: row.markup_bps,
           feeBps: row.fee_bps,
-          reason: 'released' as const,
+          reason: s.reason,
+          chargeHold: s.reason === 'hold',
+          // A call stamped since the SELECT is upstream now: never released at 0.
+          requireUndispatched: s.reason === 'released',
           now,
-        };
-        if ((await settleUsage(env.DB, row.id, zero)).changed) settled++;
+        });
+        if (changed) settled++;
       }
     } catch (e) {
       logEvent('error', 'usage_reconcile_failed', { usageId: row.id, error: e });

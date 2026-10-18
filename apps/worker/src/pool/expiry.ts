@@ -10,7 +10,7 @@ import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
 import { builtInApiKey } from '../simple-mode.js';
 import type { PoolExpiryParams } from './pool-bank.js';
-import { poolSettlement } from './settle-policy.js';
+import { meteredSettlement } from '../billing/settle-policy.js';
 import { logEvent } from '../log.js';
 
 /** One generation lookup per expired row, with this timeout: an alarm never waits on a slow upstream for long. */
@@ -126,7 +126,7 @@ export async function expirePoolReservations(
           result.deferred++;
           return;
         }
-        const settlement = poolSettlement({
+        const settlement = meteredSettlement({
           dispatched: row.dispatched_at !== null,
           generationCostUsd: cost?.costUsd ?? null,
         });

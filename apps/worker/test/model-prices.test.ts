@@ -483,6 +483,20 @@ describe('modelPrice', () => {
     );
   });
 
+  it("gives a direct Anthropic id (no anthropic/ prefix) no cache-write premium, though Anthropic's own API bills one", () => {
+    // Metered calls run on OpenRouter ids today; a metered config naming `claude-…`
+    // directly would hold and charge its cache writes at the input price.
+    const price = {
+      inMicrosPerMTok: 2_000_000,
+      outMicrosPerMTok: 10_000_000,
+      contextTokens: 200_000,
+    };
+    expect(withCacheWritePrice('claude-sonnet-5-5', price)).toEqual(price);
+    expect(withCacheWritePrice('anthropic/claude-sonnet-5.5', price)).toMatchObject({
+      cacheWriteMicrosPerMTok: 2_500_000,
+    });
+  });
+
   it('is the synced cache prices over the fallbacks; an override keeps its own', async () => {
     await sync([
       { id: FLASH, prompt: '0.00000027', completion: '0.0000011', cacheRead: '0.00000003' },

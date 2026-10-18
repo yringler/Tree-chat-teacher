@@ -3,8 +3,11 @@
  * (`usage: {include: true}`): answer, finish reason, the provider that served
  * it, token counts (cached, reasoning) and the billed cost. Reasoning text is
  * never kept: only the answer and the reasoning token count are recorded.
+ * With web search in a config's `extraBody` (the `web` plugin, a `:online`
+ * model or the `openrouter:web_search` tool), the cited sources and the
+ * search count are kept too, so grounding can be compared across models.
  */
-import type { CallUsage, EvalConfig } from './types.ts';
+import type { CallCitation, CallUsage, EvalConfig } from './types.ts';
 
 export const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -19,6 +22,7 @@ export interface StreamOutcome {
   finishReason: string | null;
   answer: string;
   usage: CallUsage | null;
+  citations?: CallCitation[];
   firstAnswerMs: number | null;
   generationId: string | null;
 }
@@ -53,6 +57,8 @@ export function parseUsage(u: unknown): CallUsage | null {
   if (!isRecord(u)) return null;
   const prompt = isRecord(u['prompt_tokens_details']) ? u['prompt_tokens_details'] : {};
   const completion = isRecord(u['completion_tokens_details']) ? u['completion_tokens_details'] : {};
+  // OpenRouter reports searches as `server_tool_use_details` (not Anthropic's `server_tool_use`).
+  const tools = isRecord(u['server_tool_use_details']) ? u['server_tool_use_details'] : {};
   return {
     promptTokens: num(u['prompt_tokens']),
     cachedTokens: num(prompt['cached_tokens']),
@@ -60,7 +66,31 @@ export function parseUsage(u: unknown): CallUsage | null {
     completionTokens: num(u['completion_tokens']),
     reasoningTokens: num(completion['reasoning_tokens']),
     cost: num(u['cost']),
+    webSearchRequests: num(tools['web_search_requests']),
   };
+}
+
+/**
+ * Adds the `url_citation` annotations in `raw` to `into`, keyed by URL and
+ * span: a stream sends them one per chunk, and Gemini cites one source for
+ * several spans. The excerpt (`content`, Exa only) is dropped: it is large and
+ * the report links the source instead.
+ */
+function collectCitations(raw: unknown, into: Map<string, CallCitation>): void {
+  if (!Array.isArray(raw)) return;
+  for (const a of raw) {
+    if (!isRecord(a) || a['type'] !== 'url_citation' || !isRecord(a['url_citation'])) continue;
+    const c = a['url_citation'];
+    if (typeof c['url'] !== 'string' || c['url'] === '') continue;
+    const citation: CallCitation = {
+      url: c['url'],
+      title: typeof c['title'] === 'string' ? c['title'] : null,
+      startIndex: num(c['start_index']),
+      endIndex: num(c['end_index']),
+    };
+    const key = `${citation.url}#${citation.startIndex}-${citation.endIndex}`;
+    if (!into.has(key)) into.set(key, citation);
+  }
 }
 
 export class HttpError extends Error {
@@ -100,6 +130,7 @@ export async function streamCompletion(
     firstAnswerMs: null,
     generationId: res.headers.get('x-generation-id'),
   };
+  const citations = new Map<string, CallCitation>();
   const decoder = new TextDecoder();
   let buffer = '';
   const handle = (data: string): void => {
@@ -126,6 +157,7 @@ export async function streamCompletion(
         out.firstAnswerMs ??= Date.now() - t0;
         out.answer += delta['content'];
       }
+      collectCitations(delta['annotations'], citations);
       if (typeof choice['finish_reason'] === 'string') out.finishReason = choice['finish_reason'];
     }
     const usage = parseUsage(chunk['usage']);
@@ -141,5 +173,6 @@ export async function streamCompletion(
     }
   }
   if (buffer.trim().startsWith('data:')) handle(buffer.trim().slice(5).trim());
+  if (citations.size > 0) out.citations = [...citations.values()];
   return out;
 }

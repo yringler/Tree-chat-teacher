@@ -14,7 +14,8 @@ import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { meteredRegistry } from '../src/billing/meter.js';
 import type { UsageMeterOptions } from '../src/billing/meter-run.js';
 import { createUsageMeter } from '../src/billing/personal-meter.js';
-import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import { reserveCreditReply, USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import { markDispatched, repriceReservation } from '../src/billing/usage-store.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
@@ -26,6 +27,7 @@ import {
   scriptGeneration,
   simpleAccount,
   uniq,
+  usageRow,
   usageRows,
   type UsageRow,
 } from './mocks/billing-helpers.js';
@@ -150,6 +152,16 @@ async function harness(account: AccountContext = simpleAccount()): Promise<Harne
 }
 
 const COST = 0.001234;
+
+/**
+ * `max` at $150 in, $600 out per million tokens. `request()`'s 'hi' is 5
+ * estimated input tokens: a hold of 60_750 µ$ for 5 in, 100 out, and 750 µ$
+ * for its input alone.
+ */
+const PRICED = {
+  ...env,
+  MODEL_PRICES: JSON.stringify({ max: { in: 150_000_000, out: 600_000_000, context: 200_000 } }),
+} as AppEnv;
 const tag: UsageTag = {
   purpose: 'reply',
   treeId: 'tree_1',
@@ -259,18 +271,26 @@ describe('usage meter', () => {
     });
   });
 
-  it('settles at 0 when the call never reached the upstream (no generation id)', async () => {
-    const h = await harness();
-    const events = await h.run([
-      { type: 'error', error: { code: 'network', message: 'connect failed', retryable: true } },
-    ]);
-    expect(events.at(-1)?.type).toBe('error');
-    expect((await h.rows())[0]).toMatchObject({
-      status: 'settled',
-      cost_nanos: 0,
-      charge_micros: 0,
-    });
-  });
+  it.each(['not_sent', 'rejected'] as const)(
+    'releases at 0 a call the upstream never ran (%s)',
+    async (upstream) => {
+      const h = await harness();
+      const events = await h.run([
+        { type: 'usage', usage: { inputTokens: 12 } },
+        {
+          type: 'error',
+          error: { code: 'network', message: 'connect failed', retryable: true, upstream },
+        },
+      ]);
+      expect(events.at(-1)?.type).toBe('error');
+      expect((await h.rows())[0]).toMatchObject({
+        status: 'settled',
+        settle_reason: 'released',
+        cost_nanos: 0,
+        charge_micros: 0,
+      });
+    },
+  );
 
   it('reconciles an aborted run via /api/v1/generation (404, then 200)', async () => {
     const h = await harness();
@@ -373,10 +393,60 @@ describe('usage meter', () => {
         { type: 'billing', costUsd: 1 },
         { type: 'done', stopReason: null },
       ],
-      { stopAfter: 1 },
+      { stopAfter: 1, env: PRICED },
     );
-    // No id, no cost when the consumer left: nothing billed upstream that we can see.
-    expect((await h.rows())[0]).toMatchObject({ status: 'settled', charge_micros: 0 });
+    // Sent, but no id, cost or tokens when the consumer left: its estimated input, at the input price.
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 750_000,
+      charge_micros: 750,
+    });
+  });
+
+  it('stamps a call dispatched before it is sent, with the input estimate its hold was sized with', async () => {
+    const h = await harness();
+    let pendingSeen: UsageRow[] = [];
+    const meter = createUsageMeter(env, h.account, (p) => h.deferred.push(p), FAST);
+    const provider = scriptedProvider(
+      [
+        { type: 'delta', text: 'a' },
+        { type: 'billing', costUsd: COST },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      async (i) => {
+        if (i === 0) pendingSeen = await h.rows();
+      },
+    );
+    for await (const _ of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request()))
+      void _;
+    expect(pendingSeen).toHaveLength(1);
+    expect(pendingSeen[0]).toMatchObject({ status: 'pending', held_input_tokens: 5 });
+    expect(pendingSeen[0]!.dispatched_at).not.toBeNull();
+  });
+
+  it('sends nothing and releases the row when it cannot be stamped dispatched', async () => {
+    const h = await harness();
+    const provider = scriptedProvider([{ type: 'done', stopReason: null }]);
+    const broken = envWithFailingDb(env, /SET dispatched_at/);
+    const meter = createUsageMeter(broken, h.account, (p) => h.deferred.push(p), FAST);
+    const events: ProviderEvent[] = [];
+    for await (const e of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request()))
+      events.push(e);
+    expect(events).toEqual([
+      { type: 'error', error: expect.objectContaining({ code: 'server', upstream: 'not_sent' }) },
+    ]);
+    expect(provider.calls).toBe(0);
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'released',
+      charge_micros: 0,
+      dispatched_at: null,
+    });
   });
 
   it('fails as an event (no upstream call) when the pending row cannot be written', async () => {
@@ -398,7 +468,8 @@ describe('usage meter', () => {
 
   it('never throws into the stream when settling fails; the row stays pending', async () => {
     const h = await harness();
-    const broken = envWithFailingDb(env, /^\s*UPDATE/);
+    // Every write after the dispatch stamp fails.
+    const broken = envWithFailingDb(env, /^\s*UPDATE(?! usage_events SET dispatched_at)/);
     const events = await h.run(
       [
         { type: 'billing', generationId: uniq('gen') },
@@ -574,6 +645,218 @@ describe('usage meter holds on credit', () => {
     ]);
     expect(provider.calls).toBe(0);
     expect(await h.rows()).toEqual([]);
+  });
+});
+
+describe('credit calls sent without a reported cost or generation id', () => {
+  const priced = PRICED;
+  const failedMidStream: ProviderEvent = {
+    type: 'error',
+    error: { code: 'network', message: 'lost', retryable: true, upstream: 'stream' },
+  };
+
+  it('charges the tokens it used at the list price, after an error mid-stream', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'delta', text: 'Hel' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        failedMidStream,
+      ],
+      { env: priced },
+    );
+    // 12 × 150 + 34 × 600 = 22_200 µ$.
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 22_200_000,
+      charge_micros: 22_200,
+      input_tokens: 12,
+      output_tokens: 34,
+    });
+  });
+
+  it('charges the tokens of a call that finished without reporting its cost', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'delta', text: 'Hello' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { env: priced },
+    );
+    expect((await h.rows())[0]).toMatchObject({ settle_reason: 'tokens', charge_micros: 22_200 });
+  });
+
+  it.each<[string, ProviderEvent[]]>([
+    ['no usage', [{ type: 'delta', text: 'Hel' }, failedMidStream]],
+    ['the input alone', [{ type: 'usage', usage: { inputTokens: 12 } }, failedMidStream]],
+    [
+      'an error that says nothing of how far it got',
+      [
+        { type: 'usage', usage: { inputTokens: 12 } },
+        { type: 'error', error: { code: 'unknown', message: '?', retryable: false } },
+      ],
+    ],
+  ])('charges the hold when the tokens are unknown (%s)', async (_name, script) => {
+    const h = await harness();
+    await h.run(script, { env: priced });
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'hold',
+      cost_nanos: null,
+      hold_micros: 60_750,
+      charge_micros: 60_750,
+    });
+  });
+});
+
+describe('credit calls the user stopped', () => {
+  /** Runs `script` on PRICED, aborting the caller's signal before the event at `abortAt`. */
+  async function stopped(script: ProviderEvent[], abortAt: number): Promise<UsageRow | undefined> {
+    const h = await harness();
+    const ac = new AbortController();
+    const meter = createUsageMeter(PRICED, h.account, (p) => h.deferred.push(p), FAST);
+    const provider = scriptedProvider(script, (i) => {
+      if (i === abortAt) ac.abort();
+      return Promise.resolve();
+    });
+    for await (const _ of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request(undefined, ac.signal)))
+      void _;
+    await h.settleBackground();
+    return (await h.rows())[0];
+  }
+  const aborted: ProviderEvent = {
+    type: 'error',
+    error: { code: 'aborted', message: 'Request aborted', retryable: false },
+  };
+
+  it('charges its estimated input at the input price when nothing was reported', async () => {
+    expect(await stopped([{ type: 'delta', text: 'Hel' }, aborted], 1)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 750_000,
+      charge_micros: 750,
+    });
+  });
+
+  it('charges the input it reported, at the input price, when the output is unknown', async () => {
+    const row = await stopped([{ type: 'usage', usage: { inputTokens: 12 } }, aborted], 1);
+    // 12 × 150 = 1_800 µ$.
+    expect(row).toMatchObject({ settle_reason: 'tokens', charge_micros: 1_800 });
+  });
+
+  it('charges the tokens it reported, as any call', async () => {
+    const row = await stopped(
+      [{ type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } }, aborted],
+      1,
+    );
+    expect(row).toMatchObject({ settle_reason: 'tokens', charge_micros: 22_200 });
+  });
+
+  it('charges the hold for an abort the user did not ask for', async () => {
+    const h = await harness();
+    await h.run([{ type: 'delta', text: 'Hel' }, aborted], { env: PRICED });
+    expect((await h.rows())[0]).toMatchObject({ settle_reason: 'hold', charge_micros: 60_750 });
+  });
+});
+
+describe('reserved replies on credit', () => {
+  const target = { treeId: 'tree_1', branchId: 'branch_1', providerId: 'openrouter', model: 'max' };
+  const reply = [
+    { type: 'billing', costUsd: COST },
+    { type: 'done', stopReason: 'stop' },
+  ] satisfies ProviderEvent[];
+
+  /** Moves the account's available balance to `micros` with an adjustment. */
+  async function setAvailable(accountId: string, micros: number): Promise<void> {
+    const { balanceMicros, heldMicros } = await getBalance(env.DB, accountId);
+    await grantCredit(env.DB, {
+      accountId,
+      kind: 'adjustment',
+      amountMicros: micros - (balanceMicros - heldMicros),
+      providerRef: null,
+    });
+  }
+
+  it('lowers a reservation to the call, whatever the balance, and settles that row', async () => {
+    const h = await harness();
+    const id = await reserveCreditReply(env, h.account, target, 500_000);
+    await setAvailable(h.account.billingAccountId, -1_000);
+    expect(
+      await repriceReservation(env.DB, id, h.account.billingAccountId, 400_000, 'n1', 7),
+    ).toEqual({ feeBps: 0, markupBps: 0 });
+    await h.run(reply, { tag: { ...tag, reservationId: id } });
+    const rows = await h.rows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id,
+      hold_micros: USAGE_HOLD_MICROS,
+      node_id: 'n1',
+      status: 'settled',
+      charge_micros: 1234,
+      // The meter's own estimate of 'hi', recorded when it repriced the row.
+      held_input_tokens: 5,
+    });
+    expect(rows[0]!.dispatched_at).not.toBeNull();
+  });
+
+  it('raises a reservation only while the rest of the available balance covers the increase', async () => {
+    const h = await harness();
+    const accountId = h.account.billingAccountId;
+    const id = await reserveCreditReply(env, h.account, target, 1_000);
+    await setAvailable(accountId, 4_000);
+    expect(await repriceReservation(env.DB, id, accountId, 5_001, null, 7)).toBeNull();
+    expect((await usageRow(env, id)).hold_micros).toBe(1_000);
+    expect(await repriceReservation(env.DB, id, accountId, 5_000, null, 7)).not.toBeNull();
+    expect((await usageRow(env, id)).hold_micros).toBe(5_000);
+  });
+
+  it("never reprices a dispatched row, another account's, or a settled one", async () => {
+    const h = await harness();
+    const accountId = h.account.billingAccountId;
+    const dispatched = await reserveCreditReply(env, h.account, target, 1_000);
+    expect(await markDispatched(env.DB, dispatched)).toBe(true);
+    expect(await repriceReservation(env.DB, dispatched, accountId, 500, null, 7)).toBeNull();
+    const other = await reserveCreditReply(env, h.account, target, 1_000);
+    expect(await repriceReservation(env.DB, other, uniq('acct'), 500, null, 7)).toBeNull();
+    expect((await usageRow(env, other)).hold_micros).toBe(1_000);
+  });
+
+  it('gives a call whose reservation is already used a fresh row (a retry without search)', async () => {
+    const h = await harness();
+    const id = await reserveCreditReply(env, h.account, target, 500_000);
+    const reserved = { tag: { ...tag, reservationId: id } };
+    await h.run(
+      [
+        {
+          type: 'error',
+          error: {
+            code: 'invalid_request',
+            message: 'no tools',
+            status: 400,
+            retryable: false,
+            upstream: 'rejected',
+          },
+        },
+      ],
+      reserved,
+    );
+    await h.run(reply, reserved);
+    await h.settleBackground();
+    const rows = await h.rows();
+    expect(rows).toHaveLength(2);
+    const fresh = rows.find((r) => r.id !== id);
+    expect(await usageRow(env, id)).toMatchObject({ status: 'settled', settle_reason: 'released' });
+    expect(fresh).toMatchObject({
+      status: 'settled',
+      node_id: 'node_1',
+      hold_micros: USAGE_HOLD_MICROS,
+      charge_micros: 1234,
+    });
   });
 });
 

@@ -1,5 +1,5 @@
 import { appChatSettings, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
-import { isOpenRouterBaseUrl, parseProviderConfigs } from '@tangent/providers';
+import { parseProviderConfigs, providerTraits } from '@tangent/providers';
 import {
   ANTHROPIC_PROVIDER_ID,
   OPENROUTER_PROVIDER_ID,
@@ -277,11 +277,12 @@ export function simpleSystemPrompt(env: AppEnv): string {
  * The built-in provider as the open pool uses it: the simple config
  * (same key, same BUILT_IN_PROVIDER override) with the pool model as its only
  * model, and one call's cost bounded by the pool's caps: the context window
- * is the pool's input cap plus its output cap. On OpenRouter, routing is
- * capped at the price table's price (`provider.max_price`, $/MTok), so an
- * over-priced route fails upstream (released) instead of costing the operator.
- * Other endpoints (OpenAI, Workers AI, local servers) get no `provider` field,
- * which strict APIs reject; there the table must be the endpoint's own price.
+ * is the pool's input cap plus its output cap. On a routing endpoint
+ * (OpenRouter, `ProviderTraits.routing`), routing is capped at the price
+ * table's price (`provider.max_price`, $/MTok), so an over-priced route fails
+ * upstream (released) instead of costing the operator. Other endpoints
+ * (OpenAI, Workers AI, local servers) get no `provider` field, which strict
+ * APIs reject; there the table must be the endpoint's own price.
  * The pool model carries the pool's own effort and pinned providers
  * (`POOL_EFFORT`, `POOL_PROVIDER_ORDER`), never a tier's, even when a tier
  * runs the same model; pinning merges with `max_price` (openai-compatible.ts).
@@ -302,8 +303,7 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
     maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
     maxOutputTokens: pool.maxOutputTokens,
   };
-  if (base.kind !== 'openai-compatible' || !isOpenRouterBaseUrl(base.baseUrl) || !pool.price)
-    return config;
+  if (!providerTraits(base).routing || !pool.price) return config;
   const extraBody = asRecord(base.options?.['extraBody']);
   // Merged into the operator's own routing (e.g. `data_collection: 'deny'`),
   // keeping a stricter `max_price` they set.
@@ -362,16 +362,14 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
 
 /**
  * What Learn offers, as the public pages (landing, pricing) describe it, read
- * from the built-in provider's config: whether it is OpenRouter (so credit
- * takes "any OpenRouter model"), the Max power suggests on credit (null when
- * it lists none), whether its replies can search the web, and
- * whether a search costs about 1¢ (OpenRouter's Exa price covers up to 10
- * results; other engines and more results cost differently). Null when
+ * from the built-in provider's config: the Max power suggests on credit (null
+ * when it lists none), whether its replies can search the web, and whether a
+ * search costs about 1¢ (OpenRouter's Exa price covers up to 10 results;
+ * other engines, other catalogs and more results cost differently). Null when
  * BUILT_IN_PROVIDER is invalid, so a page falls back to wording that claims
  * none of these.
  */
 export interface LearnOffer {
-  openRouter: boolean;
   /** The label of power's Max on Tangent credit; null when the provider lists no Max. */
   powerMax: string | null;
   search: boolean;
@@ -385,12 +383,11 @@ export function learnOffer(env: AppEnv): LearnOffer | null {
   } catch {
     return null;
   }
-  const openRouter = config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
+  const openRouterPrices = providerTraits(config).catalog === 'openrouter';
   const { engine, maxResults } = appConfig(env).grounding;
   return {
-    openRouter,
     powerMax: tierModel(config.models, 'max')?.label ?? null,
     search: config.options?.['webSearch'] === true,
-    searchAboutOneCent: openRouter && engine === 'exa' && maxResults <= 10,
+    searchAboutOneCent: openRouterPrices && engine === 'exa' && maxResults <= 10,
   };
 }

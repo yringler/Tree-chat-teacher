@@ -124,6 +124,11 @@ export function redact(text: string, secrets: readonly string[]): string {
 /** The longest provider error message passed on. */
 const ERROR_MESSAGE_MAX = 500;
 
+/** An upstream's error text as it may be passed on: secrets redacted, clipped. */
+export function upstreamMessage(text: string, secrets: readonly string[]): string {
+  return clip(redact(text, secrets), ERROR_MESSAGE_MAX);
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -174,22 +179,22 @@ export async function errorFromResponse(
   if ((code === 'invalid_request' || status === 413) && looksLikeContextLength(raw, info.code)) {
     code = 'context_length';
   }
-  return providerError(code, clip(redact(raw, secrets), ERROR_MESSAGE_MAX), status);
+  return providerError(code, upstreamMessage(raw, secrets), status);
 }
 
 export function networkError(err: unknown, secrets: readonly string[]): ProviderError {
   const msg = err instanceof Error ? err.message : String(err);
-  return providerError(
-    'network',
-    clip(redact(`Network error: ${msg}`, secrets), ERROR_MESSAGE_MAX),
-  );
+  return providerError('network', upstreamMessage(`Network error: ${msg}`, secrets));
 }
 
 /**
  * Enforces the `LlmProvider.stream` contract around an inner generator that
  * may throw: forwards events, stops after the first terminal event, maps
  * exceptions to `error` (aborted when the signal fired), and turns a
- * premature end into a network error.
+ * premature end into a network error. Failures before the request leaves
+ * reach it as a ProviderFailure (`postJson`), so a TypeError here was thrown
+ * reading the body, and a premature end came after a 2xx: both are
+ * `upstream: 'stream'`, as the upstream may have billed for the call.
  */
 export async function* guardStream(
   signal: AbortSignal,
@@ -211,12 +216,12 @@ export async function* guardStream(
         if (signal.aborted) terminal = { type: 'error', error: abortedProviderError() };
         else if (e instanceof ProviderFailure) terminal = { type: 'error', error: e.error };
         else if (e instanceof TypeError)
-          terminal = { type: 'error', error: networkError(e, secrets) };
+          terminal = { type: 'error', error: { ...networkError(e, secrets), upstream: 'stream' } };
         else {
           const msg = e instanceof Error ? e.message : String(e);
           terminal = {
             type: 'error',
-            error: providerError('unknown', clip(redact(msg, secrets), ERROR_MESSAGE_MAX)),
+            error: providerError('unknown', upstreamMessage(msg, secrets)),
           };
         }
         break;
@@ -240,7 +245,10 @@ export async function* guardStream(
   if (!terminal) {
     terminal = signal.aborted
       ? { type: 'error', error: abortedProviderError() }
-      : { type: 'error', error: providerError('network', 'stream ended unexpectedly') };
+      : {
+          type: 'error',
+          error: { ...providerError('network', 'stream ended unexpectedly'), upstream: 'stream' },
+        };
   }
   yield terminal;
 }
@@ -316,8 +324,48 @@ export function getFetch(env: ProviderEnv): typeof fetch {
   return env.fetch ?? ((input, init) => globalThis.fetch(input, init));
 }
 
+/** A call without its secret is never sent, so the open pool releases its hold. */
 export function missingSecretError(name: string): ProviderError {
-  return providerError('config', `Missing secret ${name}`);
+  return { ...providerError('config', `Missing secret ${name}`), upstream: 'not_sent' };
 }
 
 export { isRecord };
+
+/** Whether a base URL reaches OpenRouter: openrouter.ai, or AI Gateway's OpenRouter route. */
+export function isOpenRouterBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  try {
+    const url = new URL(baseUrl);
+    if (url.hostname === 'openrouter.ai') return true;
+    return (
+      url.hostname === 'gateway.ai.cloudflare.com' &&
+      url.pathname.replace(/\/+$/, '').endsWith('/openrouter')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** The endpoint an Anthropic config without a baseUrl reaches (`KindDescriptor.defaultEndpoint`). */
+export const ANTHROPIC_ENDPOINT = {
+  url: 'https://api.anthropic.com',
+  vendor: 'Anthropic',
+  keyPrefix: 'sk-ant-',
+};
+
+/** The endpoint an openai-compatible config without a baseUrl reaches. */
+export const OPENAI_ENDPOINT = {
+  url: 'https://api.openai.com/v1',
+  vendor: 'OpenAI',
+  keyPrefix: 'sk-',
+};
+
+/** Whether an openai-compatible config's `baseUrl` reaches OpenAI's own API (none set does). */
+export function isOpenAiBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return true;
+  try {
+    return new URL(baseUrl).hostname === new URL(OPENAI_ENDPOINT.url).hostname;
+  } catch {
+    return false;
+  }
+}

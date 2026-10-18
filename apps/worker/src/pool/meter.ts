@@ -5,10 +5,11 @@
 //   2. Stamp `dispatched_at` (awaited) right before the upstream call, which
 //      runs with the pool's output cap and a timeout; a reservation too close
 //      to its TTL for the call to finish first is refused instead.
-//   3. Settle by the pool's policy (pool/settle-policy.ts): released at 0 when
+//   3. Settle by the metered policy (billing/settle-policy.ts): released at 0 when
 //      nothing can have been billed, else the reported cost, a generation
-//      lookup, tokens × price, or the full hold. A charge never exceeds the
-//      hold; the excess is recorded as overage.
+//      lookup, tokens × price, for a call the user stopped (not one timed
+//      out) its input bound at the input price, or the full hold. A charge
+//      never exceeds the hold; the excess is recorded as overage.
 import type { GenerateRequest } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
 import { ObservedRun, type UsageMeter, type UsageMeterOptions } from '../billing/meter-run.js';
@@ -27,7 +28,7 @@ import {
   poolInputLimitTokens,
   worstCaseHoldMicros,
 } from './pricing.js';
-import { poolSettlement, type PoolSettlement } from './settle-policy.js';
+import { meteredSettlement, type MeteredSettlement } from '../billing/settle-policy.js';
 import { logEvent } from '../log.js';
 
 /** A pool reservation was refused: the call is failed before anything is sent. */
@@ -62,8 +63,11 @@ class PoolRun extends ObservedRun {
     options: UsageMeterOptions,
     request: GenerateRequest,
     private readonly pool: PoolParams,
+    /** The input bound its hold was sized with. */
+    private readonly heldInputTokens: number,
+    callerSignal: AbortSignal,
   ) {
-    super(env, usageId, markupBps, feeBps, defer, options, request);
+    super(env, usageId, markupBps, feeBps, defer, options, request, callerSignal);
   }
 
   override async dispatch(): Promise<boolean> {
@@ -75,8 +79,8 @@ class PoolRun extends ObservedRun {
     return this.dispatched;
   }
 
-  private settlement(generationCostUsd: number | null = null): PoolSettlement {
-    return poolSettlement({
+  private settlement(generationCostUsd: number | null = null): MeteredSettlement {
+    return meteredSettlement({
       dispatched: this.dispatched,
       upstream: this.upstream,
       costUsd: this.costUsd,
@@ -86,10 +90,12 @@ class PoolRun extends ObservedRun {
       cacheReadTokens: this.cacheReadTokens,
       cacheWriteTokens: this.cacheWriteTokens,
       price: this.pool.price,
+      userStopped: this.userStopped,
+      heldInputTokens: this.heldInputTokens,
     });
   }
 
-  private apply(s: PoolSettlement): Promise<void> {
+  private apply(s: MeteredSettlement): Promise<void> {
     return this.settleOrDefer({
       costNanos: s.costNanos ?? 0,
       reason: s.reason,
@@ -183,7 +189,19 @@ export function createPoolUsageMeter(
         signal: AbortSignal.any([request.signal, AbortSignal.timeout(POOL_CALL_TIMEOUT_MS)]),
       };
       // The pool pays the true cost: no markup.
-      return new PoolRun(env, usageId, 0, feeBps, defer, options, upstream, pool);
+      const heldInputTokens = Math.min(inputBoundTokens(request), price.contextTokens);
+      return new PoolRun(
+        env,
+        usageId,
+        0,
+        feeBps,
+        defer,
+        options,
+        upstream,
+        pool,
+        heldInputTokens,
+        request.signal,
+      );
     },
   };
 }

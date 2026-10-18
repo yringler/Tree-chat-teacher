@@ -12,9 +12,6 @@ import {
   type ProviderKind,
   type ProviderRegistry,
 } from '@tangent/shared';
-import { createAnthropicProvider } from './anthropic.js';
-import { createFakeProvider } from './fake.js';
-import { createOpenAiCompatibleProvider } from './openai-compatible.js';
 import {
   ProviderFailure,
   guardStream,
@@ -23,6 +20,8 @@ import {
   providerError,
   resolveApiKey,
 } from './internal.js';
+import { PROVIDER_KINDS } from './kinds.js';
+import { providerTraits } from './traits.js';
 
 export interface ProviderEnv {
   /** Secret name → value (Worker secrets / process.env). */
@@ -38,24 +37,11 @@ export interface ProviderEnv {
 
 export type ProviderFactory = (config: ProviderConfig, env: ProviderEnv) => LlmProvider;
 
-/** The one place new provider kinds are registered. */
-export const PROVIDER_FACTORIES: Record<ProviderKind, ProviderFactory> = {
-  anthropic: createAnthropicProvider,
-  'openai-compatible': createOpenAiCompatibleProvider,
-  fake: createFakeProvider,
-};
+const KINDS = Object.keys(PROVIDER_KINDS) as ProviderKind[];
 
-const KINDS = Object.keys(PROVIDER_FACTORIES) as ProviderKind[];
-
-/**
- * Kinds whose replies are scripted (the test provider): they need no key and
- * take none, and are the default provider only when nothing real is usable.
- */
-const SCRIPTED: Record<ProviderKind, boolean> = {
-  anthropic: false,
-  'openai-compatible': false,
-  fake: true,
-};
+function scripted(config: Pick<ProviderConfig, 'kind'>): boolean {
+  return PROVIDER_KINDS[config.kind].scripted;
+}
 
 const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'id',
@@ -272,6 +258,9 @@ function parseConfig(v: unknown, path: string): ProviderConfig {
       throw new ConfigError(`${path}.options.extraBody`, 'must be an object');
     }
     config.options = options;
+    // Refused here rather than as a 400 on the first search.
+    if (options['webSearch'] === true && providerTraits(config).webSearch === 'none')
+      throw new ConfigError(`${path}.options.webSearch`, 'is not supported on this endpoint');
   }
   return config;
 }
@@ -352,17 +341,20 @@ function unavailableReason(config: ProviderConfig, env: ProviderEnv): ProviderEr
   for (const name of Object.values(config.extraHeaderSecrets ?? {})) {
     if (!env.secrets[name]) return missingSecretError(name);
   }
-  if (SCRIPTED[config.kind]) return undefined;
+  if (scripted(config)) return undefined;
   if (resolveApiKey(config, env)) return undefined;
   if (config.apiKeySecret)
     return env.secrets[config.apiKeySecret] ? undefined : missingSecretError(config.apiKeySecret);
-  // No key configured: only a keyless local/self-hosted OpenAI-compatible server is usable.
-  if (config.kind === 'openai-compatible' && config.baseUrl) return undefined;
+  if (config.baseUrl && PROVIDER_KINDS[config.kind].keylessWithBaseUrl) return undefined;
   return providerError('config', `Provider "${config.id}" has no apiKeySecret configured`);
 }
 
-/** Keeps metadata/capabilities of the real provider, but every call fails with a config error. */
-function unavailableProvider(inner: LlmProvider, error: ProviderError): LlmProvider {
+/**
+ * Keeps metadata/capabilities of the real provider, but every call fails with
+ * a config error, as never sent (the open pool releases its hold).
+ */
+function unavailableProvider(inner: LlmProvider, reason: ProviderError): LlmProvider {
+  const error: ProviderError = { ...reason, upstream: 'not_sent' };
   return {
     id: inner.id,
     kind: inner.kind,
@@ -382,7 +374,7 @@ function unavailableProvider(inner: LlmProvider, error: ProviderError): LlmProvi
 
 /** Whether a user-supplied key can be used with this config (every kind but a scripted one). */
 export function acceptsUserKey(config: Pick<ProviderConfig, 'kind'>): boolean {
-  return !SCRIPTED[config.kind];
+  return !scripted(config);
 }
 
 function keySourceOf(config: ProviderConfig, env: ProviderEnv): ProviderInfo['keySource'] {
@@ -416,8 +408,7 @@ export function createProviderRegistry(
   for (const config of configs) {
     if (entries.has(config.id))
       throw new Error(`Invalid provider config: duplicate provider id "${config.id}"`);
-    const factory = PROVIDER_FACTORIES[config.kind];
-    const real = factory(config, env);
+    const real = PROVIDER_KINDS[config.kind].create(config, env);
     const reason = unavailableReason(config, env);
     entries.set(config.id, {
       config,
@@ -428,8 +419,8 @@ export function createProviderRegistry(
   }
   const all = [...entries.values()];
   const defaultId =
-    all.find((e) => e.available && !SCRIPTED[e.config.kind])?.config.id ??
-    all.find((e) => SCRIPTED[e.config.kind])?.config.id ??
+    all.find((e) => e.available && !scripted(e.config))?.config.id ??
+    all.find((e) => scripted(e.config))?.config.id ??
     all[0]!.config.id;
 
   return {
@@ -446,7 +437,7 @@ export function createProviderRegistry(
         acceptsUserKey: acceptsUserKey(config),
         keySource,
         webSearch: provider.capabilities(provider.defaultModel()).supportsWebSearch,
-        ...(SCRIPTED[config.kind] ? { scripted: true } : {}),
+        ...(scripted(config) ? { scripted: true } : {}),
       })),
     defaultProviderId: () => defaultId,
   };

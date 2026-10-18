@@ -208,7 +208,29 @@ describe('anthropic provider', () => {
     expect(await collect(provider.stream(req()))).toEqual([
       {
         type: 'error',
-        error: { code: 'config', message: 'Missing secret CF_AIG_TOKEN', retryable: false },
+        error: {
+          code: 'config',
+          message: 'Missing secret CF_AIG_TOKEN',
+          retryable: false,
+          upstream: 'not_sent',
+        },
+      },
+    ]);
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('yields a never-sent config error when the API key is missing', async () => {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(CONFIG, { secrets: {}, fetch: m.fetch });
+    expect(await collect(provider.stream(req()))).toEqual([
+      {
+        type: 'error',
+        error: {
+          code: 'config',
+          message: 'Missing secret ANTHROPIC_API_KEY',
+          retryable: false,
+          upstream: 'not_sent',
+        },
       },
     ]);
     expect(m.calls).toHaveLength(0);
@@ -255,6 +277,22 @@ describe('anthropic provider', () => {
         error: { code: 'server', message: 'Internal error', retryable: true, upstream: 'stream' },
       },
     ]);
+  });
+
+  it('redacts the key and clips an in-stream error message to 500 characters', async () => {
+    const { provider } = setup(
+      () =>
+        sseResponse([
+          frame('error', {
+            type: 'error',
+            error: { type: 'api_error', message: `key ${KEY} ${'z'.repeat(1000)}` },
+          }),
+        ]).response,
+    );
+    const [ev] = await collect(provider.stream(req()));
+    if (ev?.type !== 'error') throw new Error('expected an error');
+    expect(ev.error.message.startsWith('key [redacted] zzz')).toBe(true);
+    expect(Array.from(ev.error.message)).toHaveLength(500);
   });
 
   it.each([
@@ -360,9 +398,31 @@ describe('anthropic provider', () => {
     const events = await collect(provider.stream(req()));
     expect(events.at(-1)).toEqual({
       type: 'error',
-      error: { code: 'network', message: 'stream ended unexpectedly', retryable: true },
+      error: {
+        code: 'network',
+        message: 'stream ended unexpectedly',
+        retryable: true,
+        upstream: 'stream',
+      },
     });
     expect(events.filter((e) => e.type === 'error' || e.type === 'done')).toHaveLength(1);
+  });
+
+  it('marks a malformed event as failed after a 2xx', async () => {
+    const { provider } = setup(
+      () =>
+        sseResponse([...RECORDED.slice(0, 2), 'event: content_block_delta\ndata: {not json\n\n'])
+          .response,
+    );
+    expect((await collect(provider.stream(req()))).at(-1)).toEqual({
+      type: 'error',
+      error: {
+        code: 'unknown',
+        message: 'Malformed content_block_delta event from provider',
+        retryable: false,
+        upstream: 'stream',
+      },
+    });
   });
 
   it('aborts promptly before the response arrives (fetch ignoring the signal)', async () => {
@@ -547,6 +607,58 @@ describe('anthropic prompt caching', () => {
   });
 });
 
+describe('anthropic usage', () => {
+  it("reports message_start's input and message_delta's output, each only as sent", async () => {
+    // Anthropic's real shape: the input (and its cache split) at the start, a final
+    // message_delta with the output alone; the consumer folds them field by field.
+    const stream = [
+      frame('message_start', {
+        type: 'message_start',
+        message: {
+          id: 'msg_03',
+          usage: {
+            input_tokens: 20,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 980,
+            output_tokens: 2,
+          },
+        },
+      }),
+      frame('message_delta', {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+        usage: { output_tokens: 75 },
+      }),
+      frame('message_stop', { type: 'message_stop' }),
+    ];
+    const { provider } = setup(() => sseResponse(stream).response);
+    expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
+      {
+        type: 'usage',
+        usage: { inputTokens: 1000, outputTokens: 2, cacheReadTokens: 980, cacheWriteTokens: 0 },
+      },
+      { type: 'usage', usage: { outputTokens: 75 } },
+      { type: 'done', stopReason: 'end_turn' },
+    ]);
+  });
+
+  it('reports no input total without input_tokens, even with the cache counts', async () => {
+    const stream = [
+      frame('message_delta', {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+        usage: { cache_read_input_tokens: 500, output_tokens: 9 },
+      }),
+      frame('message_stop', { type: 'message_stop' }),
+    ];
+    const { provider } = setup(() => sseResponse(stream).response);
+    expect((await collect(provider.stream(req())))[0]).toEqual({
+      type: 'usage',
+      usage: { outputTokens: 9, cacheReadTokens: 500 },
+    });
+  });
+});
+
 describe('anthropic web search', () => {
   const WS: ProviderConfig = { ...CONFIG, options: { webSearch: true } };
   const webSearch = { mode: 'auto', maxUses: 1 } as const;
@@ -674,5 +786,105 @@ describe('anthropic web search', () => {
     const events = await collect(provider.stream(req({ webSearch })));
     expect(calls[0]!.body).not.toHaveProperty('tools');
     expect(events.some((e) => e.type === 'citations' || e.type === 'activity')).toBe(false);
+  });
+});
+
+describe('anthropic reasoning effort', () => {
+  function setupEffort(config: ProviderConfig) {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(config, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
+    return { provider, calls: m.calls };
+  }
+  const WITH_EFFORT: ProviderConfig = {
+    ...CONFIG,
+    models: [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5', effort: 'high' }],
+  };
+
+  it.each([
+    ['low', 'low'],
+    ['high', 'high'],
+  ] as const)('sends effort %s as output_config.effort %s', async (effort, sent) => {
+    const { provider, calls } = setupEffort(CONFIG);
+    await collect(provider.stream(req({ reasoning: effort })));
+    expect(calls[0]!.body['output_config']).toEqual({ effort: sent });
+    expect(calls[0]!.body).not.toHaveProperty('thinking');
+  });
+
+  it('sends none as the lowest effort, never as disabled thinking', async () => {
+    const { provider, calls } = setupEffort(CONFIG);
+    await collect(provider.stream(req({ reasoning: 'none' })));
+    expect(calls[0]!.body['output_config']).toEqual({ effort: 'low' });
+    expect(calls[0]!.body).not.toHaveProperty('thinking');
+  });
+
+  it("sends the model's configured effort, which the call's own overrides", async () => {
+    const { provider, calls } = setupEffort(WITH_EFFORT);
+    await collect(provider.stream(req()));
+    await collect(provider.stream(req({ reasoning: 'low' })));
+    expect(calls.map((c) => c.body['output_config'])).toEqual([
+      { effort: 'high' },
+      { effort: 'low' },
+    ]);
+  });
+
+  it('sends no effort when neither the call nor the model names one', async () => {
+    const { provider, calls } = setupEffort(CONFIG);
+    await collect(provider.stream(req()));
+    expect(calls[0]!.body).not.toHaveProperty('output_config');
+  });
+
+  it('drops thinking blocks and sends the history back as text only', async () => {
+    const thinking = [
+      frame('message_start', {
+        type: 'message_start',
+        message: { usage: { input_tokens: 5, output_tokens: 1 } },
+      }),
+      frame('content_block_start', {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'thinking', thinking: '', signature: '' },
+      }),
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: 'Let me think.' },
+      }),
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'signature_delta', signature: 'c2ln' },
+      }),
+      frame('content_block_stop', { type: 'content_block_stop', index: 0 }),
+      frame('content_block_start', {
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'text', text: '' },
+      }),
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'text_delta', text: 'Answer.' },
+      }),
+      frame('content_block_stop', { type: 'content_block_stop', index: 1 }),
+      frame('message_delta', {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+        usage: { output_tokens: 40 },
+      }),
+      frame('message_stop', { type: 'message_stop' }),
+    ];
+    const m = mockFetch(() => sseResponse(thinking).response);
+    const provider = createAnthropicProvider(WITH_EFFORT, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
+    const events = await collect(provider.stream(req()));
+    expect(events.filter((e) => e.type === 'delta')).toEqual([{ type: 'delta', text: 'Answer.' }]);
+    expect(JSON.stringify(events)).not.toContain('Let me think');
+    const messages = m.calls[0]!.body['messages'] as { content: unknown }[];
+    expect(messages[1]!.content).toBe('Hello!');
   });
 });

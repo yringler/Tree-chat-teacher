@@ -7,6 +7,7 @@ import {
   REPLY_EMPTY_ERROR,
   REPLY_STREAM_ENDED_ERROR,
   REPLY_THINKING_ONLY_ERROR,
+  failedStopError,
   isLengthStop,
   type Branch,
   type ChatNode,
@@ -302,9 +303,11 @@ function missesSummary(plan: ContextPlan): boolean {
 
 /**
  * The outcome of a reply the provider finished with `stopReason`: complete,
- * unless it stopped at its output cap (`isLengthStop`; with no text at all, a
- * reasoning model thought until the cap) or wrote nothing. Those are errors
- * with fixed messages (stop-reason.ts) and kinds the apps recognize.
+ * unless it was cut off (`isLengthStop`; with no text at all, a reasoning
+ * model thought until the cap), refused or failed upstream
+ * (`failedStopError`, a `provider` error like an error event), or wrote
+ * nothing. Those are errors with fixed messages (stop-reason.ts) and kinds
+ * the apps recognize.
  */
 function replyOutcome(content: string, stopReason: string | null): ReplyTerminal {
   const empty = content.trim() === '';
@@ -313,6 +316,8 @@ function replyOutcome(content: string, stopReason: string | null): ReplyTerminal
       ? { status: 'error', message: REPLY_THINKING_ONLY_ERROR, kind: 'thinking_only' }
       : { status: 'error', message: REPLY_CUT_OFF_ERROR, kind: 'cut_off' };
   }
+  const failed = failedStopError(stopReason);
+  if (failed !== null) return { status: 'error', message: failed, kind: 'provider' };
   if (empty) return { status: 'error', message: REPLY_EMPTY_ERROR, kind: 'empty' };
   return { status: 'complete' };
 }

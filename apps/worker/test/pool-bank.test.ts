@@ -822,7 +822,7 @@ describe('Pool meter', () => {
     expect(await poolRows(poolId)).toEqual([]);
   });
 
-  it('charges the full hold for a cancel after dispatch, before the first chunk', async () => {
+  it('charges only the input bound at the input price for a cancel before the first chunk', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
@@ -852,8 +852,14 @@ describe('Pool meter', () => {
     expect((await run).at(-1)).toMatchObject({ type: 'error', error: { code: 'aborted' } });
     await settleAll(deferred);
     const [row] = await poolRows(poolId);
-    expect(row).toMatchObject({ status: 'settled', settle_reason: 'hold' });
-    expect(row!.charge_micros).toBe(row!.hold_micros);
+    // 'hi' is bounded at 2 + 4 + 16 = 22 tokens, at 1 µ$ each; × 1.055 (fee) = 23.21 → 24.
+    expect(row).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 22_000,
+      charge_micros: 24,
+    });
+    expect(row!.charge_micros).toBeLessThan(row!.hold_micros);
   });
 
   it('releases at 0 when the upstream rejects the call, and settles observed tokens without a cost', async () => {
@@ -902,6 +908,47 @@ describe('Pool meter', () => {
       cost_nanos: 150_000,
     });
     expect(await available(poolId)).toBe(100_000 - 159);
+  });
+
+  it('releases at 0 a dispatched call its provider never sent (a missing key)', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 100_000);
+    const deferred: Promise<unknown>[] = [];
+    const meter = createPoolUsageMeter(
+      env,
+      params(poolId),
+      await newUser(env),
+      (x) => deferred.push(x),
+      FAST,
+    );
+    const keyless = createProviderRegistry(
+      [
+        {
+          id: 'openrouter',
+          kind: 'openai-compatible',
+          label: 'Tangent',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKeySecret: 'BUILT_IN_API_KEY',
+          defaultModel: 'normal',
+          models: [{ id: 'normal', label: 'Normal' }],
+        },
+      ],
+      { secrets: {} },
+    );
+    const events = await drain(
+      meteredRegistry(keyless, meter, () => true)
+        .get('openrouter')!
+        .stream(genRequest(tag())),
+    );
+    expect(events).toEqual([
+      { type: 'error', error: expect.objectContaining({ code: 'config', upstream: 'not_sent' }) },
+    ]);
+    await settleAll(deferred);
+    const [row] = await poolRows(poolId);
+    expect(row!.dispatched_at).not.toBeNull();
+    expect(row).toMatchObject({ status: 'settled', charge_micros: 0, settle_reason: 'released' });
+    expect(await available(poolId)).toBe(100_000);
   });
 
   it('settles observed tokens at the cache prices the stream reports', async () => {

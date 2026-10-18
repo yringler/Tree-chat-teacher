@@ -12,13 +12,12 @@ import {
   type WebSearchRequest,
 } from '@tangent/shared';
 import {
-  isOpenRouterBaseUrl,
   markLastMessage,
   promptCacheOption,
-  usesExplicitCacheControl,
   withBreakpoint,
   withTurnInstructions,
 } from './prompt-cache.js';
+import { providerTraits } from './traits.js';
 import type { ProviderEnv } from './registry.js';
 import { addCitation, num, postJson, streamBody } from './http.js';
 import { parseSse } from './sse.js';
@@ -27,28 +26,26 @@ import {
   codeForStatus,
   getFetch,
   guardStream,
+  isOpenAiBaseUrl,
+  isOpenRouterBaseUrl,
   isRecord,
   looksLikeContextLength,
   missingSecretError,
   providerError,
-  redact,
+  upstreamMessage,
   resolveCapabilities,
   resolveApiKey,
   resolveConfigHeaders,
   stripTrailingSlash,
+  OPENAI_ENDPOINT,
 } from './internal.js';
 
-const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULTS = { maxContextTokens: 128_000, maxOutputTokens: 8192, supportsSystemPrompt: true };
 
 type MaxTokensParam = 'max_tokens' | 'max_completion_tokens';
 
 function defaultMaxTokensParam(baseUrl: string): MaxTokensParam {
-  try {
-    return new URL(baseUrl).hostname === 'api.openai.com' ? 'max_completion_tokens' : 'max_tokens';
-  } catch {
-    return 'max_tokens';
-  }
+  return isOpenAiBaseUrl(baseUrl) ? 'max_completion_tokens' : 'max_tokens';
 }
 
 /** Keys of the request body that `options.extraBody` may not override. */
@@ -103,9 +100,23 @@ function webSearchBody(ws: WebSearchRequest, search: SearchConfig): Record<strin
   };
 }
 
-/** OpenRouter's `reasoning` object for an effort: `none` turns thinking off. */
+/**
+ * OpenRouter's `reasoning` object for an effort: `none` turns thinking off.
+ * Some models can't turn thinking off (e.g. several Gemini ones on OpenRouter)
+ * and answer that with a 400, so an operator sets `none` only for a model that
+ * allows it; no default effort is `none`.
+ */
 function reasoningBody(effort: ReasoningEffort): Record<string, unknown> {
   return effort === 'none' ? { enabled: false } : { effort };
+}
+
+/**
+ * OpenAI's `reasoning_effort` for an effort. `none` is `low`, the lowest level
+ * every OpenAI reasoning model accepts: some take `none`, others only
+ * `minimal`, and a level a model lacks is a 400.
+ */
+function reasoningEffortParam(effort: ReasoningEffort): string {
+  return effort === 'none' ? 'low' : effort;
 }
 
 /**
@@ -196,25 +207,28 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * replace `stream_options`).
  *
  * Web search (OpenRouter, when `options.webSearch` is true and the request
- * has `webSearch`): sends the `openrouter:web_search` server tool with
+ * has `webSearch`; any other endpoint reports no search, `providerTraits`):
+ * sends the `openrouter:web_search` server tool with
  * `tool_choice` auto/required (so `requiredWebSearch` holds), on
  * `options.webSearchEngine` (default `exa`) with
  * `options.webSearchMaxResults` results per search (default 5); `extraBody` can't override `tools`,
  * `tool_choice` or `plugins` then. `url_citation` annotations (in
  * `delta.annotations` or `message.annotations`) become `citations` events, a
  * streamed web-search tool call an `activity` event, and
- * `usage.server_tool_use.web_search_requests` a `billing.webSearches`.
+ * `usage.server_tool_use_details.web_search_requests` a `billing.webSearches`.
  *
  * Billing (OpenRouter): yields `{type:'billing', generationId}` right after a
  * 2xx response when the `x-generation-id` header is present (before any
  * delta), otherwise once for the first chunk whose `id` starts with `gen-`;
  * and `{type:'billing', costUsd}` when a chunk's `usage.cost` is a number.
  *
- * Reasoning and routing (OpenRouter only; other endpoints may reject the
- * fields): the call's effort (`request.reasoning`, else the model's
- * `ModelInfo.effort`) is sent as `reasoning: {effort}` (`none`:
- * `{enabled: false}`), replacing any `reasoning` in `extraBody`; nothing is
- * sent when neither names one. A model's `providerOrder` is sent as
+ * Reasoning and routing (where `providerTraits` says the endpoint takes
+ * them; other endpoints may reject the fields): the call's effort
+ * (`request.reasoning`, else the model's `ModelInfo.effort`) is sent to
+ * OpenRouter as `reasoning: {effort}` (`none`: `{enabled: false}`) and to
+ * OpenAI as `reasoning_effort` (`reasoningEffortParam`), replacing the same
+ * field in `extraBody`; nothing is sent when neither names one, or to any
+ * other base URL. On OpenRouter, a model's `providerOrder` is sent as
  * `provider.order` with `allow_fallbacks: true`, merged into `extraBody`'s
  * `provider` (the open pool's `max_price` stays). The thinking itself is
  * never read: only `delta.content` becomes text, so streamed
@@ -245,7 +259,7 @@ export function createOpenAiCompatibleProvider(
   config: ProviderConfig,
   env: ProviderEnv,
 ): LlmProvider {
-  const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
+  const baseUrl = stripTrailingSlash(config.baseUrl ?? OPENAI_ENDPOINT.url);
   const doFetch = getFetch(env);
   const optParam = config.options?.['maxTokensParam'];
   const maxTokensParam: MaxTokensParam =
@@ -253,14 +267,16 @@ export function createOpenAiCompatibleProvider(
       ? optParam
       : defaultMaxTokensParam(baseUrl);
   const extraBody = readExtraBody(config.options);
-  const openRouter = isOpenRouterBaseUrl(baseUrl);
-  const promptCache = promptCacheOption(config.options) ?? openRouter;
+  const traits = providerTraits(config);
+  // Marked by default only where the endpoint is known to accept `cache_control`.
+  const promptCache = promptCacheOption(config.options) ?? isOpenRouterBaseUrl(baseUrl);
 
   const search = readSearchConfig(config.options);
 
   const capabilities = (model: string): ProviderCapabilities => {
     const caps = resolveCapabilities(config, model, DEFAULTS, false);
-    return { ...caps, requiredWebSearch: caps.supportsWebSearch };
+    const searches = caps.supportsWebSearch && traits.webSearch === 'router';
+    return { ...caps, supportsWebSearch: searches, requiredWebSearch: searches };
   };
 
   function stream(request: GenerateRequest): AsyncIterable<ProviderEvent> {
@@ -278,8 +294,7 @@ export function createOpenAiCompatibleProvider(
     headers['content-type'] = 'application/json';
 
     return guardStream(request.signal, secrets, async function* () {
-      if (missing !== undefined)
-        throw new ProviderFailure({ ...missingSecretError(missing), upstream: 'not_sent' });
+      if (missing !== undefined) throw new ProviderFailure(missingSecretError(missing));
       const { signal } = request;
       const caps = capabilities(request.model);
 
@@ -291,7 +306,7 @@ export function createOpenAiCompatibleProvider(
         role: m.role,
         content: m.content,
       }));
-      const cache = promptCache && usesExplicitCacheControl(request.model);
+      const cache = promptCache && traits.explicitCacheMarkers(request.model);
       const messages = withTurnInstructions(
         cache ? markLastMessage(plain) : plain,
         request.turnInstructions,
@@ -312,8 +327,13 @@ export function createOpenAiCompatibleProvider(
         stream_options: { include_usage: true },
         ...extra,
         ...(webSearch ? webSearchBody(webSearch, search) : {}),
-        ...(openRouter && effort !== undefined ? { reasoning: reasoningBody(effort) } : {}),
-        ...(openRouter && order.length > 0
+        ...(traits.effort === 'openrouter-reasoning' && effort !== undefined
+          ? { reasoning: reasoningBody(effort) }
+          : {}),
+        ...(traits.effort === 'openai-reasoning_effort' && effort !== undefined
+          ? { reasoning_effort: reasoningEffortParam(effort) }
+          : {}),
+        ...(traits.routing && order.length > 0
           ? { provider: pinnedRouting(extra['provider'], order) }
           : {}),
         model: request.model,
@@ -387,7 +407,10 @@ export function createOpenAiCompatibleProvider(
           yield {
             type: 'error',
             error: {
-              ...providerError(codeForStreamError(errRec, message), redact(message, secrets)),
+              ...providerError(
+                codeForStreamError(errRec, message),
+                upstreamMessage(message, secrets),
+              ),
               upstream: 'stream',
             },
           };
@@ -425,7 +448,7 @@ export function createOpenAiCompatibleProvider(
           const u = usageOf(usage);
           if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
           const costUsd = num(usage['cost']);
-          const stu = usage['server_tool_use'];
+          const stu = usage['server_tool_use_details'];
           const webSearches = isRecord(stu) ? num(stu['web_search_requests']) : undefined;
           if (costUsd !== undefined || webSearches !== undefined) {
             yield {

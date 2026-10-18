@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isProviderAvailable, type ProviderConfig } from '@tangent/shared';
+import { PROVIDER_KINDS } from '../src/kinds.js';
 import {
   DEFAULT_PROVIDER_CONFIGS,
-  PROVIDER_FACTORIES,
   createProviderRegistry,
   parseProviderConfigs,
 } from '../src/registry.js';
@@ -21,11 +21,7 @@ const FAKE: ProviderConfig = {
 
 describe('provider registry', () => {
   it('registers all kinds', () => {
-    expect(Object.keys(PROVIDER_FACTORIES).sort()).toEqual([
-      'anthropic',
-      'fake',
-      'openai-compatible',
-    ]);
+    expect(Object.keys(PROVIDER_KINDS).sort()).toEqual(['anthropic', 'fake', 'openai-compatible']);
   });
 
   it('has the documented defaults, which round-trip through the parser', () => {
@@ -63,7 +59,12 @@ describe('provider registry', () => {
     ).toEqual([
       {
         type: 'error',
-        error: { code: 'config', message: 'Missing secret ANTHROPIC_API_KEY', retryable: false },
+        error: {
+          code: 'config',
+          message: 'Missing secret ANTHROPIC_API_KEY',
+          retryable: false,
+          upstream: 'not_sent',
+        },
       },
     ]);
     await expect(
@@ -116,6 +117,48 @@ describe('provider registry', () => {
     expect(reg.defaultProviderId()).toBe('local');
   });
 
+  it('fails every call of an unavailable provider as never sent, whatever its kind', async () => {
+    const reg = createProviderRegistry(DEFAULT_PROVIDER_CONFIGS, { secrets: {} });
+    for (const config of DEFAULT_PROVIDER_CONFIGS) {
+      const events = await collect(
+        reg.get(config.id)!.stream({
+          model: config.defaultModel,
+          system: null,
+          messages: [],
+          signal: signal(),
+        }),
+      );
+      expect(events).toEqual([
+        { type: 'error', error: expect.objectContaining({ code: 'config', upstream: 'not_sent' }) },
+      ]);
+    }
+  });
+
+  it('fails a provider without any key source as never sent', async () => {
+    const config: ProviderConfig = {
+      id: 'nokey',
+      kind: 'anthropic',
+      label: 'No key',
+      defaultModel: 'claude-opus-5-5',
+      models: [],
+    };
+    const reg = createProviderRegistry([config], { secrets: {} });
+    const events = await collect(
+      reg.get('nokey')!.stream({ model: 'x', system: null, messages: [], signal: signal() }),
+    );
+    expect(events).toEqual([
+      {
+        type: 'error',
+        error: {
+          code: 'config',
+          message: 'Provider "nokey" has no apiKeySecret configured',
+          retryable: false,
+          upstream: 'not_sent',
+        },
+      },
+    ]);
+  });
+
   it('requires extra header secrets for availability', async () => {
     const configs: ProviderConfig[] = [
       {
@@ -137,7 +180,12 @@ describe('provider registry', () => {
     expect(events).toEqual([
       {
         type: 'error',
-        error: { code: 'config', message: 'Missing secret CF_AIG_TOKEN', retryable: false },
+        error: {
+          code: 'config',
+          message: 'Missing secret CF_AIG_TOKEN',
+          retryable: false,
+          upstream: 'not_sent',
+        },
       },
     ]);
   });
@@ -212,6 +260,21 @@ describe('provider registry', () => {
 
     it('accepts a full valid config', () => {
       expect(parseProviderConfigs(JSON.stringify([valid]))).toEqual([valid]);
+    });
+
+    it('accepts web search where the endpoint runs one', () => {
+      const searching = [
+        { ...valid, baseUrl: 'https://openrouter.ai/api/v1', options: { webSearch: true } },
+        {
+          ...valid,
+          id: 'gw',
+          baseUrl: 'https://gateway.ai.cloudflare.com/v1/a/g/openrouter',
+          options: { webSearch: true },
+        },
+        { ...valid, id: 'a', kind: 'anthropic', options: { webSearch: true } },
+        { ...valid, id: 'b', options: { webSearch: false } },
+      ];
+      expect(parseProviderConfigs(JSON.stringify(searching))).toEqual(searching);
     });
 
     it('accepts options.extraBody and fake costUsd', () => {
@@ -370,6 +433,16 @@ describe('provider registry', () => {
         'bad extraBody',
         JSON.stringify([{ ...valid, options: { extraBody: [1] } }]),
         /options\.extraBody must be an object/,
+      ],
+      [
+        'web search on an endpoint without a search tool',
+        JSON.stringify([{ ...valid, options: { webSearch: true } }]),
+        /PROVIDERS\[0\]\.options\.webSearch is not supported on this endpoint/,
+      ],
+      [
+        "web search on OpenAI's own API",
+        JSON.stringify([{ ...valid, baseUrl: undefined, options: { webSearch: true } }]),
+        /options\.webSearch is not supported/,
       ],
       [
         'no model at all',

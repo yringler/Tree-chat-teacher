@@ -63,6 +63,9 @@ export interface ConfigSummary {
   avgAnswerChars: number;
   avgCost: number;
   totalCost: number;
+  avgWebSearches: number;
+  /** Share of answers citing at least one source. */
+  citedRate: number;
   avgLatencyS: number;
   avgFirstAnswerS: number;
   /** Cached share of prompt tokens on turns that have history (depth >= 2). */
@@ -131,6 +134,9 @@ export function summarize(
       avgAnswerChars: avg(ok.map((r) => r.answer.length)),
       avgCost: avg(used.map((u) => u.cost)),
       totalCost: used.reduce((a, u) => a + u.cost, 0),
+      avgWebSearches: avg(used.map((u) => u.webSearchRequests)),
+      citedRate:
+        ok.length === 0 ? 0 : ok.filter((r) => (r.citations?.length ?? 0) > 0).length / ok.length,
       avgLatencyS: avg(ok.map((r) => r.latencyMs / 1000)),
       avgFirstAnswerS: avg(
         ok.flatMap((r) => (r.firstAnswerMs === null ? [] : [r.firstAnswerMs / 1000])),
@@ -152,8 +158,8 @@ const pct = (n: number | null): string => (n === null ? '–' : `${Math.round(n 
 
 export function summaryTable(rows: readonly ConfigSummary[]): string {
   const head =
-    '| Config | Model | Effort | Cap | Calls | Err | Acc (0-2) | Honesty (0-2) | Maths ✓ | Teach (0-2) | Flail | Cut off | Empty | Tangents | Avg reasoning tok | p90 reasoning | Avg completion tok | Avg $/answer | Total $ | Avg s | First-answer s | Cache share (turn≥2) | Providers |';
-  const sep = `|${'---|'.repeat(23)}`;
+    '| Config | Model | Effort | Cap | Calls | Err | Acc (0-2) | Honesty (0-2) | Maths ✓ | Teach (0-2) | Flail | Cut off | Empty | Tangents | Avg reasoning tok | p90 reasoning | Avg completion tok | Avg $/answer | Total $ | Searches/answer | Cited | Avg s | First-answer s | Cache share (turn≥2) | Providers |';
+  const sep = `|${'---|'.repeat(25)}`;
   const body = rows.map((r) =>
     [
       r.label,
@@ -175,6 +181,8 @@ export function summaryTable(rows: readonly ConfigSummary[]): string {
       Math.round(r.avgCompletion),
       `$${r.avgCost.toFixed(5)}`,
       `$${r.totalCost.toFixed(4)}`,
+      f(r.avgWebSearches),
+      pct(r.citedRate),
       f(r.avgLatencyS, 1),
       f(r.avgFirstAnswerS, 1),
       pct(r.cacheShareFollowUps),
@@ -255,6 +263,8 @@ export function renderReport(
               u ? `prompt ${u.promptTokens} (cached ${u.cachedTokens})` : null,
               u ? `completion ${u.completionTokens} (reasoning ${u.reasoningTokens})` : null,
               u && !options.blind ? `$${u.cost.toFixed(5)}` : null,
+              u && u.webSearchRequests > 0 ? `${u.webSearchRequests} web searches` : null,
+              r.citations ? `${r.citations.length} citations` : null,
               options.blind ? null : `${(r.latencyMs / 1000).toFixed(1)}s`,
               flags.truncated ? '**CUT OFF**' : null,
               flags.empty ? '**EMPTY**' : null,
@@ -270,7 +280,19 @@ export function renderReport(
             `**Grade:** acc ${g.accuracy} · honesty ${g.honesty}${g.mathCorrect === undefined ? '' : ` · maths ${g.mathCorrect}`} · teaching ${g.teaching}${g.flailing ? ' · flailing' : ''}${g.note ? ` — ${g.note}` : ''}`,
             '',
           );
-        out.push(r.answer.trim() === '' ? '_(no answer)_' : r.answer.trim(), '', '---', '');
+        out.push(r.answer.trim() === '' ? '_(no answer)_' : r.answer.trim(), '');
+        // Hidden when blind: Google's redirect URLs would give the model away.
+        if (r.citations && !options.blind)
+          out.push(
+            '**Sources:**',
+            '',
+            ...r.citations.map(
+              (c) =>
+                `- [${(c.title ?? c.url).replace(/[[\]]/g, '')}](${c.url})${c.endIndex > 0 ? ` (chars ${c.startIndex}-${c.endIndex})` : ''}`,
+            ),
+            '',
+          );
+        out.push('---', '');
       }
     }
   }

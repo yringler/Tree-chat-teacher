@@ -1,0 +1,16 @@
+{
+  "adapter": "anthropic",
+  "scenario": "bad-key",
+  "model": "claude-haiku-4-5",
+  "expectation": {
+    "outcome": "error",
+    "error": {
+      "code": "auth",
+      "upstream": "rejected",
+      "status": 401
+    }
+  },
+  "status": 401,
+  "contentType": "application/json",
+  "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":\"req_0001\"}"
+}

@@ -1,0 +1,16 @@
+{
+  "adapter": "openrouter",
+  "scenario": "bad-model",
+  "model": "tangent-live/no-such-model",
+  "expectation": {
+    "outcome": "error",
+    "error": {
+      "code": "invalid_request",
+      "upstream": "rejected",
+      "status": 400
+    }
+  },
+  "status": 400,
+  "contentType": "application/json",
+  "body": "{\"error\":{\"message\":\"tangent-live/no-such-model is not a valid model ID\",\"code\":400},\"user_id\":\"user_0001\"}"
+}

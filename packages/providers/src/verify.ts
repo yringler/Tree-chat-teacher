@@ -1,5 +1,6 @@
 import type { ProviderConfig } from '@tangent/shared';
-import { abortable, getFetch, resolveConfigHeaders, stripTrailingSlash } from './internal.js';
+import { abortable, getFetch, resolveConfigHeaders } from './internal.js';
+import { PROVIDER_KINDS } from './kinds.js';
 import type { ProviderEnv } from './registry.js';
 
 /**
@@ -13,7 +14,8 @@ const TIMEOUT_MS = 8000;
 
 /**
  * One cheap, non-billed request that needs a valid key: `GET /v1/models`
- * (Anthropic) or `GET {baseUrl}/models` (OpenAI-compatible). The key is only
+ * (Anthropic), `GET {baseUrl}/key` (OpenRouter) or `GET {baseUrl}/models`
+ * (another OpenAI-compatible endpoint). The key is only
  * put in the auth header; nothing about it is logged or returned.
  */
 export async function verifyApiKey(
@@ -23,21 +25,10 @@ export async function verifyApiKey(
 ): Promise<KeyCheck> {
   const resolved = resolveConfigHeaders(config, env);
   if (resolved.missing !== undefined) return 'unverified';
-  const headers = resolved.headers;
-  let url: string;
-  switch (config.kind) {
-    case 'anthropic':
-      url = `${stripTrailingSlash(config.baseUrl ?? 'https://api.anthropic.com')}/v1/models?limit=1`;
-      headers['x-api-key'] = apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-      break;
-    case 'openai-compatible':
-      url = `${stripTrailingSlash(config.baseUrl ?? 'https://api.openai.com/v1')}/models`;
-      headers['authorization'] = `Bearer ${apiKey}`;
-      break;
-    default:
-      return 'unverified';
-  }
+  const request = PROVIDER_KINDS[config.kind].verifyRequest(config.baseUrl, apiKey);
+  if (request === null) return 'unverified';
+  const { url } = request;
+  const headers = { ...resolved.headers, ...request.headers };
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   try {
     const res = await abortable(getFetch(env)(url, { method: 'GET', headers, signal }), signal);

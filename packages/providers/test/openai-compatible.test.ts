@@ -213,8 +213,53 @@ describe('openai-compatible provider', () => {
     const { provider } = setup(OPENAI, () => sseResponse(OPENAI_STREAM.slice(0, 2)).response);
     expect((await collect(provider.stream(req()))).at(-1)).toEqual({
       type: 'error',
-      error: { code: 'network', message: 'stream ended unexpectedly', retryable: true },
+      error: {
+        code: 'network',
+        message: 'stream ended unexpectedly',
+        retryable: true,
+        upstream: 'stream',
+      },
     });
+  });
+
+  it('marks a malformed chunk as failed after a 2xx', async () => {
+    const { provider } = setup(
+      OPENAI,
+      () => sseResponse([OPENAI_STREAM[1]!, 'data: {not json\n\n']).response,
+    );
+    expect((await collect(provider.stream(req()))).at(-1)).toEqual({
+      type: 'error',
+      error: {
+        code: 'unknown',
+        message: 'Malformed chunk from provider',
+        retryable: false,
+        upstream: 'stream',
+      },
+    });
+  });
+
+  it('marks a connection lost while reading the body as failed after a 2xx', async () => {
+    const enc = new TextEncoder();
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulls++ === 0) controller.enqueue(enc.encode(OPENAI_STREAM[1]));
+        else controller.error(new TypeError('Network connection lost.'));
+      },
+    });
+    const { provider } = setup(OPENAI, () => new Response(body, { status: 200 }));
+    expect(await collect(provider.stream(req()))).toEqual([
+      { type: 'delta', text: 'Hel' },
+      {
+        type: 'error',
+        error: {
+          code: 'network',
+          message: 'Network error: Network connection lost.',
+          retryable: true,
+          upstream: 'stream',
+        },
+      },
+    ]);
   });
 
   it('sends no Authorization header without apiKeySecret (local server)', async () => {
@@ -394,6 +439,79 @@ describe('openai-compatible provider', () => {
       maxOutputTokens: 8192,
       reasoning: false,
     });
+  });
+});
+
+describe('openai-compatible in-stream errors (OpenRouter, HTTP 200)', () => {
+  function errorChunk(error: unknown, extra: Record<string, unknown> = {}) {
+    return frame(null, { id: 'gen-1', object: 'chat.completion.chunk', error, ...extra });
+  }
+
+  async function errorOf(...chunks: string[]) {
+    const { provider } = setup(OPENROUTER, () => sseResponse(chunks).response);
+    const events = await collect(provider.stream(req()));
+    const last = events.at(-1);
+    if (last?.type !== 'error') throw new Error(`expected an error, got ${JSON.stringify(last)}`);
+    return { error: last.error, events };
+  }
+
+  it.each<[string, unknown, string]>([
+    ['rate_limit_exceeded', 'rate_limit_exceeded', 'rate_limit'],
+    ['invalid_api_key', 'invalid_api_key', 'auth'],
+    ['context_length_exceeded', 'context_length_exceeded', 'context_length'],
+    ['an unknown string', 'something_else', 'server'],
+    ['429', 429, 'rate_limit'],
+    ['401', 401, 'auth'],
+    ['503', 503, 'overloaded'],
+    ['a number below 400', 200, 'server'],
+    ['none', undefined, 'server'],
+  ])('maps the code %s', async (_name, code, expected) => {
+    const { error } = await errorOf(errorChunk({ message: 'failed', code }));
+    expect(error).toMatchObject({ code: expected, upstream: 'stream' });
+  });
+
+  it('reads a bare string error, and a fallback message without one', async () => {
+    expect((await errorOf(errorChunk('upstream fell over'))).error).toEqual({
+      code: 'server',
+      message: 'upstream fell over',
+      retryable: true,
+      upstream: 'stream',
+    });
+    expect((await errorOf(errorChunk({ code: 502 }))).error.message).toBe('Provider stream error');
+  });
+
+  it('redacts the key and clips the message to 500 characters', async () => {
+    const { error } = await errorOf(
+      errorChunk({ message: `bad key ${SECRETS.OPENROUTER_API_KEY} ${'z'.repeat(1000)}` }),
+    );
+    expect(error.message.startsWith('bad key [redacted] zzz')).toBe(true);
+    expect(error.message).not.toContain(SECRETS.OPENROUTER_API_KEY);
+    expect(Array.from(error.message)).toHaveLength(500);
+    expect(error.message.endsWith('…')).toBe(true);
+  });
+
+  it('drops the usage and cost of the error chunk and of every chunk after it', async () => {
+    const usage = { prompt_tokens: 10, completion_tokens: 2, cost: 0.001 };
+    const { events } = await errorOf(
+      chunk({ content: 'Part' }),
+      errorChunk({ message: 'boom', code: 502 }, { usage }),
+      chunk({}, null, { usage }),
+      'data: [DONE]\n\n',
+    );
+    expect(events.map((e) => e.type)).toEqual(['delta', 'billing', 'error']);
+    expect(events[1]).toEqual({ type: 'billing', generationId: 'gen-1' });
+  });
+
+  it("ends a finish_reason 'error' without an error object as done with that stop reason", async () => {
+    const { provider } = setup(
+      OPENROUTER,
+      () =>
+        sseResponse([chunk({ content: 'Part' }), chunk({}, 'error'), 'data: [DONE]\n\n']).response,
+    );
+    expect(await collect(provider.stream(req()))).toEqual([
+      { type: 'delta', text: 'Part' },
+      { type: 'done', stopReason: 'error' },
+    ]);
   });
 });
 
@@ -661,7 +779,7 @@ describe('openai-compatible web search (OpenRouter)', () => {
         prompt_tokens: 900,
         completion_tokens: 40,
         cost: 0.0075,
-        server_tool_use: { web_search_requests: 1 },
+        server_tool_use_details: { web_search_requests: 1 },
       },
     }),
     'data: [DONE]\n\n',
@@ -678,6 +796,18 @@ describe('openai-compatible web search (OpenRouter)', () => {
       supportsWebSearch: false,
       requiredWebSearch: false,
     });
+  });
+
+  it('never searches on an endpoint without a search tool, even with options.webSearch', async () => {
+    const config = { ...OPENAI, options: { webSearch: true } };
+    const { provider, calls } = setup(config, () => sseResponse(OPENAI_STREAM).response);
+    expect(provider.capabilities('gpt-5')).toMatchObject({
+      supportsWebSearch: false,
+      requiredWebSearch: false,
+    });
+    await collect(provider.stream(req({ webSearch })));
+    expect(calls[0]!.body).not.toHaveProperty('tools');
+    expect(calls[0]!.body).not.toHaveProperty('tool_choice');
   });
 
   it('runs the search on the configured engine and result count', async () => {
@@ -715,6 +845,25 @@ describe('openai-compatible web search (OpenRouter)', () => {
     expect(first?.excerpt?.length).toBe(300);
     expect(events).toContainEqual({ type: 'billing', costUsd: 0.0075, webSearches: 1 });
     expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'stop' });
+  });
+
+  it('reports every search OpenRouter ran, even one that cited nothing', async () => {
+    const stream = [
+      chunk({ role: 'assistant', content: 'No sources needed.' }, 'stop'),
+      chunk({}, null, {
+        usage: {
+          prompt_tokens: 900,
+          completion_tokens: 40,
+          cost: 0.0121,
+          server_tool_use_details: { web_search_requests: 2 },
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(WS, () => sseResponse(stream).response);
+    const events = await collect(provider.stream(req({ webSearch: { mode: 'auto', maxUses: 2 } })));
+    expect(events.some((e) => e.type === 'citations')).toBe(false);
+    expect(events).toContainEqual({ type: 'billing', costUsd: 0.0121, webSearches: 2 });
   });
 
   it('sends the tool with the turn instructions after the history, not in the system prompt', async () => {
@@ -965,6 +1114,27 @@ describe('openai-compatible prompt caching', () => {
     });
   });
 
+  it('reports prompt_tokens as the input total and completion_tokens as the output total', async () => {
+    // Both already include their parts (cached input, thinking): neither is added again.
+    const stream = [
+      chunk({}, 'stop'),
+      chunk({}, null, {
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 50,
+          prompt_tokens_details: { cached_tokens: 800 },
+          completion_tokens_details: { reasoning_tokens: 30 },
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(OPENROUTER, () => sseResponse(stream).response);
+    expect(await collect(provider.stream(req()))).toContainEqual({
+      type: 'usage',
+      usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 800, reasoningTokens: 30 },
+    });
+  });
+
   it("reports DeepSeek's prompt_cache_hit_tokens as cache reads", async () => {
     const stream = [
       chunk({}, 'stop'),
@@ -1015,6 +1185,40 @@ describe('openai-compatible reasoning effort and provider pinning', () => {
     );
     expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'high' })).not.toHaveProperty(
       'reasoning',
+    );
+  });
+
+  it("sends reasoning_effort on OpenAI's own endpoint, `none` as its lowest level", async () => {
+    const effortOf = async (config: ProviderConfig, reasoning?: 'none' | 'low' | 'high') =>
+      (await sent(config, { model: 'gpt-5', ...(reasoning ? { reasoning } : {}) }))[
+        'reasoning_effort'
+      ];
+    expect(await effortOf(OPENAI, 'low')).toBe('low');
+    expect(await effortOf(OPENAI, 'high')).toBe('high');
+    expect(await effortOf(OPENAI, 'none')).toBe('low');
+    expect(await effortOf(OPENAI)).toBeUndefined();
+    const explicit = { ...OPENAI, baseUrl: 'https://api.openai.com/v1/' };
+    expect(await effortOf(explicit, 'high')).toBe('high');
+    // A configured effort replaces extraBody's.
+    const extra = {
+      ...OPENAI,
+      models: [{ id: 'gpt-5', label: 'GPT-5', effort: 'high' as const }],
+      options: { extraBody: { reasoning_effort: 'minimal' } },
+    };
+    expect(await effortOf(extra)).toBe('high');
+    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'high' })).not.toHaveProperty(
+      'reasoning',
+    );
+  });
+
+  it('sends no effort to another base URL, which may reject unknown fields', async () => {
+    for (const baseUrl of ['http://localhost:11434/v1', 'https://gateway.example/compat']) {
+      const body = await sent({ ...OPENAI, baseUrl }, { model: 'gpt-5', reasoning: 'high' });
+      expect(body).not.toHaveProperty('reasoning_effort');
+      expect(body).not.toHaveProperty('reasoning');
+    }
+    expect(await sent(OPENROUTER, { model: FLASH, reasoning: 'high' })).not.toHaveProperty(
+      'reasoning_effort',
     );
   });
 
