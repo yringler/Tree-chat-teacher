@@ -21,6 +21,7 @@ import {
   resolveApiKey,
 } from './internal.js';
 import { PROVIDER_KINDS } from './kinds.js';
+import { providerTraits } from './traits.js';
 
 export interface ProviderEnv {
   /** Secret name → value (Worker secrets / process.env). */
@@ -257,6 +258,9 @@ function parseConfig(v: unknown, path: string): ProviderConfig {
       throw new ConfigError(`${path}.options.extraBody`, 'must be an object');
     }
     config.options = options;
+    // Refused here rather than as a 400 on the first search.
+    if (options['webSearch'] === true && providerTraits(config).webSearch === 'none')
+      throw new ConfigError(`${path}.options.webSearch`, 'is not supported on this endpoint');
   }
   return config;
 }

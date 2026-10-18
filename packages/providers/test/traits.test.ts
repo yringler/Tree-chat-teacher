@@ -19,7 +19,7 @@ const ROUTER = {
   routing: true,
   catalog: 'openrouter',
 };
-const PLAIN = { webSearch: 'router', effort: 'none', routing: false, catalog: null };
+const PLAIN = { webSearch: 'none', effort: 'none', routing: false, catalog: null };
 const OPENAI = { ...PLAIN, effort: 'openai-reasoning_effort' };
 const NATIVE = { webSearch: 'native', effort: 'none', routing: false, catalog: null };
 const ANTHROPIC = { ...NATIVE, effort: 'anthropic-effort' };

@@ -202,7 +202,8 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * replace `stream_options`).
  *
  * Web search (OpenRouter, when `options.webSearch` is true and the request
- * has `webSearch`): sends the `openrouter:web_search` server tool with
+ * has `webSearch`; any other endpoint reports no search, `providerTraits`):
+ * sends the `openrouter:web_search` server tool with
  * `tool_choice` auto/required (so `requiredWebSearch` holds), on
  * `options.webSearchEngine` (default `exa`) with
  * `options.webSearchMaxResults` results per search (default 5); `extraBody` can't override `tools`,
@@ -269,7 +270,8 @@ export function createOpenAiCompatibleProvider(
 
   const capabilities = (model: string): ProviderCapabilities => {
     const caps = resolveCapabilities(config, model, DEFAULTS, false);
-    return { ...caps, requiredWebSearch: caps.supportsWebSearch };
+    const searches = caps.supportsWebSearch && traits.webSearch === 'router';
+    return { ...caps, supportsWebSearch: searches, requiredWebSearch: searches };
   };
 
   function stream(request: GenerateRequest): AsyncIterable<ProviderEvent> {

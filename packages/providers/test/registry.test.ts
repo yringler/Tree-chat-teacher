@@ -210,6 +210,21 @@ describe('provider registry', () => {
       expect(parseProviderConfigs(JSON.stringify([valid]))).toEqual([valid]);
     });
 
+    it('accepts web search where the endpoint runs one', () => {
+      const searching = [
+        { ...valid, baseUrl: 'https://openrouter.ai/api/v1', options: { webSearch: true } },
+        {
+          ...valid,
+          id: 'gw',
+          baseUrl: 'https://gateway.ai.cloudflare.com/v1/a/g/openrouter',
+          options: { webSearch: true },
+        },
+        { ...valid, id: 'a', kind: 'anthropic', options: { webSearch: true } },
+        { ...valid, id: 'b', options: { webSearch: false } },
+      ];
+      expect(parseProviderConfigs(JSON.stringify(searching))).toEqual(searching);
+    });
+
     it('accepts options.extraBody and fake costUsd', () => {
       const withExtra = { ...valid, options: { extraBody: { reasoning: { effort: 'low' } } } };
       const fake = {
@@ -366,6 +381,16 @@ describe('provider registry', () => {
         'bad extraBody',
         JSON.stringify([{ ...valid, options: { extraBody: [1] } }]),
         /options\.extraBody must be an object/,
+      ],
+      [
+        'web search on an endpoint without a search tool',
+        JSON.stringify([{ ...valid, options: { webSearch: true } }]),
+        /PROVIDERS\[0\]\.options\.webSearch is not supported on this endpoint/,
+      ],
+      [
+        "web search on OpenAI's own API",
+        JSON.stringify([{ ...valid, baseUrl: undefined, options: { webSearch: true } }]),
+        /options\.webSearch is not supported/,
       ],
       [
         'no model at all',

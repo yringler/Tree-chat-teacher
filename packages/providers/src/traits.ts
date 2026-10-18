@@ -6,9 +6,11 @@ import { usesExplicitCacheControl } from './prompt-cache.js';
  * How a provider runs a web search: `native`, the vendor's own search tool;
  * `router`, OpenRouter's `openrouter:web_search` server tool, whose engine
  * and result count are request options (so the operator's grounding vars
- * apply to it).
+ * apply to it); `none`, not at all: another openai-compatible endpoint
+ * (OpenAI's own API, a gateway, a local server) rejects OpenRouter's tool,
+ * so a config there can't enable `options.webSearch`.
  */
-export type WebSearchMode = 'native' | 'router';
+export type WebSearchMode = 'native' | 'router' | 'none';
 
 /**
  * How a call's reasoning effort is sent: OpenRouter's `reasoning` object,
@@ -48,9 +50,9 @@ const NONE = {
 
 /**
  * The traits of `config`'s endpoint: a pure function of the config. An
- * openai-compatible config searches through OpenRouter's server tool on any
- * base URL (a proxy in front of OpenRouter isn't recognisable by its URL);
- * the rest is OpenRouter's only on a base URL that reaches it.
+ * openai-compatible config is OpenRouter's (search, reasoning, routing,
+ * catalog) only on a base URL that reaches it, directly or through AI
+ * Gateway's OpenRouter route.
  */
 export function providerTraits(config: ProviderConfig): ProviderTraits {
   switch (config.kind) {
@@ -64,12 +66,18 @@ export function providerTraits(config: ProviderConfig): ProviderTraits {
     case 'fake':
       return { ...NONE, webSearch: 'native', explicitCacheMarkers: () => false };
     case 'openai-compatible': {
-      const base = { webSearch: 'router', explicitCacheMarkers: usesExplicitCacheControl } as const;
+      const base = { explicitCacheMarkers: usesExplicitCacheControl } as const;
       if (isOpenRouterBaseUrl(config.baseUrl))
-        return { ...base, effort: 'openrouter-reasoning', routing: true, catalog: 'openrouter' };
+        return {
+          ...base,
+          webSearch: 'router',
+          effort: 'openrouter-reasoning',
+          routing: true,
+          catalog: 'openrouter',
+        };
       return isOpenAiBaseUrl(config.baseUrl)
-        ? { ...base, ...NONE, effort: 'openai-reasoning_effort' }
-        : { ...base, ...NONE };
+        ? { ...base, ...NONE, webSearch: 'none', effort: 'openai-reasoning_effort' }
+        : { ...base, ...NONE, webSearch: 'none' };
     }
   }
 }

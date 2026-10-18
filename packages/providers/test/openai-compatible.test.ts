@@ -680,6 +680,18 @@ describe('openai-compatible web search (OpenRouter)', () => {
     });
   });
 
+  it('never searches on an endpoint without a search tool, even with options.webSearch', async () => {
+    const config = { ...OPENAI, options: { webSearch: true } };
+    const { provider, calls } = setup(config, () => sseResponse(OPENAI_STREAM).response);
+    expect(provider.capabilities('gpt-5')).toMatchObject({
+      supportsWebSearch: false,
+      requiredWebSearch: false,
+    });
+    await collect(provider.stream(req({ webSearch })));
+    expect(calls[0]!.body).not.toHaveProperty('tools');
+    expect(calls[0]!.body).not.toHaveProperty('tool_choice');
+  });
+
   it('runs the search on the configured engine and result count', async () => {
     const config = {
       ...WS,
