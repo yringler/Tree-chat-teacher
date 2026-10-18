@@ -682,6 +682,12 @@ export const usageEvents = sqliteTable(
     }),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /**
+     * Credit rows: the input tokens the hold was sized with (the meter's
+     * estimate of the prompt), so a call whose meter died can be charged its
+     * input; null until the meter knows the prompt.
+     */
+    heldInputTokens: integer('held_input_tokens'),
     /** Web searches the call ran (grounding); their cost is inside cost_nanos. */
     webSearches: integer('web_searches').notNull().default(0),
     createdAt: text('created_at').notNull(),

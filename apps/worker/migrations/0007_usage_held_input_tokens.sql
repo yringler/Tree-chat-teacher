@@ -1,0 +1,1 @@
+ALTER TABLE `usage_events` ADD `held_input_tokens` integer;
