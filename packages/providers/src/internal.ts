@@ -350,3 +350,13 @@ export const OPENAI_ENDPOINT = {
   vendor: 'OpenAI',
   keyPrefix: 'sk-',
 };
+
+/** Whether an openai-compatible config's `baseUrl` reaches OpenAI's own API (none set does). */
+export function isOpenAiBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return true;
+  try {
+    return new URL(baseUrl).hostname === new URL(OPENAI_ENDPOINT.url).hostname;
+  } catch {
+    return false;
+  }
+}

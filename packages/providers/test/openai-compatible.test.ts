@@ -1037,6 +1037,40 @@ describe('openai-compatible reasoning effort and provider pinning', () => {
     );
   });
 
+  it("sends reasoning_effort on OpenAI's own endpoint, `none` as its lowest level", async () => {
+    const effortOf = async (config: ProviderConfig, reasoning?: 'none' | 'low' | 'high') =>
+      (await sent(config, { model: 'gpt-5', ...(reasoning ? { reasoning } : {}) }))[
+        'reasoning_effort'
+      ];
+    expect(await effortOf(OPENAI, 'low')).toBe('low');
+    expect(await effortOf(OPENAI, 'high')).toBe('high');
+    expect(await effortOf(OPENAI, 'none')).toBe('low');
+    expect(await effortOf(OPENAI)).toBeUndefined();
+    const explicit = { ...OPENAI, baseUrl: 'https://api.openai.com/v1/' };
+    expect(await effortOf(explicit, 'high')).toBe('high');
+    // A configured effort replaces extraBody's.
+    const extra = {
+      ...OPENAI,
+      models: [{ id: 'gpt-5', label: 'GPT-5', effort: 'high' as const }],
+      options: { extraBody: { reasoning_effort: 'minimal' } },
+    };
+    expect(await effortOf(extra)).toBe('high');
+    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'high' })).not.toHaveProperty(
+      'reasoning',
+    );
+  });
+
+  it('sends no effort to another base URL, which may reject unknown fields', async () => {
+    for (const baseUrl of ['http://localhost:11434/v1', 'https://gateway.example/compat']) {
+      const body = await sent({ ...OPENAI, baseUrl }, { model: 'gpt-5', reasoning: 'high' });
+      expect(body).not.toHaveProperty('reasoning_effort');
+      expect(body).not.toHaveProperty('reasoning');
+    }
+    expect(await sent(OPENROUTER, { model: FLASH, reasoning: 'high' })).not.toHaveProperty(
+      'reasoning_effort',
+    );
+  });
+
   it("sends the model's configured effort; a request's effort overrides it", async () => {
     const config = tiered({ effort: 'low' });
     expect((await sent(config, { model: FLASH }))['reasoning']).toEqual({ effort: 'low' });

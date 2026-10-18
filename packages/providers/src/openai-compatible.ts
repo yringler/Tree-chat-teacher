@@ -26,6 +26,7 @@ import {
   codeForStatus,
   getFetch,
   guardStream,
+  isOpenAiBaseUrl,
   isOpenRouterBaseUrl,
   isRecord,
   looksLikeContextLength,
@@ -44,11 +45,7 @@ const DEFAULTS = { maxContextTokens: 128_000, maxOutputTokens: 8192, supportsSys
 type MaxTokensParam = 'max_tokens' | 'max_completion_tokens';
 
 function defaultMaxTokensParam(baseUrl: string): MaxTokensParam {
-  try {
-    return new URL(baseUrl).hostname === 'api.openai.com' ? 'max_completion_tokens' : 'max_tokens';
-  } catch {
-    return 'max_tokens';
-  }
+  return isOpenAiBaseUrl(baseUrl) ? 'max_completion_tokens' : 'max_tokens';
 }
 
 /** Keys of the request body that `options.extraBody` may not override. */
@@ -106,6 +103,15 @@ function webSearchBody(ws: WebSearchRequest, search: SearchConfig): Record<strin
 /** OpenRouter's `reasoning` object for an effort: `none` turns thinking off. */
 function reasoningBody(effort: ReasoningEffort): Record<string, unknown> {
   return effort === 'none' ? { enabled: false } : { effort };
+}
+
+/**
+ * OpenAI's `reasoning_effort` for an effort. `none` is `low`, the lowest level
+ * every OpenAI reasoning model accepts: some take `none`, others only
+ * `minimal`, and a level a model lacks is a 400.
+ */
+function reasoningEffortParam(effort: ReasoningEffort): string {
+  return effort === 'none' ? 'low' : effort;
 }
 
 /**
@@ -210,11 +216,13 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * delta), otherwise once for the first chunk whose `id` starts with `gen-`;
  * and `{type:'billing', costUsd}` when a chunk's `usage.cost` is a number.
  *
- * Reasoning and routing (OpenRouter only; other endpoints may reject the
- * fields): the call's effort (`request.reasoning`, else the model's
- * `ModelInfo.effort`) is sent as `reasoning: {effort}` (`none`:
- * `{enabled: false}`), replacing any `reasoning` in `extraBody`; nothing is
- * sent when neither names one. A model's `providerOrder` is sent as
+ * Reasoning and routing (where `providerTraits` says the endpoint takes
+ * them; other endpoints may reject the fields): the call's effort
+ * (`request.reasoning`, else the model's `ModelInfo.effort`) is sent to
+ * OpenRouter as `reasoning: {effort}` (`none`: `{enabled: false}`) and to
+ * OpenAI as `reasoning_effort` (`reasoningEffortParam`), replacing the same
+ * field in `extraBody`; nothing is sent when neither names one, or to any
+ * other base URL. On OpenRouter, a model's `providerOrder` is sent as
  * `provider.order` with `allow_fallbacks: true`, merged into `extraBody`'s
  * `provider` (the open pool's `max_price` stays). The thinking itself is
  * never read: only `delta.content` becomes text, so streamed
@@ -315,6 +323,9 @@ export function createOpenAiCompatibleProvider(
         ...(webSearch ? webSearchBody(webSearch, search) : {}),
         ...(traits.effort === 'openrouter-reasoning' && effort !== undefined
           ? { reasoning: reasoningBody(effort) }
+          : {}),
+        ...(traits.effort === 'openai-reasoning_effort' && effort !== undefined
+          ? { reasoning_effort: reasoningEffortParam(effort) }
           : {}),
         ...(traits.routing && order.length > 0
           ? { provider: pinnedRouting(extra['provider'], order) }

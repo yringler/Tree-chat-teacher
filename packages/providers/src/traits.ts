@@ -1,5 +1,5 @@
 import type { ProviderConfig } from '@tangent/shared';
-import { isOpenRouterBaseUrl } from './internal.js';
+import { isOpenAiBaseUrl, isOpenRouterBaseUrl } from './internal.js';
 import { usesExplicitCacheControl } from './prompt-cache.js';
 
 /**
@@ -12,9 +12,13 @@ export type WebSearchMode = 'native' | 'router';
 
 /**
  * How a call's reasoning effort is sent: OpenRouter's `reasoning` object,
- * Anthropic's `output_config.effort`, or not at all.
+ * Anthropic's `output_config.effort`, OpenAI's `reasoning_effort`, or not at
+ * all. Another openai-compatible base URL (a gateway, a local server) gets
+ * none: what it accepts is unknown, and a strict server rejects an unknown
+ * field with a 400.
  */
-export type EffortParam = 'openrouter-reasoning' | 'anthropic-effort' | 'none';
+export type EffortParam =
+  'openrouter-reasoning' | 'anthropic-effort' | 'openai-reasoning_effort' | 'none';
 
 /**
  * What a provider config's endpoint does beyond the common chat contract, so
@@ -61,8 +65,10 @@ export function providerTraits(config: ProviderConfig): ProviderTraits {
       return { ...NONE, webSearch: 'native', explicitCacheMarkers: () => false };
     case 'openai-compatible': {
       const base = { webSearch: 'router', explicitCacheMarkers: usesExplicitCacheControl } as const;
-      return isOpenRouterBaseUrl(config.baseUrl)
-        ? { ...base, effort: 'openrouter-reasoning', routing: true, catalog: 'openrouter' }
+      if (isOpenRouterBaseUrl(config.baseUrl))
+        return { ...base, effort: 'openrouter-reasoning', routing: true, catalog: 'openrouter' };
+      return isOpenAiBaseUrl(config.baseUrl)
+        ? { ...base, ...NONE, effort: 'openai-reasoning_effort' }
         : { ...base, ...NONE };
     }
   }

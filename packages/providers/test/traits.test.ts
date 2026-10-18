@@ -20,6 +20,7 @@ const ROUTER = {
   catalog: 'openrouter',
 };
 const PLAIN = { webSearch: 'router', effort: 'none', routing: false, catalog: null };
+const OPENAI = { ...PLAIN, effort: 'openai-reasoning_effort' };
 const NATIVE = { webSearch: 'native', effort: 'none', routing: false, catalog: null };
 const ANTHROPIC = { ...NATIVE, effort: 'anthropic-effort' };
 
@@ -36,7 +37,8 @@ describe('providerTraits', () => {
       config('openai-compatible', 'https://gateway.ai.cloudflare.com/v1/acct/gw/openrouter'),
       ROUTER,
     ],
-    ['OpenAI (the default endpoint)', config('openai-compatible'), PLAIN],
+    ['OpenAI (the default endpoint)', config('openai-compatible'), OPENAI],
+    ['OpenAI by its URL', config('openai-compatible', 'https://api.openai.com/v1'), OPENAI],
     [
       "a custom gateway's compat route",
       config('openai-compatible', 'https://gateway.ai.cloudflare.com/v1/acct/gw/compat'),
