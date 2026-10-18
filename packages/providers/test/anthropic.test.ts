@@ -676,3 +676,103 @@ describe('anthropic web search', () => {
     expect(events.some((e) => e.type === 'citations' || e.type === 'activity')).toBe(false);
   });
 });
+
+describe('anthropic reasoning effort', () => {
+  function setupEffort(config: ProviderConfig) {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(config, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
+    return { provider, calls: m.calls };
+  }
+  const WITH_EFFORT: ProviderConfig = {
+    ...CONFIG,
+    models: [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5', effort: 'high' }],
+  };
+
+  it.each([
+    ['low', 'low'],
+    ['high', 'high'],
+  ] as const)('sends effort %s as output_config.effort %s', async (effort, sent) => {
+    const { provider, calls } = setupEffort(CONFIG);
+    await collect(provider.stream(req({ reasoning: effort })));
+    expect(calls[0]!.body['output_config']).toEqual({ effort: sent });
+    expect(calls[0]!.body).not.toHaveProperty('thinking');
+  });
+
+  it('sends none as the lowest effort, never as disabled thinking', async () => {
+    const { provider, calls } = setupEffort(CONFIG);
+    await collect(provider.stream(req({ reasoning: 'none' })));
+    expect(calls[0]!.body['output_config']).toEqual({ effort: 'low' });
+    expect(calls[0]!.body).not.toHaveProperty('thinking');
+  });
+
+  it("sends the model's configured effort, which the call's own overrides", async () => {
+    const { provider, calls } = setupEffort(WITH_EFFORT);
+    await collect(provider.stream(req()));
+    await collect(provider.stream(req({ reasoning: 'low' })));
+    expect(calls.map((c) => c.body['output_config'])).toEqual([
+      { effort: 'high' },
+      { effort: 'low' },
+    ]);
+  });
+
+  it('sends no effort when neither the call nor the model names one', async () => {
+    const { provider, calls } = setupEffort(CONFIG);
+    await collect(provider.stream(req()));
+    expect(calls[0]!.body).not.toHaveProperty('output_config');
+  });
+
+  it('drops thinking blocks and sends the history back as text only', async () => {
+    const thinking = [
+      frame('message_start', {
+        type: 'message_start',
+        message: { usage: { input_tokens: 5, output_tokens: 1 } },
+      }),
+      frame('content_block_start', {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'thinking', thinking: '', signature: '' },
+      }),
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: 'Let me think.' },
+      }),
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'signature_delta', signature: 'c2ln' },
+      }),
+      frame('content_block_stop', { type: 'content_block_stop', index: 0 }),
+      frame('content_block_start', {
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'text', text: '' },
+      }),
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'text_delta', text: 'Answer.' },
+      }),
+      frame('content_block_stop', { type: 'content_block_stop', index: 1 }),
+      frame('message_delta', {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+        usage: { output_tokens: 40 },
+      }),
+      frame('message_stop', { type: 'message_stop' }),
+    ];
+    const m = mockFetch(() => sseResponse(thinking).response);
+    const provider = createAnthropicProvider(WITH_EFFORT, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
+    const events = await collect(provider.stream(req()));
+    expect(events.filter((e) => e.type === 'delta')).toEqual([{ type: 'delta', text: 'Answer.' }]);
+    expect(JSON.stringify(events)).not.toContain('Let me think');
+    const messages = m.calls[0]!.body['messages'] as { content: unknown }[];
+    expect(messages[1]!.content).toBe('Hello!');
+  });
+});

@@ -7,6 +7,7 @@ import {
   type ProviderErrorCode,
   type ProviderEvent,
   type ProviderUsage,
+  type ReasoningEffort,
   type WebSearchRequest,
 } from '@tangent/shared';
 import {
@@ -15,6 +16,7 @@ import {
   withBreakpoint,
   withTurnInstructions,
 } from './prompt-cache.js';
+import { providerTraits } from './traits.js';
 import type { ProviderEnv } from './registry.js';
 import { addCitation, num, postJson, streamBody } from './http.js';
 import { parseSse } from './sse.js';
@@ -72,6 +74,16 @@ function webSearchTool(ws: WebSearchRequest): Record<string, unknown> {
   return { type: 'web_search_20250305', name: 'web_search', max_uses: ws.maxUses };
 }
 
+/**
+ * Anthropic's `output_config.effort` for an effort. `none` is `low`, the
+ * least thinking every model with effort accepts: thinking can't be turned off
+ * on several current models (`thinking: {type: "disabled"}` is a 400 there),
+ * and at `low` a model skips thinking on simple requests.
+ */
+function effortConfig(effort: ReasoningEffort): Record<string, unknown> {
+  return { effort: effort === 'none' ? 'low' : effort };
+}
+
 /** Adds a streamed `web_search_result_location` citation to `into` (`addCitation`). */
 function collectCitation(raw: unknown, into: Map<string, Citation>): boolean {
   if (!isRecord(raw) || raw['type'] !== 'web_search_result_location') return false;
@@ -117,6 +129,19 @@ function usageOf(usage: Record<string, unknown>): Partial<ProviderUsage> {
  * (`withTurnInstructions`). Usage reports the input total
  * (uncached + cache writes + cache reads) and the cache reads and writes.
  *
+ * Reasoning effort: the call's effort (`request.reasoning`, else the model's
+ * `ModelInfo.effort`) is sent as `output_config.effort` (`effortConfig`);
+ * nothing is sent when neither names one, so the model runs at its own
+ * default. `thinking` is never sent: each model thinks as it does by
+ * default, and effort steers how much. An older model without the effort
+ * parameter rejects it, so a config leaves `effort` unset for one. The
+ * thinking itself is never read: only `text_delta` becomes text, so
+ * `thinking` blocks (and their signatures) are dropped here, never shown,
+ * stored or sent back. Earlier assistant turns go back as their text alone,
+ * which the API allows outside a client tool loop. Anthropic counts thinking
+ * inside `output_tokens` without a separate figure, so `reasoningTokens`
+ * stays unset.
+ *
  * Web search (when `options.webSearch` is true and the request has
  * `webSearch`): sends Anthropic's `web_search` server tool, reports the
  * search starting (`server_tool_use`) as `activity`, the cited results
@@ -156,6 +181,7 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
   const messagesOf = (request: Pick<GenerateRequest, 'messages'>) =>
     request.messages.map((m) => ({ role: m.role, content: m.content }));
   const promptCache = promptCacheOption(config.options) !== false;
+  const traits = providerTraits(config);
 
   function stream(request: GenerateRequest): AsyncIterable<ProviderEvent> {
     const built = buildHeaders();
@@ -176,6 +202,9 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
       );
       const webSearch = request.webSearch && caps.supportsWebSearch ? request.webSearch : null;
       if (webSearch) body['tools'] = [webSearchTool(webSearch)];
+      const effort = request.reasoning ?? config.models.find((m) => m.id === request.model)?.effort;
+      if (traits.effort === 'anthropic-effort' && effort !== undefined)
+        body['output_config'] = effortConfig(effort);
       body['stream'] = true;
 
       const res = await postJson(

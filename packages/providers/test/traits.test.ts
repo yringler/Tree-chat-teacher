@@ -21,6 +21,7 @@ const ROUTER = {
 };
 const PLAIN = { webSearch: 'router', effort: 'none', routing: false, catalog: null };
 const NATIVE = { webSearch: 'native', effort: 'none', routing: false, catalog: null };
+const ANTHROPIC = { ...NATIVE, effort: 'anthropic-effort' };
 
 describe('providerTraits', () => {
   it.each([
@@ -43,11 +44,11 @@ describe('providerTraits', () => {
     ],
     ['a local server', config('openai-compatible', 'http://localhost:11434/v1'), PLAIN],
     ['an unparsable base URL', config('openai-compatible', 'not a url'), PLAIN],
-    ['Anthropic', config('anthropic'), NATIVE],
+    ['Anthropic', config('anthropic'), ANTHROPIC],
     [
       'Anthropic on an OpenRouter base URL',
       config('anthropic', 'https://openrouter.ai/api'),
-      NATIVE,
+      ANTHROPIC,
     ],
     ['the fake', config('fake'), NATIVE],
   ])('%s', (_name, c, expected) => {

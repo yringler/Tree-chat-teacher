@@ -10,8 +10,11 @@ import { usesExplicitCacheControl } from './prompt-cache.js';
  */
 export type WebSearchMode = 'native' | 'router';
 
-/** How a call's reasoning effort is sent: OpenRouter's `reasoning` object, or not at all. */
-export type EffortParam = 'openrouter-reasoning' | 'none';
+/**
+ * How a call's reasoning effort is sent: OpenRouter's `reasoning` object,
+ * Anthropic's `output_config.effort`, or not at all.
+ */
+export type EffortParam = 'openrouter-reasoning' | 'anthropic-effort' | 'none';
 
 /**
  * What a provider config's endpoint does beyond the common chat contract, so
@@ -48,7 +51,12 @@ const NONE = {
 export function providerTraits(config: ProviderConfig): ProviderTraits {
   switch (config.kind) {
     case 'anthropic':
-      return { ...NONE, webSearch: 'native', explicitCacheMarkers: () => true };
+      return {
+        ...NONE,
+        webSearch: 'native',
+        effort: 'anthropic-effort',
+        explicitCacheMarkers: () => true,
+      };
     case 'fake':
       return { ...NONE, webSearch: 'native', explicitCacheMarkers: () => false };
     case 'openai-compatible': {
