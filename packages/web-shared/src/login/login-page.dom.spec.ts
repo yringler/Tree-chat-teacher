@@ -150,3 +150,30 @@ describe('LoginPage after the email went out', () => {
     expect(await screen.findByRole('button', { name: 'Email me a sign-in link' })).toBeTruthy();
   });
 });
+
+describe('LoginPage sign-in methods', () => {
+  beforeEach(() => {
+    window.turnstile = { render: () => 'widget', reset: () => undefined, remove: () => undefined };
+  });
+
+  afterEach(() => {
+    delete window.turnstile;
+  });
+
+  it('offers Google first, then GitHub and a passkey, then the email', async () => {
+    await loginPage({ ...OPTIONS, signupsOpen: true, social: { google: true, github: true } });
+    const google = screen.getByRole('button', { name: 'Continue with Google' });
+    const inOrder = [
+      google,
+      screen.getByRole('button', { name: 'Continue with GitHub' }),
+      screen.getByRole('button', { name: 'Sign in with a passkey' }),
+      screen.getByLabelText('Email'),
+    ];
+    inOrder.slice(1).forEach((el, i) => {
+      expect(inOrder[i]?.compareDocumentPosition(el)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    // Google's branded button: its G is decoration, the label names it.
+    expect(google.classList).toContain('login-google');
+    expect(google.querySelector('.login-google-g')?.getAttribute('aria-hidden')).toBe('true');
+  });
+});

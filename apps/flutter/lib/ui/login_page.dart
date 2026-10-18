@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
 
 import '../api/models.dart';
 import '../state/app_scope.dart';
 import '../state/notice.dart';
+import 'google_button.dart';
 import 'google_id_token.dart';
 import 'links.dart';
 import 'open_url.dart';
@@ -56,16 +58,61 @@ String? loginErrorMessage(String? code) => switch (code) {
   _ => (text: noticeFor(error).text, spent: false),
 };
 
-/// Why signing in with Google on the device didn't work.
-String googleErrorMessage(Object error) => switch (error) {
-  ApiException(code: 'signups_closed') => loginErrorMessage('signups_closed')!,
-  ApiException() => noticeFor(error).text,
-  _ => 'Signing in with Google didn’t work. Try again, or use your email.',
-};
+/// Why signing in with Google on the device didn't work, with a details line
+/// naming what Google or the server said, so a report from a phone can tell
+/// a back-out from a setup problem.
+String googleErrorMessage(Object error) {
+  final text = switch (error) {
+    // Also what Credential Manager reports for a build Google doesn't know
+    // (its signing key's SHA-1 or the client id), hence the hint.
+    GoogleSignInException(code: GoogleSignInExceptionCode.canceled) =>
+      'Google sign-in was cancelled. If you didn’t cancel it and this keeps '
+          'happening, sign in with your email for now.',
+    GoogleSignInException(
+      code: GoogleSignInExceptionCode.clientConfigurationError ||
+          GoogleSignInExceptionCode.providerConfigurationError,
+    ) =>
+      'Google sign-in isn’t set up correctly in this app. Sign in with your '
+          'email for now.',
+    GoogleSignInException(code: GoogleSignInExceptionCode.uiUnavailable) =>
+      'Google’s account picker couldn’t open. Try again, or use your email.',
+    GoogleSignInException(code: GoogleSignInExceptionCode.interrupted) =>
+      'Google sign-in was interrupted. Try again.',
+    // Credential Manager's NoCredentialException.
+    GoogleSignInException(:final description?)
+        when description.startsWith('No credential available') =>
+      'There’s no Google account on this phone. Add one in its settings, or '
+          'use your email.',
+    ApiException(code: 'signups_closed') => loginErrorMessage(
+      'signups_closed',
+    )!,
+    ApiException(code: 'CAPTCHA_FAILED') =>
+      'The human check didn’t go through. Let it pass again, then try again.',
+    ApiException(code: 'INVALID_TOKEN') =>
+      'The server didn’t accept Google’s sign-in. Try again, or use your '
+          'email.',
+    ApiException(code: 'OAUTH_LINK_ERROR' || 'EMAIL_NOT_VERIFIED') =>
+      '$brandName needs a verified email address, and Google didn’t confirm '
+          'this one. Sign in with your email.',
+    ApiException() => noticeFor(error).text,
+    _ => 'Signing in with Google didn’t work. Try again, or use your email.',
+  };
+  final details = switch (error) {
+    ApiException(code: 'signups_closed') => null,
+    GoogleSignInException(:final code, :final description) =>
+      description == null || description.isEmpty
+          ? code.name
+          : '${code.name}: $description',
+    ApiException(:final code, :final status) => '$code (HTTP $status)',
+    PlatformException(:final code) => code,
+    _ => null,
+  };
+  return details == null ? text : '$text\nDetails: $details';
+}
 
-/// Google sign-in is off until Google approves the OAuth consent screen's
-/// branding; flip this back to true then.
-const _googleSignInEnabled = false;
+/// Google sign-in in an iOS build. Off: the App Store then asks for Sign in
+/// with Apple beside it, which the Worker doesn't offer (docs/DEFERRED.md).
+const googleOnIos = false;
 
 final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
@@ -92,7 +139,7 @@ class LoginPage extends StatefulWidget {
     this.native = !kIsWeb,
     this.googleOnDevice,
     this.googleIdToken = deviceGoogleIdToken,
-    this.googleEnabled = _googleSignInEnabled,
+    this.googleEnabled,
   });
 
   /// `?error=` from a magic link that failed.
@@ -111,8 +158,9 @@ class LoginPage extends StatefulWidget {
   /// Google's account picker; tests pass a stand-in.
   final GoogleIdTokenSource googleIdToken;
 
-  /// Whether any Google button shows, on the web or on the device.
-  final bool googleEnabled;
+  /// Whether any Google button shows, on the web or on the device: everywhere
+  /// but an iOS build unless [googleOnIos], unless a test says otherwise.
+  final bool? googleEnabled;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -174,6 +222,10 @@ class _LoginPageState extends State<LoginPage> {
   bool get _canSend =>
       !_busy && _token != null && _emailPattern.hasMatch(_email.text.trim());
 
+  bool get _googleEnabled =>
+      widget.googleEnabled ??
+      (googleOnIos || kIsWeb || defaultTargetPlatform != TargetPlatform.iOS);
+
   bool get _googleOnDevice =>
       widget.googleOnDevice ??
       (!kIsWeb && defaultTargetPlatform == TargetPlatform.android);
@@ -211,7 +263,6 @@ class _LoginPageState extends State<LoginPage> {
     });
     try {
       final idToken = await widget.googleIdToken(clientId);
-      if (idToken == null) return;
       await scope.api.signInWithGoogle(idToken: idToken, captchaToken: captcha);
       // Signed in: the router leaves this page once the session knows.
       await scope.session.start();
@@ -351,23 +402,22 @@ class _LoginPageState extends State<LoginPage> {
     final theme = Theme.of(context);
     final siteKey = options.turnstileSiteKey;
     final googleClientId = options.googleClientId;
-    // The device's Google sign-in takes the captcha below the email field,
-    // so its button comes after it; the browser's go first, as on the web
-    // apps.
     final deviceGoogle =
         widget.native &&
-        widget.googleEnabled &&
+        _googleEnabled &&
         _googleOnDevice &&
         options.google &&
         googleClientId != null &&
         siteKey != null;
-    final browserProviders = widget.native
-        ? const <(String, String)>[]
-        : [
-            if (widget.googleEnabled && options.google)
-              ('google', 'Continue with Google'),
-            if (options.github) ('github', 'Continue with GitHub'),
-          ];
+    final browserGoogle = !widget.native && _googleEnabled && options.google;
+    final browserGithub = !widget.native && options.github;
+    final captcha = siteKey == null
+        ? const Text('Email sign-in is unavailable on this server.')
+        : widget.captcha(
+            key: ValueKey(_attempt),
+            siteKey: siteKey,
+            onToken: (token) => setState(() => _token = token),
+          );
     return [
       Text('Sign in to $brandName', style: theme.textTheme.titleLarge),
       const SizedBox(height: 4),
@@ -387,13 +437,27 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ],
       const SizedBox(height: 20),
-      if (browserProviders.isNotEmpty) ...[
-        for (final (provider, label) in browserProviders) ...[
+      // Google comes first, as on the web apps. The one human check sits under
+      // the email field, so the short sign-in options read together above it;
+      // on the device Google waits for the check, as the email does.
+      if (deviceGoogle || browserGoogle || browserGithub) ...[
+        if (deviceGoogle)
+          GoogleSignInButton(
+            onPressed: !_busy && _token != null
+                ? () => unawaited(_googleOnDeviceSignIn(googleClientId))
+                : null,
+          )
+        else if (browserGoogle)
+          GoogleSignInButton(
+            onPressed: _busy ? null : () => unawaited(_social('google')),
+          ),
+        if (deviceGoogle || browserGoogle) const SizedBox(height: 8),
+        if (browserGithub) ...[
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
-              onPressed: _busy ? null : () => unawaited(_social(provider)),
-              child: Text(label),
+              onPressed: _busy ? null : () => unawaited(_social('github')),
+              child: const Text('Continue with GitHub'),
             ),
           ),
           const SizedBox(height: 8),
@@ -410,14 +474,7 @@ class _LoginPageState extends State<LoginPage> {
         onSubmitted: (_) => unawaited(_send()),
       ),
       const SizedBox(height: 16),
-      if (siteKey == null)
-        const Text('Email sign-in is unavailable on this server.')
-      else
-        widget.captcha(
-          key: ValueKey(_attempt),
-          siteKey: siteKey,
-          onToken: (token) => setState(() => _token = token),
-        ),
+      captcha,
       const SizedBox(height: 16),
       SizedBox(
         width: double.infinity,
@@ -426,20 +483,6 @@ class _LoginPageState extends State<LoginPage> {
           child: Text(widget.native ? 'Email me a code' : 'Email me a link'),
         ),
       ),
-      if (deviceGoogle) ...[
-        const SizedBox(height: 8),
-        const _Divider('or'),
-        const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(
-            onPressed: !_busy && _token != null
-                ? () => unawaited(_googleOnDeviceSignIn(googleClientId))
-                : null,
-            child: const Text('Continue with Google'),
-          ),
-        ),
-      ],
       const SizedBox(height: 16),
       Wrap(
         crossAxisAlignment: WrapCrossAlignment.center,

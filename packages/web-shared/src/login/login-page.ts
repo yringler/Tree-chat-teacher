@@ -111,11 +111,12 @@ import { Turnstile } from '../ui/turnstile';
               @if (o.social.google) {
                 <button
                   type="button"
-                  class="btn login-btn"
+                  class="btn login-btn login-google"
                   [disabled]="busy()"
                   (click)="social('google')"
                 >
-                  Continue with Google
+                  <span class="login-google-g" aria-hidden="true"></span>
+                  <span>Continue with Google</span>
                 </button>
               }
               @if (o.social.github) {

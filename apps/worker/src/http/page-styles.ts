@@ -265,11 +265,14 @@ export const VERIFY_STYLE =
 .verify .error{color:#c0392b;font-weight:600}
 `;
 
-/** The phone app's captcha (`/app-captcha`): the widget alone, centred in the app's web view. */
+/**
+ * The phone app's captcha (`/app-captcha`), in the app's 160px web view: tight
+ * padding, so the widget isn't cut off when the line above it wraps to two.
+ */
 export const APP_CAPTCHA_STYLE =
   BASE_STYLE +
   `
-.captcha{display:grid;gap:16px;justify-items:center;padding-top:32px;padding-bottom:32px;text-align:center}
+.captcha{display:grid;gap:8px;justify-items:center;padding-top:8px;padding-bottom:8px;text-align:center}
 .captcha p{margin:0;color:var(--muted)}
 `;
 

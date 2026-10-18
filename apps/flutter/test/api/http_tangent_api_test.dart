@@ -545,6 +545,19 @@ void main() {
       },
     );
 
+    test(
+      'a sign-in answered without a session token fails, not signed out',
+      () async {
+        final tokens = MemoryTokens();
+        final f = fake(server(token: null), tokens: tokens);
+        await expectLater(
+          f.api.signInWithCode(email: 'a@b.test', code: '042917'),
+          throwsA(apiError(200, 'no_session_token')),
+        );
+        expect(tokens.token, isNull);
+      },
+    );
+
     test('a browser sign-in with a provider answers with its page', () async {
       final f = fake(
         (_) => json({

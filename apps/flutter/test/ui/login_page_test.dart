@@ -1,11 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/api/token_store.dart';
 import 'package:tangent/state/app_scope.dart';
 import 'package:tangent/state/lessons_controller.dart';
 import 'package:tangent/state/session_controller.dart';
 import 'package:tangent/state/walkthrough_controller.dart';
+import 'package:tangent/ui/google_button.dart';
 import 'package:tangent/ui/google_id_token.dart';
 import 'package:tangent/ui/login_page.dart';
 
@@ -17,8 +21,9 @@ Future<SessionController> pumpLogin(
   FakeTangentApi api, {
   required bool native,
   bool googleOnDevice = false,
-  bool googleEnabled = true,
+  bool? googleEnabled = true,
   GoogleIdTokenSource? googleIdToken,
+  CaptchaBuilder captcha = fakeCaptcha,
   TokenStore? signInStore,
   DateTime Function()? now,
 }) async {
@@ -32,7 +37,7 @@ Future<SessionController> pumpLogin(
       walkthrough: WalkthroughController(api: api, session: session),
       child: MaterialApp(
         home: LoginPage(
-          captcha: fakeCaptcha,
+          captcha: captcha,
           native: native,
           googleOnDevice: googleOnDevice,
           googleEnabled: googleEnabled,
@@ -302,6 +307,52 @@ void main() {
     ));
   });
 
+  testWidgets('the web build puts Google first, then GitHub, then email', (
+    tester,
+  ) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(tester, api, native: false);
+    double top(Finder finder) => tester.getTopLeft(finder).dy;
+    final google = top(find.byType(GoogleSignInButton));
+    final github = top(find.text('Continue with GitHub'));
+    expect(google, lessThan(github));
+    expect(github, lessThan(top(find.byType(TextField))));
+    expect(
+      top(find.text('Solve')),
+      greaterThan(top(find.byType(TextField))),
+      reason: 'the browser\'s providers need no captcha',
+    );
+  });
+
+  for (final (brightness, fill, label) in [
+    (Brightness.light, const Color(0xFFFFFFFF), const Color(0xFF1F1F1F)),
+    (Brightness.dark, const Color(0xFF131314), const Color(0xFFE3E3E3)),
+  ]) {
+    testWidgets('the Google button takes Google\'s ${brightness.name} theme', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(brightness: brightness),
+          home: Scaffold(body: GoogleSignInButton(onPressed: () {})),
+        ),
+      );
+      final material = tester.widget<Material>(
+        find.descendant(
+          of: find.byType(GoogleSignInButton),
+          matching: find.byType(Material),
+        ),
+      );
+      expect(material.color, fill);
+      final text = tester.widget<Text>(find.text('Continue with Google'));
+      expect(text.style?.color, label);
+      expect(text.style?.fontFamily, 'Google Sans');
+      expect(find.image(const AssetImage('assets/google/g.png')), findsOne);
+    });
+  }
+
   testWidgets('no provider buttons when none is configured', (tester) async {
     final api = FakeTangentApi()..meAnswers = [unauthorized];
     await pumpLogin(tester, api, native: false);
@@ -328,9 +379,8 @@ void main() {
     );
     // A provider's browser callback can't sign the app in.
     expect(find.text('Continue with GitHub'), findsNothing);
-    OutlinedButton google() => tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Continue with Google'),
-    );
+    GoogleSignInButton google() =>
+        tester.widget<GoogleSignInButton>(find.byType(GoogleSignInButton));
     expect(google().onPressed, isNull, reason: 'no captcha token yet');
 
     await tester.tap(find.text('Solve'));
@@ -345,9 +395,29 @@ void main() {
     expect(session.status, SessionStatus.signedIn);
   });
 
-  testWidgets('backing out of Google\'s picker signs nothing in', (
+  testWidgets('Android puts Google first, the captcha under the email', (
     tester,
   ) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(tester, api, native: true, googleOnDevice: true);
+    double top(Finder finder) => tester.getTopLeft(finder).dy;
+    final google = top(find.byType(GoogleSignInButton));
+    final email = top(find.byType(TextField));
+    final captcha = top(find.text('Solve'));
+    expect(google, lessThan(email));
+    expect(email, lessThan(captcha));
+    expect(find.text('Solve'), findsOneWidget, reason: 'one shared check');
+    expect(top(find.text('Email me a code')), greaterThan(captcha));
+  });
+
+  testWidgets('a small phone shows Google through the send button at once', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final api = FakeTangentApi()
       ..meAnswers = [unauthorized]
       ..loginOptionsAnswer = withProviders;
@@ -356,7 +426,27 @@ void main() {
       api,
       native: true,
       googleOnDevice: true,
-      googleIdToken: (_) async => null,
+      // The device's Turnstile box is 160 high.
+      captcha: ({key, required siteKey, required onToken}) =>
+          SizedBox(key: key, height: 160, child: const Text('Solve')),
+    );
+    final google = tester.getRect(find.byType(GoogleSignInButton));
+    final send = tester.getRect(find.text('Email me a code'));
+    expect(send.bottom - google.top, lessThan(640));
+  });
+
+  /// Taps the device's Google button after the captcha, with Google's
+  /// account picker failing with [error], and returns the texts shown.
+  Future<String> googleFails(WidgetTester tester, Object error) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(
+      tester,
+      api,
+      native: true,
+      googleOnDevice: true,
+      googleIdToken: (_) async => throw error,
     );
     await tester.tap(find.text('Solve'));
     await tester.pump();
@@ -364,6 +454,76 @@ void main() {
     await settle(tester);
     expect(api.googleSignIns, isEmpty);
     expect(find.byType(LoginPage), findsOneWidget);
+    return tester
+        .widgetList<Text>(find.byType(Text))
+        .map((text) => text.data ?? '')
+        .join('\n');
+  }
+
+  testWidgets(
+    'backing out of Google\'s picker says so, with Google\'s reason',
+    (tester) async {
+      // Credential Manager reports a misconfigured build (an unregistered
+      // SHA-1, the wrong client id) as cancelled too, so the reason shows.
+      final shown = await googleFails(
+        tester,
+        const GoogleSignInException(
+          code: GoogleSignInExceptionCode.canceled,
+          description: '[16] Account reauth failed.',
+        ),
+      );
+      expect(shown, contains('Google sign-in was cancelled'));
+      expect(shown, contains('Details: canceled: [16] Account reauth failed.'));
+      GoogleSignInButton google() =>
+          tester.widget<GoogleSignInButton>(find.byType(GoogleSignInButton));
+      expect(google().onPressed, isNull, reason: 'a new captcha first');
+      await tester.tap(find.text('Solve'));
+      await tester.pump();
+      expect(google().onPressed, isNotNull);
+    },
+  );
+
+  testWidgets(
+    'a build Google sign-in isn\'t set up for says so, with the code',
+    (tester) async {
+      final shown = await googleFails(
+        tester,
+        const GoogleSignInException(
+          code: GoogleSignInExceptionCode.clientConfigurationError,
+          description: 'serverClientId must be provided on Android',
+        ),
+      );
+      expect(shown, contains('isn’t set up correctly'));
+      expect(
+        shown,
+        contains(
+          'Details: clientConfigurationError: serverClientId must be provided '
+          'on Android',
+        ),
+      );
+    },
+  );
+
+  testWidgets('a phone without a Google account says to add one', (
+    tester,
+  ) async {
+    final shown = await googleFails(
+      tester,
+      const GoogleSignInException(
+        code: GoogleSignInExceptionCode.unknownError,
+        description: 'No credential available: no credentials',
+      ),
+    );
+    expect(shown, contains('no Google account on this phone'));
+  });
+
+  testWidgets('any other Google failure shows its code', (tester) async {
+    final shown = await googleFails(
+      tester,
+      PlatformException(code: 'channel-error', message: 'Unable to connect'),
+    );
+    expect(shown, contains('Signing in with Google didn’t work'));
+    expect(shown, contains('Details: channel-error'));
   });
 
   testWidgets('a refused Google sign-in says why', (tester) async {
@@ -382,6 +542,53 @@ void main() {
     await settle(tester);
     expect(find.textContaining('full for now'), findsOneWidget);
   });
+
+  for (final (refusal, says) in [
+    (
+      const ApiException(
+        status: 401,
+        code: 'INVALID_TOKEN',
+        message: 'Invalid token',
+      ),
+      'didn’t accept Google’s sign-in',
+    ),
+    (
+      const ApiException(
+        status: 400,
+        code: 'CAPTCHA_FAILED',
+        message: 'Captcha verification failed',
+      ),
+      'human check didn’t go through',
+    ),
+    (
+      const ApiException(
+        status: 401,
+        code: 'OAUTH_LINK_ERROR',
+        message: 'unable to create user',
+      ),
+      'verified email address',
+    ),
+  ]) {
+    testWidgets('a Google sign-in the server refuses with ${refusal.code} '
+        'says why, with its code', (tester) async {
+      final api = FakeTangentApi()
+        ..meAnswers = [unauthorized]
+        ..loginOptionsAnswer = withProviders
+        ..refuseGoogle = refusal;
+      await pumpLogin(tester, api, native: true, googleOnDevice: true);
+      await tester.tap(find.text('Solve'));
+      await tester.pump();
+      await tester.tap(find.text('Continue with Google'));
+      await settle(tester);
+      expect(find.textContaining(says), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Details: ${refusal.code} (HTTP ${refusal.status})',
+        ),
+        findsOneWidget,
+      );
+    });
+  }
 
   testWidgets('no device Google sign-in where it isn\'t offered', (
     tester,
@@ -418,6 +625,38 @@ void main() {
       googleEnabled: false,
     );
     expect(find.text('Continue with Google'), findsNothing);
+  });
+
+  testWidgets('an iOS build offers no Google sign-in', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(
+      tester,
+      api,
+      native: true,
+      googleOnDevice: true,
+      googleEnabled: null,
+    );
+    expect(find.text('Continue with Google'), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Android offers Google sign-in by default', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(
+      tester,
+      api,
+      native: true,
+      googleOnDevice: true,
+      googleEnabled: null,
+    );
+    expect(find.text('Continue with Google'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   test('code error messages', () {
