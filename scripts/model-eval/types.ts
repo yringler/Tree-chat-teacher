@@ -81,8 +81,19 @@ export interface CallUsage {
   cacheWriteTokens: number;
   completionTokens: number;
   reasoningTokens: number;
-  /** USD, as billed. */
+  /** USD, as billed (search fees included). */
   cost: number;
+  /** Searches OpenRouter ran for a `web` plugin or web search tool in `extraBody`. */
+  webSearchRequests: number;
+}
+
+/** A source a grounded answer cites (an OpenRouter `url_citation` annotation). */
+export interface CallCitation {
+  readonly url: string;
+  readonly title: string | null;
+  /** Span of the answer the source supports; 0/0 when the engine gives none (Exa). */
+  readonly startIndex: number;
+  readonly endIndex: number;
 }
 
 export interface CallResult {
@@ -99,6 +110,8 @@ export interface CallResult {
   finishReason: string | null;
   answer: string;
   usage: CallUsage | null;
+  /** Set only when the answer cited sources, so ungrounded results stay unchanged. */
+  citations?: CallCitation[];
   latencyMs: number;
   /** Time to the first answer (not reasoning) token. */
   firstAnswerMs: number | null;
