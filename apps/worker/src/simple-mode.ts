@@ -1,5 +1,5 @@
 import { appChatSettings, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
-import { isOpenRouterBaseUrl, parseProviderConfigs } from '@tangent/providers';
+import { isOpenRouterBaseUrl, parseProviderConfigs, providerTraits } from '@tangent/providers';
 import {
   ANTHROPIC_PROVIDER_ID,
   OPENROUTER_PROVIDER_ID,
@@ -277,11 +277,12 @@ export function simpleSystemPrompt(env: AppEnv): string {
  * The built-in provider as the open pool uses it: the simple config
  * (same key, same BUILT_IN_PROVIDER override) with the pool model as its only
  * model, and one call's cost bounded by the pool's caps: the context window
- * is the pool's input cap plus its output cap. On OpenRouter, routing is
- * capped at the price table's price (`provider.max_price`, $/MTok), so an
- * over-priced route fails upstream (released) instead of costing the operator.
- * Other endpoints (OpenAI, Workers AI, local servers) get no `provider` field,
- * which strict APIs reject; there the table must be the endpoint's own price.
+ * is the pool's input cap plus its output cap. On a routing endpoint
+ * (OpenRouter, `ProviderTraits.routing`), routing is capped at the price
+ * table's price (`provider.max_price`, $/MTok), so an over-priced route fails
+ * upstream (released) instead of costing the operator. Other endpoints
+ * (OpenAI, Workers AI, local servers) get no `provider` field, which strict
+ * APIs reject; there the table must be the endpoint's own price.
  * The pool model carries the pool's own effort and pinned providers
  * (`POOL_EFFORT`, `POOL_PROVIDER_ORDER`), never a tier's, even when a tier
  * runs the same model; pinning merges with `max_price` (openai-compatible.ts).
@@ -302,8 +303,7 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
     maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
     maxOutputTokens: pool.maxOutputTokens,
   };
-  if (base.kind !== 'openai-compatible' || !isOpenRouterBaseUrl(base.baseUrl) || !pool.price)
-    return config;
+  if (!providerTraits(base).routing || !pool.price) return config;
   const extraBody = asRecord(base.options?.['extraBody']);
   // Merged into the operator's own routing (e.g. `data_collection: 'deny'`),
   // keeping a stricter `max_price` they set.

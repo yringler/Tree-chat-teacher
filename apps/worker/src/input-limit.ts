@@ -7,7 +7,7 @@
 // or without a setting, so one credit call costs at most what Learn's does.
 // Learn ignores the settings: its own caps apply (simple-mode.ts).
 import type { ChatService, GenerationLimits } from '@tangent/core';
-import { isOpenRouterBaseUrl } from '@tangent/providers';
+import { providerTraits } from '@tangent/providers';
 import type { BranchFunding, ContextLimitsQuery, InputBudgetResponse } from '@tangent/shared';
 import type { AccountContext, AppEnv } from './env.js';
 import { modelPrice } from './pool/price-table.js';
@@ -71,7 +71,7 @@ export async function inputBudgetResponse(
     (n): n is number => n !== null,
   );
   const credit = account.mode === 'power' && budget.funding === 'credit';
-  // The price table holds OpenRouter's prices: on the own key, only an OpenRouter route is billed by them.
+  // The price table holds OpenRouter's prices: on the own key, only a route on its catalog is billed by them.
   const priced = credit || ownKeyOnOpenRouter(env, account, budget.providerId);
   const price = priced
     ? await modelPrice(env, budget.model).catch((err: unknown) => {
@@ -97,12 +97,12 @@ export async function inputBudgetResponse(
   };
 }
 
-/** Whether `providerId` is an OpenRouter route of the account's own keys. */
+/** Whether `providerId` is a route of the account's own keys on OpenRouter's catalog. */
 function ownKeyOnOpenRouter(env: AppEnv, account: AccountContext, providerId: string): boolean {
   try {
     const configs = account.mode === 'simple' ? [simpleProviderConfig(env)] : providerConfigs(env);
     const config = configs.find((c) => c.id === providerId);
-    return !!config && config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
+    return !!config && providerTraits(config).catalog === 'openrouter';
   } catch {
     return false;
   }

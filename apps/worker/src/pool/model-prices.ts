@@ -30,7 +30,7 @@
 // or looked-up cost already includes them. A cache price that drops to under
 // 1/`MAX_PRICE_DROP_FACTOR` of the stored one is held back like the others.
 import { DomainError } from '@tangent/core';
-import { isOpenRouterBaseUrl } from '@tangent/providers';
+import { providerTraits } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { syncModelWindows } from '../model-windows.js';
@@ -137,14 +137,14 @@ let onDemandSync: { at: number; ok: Promise<boolean> } | null = null;
 
 /**
  * Runs the price sync now, unless this isolate ran one recently (shared by
- * concurrent callers), when the built-in provider is OpenRouter, the only
- * endpoint the sync lists. Resolves whether OpenRouter's list was read
+ * concurrent callers), when the built-in provider's catalog is OpenRouter's,
+ * the only one the sync lists. Resolves whether OpenRouter's list was read
  * (true where there is nothing to read). Never throws.
  */
 async function syncOnDemand(env: AppEnv): Promise<boolean> {
   let openRouter: boolean;
   try {
-    openRouter = isOpenRouterBaseUrl(simpleProviderConfig(env).baseUrl);
+    openRouter = providerTraits(simpleProviderConfig(env)).catalog === 'openrouter';
   } catch {
     return true;
   }
