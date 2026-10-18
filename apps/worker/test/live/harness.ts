@@ -114,6 +114,9 @@ export function worstUsd(price: ModelPrice, inputTokens: number, maxOutputTokens
   return (2 * chargeFromTokensMicros(price, inputTokens, maxOutputTokens, 0, 0)) / 1e6;
 }
 
+/** What one web search can add to a call's worst case (OpenRouter's engines bill per result). */
+export const SEARCH_ALLOWANCE_USD = 0.05;
+
 // ---- Calls
 
 export interface LiveCall {
