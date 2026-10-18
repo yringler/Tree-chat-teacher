@@ -9,7 +9,7 @@ import { describe } from 'vitest';
 import { getBalance } from '../../src/billing/ledger.js';
 import type { AppEnv, PoolAccount } from '../../src/env.js';
 import { replyCeilingMicros, resolvePoolParams, type PoolParams } from '../../src/pool/params.js';
-import { poolSettlement } from '../../src/pool/settle-policy.js';
+import { meteredSettlement } from '../../src/billing/settle-policy.js';
 import { chatService } from '../../src/registries.js';
 import { newUser, uniq, usageRows, type UsageRow } from '../mocks/billing-helpers.js';
 import { fundPool } from '../pool-helpers.js';
@@ -120,12 +120,12 @@ describe('the open pool, end to end', () => {
         failures.push(`${label}: OpenRouter has no generation ${row.generation_id}`);
         continue;
       }
-      const settled = poolSettlement({ dispatched: true, costUsd: lookup.cost.costUsd });
+      const settled = meteredSettlement({ dispatched: true, costUsd: lookup.cost.costUsd });
       if (settled.costNanos !== row.cost_nanos)
         failures.push(
           `${label}: settled at ${row.cost_nanos} n$, the generation's cost is ${costUsdToNanos(lookup.cost.costUsd)}`,
         );
-      const byTokens = poolSettlement({
+      const byTokens = meteredSettlement({
         dispatched: true,
         inputTokens: row.input_tokens,
         outputTokens: row.output_tokens,
