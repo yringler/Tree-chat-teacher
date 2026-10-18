@@ -29,7 +29,7 @@ import {
   looksLikeContextLength,
   missingSecretError,
   providerError,
-  redact,
+  upstreamMessage,
   resolveCapabilities,
   resolveApiKey,
   resolveConfigHeaders,
@@ -297,7 +297,10 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             const code = codeForAnthropicType(errType, rawMessage);
             yield {
               type: 'error',
-              error: { ...providerError(code, redact(rawMessage, secrets)), upstream: 'stream' },
+              error: {
+                ...providerError(code, upstreamMessage(rawMessage, secrets)),
+                upstream: 'stream',
+              },
             };
             return;
           }

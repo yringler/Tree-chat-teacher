@@ -32,7 +32,7 @@ import {
   looksLikeContextLength,
   missingSecretError,
   providerError,
-  redact,
+  upstreamMessage,
   resolveCapabilities,
   resolveApiKey,
   resolveConfigHeaders,
@@ -407,7 +407,10 @@ export function createOpenAiCompatibleProvider(
           yield {
             type: 'error',
             error: {
-              ...providerError(codeForStreamError(errRec, message), redact(message, secrets)),
+              ...providerError(
+                codeForStreamError(errRec, message),
+                upstreamMessage(message, secrets),
+              ),
               upstream: 'stream',
             },
           };

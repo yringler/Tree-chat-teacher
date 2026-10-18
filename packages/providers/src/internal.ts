@@ -124,6 +124,11 @@ export function redact(text: string, secrets: readonly string[]): string {
 /** The longest provider error message passed on. */
 const ERROR_MESSAGE_MAX = 500;
 
+/** An upstream's error text as it may be passed on: secrets redacted, clipped. */
+export function upstreamMessage(text: string, secrets: readonly string[]): string {
+  return clip(redact(text, secrets), ERROR_MESSAGE_MAX);
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -174,15 +179,12 @@ export async function errorFromResponse(
   if ((code === 'invalid_request' || status === 413) && looksLikeContextLength(raw, info.code)) {
     code = 'context_length';
   }
-  return providerError(code, clip(redact(raw, secrets), ERROR_MESSAGE_MAX), status);
+  return providerError(code, upstreamMessage(raw, secrets), status);
 }
 
 export function networkError(err: unknown, secrets: readonly string[]): ProviderError {
   const msg = err instanceof Error ? err.message : String(err);
-  return providerError(
-    'network',
-    clip(redact(`Network error: ${msg}`, secrets), ERROR_MESSAGE_MAX),
-  );
+  return providerError('network', upstreamMessage(`Network error: ${msg}`, secrets));
 }
 
 /**
@@ -219,7 +221,7 @@ export async function* guardStream(
           const msg = e instanceof Error ? e.message : String(e);
           terminal = {
             type: 'error',
-            error: providerError('unknown', clip(redact(msg, secrets), ERROR_MESSAGE_MAX)),
+            error: providerError('unknown', upstreamMessage(msg, secrets)),
           };
         }
         break;

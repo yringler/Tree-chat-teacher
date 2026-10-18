@@ -279,6 +279,22 @@ describe('anthropic provider', () => {
     ]);
   });
 
+  it('redacts the key and clips an in-stream error message to 500 characters', async () => {
+    const { provider } = setup(
+      () =>
+        sseResponse([
+          frame('error', {
+            type: 'error',
+            error: { type: 'api_error', message: `key ${KEY} ${'z'.repeat(1000)}` },
+          }),
+        ]).response,
+    );
+    const [ev] = await collect(provider.stream(req()));
+    if (ev?.type !== 'error') throw new Error('expected an error');
+    expect(ev.error.message.startsWith('key [redacted] zzz')).toBe(true);
+    expect(Array.from(ev.error.message)).toHaveLength(500);
+  });
+
   it.each([
     [
       401,

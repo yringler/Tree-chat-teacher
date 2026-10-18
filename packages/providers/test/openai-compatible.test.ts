@@ -442,6 +442,79 @@ describe('openai-compatible provider', () => {
   });
 });
 
+describe('openai-compatible in-stream errors (OpenRouter, HTTP 200)', () => {
+  function errorChunk(error: unknown, extra: Record<string, unknown> = {}) {
+    return frame(null, { id: 'gen-1', object: 'chat.completion.chunk', error, ...extra });
+  }
+
+  async function errorOf(...chunks: string[]) {
+    const { provider } = setup(OPENROUTER, () => sseResponse(chunks).response);
+    const events = await collect(provider.stream(req()));
+    const last = events.at(-1);
+    if (last?.type !== 'error') throw new Error(`expected an error, got ${JSON.stringify(last)}`);
+    return { error: last.error, events };
+  }
+
+  it.each<[string, unknown, string]>([
+    ['rate_limit_exceeded', 'rate_limit_exceeded', 'rate_limit'],
+    ['invalid_api_key', 'invalid_api_key', 'auth'],
+    ['context_length_exceeded', 'context_length_exceeded', 'context_length'],
+    ['an unknown string', 'something_else', 'server'],
+    ['429', 429, 'rate_limit'],
+    ['401', 401, 'auth'],
+    ['503', 503, 'overloaded'],
+    ['a number below 400', 200, 'server'],
+    ['none', undefined, 'server'],
+  ])('maps the code %s', async (_name, code, expected) => {
+    const { error } = await errorOf(errorChunk({ message: 'failed', code }));
+    expect(error).toMatchObject({ code: expected, upstream: 'stream' });
+  });
+
+  it('reads a bare string error, and a fallback message without one', async () => {
+    expect((await errorOf(errorChunk('upstream fell over'))).error).toEqual({
+      code: 'server',
+      message: 'upstream fell over',
+      retryable: true,
+      upstream: 'stream',
+    });
+    expect((await errorOf(errorChunk({ code: 502 }))).error.message).toBe('Provider stream error');
+  });
+
+  it('redacts the key and clips the message to 500 characters', async () => {
+    const { error } = await errorOf(
+      errorChunk({ message: `bad key ${SECRETS.OPENROUTER_API_KEY} ${'z'.repeat(1000)}` }),
+    );
+    expect(error.message.startsWith('bad key [redacted] zzz')).toBe(true);
+    expect(error.message).not.toContain(SECRETS.OPENROUTER_API_KEY);
+    expect(Array.from(error.message)).toHaveLength(500);
+    expect(error.message.endsWith('…')).toBe(true);
+  });
+
+  it('drops the usage and cost of the error chunk and of every chunk after it', async () => {
+    const usage = { prompt_tokens: 10, completion_tokens: 2, cost: 0.001 };
+    const { events } = await errorOf(
+      chunk({ content: 'Part' }),
+      errorChunk({ message: 'boom', code: 502 }, { usage }),
+      chunk({}, null, { usage }),
+      'data: [DONE]\n\n',
+    );
+    expect(events.map((e) => e.type)).toEqual(['delta', 'billing', 'error']);
+    expect(events[1]).toEqual({ type: 'billing', generationId: 'gen-1' });
+  });
+
+  it("ends a finish_reason 'error' without an error object as done with that stop reason", async () => {
+    const { provider } = setup(
+      OPENROUTER,
+      () =>
+        sseResponse([chunk({ content: 'Part' }), chunk({}, 'error'), 'data: [DONE]\n\n']).response,
+    );
+    expect(await collect(provider.stream(req()))).toEqual([
+      { type: 'delta', text: 'Part' },
+      { type: 'done', stopReason: 'error' },
+    ]);
+  });
+});
+
 describe('openai-compatible billing (OpenRouter)', () => {
   function orChunk(
     id: string,
