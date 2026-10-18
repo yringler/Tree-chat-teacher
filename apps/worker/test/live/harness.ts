@@ -20,6 +20,7 @@ import { chargeFromTokensMicros, costFromTokensNanos } from '../../src/pool/pric
 import { creditRegistryFor, registryFor } from '../../src/registries.js';
 import { devPowerAccount, powerAccount, simpleAccount } from '../mocks/billing-helpers.js';
 import { LIVE_CONTROL } from './bindings.js';
+import type { RequestShape } from './host.js';
 import type { ReportFooter, ReportRow, ScenarioStatus } from './report.js';
 
 export const env: AppEnv = rawEnv;
@@ -46,6 +47,8 @@ export interface LiveSettings {
 export const liveSettings = (): Promise<LiveSettings> => control('/__settings');
 /** Opens the budget: only a passed preflight may spend. */
 export const arm = (): Promise<unknown> => control('/__arm', {});
+/** The shapes of the chat requests sent upstream since the last call (host.ts `RequestShape`). */
+export const sentRequests = (): Promise<RequestShape[]> => control('/__requests');
 export const postFooter = (footer: Partial<ReportFooter>): Promise<unknown> =>
   control('/__footer', footer);
 
