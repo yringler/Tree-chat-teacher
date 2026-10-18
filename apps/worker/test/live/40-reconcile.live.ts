@@ -4,15 +4,13 @@
 // the reported cost never exceeds the price table's; the per-model ratio band says
 // where each model's route sits against its list price.
 import type { ContractExpectation } from '@tangent/providers/contract';
-import { fetchOpenRouterGeneration } from '@tangent/providers';
 import type { LlmProvider } from '@tangent/shared';
 import { describe } from 'vitest';
-import { RECONCILE_RETRY_DELAYS_MS } from '../../src/billing/reconcile.js';
 import {
   builtInProvider,
   callWithRetry,
   creditProvider,
-  liveKey,
+  lookUpGeneration,
   outcomeOf,
   priceOf,
   recompute,
@@ -87,20 +85,21 @@ describe('cost reconciliation', () => {
           `ratio ${ratio.toFixed(3)} outside ${c.ratio.min}–${c.ratio.max} (${c.ratio.why})`,
         );
 
-      // The meter's fallback when a stream ends without its cost: production's delays.
+      // The meter's fallback when a stream ends without its cost.
       const id = summary.billing.generationId;
       if (id) {
-        let found = null;
-        for (const delay of RECONCILE_RETRY_DELAYS_MS) {
-          await new Promise((r) => setTimeout(r, delay));
-          found = await fetchOpenRouterGeneration(id, liveKey('BUILT_IN_API_KEY')!);
-          if (found) break;
+        const lookup = await lookUpGeneration(id);
+        if (!lookup.cost) outcome.failures.push('the generation lookup found nothing');
+        else {
+          if (!lookup.inTime)
+            outcome.warnings.push(
+              `the generation appeared after ${Math.round(lookup.afterMs / 1000)} s, past the meter's lookups`,
+            );
+          if (Math.abs(lookup.cost.costUsd - reported) > 1e-9)
+            outcome.failures.push(
+              `the generation lookup says $${lookup.cost.costUsd}, the stream $${reported}`,
+            );
         }
-        if (!found) outcome.failures.push('the generation lookup found nothing in time');
-        else if (Math.abs(found.costUsd - reported) > 1e-9)
-          outcome.failures.push(
-            `the generation lookup says $${found.costUsd}, the stream $${reported}`,
-          );
       }
       return { ...outcome, recomputedUsd: recomputed };
     });

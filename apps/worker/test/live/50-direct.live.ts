@@ -179,7 +179,7 @@ for (const d of DIRECTS) {
           {
             model: d.model,
             system: SYSTEM,
-            messages: ask('Write a long essay about the history of zero.'),
+            messages: ask('Name three prime numbers.'),
             maxOutputTokens: 1024,
           },
           { outcome: 'error', error: { code: 'aborted' } },

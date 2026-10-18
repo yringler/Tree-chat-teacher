@@ -61,6 +61,48 @@ function noteStreamFacts(facts: StreamFacts, text: string, secrets: readonly str
   facts.errorChunk = chunk.slice(0, 600);
 }
 
+/**
+ * `body` passed through as the Worker reads it, with its text handed to `onEnd` when it
+ * ends or is cancelled. Never read ahead, so the host keeps no generation going that the
+ * Worker stopped reading. (miniflare passes no cancel on to the outbound service, so an
+ * aborted call's upstream generation still runs to its end here.)
+ */
+function watched(
+  body: ReadableStream<Uint8Array>,
+  onEnd: (text: string) => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    onEnd(text + decoder.decode());
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          end();
+          controller.close();
+          return;
+        }
+        text += decoder.decode(value, { stream: true });
+        controller.enqueue(value);
+      } catch (e) {
+        end();
+        controller.error(e);
+      }
+    },
+    async cancel(reason) {
+      end();
+      await reader.cancel(reason);
+    },
+  });
+}
+
 interface Recording {
   adapter: string;
   scenario: string;
@@ -190,32 +232,30 @@ export function createLiveHost(options: LiveHostOptions): (request: Request) => 
     });
     const responseHeaders = new Headers(res.headers);
     for (const name of DROPPED_RESPONSE_HEADERS) responseHeaders.delete(name);
-    let body = res.body;
-    if (
-      body &&
-      res.ok &&
-      url.hostname === 'openrouter.ai' &&
-      url.pathname.endsWith('/chat/completions')
-    ) {
-      const [forWorker, forFacts] = body.tee();
-      body = forWorker;
+    if (!res.body) return new Response(null, { status: res.status, headers: responseHeaders });
+    const isChat = RECORDED_PATHS.some((p) => p.test(url.pathname));
+    const capture = recording && !recording.captured && isChat ? recording : null;
+    const factual = res.ok && url.hostname === 'openrouter.ai' && isChat;
+    if (factual) {
       facts.completions++;
       if (res.headers.get('x-generation-id')) facts.withGenerationIdHeader++;
-      void new Response(forFacts)
-        .text()
-        .then((text) => noteStreamFacts(facts, text, options.secrets))
-        .catch(() => undefined);
     }
-    const capture = recording;
-    if (capture && !capture.captured && body && RECORDED_PATHS.some((p) => p.test(url.pathname))) {
-      const [forWorker, forFixture] = body.tee();
-      body = forWorker;
-      capture.captured = new Response(forFixture).text().then((text) => ({
+    let resolveCaptured: (text: string) => void = () => undefined;
+    if (capture) {
+      const contentType = res.headers.get('content-type') ?? '';
+      capture.captured = new Promise<string>((r) => (resolveCaptured = r)).then((text) => ({
         status: res.status,
-        contentType: res.headers.get('content-type') ?? '',
+        contentType,
         body: text,
       }));
     }
+    const body =
+      factual || capture
+        ? watched(res.body, (text) => {
+            if (factual) noteStreamFacts(facts, text, options.secrets);
+            resolveCaptured(text);
+          })
+        : res.body;
     return new Response(body, { status: res.status, headers: responseHeaders });
   }
 

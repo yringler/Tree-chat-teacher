@@ -106,7 +106,7 @@ export default defineConfig({
     retry: 0,
     sequence: { sequencer: ByFileName },
     // Real calls, retried on rate limits, and generation lookups at production's delays.
-    testTimeout: 300_000,
+    testTimeout: 600_000,
     hookTimeout: 120_000,
   },
 });

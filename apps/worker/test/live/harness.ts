@@ -8,9 +8,11 @@ import {
   type ContractResult,
   type StreamSummary,
 } from '@tangent/providers/contract';
+import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
 import type { GenerateRequest, LlmProvider, ProviderEvent, ProviderUsage } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
+import { RECONCILE_RETRY_DELAYS_MS } from '../../src/billing/reconcile.js';
 import { namedSecrets, type ModelPrice } from '../../src/config.js';
 import type { AppEnv } from '../../src/env.js';
 import { creditPrice } from '../../src/pool/model-prices.js';
@@ -51,11 +53,11 @@ export const postFooter = (footer: Partial<ReportFooter>): Promise<unknown> =>
  * Reserves `worstUsd` of the run's budget for one call; throws, and nothing is sent,
  * when that would pass the budget or the preflight hasn't passed.
  */
-async function reserveBudget(worstUsd: number): Promise<number> {
+export async function reserveBudget(worstUsd: number): Promise<number> {
   return (await control<{ id: number }>('/__budget/reserve', { usd: worstUsd })).id;
 }
 
-const settleBudget = (id: number, usd: number): Promise<unknown> =>
+export const settleBudget = (id: number, usd: number): Promise<unknown> =>
   control('/__budget/settle', { id, usd });
 
 // ---- Keys and registries, as production builds them
@@ -158,7 +160,7 @@ async function streamOnce(
       signal: controller.signal,
     })) {
       events.push(event);
-      if (call.abortEarly && (event.type === 'delta' || event.type === 'usage')) controller.abort();
+      if (call.abortEarly) controller.abort();
     }
   } finally {
     const summary = foldStream(events);
@@ -183,6 +185,40 @@ export async function callWithRetry(call: LiveCall): Promise<LiveResult> {
       return { ...result, attempts: attempt };
     await new Promise((r) => setTimeout(r, 2_000 * attempt));
   }
+}
+
+// ---- Generation lookups
+
+/** How long past production's lookups a scenario keeps asking, to tell late from never. */
+const LOOKUP_GRACE_MS = 4 * 60_000;
+const LOOKUP_GRACE_STEP_MS = 30_000;
+
+export interface GenerationLookup {
+  cost: GenerationCost | null;
+  /** Since the first lookup's wait began. */
+  afterMs: number;
+  /** Found within the meter's own lookups (RECONCILE_RETRY_DELAYS_MS). */
+  inTime: boolean;
+}
+
+/**
+ * Looks `id` up as the meter does (`RECONCILE_RETRY_DELAYS_MS`), then every 30 s for
+ * four more minutes, the cron's job: whether OpenRouter has it, and how soon.
+ */
+export async function lookUpGeneration(id: string): Promise<GenerationLookup> {
+  const key = liveKey('BUILT_IN_API_KEY')!;
+  const started = Date.now();
+  const delays = [
+    ...RECONCILE_RETRY_DELAYS_MS,
+    ...Array.from({ length: LOOKUP_GRACE_MS / LOOKUP_GRACE_STEP_MS }, () => LOOKUP_GRACE_STEP_MS),
+  ];
+  for (const [i, delay] of delays.entries()) {
+    await new Promise((r) => setTimeout(r, delay));
+    const cost = await fetchOpenRouterGeneration(id, key);
+    if (cost)
+      return { cost, afterMs: Date.now() - started, inTime: i < RECONCILE_RETRY_DELAYS_MS.length };
+  }
+  return { cost: null, afterMs: Date.now() - started, inTime: false };
 }
 
 // ---- The prompt cache

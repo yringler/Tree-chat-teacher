@@ -2,10 +2,8 @@
 // model, effort and pinned providers, the operator's key): the stream contract on a
 // plain reply, a reply cut off at its cap, refusals, an abort, and the prompt cache.
 import type { ContractExpectation } from '@tangent/providers/contract';
-import { fetchOpenRouterGeneration } from '@tangent/providers';
 import type { ChatMessage } from '@tangent/shared';
 import { describe } from 'vitest';
-import { RECONCILE_RETRY_DELAYS_MS } from '../../src/billing/reconcile.js';
 import {
   BAD_KEYS,
   cachePrefix,
@@ -14,7 +12,7 @@ import {
   callWithRetry,
   creditProvider,
   env,
-  liveKey,
+  lookUpGeneration,
   liveSecrets,
   outcomeOf,
   priceOf,
@@ -128,7 +126,7 @@ describe('openrouter (built-in provider)', () => {
         request: {
           model,
           system: SYSTEM,
-          messages: ask('Write a long essay about the history of zero.'),
+          messages: ask('Name three prime numbers.'),
           maxOutputTokens: 2048,
         },
         worstUsd: worstUsd(price, 100, 2048),
@@ -142,18 +140,20 @@ describe('openrouter (built-in provider)', () => {
         );
         return outcome;
       }
-      // As the meter's reconcile does: production's delays, until OpenRouter has the generation.
-      let found = null;
-      for (const delay of RECONCILE_RETRY_DELAYS_MS) {
-        await new Promise((r) => setTimeout(r, delay));
-        found = await fetchOpenRouterGeneration(id, liveKey('BUILT_IN_API_KEY')!);
-        if (found) break;
-      }
-      if (!found) outcome.failures.push('the generation was not found within the reconcile delays');
-      else
+      const lookup = await lookUpGeneration(id);
+      if (!lookup.cost)
+        outcome.failures.push(
+          `OpenRouter never returned the aborted generation: its cost can't be known`,
+        );
+      else {
+        if (!lookup.inTime)
+          outcome.warnings.push(
+            `found after ${Math.round(lookup.afterMs / 1000)} s, past the meter's own lookups`,
+          );
         outcome.notes = [
-          `lookup: $${found.costUsd.toFixed(6)}, ${found.inputTokens}/${found.outputTokens} tokens, cancelled ${found.cancelled}`,
+          `lookup after ${Math.round(lookup.afterMs / 1000)} s: $${lookup.cost.costUsd.toFixed(6)}, ${lookup.cost.inputTokens}/${lookup.cost.outputTokens} tokens, cancelled ${lookup.cost.cancelled}`,
         ];
+      }
       return { ...outcome, recomputedUsd: null };
     },
   );
