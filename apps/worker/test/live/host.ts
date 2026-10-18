@@ -103,6 +103,42 @@ function watched(
   });
 }
 
+/**
+ * The shape of a chat request the Worker sent: what the pool's scenarios check was
+ * really asked upstream. Never the prompt, never a header.
+ */
+export interface RequestShape {
+  host: string;
+  model: string | null;
+  maxTokens: number | null;
+  tools: string[];
+  reasoning: unknown;
+  provider: unknown;
+}
+
+function shapeOf(host: string, body: ArrayBuffer): RequestShape | null {
+  try {
+    const json: unknown = JSON.parse(new TextDecoder().decode(body));
+    if (typeof json !== 'object' || json === null) return null;
+    const r = json as Record<string, unknown>;
+    const max = r['max_tokens'] ?? r['max_completion_tokens'];
+    return {
+      host,
+      model: typeof r['model'] === 'string' ? r['model'] : null,
+      maxTokens: typeof max === 'number' ? max : null,
+      tools: Array.isArray(r['tools'])
+        ? r['tools'].map((t: unknown) =>
+            typeof t === 'object' && t !== null && 'type' in t ? String(t.type) : '?',
+          )
+        : [],
+      reasoning: r['reasoning'] ?? r['reasoning_effort'] ?? r['output_config'] ?? null,
+      provider: r['provider'] ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 interface Recording {
   adapter: string;
   scenario: string;
@@ -120,6 +156,8 @@ export function createLiveHost(options: LiveHostOptions): (request: Request) => 
   let committedUsd = 0;
   let armed = false;
   let recording: Recording | null = null;
+  /** Chat requests since the last `GET /__requests`. */
+  let requests: RequestShape[] = [];
   const facts: StreamFacts = {
     completions: 0,
     withGenerationIdHeader: 0,
@@ -145,6 +183,11 @@ export function createLiveHost(options: LiveHostOptions): (request: Request) => 
           allowUnlimitedKey: options.allowUnlimitedKey,
           record: options.record,
         });
+      case '/__requests': {
+        const sent = requests;
+        requests = [];
+        return Response.json(sent);
+      }
       case '/__arm':
         armed = true;
         return Response.json({ armed });
@@ -223,10 +266,15 @@ export function createLiveHost(options: LiveHostOptions): (request: Request) => 
     const headers = new Headers(request.headers);
     for (const name of DROPPED_REQUEST_HEADERS) headers.delete(name);
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+    const sent = hasBody ? await request.arrayBuffer() : null;
+    if (sent && RECORDED_PATHS.some((p) => p.test(url.pathname))) {
+      const shape = shapeOf(url.hostname, sent);
+      if (shape) requests.push(shape);
+    }
     const res = await fetch(url, {
       method: request.method,
       headers,
-      body: hasBody ? await request.arrayBuffer() : null,
+      body: sent,
       redirect: 'manual',
       signal: request.signal,
     });
