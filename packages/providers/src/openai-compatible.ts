@@ -100,7 +100,12 @@ function webSearchBody(ws: WebSearchRequest, search: SearchConfig): Record<strin
   };
 }
 
-/** OpenRouter's `reasoning` object for an effort: `none` turns thinking off. */
+/**
+ * OpenRouter's `reasoning` object for an effort: `none` turns thinking off.
+ * A model whose thinking can't be turned off (Gemini's, on OpenRouter) answers
+ * that with a 400, so an operator sets `none` only for a model that allows it;
+ * no default effort is `none`.
+ */
 function reasoningBody(effort: ReasoningEffort): Record<string, unknown> {
   return effort === 'none' ? { enabled: false } : { effort };
 }
