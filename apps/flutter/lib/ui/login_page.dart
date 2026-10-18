@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
 
 import '../api/models.dart';
 import '../state/app_scope.dart';
@@ -56,12 +57,57 @@ String? loginErrorMessage(String? code) => switch (code) {
   _ => (text: noticeFor(error).text, spent: false),
 };
 
-/// Why signing in with Google on the device didn't work.
-String googleErrorMessage(Object error) => switch (error) {
-  ApiException(code: 'signups_closed') => loginErrorMessage('signups_closed')!,
-  ApiException() => noticeFor(error).text,
-  _ => 'Signing in with Google didn’t work. Try again, or use your email.',
-};
+/// Why signing in with Google on the device didn't work, with a details line
+/// naming what Google or the server said, so a report from a phone can tell
+/// a back-out from a setup problem.
+String googleErrorMessage(Object error) {
+  final text = switch (error) {
+    // Also what Credential Manager reports for a build Google doesn't know
+    // (its signing key's SHA-1 or the client id), hence the hint.
+    GoogleSignInException(code: GoogleSignInExceptionCode.canceled) =>
+      'Google sign-in was cancelled. If you didn’t cancel it and this keeps '
+          'happening, sign in with your email for now.',
+    GoogleSignInException(
+      code: GoogleSignInExceptionCode.clientConfigurationError ||
+          GoogleSignInExceptionCode.providerConfigurationError,
+    ) =>
+      'Google sign-in isn’t set up correctly in this app. Sign in with your '
+          'email for now.',
+    GoogleSignInException(code: GoogleSignInExceptionCode.uiUnavailable) =>
+      'Google’s account picker couldn’t open. Try again, or use your email.',
+    GoogleSignInException(code: GoogleSignInExceptionCode.interrupted) =>
+      'Google sign-in was interrupted. Try again.',
+    // Credential Manager's NoCredentialException.
+    GoogleSignInException(:final description?)
+        when description.startsWith('No credential available') =>
+      'There’s no Google account on this phone. Add one in its settings, or '
+          'use your email.',
+    ApiException(code: 'signups_closed') => loginErrorMessage(
+      'signups_closed',
+    )!,
+    ApiException(code: 'CAPTCHA_FAILED') =>
+      'The human check didn’t go through. Let it pass again, then try again.',
+    ApiException(code: 'INVALID_TOKEN') =>
+      'The server didn’t accept Google’s sign-in. Try again, or use your '
+          'email.',
+    ApiException(code: 'OAUTH_LINK_ERROR' || 'EMAIL_NOT_VERIFIED') =>
+      '$brandName needs a verified email address, and Google didn’t confirm '
+          'this one. Sign in with your email.',
+    ApiException() => noticeFor(error).text,
+    _ => 'Signing in with Google didn’t work. Try again, or use your email.',
+  };
+  final details = switch (error) {
+    ApiException(code: 'signups_closed') => null,
+    GoogleSignInException(:final code, :final description) =>
+      description == null || description.isEmpty
+          ? code.name
+          : '${code.name}: $description',
+    ApiException(:final code, :final status) => '$code (HTTP $status)',
+    PlatformException(:final code) => code,
+    _ => null,
+  };
+  return details == null ? text : '$text\nDetails: $details';
+}
 
 /// Google sign-in in an iOS build. Off: the App Store then asks for Sign in
 /// with Apple beside it, which the Worker doesn't offer (docs/DEFERRED.md).
@@ -216,7 +262,6 @@ class _LoginPageState extends State<LoginPage> {
     });
     try {
       final idToken = await widget.googleIdToken(clientId);
-      if (idToken == null) return;
       await scope.api.signInWithGoogle(idToken: idToken, captchaToken: captcha);
       // Signed in: the router leaves this page once the session knows.
       await scope.session.start();

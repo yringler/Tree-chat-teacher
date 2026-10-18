@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/api/token_store.dart';
 import 'package:tangent/state/app_scope.dart';
@@ -346,9 +348,9 @@ void main() {
     expect(session.status, SessionStatus.signedIn);
   });
 
-  testWidgets('backing out of Google\'s picker signs nothing in', (
-    tester,
-  ) async {
+  /// Taps the device's Google button after the captcha, with Google's
+  /// account picker failing with [error], and returns the texts shown.
+  Future<String> googleFails(WidgetTester tester, Object error) async {
     final api = FakeTangentApi()
       ..meAnswers = [unauthorized]
       ..loginOptionsAnswer = withProviders;
@@ -357,7 +359,7 @@ void main() {
       api,
       native: true,
       googleOnDevice: true,
-      googleIdToken: (_) async => null,
+      googleIdToken: (_) async => throw error,
     );
     await tester.tap(find.text('Solve'));
     await tester.pump();
@@ -365,6 +367,77 @@ void main() {
     await settle(tester);
     expect(api.googleSignIns, isEmpty);
     expect(find.byType(LoginPage), findsOneWidget);
+    return tester
+        .widgetList<Text>(find.byType(Text))
+        .map((text) => text.data ?? '')
+        .join('\n');
+  }
+
+  testWidgets(
+    'backing out of Google\'s picker says so, with Google\'s reason',
+    (tester) async {
+      // Credential Manager reports a misconfigured build (an unregistered
+      // SHA-1, the wrong client id) as cancelled too, so the reason shows.
+      final shown = await googleFails(
+        tester,
+        const GoogleSignInException(
+          code: GoogleSignInExceptionCode.canceled,
+          description: '[16] Account reauth failed.',
+        ),
+      );
+      expect(shown, contains('Google sign-in was cancelled'));
+      expect(shown, contains('Details: canceled: [16] Account reauth failed.'));
+      OutlinedButton google() => tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Continue with Google'),
+      );
+      expect(google().onPressed, isNull, reason: 'a new captcha first');
+      await tester.tap(find.text('Solve'));
+      await tester.pump();
+      expect(google().onPressed, isNotNull);
+    },
+  );
+
+  testWidgets(
+    'a build Google sign-in isn\'t set up for says so, with the code',
+    (tester) async {
+      final shown = await googleFails(
+        tester,
+        const GoogleSignInException(
+          code: GoogleSignInExceptionCode.clientConfigurationError,
+          description: 'serverClientId must be provided on Android',
+        ),
+      );
+      expect(shown, contains('isn’t set up correctly'));
+      expect(
+        shown,
+        contains(
+          'Details: clientConfigurationError: serverClientId must be provided '
+          'on Android',
+        ),
+      );
+    },
+  );
+
+  testWidgets('a phone without a Google account says to add one', (
+    tester,
+  ) async {
+    final shown = await googleFails(
+      tester,
+      const GoogleSignInException(
+        code: GoogleSignInExceptionCode.unknownError,
+        description: 'No credential available: no credentials',
+      ),
+    );
+    expect(shown, contains('no Google account on this phone'));
+  });
+
+  testWidgets('any other Google failure shows its code', (tester) async {
+    final shown = await googleFails(
+      tester,
+      PlatformException(code: 'channel-error', message: 'Unable to connect'),
+    );
+    expect(shown, contains('Signing in with Google didn’t work'));
+    expect(shown, contains('Details: channel-error'));
   });
 
   testWidgets('a refused Google sign-in says why', (tester) async {
@@ -383,6 +456,53 @@ void main() {
     await settle(tester);
     expect(find.textContaining('full for now'), findsOneWidget);
   });
+
+  for (final (refusal, says) in [
+    (
+      const ApiException(
+        status: 401,
+        code: 'INVALID_TOKEN',
+        message: 'Invalid token',
+      ),
+      'didn’t accept Google’s sign-in',
+    ),
+    (
+      const ApiException(
+        status: 400,
+        code: 'CAPTCHA_FAILED',
+        message: 'Captcha verification failed',
+      ),
+      'human check didn’t go through',
+    ),
+    (
+      const ApiException(
+        status: 401,
+        code: 'OAUTH_LINK_ERROR',
+        message: 'unable to create user',
+      ),
+      'verified email address',
+    ),
+  ]) {
+    testWidgets('a Google sign-in the server refuses with ${refusal.code} '
+        'says why, with its code', (tester) async {
+      final api = FakeTangentApi()
+        ..meAnswers = [unauthorized]
+        ..loginOptionsAnswer = withProviders
+        ..refuseGoogle = refusal;
+      await pumpLogin(tester, api, native: true, googleOnDevice: true);
+      await tester.tap(find.text('Solve'));
+      await tester.pump();
+      await tester.tap(find.text('Continue with Google'));
+      await settle(tester);
+      expect(find.textContaining(says), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Details: ${refusal.code} (HTTP ${refusal.status})',
+        ),
+        findsOneWidget,
+      );
+    });
+  }
 
   testWidgets('no device Google sign-in where it isn\'t offered', (
     tester,
