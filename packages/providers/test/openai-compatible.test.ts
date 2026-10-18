@@ -213,8 +213,53 @@ describe('openai-compatible provider', () => {
     const { provider } = setup(OPENAI, () => sseResponse(OPENAI_STREAM.slice(0, 2)).response);
     expect((await collect(provider.stream(req()))).at(-1)).toEqual({
       type: 'error',
-      error: { code: 'network', message: 'stream ended unexpectedly', retryable: true },
+      error: {
+        code: 'network',
+        message: 'stream ended unexpectedly',
+        retryable: true,
+        upstream: 'stream',
+      },
     });
+  });
+
+  it('marks a malformed chunk as failed after a 2xx', async () => {
+    const { provider } = setup(
+      OPENAI,
+      () => sseResponse([OPENAI_STREAM[1]!, 'data: {not json\n\n']).response,
+    );
+    expect((await collect(provider.stream(req()))).at(-1)).toEqual({
+      type: 'error',
+      error: {
+        code: 'unknown',
+        message: 'Malformed chunk from provider',
+        retryable: false,
+        upstream: 'stream',
+      },
+    });
+  });
+
+  it('marks a connection lost while reading the body as failed after a 2xx', async () => {
+    const enc = new TextEncoder();
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulls++ === 0) controller.enqueue(enc.encode(OPENAI_STREAM[1]));
+        else controller.error(new TypeError('Network connection lost.'));
+      },
+    });
+    const { provider } = setup(OPENAI, () => new Response(body, { status: 200 }));
+    expect(await collect(provider.stream(req()))).toEqual([
+      { type: 'delta', text: 'Hel' },
+      {
+        type: 'error',
+        error: {
+          code: 'network',
+          message: 'Network error: Network connection lost.',
+          retryable: true,
+          upstream: 'stream',
+        },
+      },
+    ]);
   });
 
   it('sends no Authorization header without apiKeySecret (local server)', async () => {

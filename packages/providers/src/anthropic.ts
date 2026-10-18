@@ -223,9 +223,10 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
         try {
           data = JSON.parse(msg.data);
         } catch {
-          throw new ProviderFailure(
-            providerError('unknown', `Malformed ${msg.event} event from provider`),
-          );
+          throw new ProviderFailure({
+            ...providerError('unknown', `Malformed ${msg.event} event from provider`),
+            upstream: 'stream',
+          });
         }
         if (!isRecord(data)) continue;
         const type = typeof data['type'] === 'string' ? data['type'] : msg.event;

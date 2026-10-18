@@ -360,9 +360,31 @@ describe('anthropic provider', () => {
     const events = await collect(provider.stream(req()));
     expect(events.at(-1)).toEqual({
       type: 'error',
-      error: { code: 'network', message: 'stream ended unexpectedly', retryable: true },
+      error: {
+        code: 'network',
+        message: 'stream ended unexpectedly',
+        retryable: true,
+        upstream: 'stream',
+      },
     });
     expect(events.filter((e) => e.type === 'error' || e.type === 'done')).toHaveLength(1);
+  });
+
+  it('marks a malformed event as failed after a 2xx', async () => {
+    const { provider } = setup(
+      () =>
+        sseResponse([...RECORDED.slice(0, 2), 'event: content_block_delta\ndata: {not json\n\n'])
+          .response,
+    );
+    expect((await collect(provider.stream(req()))).at(-1)).toEqual({
+      type: 'error',
+      error: {
+        code: 'unknown',
+        message: 'Malformed content_block_delta event from provider',
+        retryable: false,
+        upstream: 'stream',
+      },
+    });
   });
 
   it('aborts promptly before the response arrives (fetch ignoring the signal)', async () => {

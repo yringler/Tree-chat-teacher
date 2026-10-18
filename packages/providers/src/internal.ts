@@ -189,7 +189,10 @@ export function networkError(err: unknown, secrets: readonly string[]): Provider
  * Enforces the `LlmProvider.stream` contract around an inner generator that
  * may throw: forwards events, stops after the first terminal event, maps
  * exceptions to `error` (aborted when the signal fired), and turns a
- * premature end into a network error.
+ * premature end into a network error. Failures before the request leaves
+ * reach it as a ProviderFailure (`postJson`), so a TypeError here was thrown
+ * reading the body, and a premature end came after a 2xx: both are
+ * `upstream: 'stream'`, as the upstream may have billed for the call.
  */
 export async function* guardStream(
   signal: AbortSignal,
@@ -211,7 +214,7 @@ export async function* guardStream(
         if (signal.aborted) terminal = { type: 'error', error: abortedProviderError() };
         else if (e instanceof ProviderFailure) terminal = { type: 'error', error: e.error };
         else if (e instanceof TypeError)
-          terminal = { type: 'error', error: networkError(e, secrets) };
+          terminal = { type: 'error', error: { ...networkError(e, secrets), upstream: 'stream' } };
         else {
           const msg = e instanceof Error ? e.message : String(e);
           terminal = {
@@ -240,7 +243,10 @@ export async function* guardStream(
   if (!terminal) {
     terminal = signal.aborted
       ? { type: 'error', error: abortedProviderError() }
-      : { type: 'error', error: providerError('network', 'stream ended unexpectedly') };
+      : {
+          type: 'error',
+          error: { ...providerError('network', 'stream ended unexpectedly'), upstream: 'stream' },
+        };
   }
   yield terminal;
 }
