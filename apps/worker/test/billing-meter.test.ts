@@ -14,7 +14,8 @@ import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { meteredRegistry } from '../src/billing/meter.js';
 import type { UsageMeterOptions } from '../src/billing/meter-run.js';
 import { createUsageMeter } from '../src/billing/personal-meter.js';
-import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import { reserveCreditReply, USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import { markDispatched, repriceReservation } from '../src/billing/usage-store.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
@@ -26,6 +27,7 @@ import {
   scriptGeneration,
   simpleAccount,
   uniq,
+  usageRow,
   usageRows,
   type UsageRow,
 } from './mocks/billing-helpers.js';
@@ -574,6 +576,100 @@ describe('usage meter holds on credit', () => {
     ]);
     expect(provider.calls).toBe(0);
     expect(await h.rows()).toEqual([]);
+  });
+});
+
+describe('reserved replies on credit', () => {
+  const target = { treeId: 'tree_1', branchId: 'branch_1', providerId: 'openrouter', model: 'max' };
+  const reply = [
+    { type: 'billing', costUsd: COST },
+    { type: 'done', stopReason: 'stop' },
+  ] satisfies ProviderEvent[];
+
+  /** Moves the account's available balance to `micros` with an adjustment. */
+  async function setAvailable(accountId: string, micros: number): Promise<void> {
+    const { balanceMicros, heldMicros } = await getBalance(env.DB, accountId);
+    await grantCredit(env.DB, {
+      accountId,
+      kind: 'adjustment',
+      amountMicros: micros - (balanceMicros - heldMicros),
+      providerRef: null,
+    });
+  }
+
+  it('lowers a reservation to the call, whatever the balance, and settles that row', async () => {
+    const h = await harness();
+    const id = await reserveCreditReply(env, h.account, target, 500_000);
+    await setAvailable(h.account.billingAccountId, -1_000);
+    expect(await repriceReservation(env.DB, id, h.account.billingAccountId, 400_000, 'n1')).toEqual(
+      { feeBps: 0, markupBps: 0 },
+    );
+    await h.run(reply, { tag: { ...tag, reservationId: id } });
+    const rows = await h.rows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id,
+      hold_micros: USAGE_HOLD_MICROS,
+      node_id: 'n1',
+      status: 'settled',
+      charge_micros: 1234,
+    });
+    expect(rows[0]!.dispatched_at).not.toBeNull();
+  });
+
+  it('raises a reservation only while the rest of the available balance covers the increase', async () => {
+    const h = await harness();
+    const accountId = h.account.billingAccountId;
+    const id = await reserveCreditReply(env, h.account, target, 1_000);
+    await setAvailable(accountId, 4_000);
+    expect(await repriceReservation(env.DB, id, accountId, 5_001, null)).toBeNull();
+    expect((await usageRow(env, id)).hold_micros).toBe(1_000);
+    expect(await repriceReservation(env.DB, id, accountId, 5_000, null)).not.toBeNull();
+    expect((await usageRow(env, id)).hold_micros).toBe(5_000);
+  });
+
+  it("never reprices a dispatched row, another account's, or a settled one", async () => {
+    const h = await harness();
+    const accountId = h.account.billingAccountId;
+    const dispatched = await reserveCreditReply(env, h.account, target, 1_000);
+    expect(await markDispatched(env.DB, dispatched)).toBe(true);
+    expect(await repriceReservation(env.DB, dispatched, accountId, 500, null)).toBeNull();
+    const other = await reserveCreditReply(env, h.account, target, 1_000);
+    expect(await repriceReservation(env.DB, other, uniq('acct'), 500, null)).toBeNull();
+    expect((await usageRow(env, other)).hold_micros).toBe(1_000);
+  });
+
+  it('gives a call whose reservation is already used a fresh row (a retry without search)', async () => {
+    const h = await harness();
+    const id = await reserveCreditReply(env, h.account, target, 500_000);
+    const reserved = { tag: { ...tag, reservationId: id } };
+    await h.run(
+      [
+        {
+          type: 'error',
+          error: {
+            code: 'invalid_request',
+            message: 'no tools',
+            status: 400,
+            retryable: false,
+            upstream: 'rejected',
+          },
+        },
+      ],
+      reserved,
+    );
+    await h.run(reply, reserved);
+    await h.settleBackground();
+    const rows = await h.rows();
+    expect(rows).toHaveLength(2);
+    const fresh = rows.find((r) => r.id !== id);
+    expect(await usageRow(env, id)).toMatchObject({ status: 'settled', settle_reason: 'released' });
+    expect(fresh).toMatchObject({
+      status: 'settled',
+      node_id: 'node_1',
+      hold_micros: USAGE_HOLD_MICROS,
+      charge_micros: 1234,
+    });
   });
 });
 
