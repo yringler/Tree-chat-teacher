@@ -12,13 +12,12 @@ import {
   type WebSearchRequest,
 } from '@tangent/shared';
 import {
-  isOpenRouterBaseUrl,
   markLastMessage,
   promptCacheOption,
-  usesExplicitCacheControl,
   withBreakpoint,
   withTurnInstructions,
 } from './prompt-cache.js';
+import { providerTraits } from './traits.js';
 import type { ProviderEnv } from './registry.js';
 import { addCitation, num, postJson, streamBody } from './http.js';
 import { parseSse } from './sse.js';
@@ -27,6 +26,7 @@ import {
   codeForStatus,
   getFetch,
   guardStream,
+  isOpenRouterBaseUrl,
   isRecord,
   looksLikeContextLength,
   missingSecretError,
@@ -253,8 +253,9 @@ export function createOpenAiCompatibleProvider(
       ? optParam
       : defaultMaxTokensParam(baseUrl);
   const extraBody = readExtraBody(config.options);
-  const openRouter = isOpenRouterBaseUrl(baseUrl);
-  const promptCache = promptCacheOption(config.options) ?? openRouter;
+  const traits = providerTraits(config);
+  // Marked by default only where the endpoint is known to accept `cache_control`.
+  const promptCache = promptCacheOption(config.options) ?? isOpenRouterBaseUrl(baseUrl);
 
   const search = readSearchConfig(config.options);
 
@@ -291,7 +292,7 @@ export function createOpenAiCompatibleProvider(
         role: m.role,
         content: m.content,
       }));
-      const cache = promptCache && usesExplicitCacheControl(request.model);
+      const cache = promptCache && traits.explicitCacheMarkers(request.model);
       const messages = withTurnInstructions(
         cache ? markLastMessage(plain) : plain,
         request.turnInstructions,
@@ -312,8 +313,10 @@ export function createOpenAiCompatibleProvider(
         stream_options: { include_usage: true },
         ...extra,
         ...(webSearch ? webSearchBody(webSearch, search) : {}),
-        ...(openRouter && effort !== undefined ? { reasoning: reasoningBody(effort) } : {}),
-        ...(openRouter && order.length > 0
+        ...(traits.effort === 'openrouter-reasoning' && effort !== undefined
+          ? { reasoning: reasoningBody(effort) }
+          : {}),
+        ...(traits.routing && order.length > 0
           ? { provider: pinnedRouting(extra['provider'], order) }
           : {}),
         model: request.model,
