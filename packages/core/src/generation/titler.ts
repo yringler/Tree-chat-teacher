@@ -66,7 +66,7 @@ export class Titler {
             error: error.message,
           }),
       );
-      const title = raw ? cleanTitle(raw) : null;
+      const title = raw ? cleanTitle(raw.text) : null;
       if (!title) return null;
       const now = this.ctx.now();
       const repo = this.ctx.repos.trees;

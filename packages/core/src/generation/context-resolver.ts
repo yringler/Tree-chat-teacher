@@ -14,7 +14,7 @@ import type {
   Tree,
   UsageTag,
 } from '@tangent/shared';
-import { auxOutputTokens, clipUtf16, replyOutputTokens } from '@tangent/shared';
+import { auxOutputTokens, clipUtf16, isLengthStop, replyOutputTokens } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
 import { buildSummaryPrompt, renderPlan } from '../context/render.js';
@@ -467,18 +467,22 @@ export class ContextResolver {
         yield request.purpose === 'branch'
           ? 'Summarizing the parent conversation…'
           : 'Compacting older messages to fit the context window…';
-        const text = await this.generateSummary(
+        const summary = await this.generateSummary(
           summaryProvider,
           summaryModel,
           request,
           { treeId: inputs.tree.id, branchId: inputs.branch.id },
           signal,
         );
-        if (text === null) {
+        if (summary === null) {
           failed.add(k);
           continue;
         }
+        const { text, cutOff } = summary;
         summaries.set(k, text);
+        // A summary cut off at its cap still beats none for this send, but the
+        // cache would keep it for as long as its source is unchanged.
+        if (cutOff) continue;
         await this.ctx.repos.summaries.putSummary({
           anchorNodeId: request.key.anchorNodeId,
           sourceHash: request.key.sourceHash,
@@ -500,7 +504,7 @@ export class ContextResolver {
     request: SummaryRequest,
     target: { treeId: string; branchId: string },
     signal?: AbortSignal,
-  ): Promise<string | null> {
+  ): Promise<{ text: string; cutOff: boolean } | null> {
     const pool = this.pool;
     const prompt = buildSummaryPrompt(
       request,
@@ -512,7 +516,7 @@ export class ContextResolver {
         : undefined,
     );
     if (prompt === null) return null;
-    const text = await collectText(
+    const result = await collectText(
       provider,
       model,
       prompt,
@@ -531,11 +535,18 @@ export class ContextResolver {
         });
       },
     );
-    return text?.trim() ? text.trim() : null;
+    const text = result?.text.trim();
+    if (!result || !text) return null;
+    const cutOff = isLengthStop(result.stopReason);
+    if (cutOff) this.ctx.log('summary_cut_off', { ...target, providerId: provider.id, model });
+    return { text, cutOff };
   }
 }
 
-/** Streams a prompt to completion; returns null on provider error, after passing it to `onError`. */
+/**
+ * Streams a prompt to completion: its text and the provider's stop reason, or
+ * null on provider error, after passing it to `onError`.
+ */
 export async function collectText(
   provider: LlmProvider,
   model: string,
@@ -544,8 +555,9 @@ export async function collectText(
   usageTag: UsageTag,
   effort: ReasoningEffort | null,
   onError: (error: ProviderError) => void,
-): Promise<string | null> {
+): Promise<{ text: string; stopReason: string | null } | null> {
   let text = '';
+  let stopReason: string | null = null;
   for await (const event of provider.stream({
     model,
     system: prompt.system,
@@ -556,11 +568,12 @@ export async function collectText(
     ...(effort !== null ? { reasoning: effort } : {}),
   })) {
     if (event.type === 'delta') text += event.text;
+    else if (event.type === 'done') stopReason = event.stopReason;
     else if (event.type === 'billing') continue;
     else if (event.type === 'error') {
       onError(event.error);
       return null;
     }
   }
-  return text;
+  return { text, stopReason };
 }
