@@ -14,7 +14,8 @@ const TIMEOUT_MS = 8000;
 
 /**
  * One cheap, non-billed request that needs a valid key: `GET /v1/models`
- * (Anthropic) or `GET {baseUrl}/models` (OpenAI-compatible). The key is only
+ * (Anthropic), `GET {baseUrl}/key` (OpenRouter) or `GET {baseUrl}/models`
+ * (another OpenAI-compatible endpoint). The key is only
  * put in the auth header; nothing about it is logged or returned.
  */
 export async function verifyApiKey(

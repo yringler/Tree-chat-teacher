@@ -1,7 +1,12 @@
 import type { ProviderKind } from '@tangent/shared';
 import { createAnthropicProvider } from './anthropic.js';
 import { createFakeProvider } from './fake.js';
-import { ANTHROPIC_ENDPOINT, OPENAI_ENDPOINT, stripTrailingSlash } from './internal.js';
+import {
+  ANTHROPIC_ENDPOINT,
+  OPENAI_ENDPOINT,
+  isOpenRouterBaseUrl,
+  stripTrailingSlash,
+} from './internal.js';
 import { createOpenAiCompatibleProvider } from './openai-compatible.js';
 import type { ProviderFactory } from './registry.js';
 
@@ -55,8 +60,10 @@ export const PROVIDER_KINDS: Record<ProviderKind, KindDescriptor> = {
     keylessWithBaseUrl: true,
     defaultEndpoint: OPENAI_ENDPOINT,
     vendor: null,
+    // OpenRouter's `/models` is public and answers 200 to any key, so its key
+    // check is `/key`, which needs a valid one.
     verifyRequest: (baseUrl, apiKey) => ({
-      url: `${stripTrailingSlash(baseUrl ?? OPENAI_ENDPOINT.url)}/models`,
+      url: `${stripTrailingSlash(baseUrl ?? OPENAI_ENDPOINT.url)}/${isOpenRouterBaseUrl(baseUrl) ? 'key' : 'models'}`,
       headers: { authorization: `Bearer ${apiKey}` },
     }),
   },

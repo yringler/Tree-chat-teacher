@@ -1,12 +1,15 @@
 // Before anything spends: the harness runs with production's provider and price vars,
 // and the OpenRouter key has a limit and room for the whole budget. Only then does the
 // host open the budget (`arm`), so a failed preflight stops every paid call.
+import { verifyApiKey } from '@tangent/providers';
+import { OPENROUTER_PROVIDER_ID } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
+import { learnKeyConfig, providerEnv } from '../../src/provider-configs.js';
 import { LIVE_HARNESS_BINDINGS, PRODUCTION_ONLY_VARS } from './bindings.js';
 import {
   arm,
   BAD_KEYS,
-  KEY_URL,
+  env,
   keyInfo,
   liveSettings,
   observe,
@@ -60,21 +63,15 @@ describe('preflight', () => {
     };
   });
 
-  // Key checks: `PROVIDER_KINDS['openai-compatible'].verifyRequest` asks `GET {baseUrl}/models`.
-  scenario('a wrong key on the key check endpoints', 'openrouter', async () => {
-    const headers = { authorization: `Bearer ${BAD_KEYS.openrouter}` };
-    const models = await fetch('https://openrouter.ai/api/v1/models', { headers });
-    await models.body?.cancel();
-    const key = await fetch(KEY_URL, { headers });
-    await key.body?.cancel();
-    const answer = `GET /api/v1/models answers ${models.status}, GET /api/v1/key answers ${key.status}`;
+  // Saving an OpenRouter key runs this check: a wrong key must be refused there.
+  scenario('a wrong key on the key check', 'openrouter', async () => {
+    const config = learnKeyConfig(env, OPENROUTER_PROVIDER_ID);
+    if (!config) throw new Error('no OpenRouter key config');
+    const check = await verifyApiKey(config, BAD_KEYS.openrouter, providerEnv(env, [config]));
+    const answer = `verifyApiKey on ${config.baseUrl ?? 'the default endpoint'} answers ${check}`;
     await postFooter({ probes: { 'Wrong OpenRouter key': answer } });
-    const failures: string[] = [];
-    if (models.ok)
-      failures.push(
-        'GET /api/v1/models accepts a wrong key, so a key check against it passes any key',
-      );
-    if (key.ok) failures.push('GET /api/v1/key accepts a wrong key');
+    const failures =
+      check === 'rejected' ? [] : ['the key check does not reject a wrong OpenRouter key'];
     return { model: null, failures, warnings: [], notes: [answer] };
   });
 });
