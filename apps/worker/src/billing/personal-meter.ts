@@ -6,7 +6,10 @@
 //      while the balance covers it (and, for a call a user starts, fewer than
 //      USAGE_MAX_PENDING are in flight), in one statement, or, for a reply
 //      reserved before its nodes were written (`UsageTag.reservationId`), that
-//      row repriced and stamped dispatched. Awaited; no row, no call.
+//      row repriced. Either records the input estimate the hold was sized
+//      with, and is stamped dispatched right before the call goes upstream,
+//      so the cron can charge that input if this meter dies. Awaited; no row
+//      (or no stamp), no call.
 //   2. Tap `billing` (generation id, reported cost) and `usage` (tokens).
 //   3. At the terminal event, settle by the metered policy (settle-policy.ts):
 //      released at 0 when nothing can have been billed upstream, else the
@@ -61,8 +64,6 @@ class PersonalRun extends ObservedRun {
     defer: (p: Promise<unknown>) => void,
     options: UsageMeterOptions,
     request: GenerateRequest,
-    /** The row was reserved before the reply's nodes were written: stamp it, so no release takes it. */
-    private readonly reserved: boolean,
     /** The model's list price, to price the tokens of a call that reports no cost. */
     private readonly price: ModelPrice,
     /** The estimated input tokens its hold was sized with. */
@@ -72,7 +73,8 @@ class PersonalRun extends ObservedRun {
   }
 
   override async dispatch(): Promise<boolean> {
-    this.dispatched = this.reserved ? await markDispatched(this.env.DB, this.usageId) : true;
+    // Stamped, so no release takes a reserved reply's row and the cron knows the call was sent.
+    this.dispatched = await markDispatched(this.env.DB, this.usageId);
     return this.dispatched;
   }
 
@@ -127,7 +129,7 @@ export function createUsageMeter(
       const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
       const inputTokens = estimatedInputTokens(request);
       const holdMicros = creditHoldMicros(env, price, inputTokens, upstream.maxOutputTokens, rates);
-      const run = (usageId: string, r: typeof rates, reserved: boolean) =>
+      const run = (usageId: string, r: typeof rates) =>
         new PersonalRun(
           env,
           usageId,
@@ -136,7 +138,6 @@ export function createUsageMeter(
           defer,
           options,
           upstream,
-          reserved,
           price,
           inputTokens,
         );
@@ -147,8 +148,9 @@ export function createUsageMeter(
           account.billingAccountId,
           holdMicros,
           tag.nodeId,
+          inputTokens,
         );
-        if (claimed) return run(tag.reservationId, claimed, true);
+        if (claimed) return run(tag.reservationId, claimed);
         // Already used (a reply retried without its web search), or too dear for the balance:
         // reserved afresh below, where a refusal says which.
       }
@@ -167,6 +169,7 @@ export function createUsageMeter(
           providerId,
           model,
           holdMicros,
+          heldInputTokens: inputTokens,
           ...rates,
           createdAt: new Date().toISOString(),
         },
@@ -180,7 +183,7 @@ export function createUsageMeter(
           refusal instanceof PaymentRequiredError ? 'payment_required' : 'rate_limit',
         );
       }
-      return run(usageId, rates, false);
+      return run(usageId, rates);
     },
   };
 }

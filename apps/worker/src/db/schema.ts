@@ -691,7 +691,7 @@ export const usageEvents = sqliteTable(
     /** Web searches the call ran (grounding); their cost is inside cost_nanos. */
     webSearches: integer('web_searches').notNull().default(0),
     createdAt: text('created_at').notNull(),
-    /** Pool rows: when the request was handed to the provider (null = never sent: released at 0). */
+    /** When the request was handed to the provider (null = never sent: released at 0). */
     dispatchedAt: text('dispatched_at'),
     settledAt: text('settled_at'),
   },

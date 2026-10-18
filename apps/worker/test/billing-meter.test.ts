@@ -404,6 +404,51 @@ describe('usage meter', () => {
     });
   });
 
+  it('stamps a call dispatched before it is sent, with the input estimate its hold was sized with', async () => {
+    const h = await harness();
+    let pendingSeen: UsageRow[] = [];
+    const meter = createUsageMeter(env, h.account, (p) => h.deferred.push(p), FAST);
+    const provider = scriptedProvider(
+      [
+        { type: 'delta', text: 'a' },
+        { type: 'billing', costUsd: COST },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      async (i) => {
+        if (i === 0) pendingSeen = await h.rows();
+      },
+    );
+    for await (const _ of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request()))
+      void _;
+    expect(pendingSeen).toHaveLength(1);
+    expect(pendingSeen[0]).toMatchObject({ status: 'pending', held_input_tokens: 5 });
+    expect(pendingSeen[0]!.dispatched_at).not.toBeNull();
+  });
+
+  it('sends nothing and releases the row when it cannot be stamped dispatched', async () => {
+    const h = await harness();
+    const provider = scriptedProvider([{ type: 'done', stopReason: null }]);
+    const broken = envWithFailingDb(env, /SET dispatched_at/);
+    const meter = createUsageMeter(broken, h.account, (p) => h.deferred.push(p), FAST);
+    const events: ProviderEvent[] = [];
+    for await (const e of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request()))
+      events.push(e);
+    expect(events).toEqual([
+      { type: 'error', error: expect.objectContaining({ code: 'server', upstream: 'not_sent' }) },
+    ]);
+    expect(provider.calls).toBe(0);
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'released',
+      charge_micros: 0,
+      dispatched_at: null,
+    });
+  });
+
   it('fails as an event (no upstream call) when the pending row cannot be written', async () => {
     const h = await harness();
     const provider = scriptedProvider([{ type: 'done', stopReason: null }]);
@@ -423,7 +468,8 @@ describe('usage meter', () => {
 
   it('never throws into the stream when settling fails; the row stays pending', async () => {
     const h = await harness();
-    const broken = envWithFailingDb(env, /^\s*UPDATE/);
+    // Every write after the dispatch stamp fails.
+    const broken = envWithFailingDb(env, /^\s*UPDATE(?! usage_events SET dispatched_at)/);
     const events = await h.run(
       [
         { type: 'billing', generationId: uniq('gen') },
@@ -740,9 +786,9 @@ describe('reserved replies on credit', () => {
     const h = await harness();
     const id = await reserveCreditReply(env, h.account, target, 500_000);
     await setAvailable(h.account.billingAccountId, -1_000);
-    expect(await repriceReservation(env.DB, id, h.account.billingAccountId, 400_000, 'n1')).toEqual(
-      { feeBps: 0, markupBps: 0 },
-    );
+    expect(
+      await repriceReservation(env.DB, id, h.account.billingAccountId, 400_000, 'n1', 7),
+    ).toEqual({ feeBps: 0, markupBps: 0 });
     await h.run(reply, { tag: { ...tag, reservationId: id } });
     const rows = await h.rows();
     expect(rows).toHaveLength(1);
@@ -752,6 +798,8 @@ describe('reserved replies on credit', () => {
       node_id: 'n1',
       status: 'settled',
       charge_micros: 1234,
+      // The meter's own estimate of 'hi', recorded when it repriced the row.
+      held_input_tokens: 5,
     });
     expect(rows[0]!.dispatched_at).not.toBeNull();
   });
@@ -761,9 +809,9 @@ describe('reserved replies on credit', () => {
     const accountId = h.account.billingAccountId;
     const id = await reserveCreditReply(env, h.account, target, 1_000);
     await setAvailable(accountId, 4_000);
-    expect(await repriceReservation(env.DB, id, accountId, 5_001, null)).toBeNull();
+    expect(await repriceReservation(env.DB, id, accountId, 5_001, null, 7)).toBeNull();
     expect((await usageRow(env, id)).hold_micros).toBe(1_000);
-    expect(await repriceReservation(env.DB, id, accountId, 5_000, null)).not.toBeNull();
+    expect(await repriceReservation(env.DB, id, accountId, 5_000, null, 7)).not.toBeNull();
     expect((await usageRow(env, id)).hold_micros).toBe(5_000);
   });
 
@@ -772,9 +820,9 @@ describe('reserved replies on credit', () => {
     const accountId = h.account.billingAccountId;
     const dispatched = await reserveCreditReply(env, h.account, target, 1_000);
     expect(await markDispatched(env.DB, dispatched)).toBe(true);
-    expect(await repriceReservation(env.DB, dispatched, accountId, 500, null)).toBeNull();
+    expect(await repriceReservation(env.DB, dispatched, accountId, 500, null, 7)).toBeNull();
     const other = await reserveCreditReply(env, h.account, target, 1_000);
-    expect(await repriceReservation(env.DB, other, uniq('acct'), 500, null)).toBeNull();
+    expect(await repriceReservation(env.DB, other, uniq('acct'), 500, null, 7)).toBeNull();
     expect((await usageRow(env, other)).hold_micros).toBe(1_000);
   });
 
