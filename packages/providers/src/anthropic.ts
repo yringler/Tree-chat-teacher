@@ -32,9 +32,9 @@ import {
   resolveApiKey,
   resolveConfigHeaders,
   stripTrailingSlash,
+  ANTHROPIC_ENDPOINT,
 } from './internal.js';
 
-const DEFAULT_BASE_URL = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULTS = { maxContextTokens: 200_000, maxOutputTokens: 8192, supportsSystemPrompt: true };
 
@@ -126,7 +126,7 @@ function usageOf(usage: Record<string, unknown>): Partial<ProviderUsage> {
  * `billing.costUsd`: enable it on own-key configs, not a metered one.
  */
 export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv): LlmProvider {
-  const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
+  const baseUrl = stripTrailingSlash(config.baseUrl ?? ANTHROPIC_ENDPOINT.url);
   const doFetch = getFetch(env);
 
   const capabilities = (model: string): ProviderCapabilities => ({

@@ -1,7 +1,7 @@
 import type { ProviderKind } from '@tangent/shared';
 import { createAnthropicProvider } from './anthropic.js';
 import { createFakeProvider } from './fake.js';
-import { stripTrailingSlash } from './internal.js';
+import { ANTHROPIC_ENDPOINT, OPENAI_ENDPOINT, stripTrailingSlash } from './internal.js';
 import { createOpenAiCompatibleProvider } from './openai-compatible.js';
 import type { ProviderFactory } from './registry.js';
 
@@ -36,19 +36,16 @@ export interface KindDescriptor {
   verifyRequest(baseUrl: string | undefined, apiKey: string): KeyCheckRequest | null;
 }
 
-const ANTHROPIC = { url: 'https://api.anthropic.com', vendor: 'Anthropic', keyPrefix: 'sk-ant-' };
-const OPENAI = { url: 'https://api.openai.com/v1', vendor: 'OpenAI', keyPrefix: 'sk-' };
-
 /** The one place new provider kinds are registered. */
 export const PROVIDER_KINDS: Record<ProviderKind, KindDescriptor> = {
   anthropic: {
     create: createAnthropicProvider,
     scripted: false,
     keylessWithBaseUrl: false,
-    defaultEndpoint: ANTHROPIC,
-    vendor: ANTHROPIC.vendor,
+    defaultEndpoint: ANTHROPIC_ENDPOINT,
+    vendor: ANTHROPIC_ENDPOINT.vendor,
     verifyRequest: (baseUrl, apiKey) => ({
-      url: `${stripTrailingSlash(baseUrl ?? ANTHROPIC.url)}/v1/models?limit=1`,
+      url: `${stripTrailingSlash(baseUrl ?? ANTHROPIC_ENDPOINT.url)}/v1/models?limit=1`,
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     }),
   },
@@ -56,10 +53,10 @@ export const PROVIDER_KINDS: Record<ProviderKind, KindDescriptor> = {
     create: createOpenAiCompatibleProvider,
     scripted: false,
     keylessWithBaseUrl: true,
-    defaultEndpoint: OPENAI,
+    defaultEndpoint: OPENAI_ENDPOINT,
     vendor: null,
     verifyRequest: (baseUrl, apiKey) => ({
-      url: `${stripTrailingSlash(baseUrl ?? OPENAI.url)}/models`,
+      url: `${stripTrailingSlash(baseUrl ?? OPENAI_ENDPOINT.url)}/models`,
       headers: { authorization: `Bearer ${apiKey}` },
     }),
   },

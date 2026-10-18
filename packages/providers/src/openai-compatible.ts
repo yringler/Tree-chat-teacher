@@ -36,9 +36,9 @@ import {
   resolveApiKey,
   resolveConfigHeaders,
   stripTrailingSlash,
+  OPENAI_ENDPOINT,
 } from './internal.js';
 
-const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULTS = { maxContextTokens: 128_000, maxOutputTokens: 8192, supportsSystemPrompt: true };
 
 type MaxTokensParam = 'max_tokens' | 'max_completion_tokens';
@@ -245,7 +245,7 @@ export function createOpenAiCompatibleProvider(
   config: ProviderConfig,
   env: ProviderEnv,
 ): LlmProvider {
-  const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
+  const baseUrl = stripTrailingSlash(config.baseUrl ?? OPENAI_ENDPOINT.url);
   const doFetch = getFetch(env);
   const optParam = config.options?.['maxTokensParam'];
   const maxTokensParam: MaxTokensParam =

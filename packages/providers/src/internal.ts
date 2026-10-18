@@ -336,3 +336,17 @@ export function isOpenRouterBaseUrl(baseUrl: string | undefined): boolean {
     return false;
   }
 }
+
+/** The endpoint an Anthropic config without a baseUrl reaches (`KindDescriptor.defaultEndpoint`). */
+export const ANTHROPIC_ENDPOINT = {
+  url: 'https://api.anthropic.com',
+  vendor: 'Anthropic',
+  keyPrefix: 'sk-ant-',
+};
+
+/** The endpoint an openai-compatible config without a baseUrl reaches. */
+export const OPENAI_ENDPOINT = {
+  url: 'https://api.openai.com/v1',
+  vendor: 'OpenAI',
+  keyPrefix: 'sk-',
+};
