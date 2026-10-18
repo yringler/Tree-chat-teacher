@@ -1,6 +1,7 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reconcileGeneration, reconcilePendingUsage } from '../src/billing/reconcile.js';
+import { markDispatched, settleUsage } from '../src/billing/usage-store.js';
 import { builtInApiKey } from '../src/simple-mode.js';
 import { CRON_JOBS } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
@@ -190,3 +191,141 @@ describe('usage reconciliation cron', () => {
     expect(await usageRow(env, young)).toMatchObject({ status: 'pending' });
   });
 });
+
+describe('usage reconciliation cron: a call whose meter died without a generation id', () => {
+  /** `max` at $150 in, $600 out per million tokens. */
+  const PRICED = {
+    ...env,
+    MODEL_PRICES: JSON.stringify({ max: { in: 150_000_000, out: 600_000_000, context: 200_000 } }),
+  } as AppEnv;
+  const stale = { createdAt: ago(15 * MIN), holdMicros: 400_000, markupBps: 500, feeBps: 200 };
+
+  it('releases a call never sent at $0, whatever its estimate', async () => {
+    const id = await insertUsage(env, { accountId: uniq('acct'), ...stale, heldInputTokens: 1000 });
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 1, unresolved: 0 });
+    expect(await usageRow(env, id)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'released',
+      cost_nanos: 0,
+      charge_micros: 0,
+    });
+  });
+
+  it('charges a sent call the input its hold was sized with, at the input price, with no output', async () => {
+    const id = await insertUsage(env, {
+      accountId: uniq('acct'),
+      ...stale,
+      dispatchedAt: ago(15 * MIN),
+      heldInputTokens: 1000,
+    });
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 1, unresolved: 0 });
+    expect(await usageRow(env, id)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      // 1000 × $150 / M = 150_000 µ$, at the row's own fee and markup: × 1.02 × 1.05.
+      cost_nanos: 150_000_000,
+      charge_micros: 160_650,
+      settled_at: NOW.toISOString(),
+    });
+  });
+
+  it('charges a sent call its hold when its row has no estimate', async () => {
+    const id = await insertUsage(env, {
+      accountId: uniq('acct'),
+      ...stale,
+      dispatchedAt: ago(15 * MIN),
+    });
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 1, unresolved: 0 });
+    expect(await usageRow(env, id)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'hold',
+      charge_micros: 400_000,
+    });
+  });
+
+  it('settles a sent call with a generation id from its lookup, as before', async () => {
+    const generationId = uniq('gen-sent');
+    await scriptGeneration(generationId, [{ costUsd: 0.01, inputTokens: 5, outputTokens: 6 }]);
+    const id = await insertUsage(env, {
+      accountId: uniq('acct'),
+      ...stale,
+      generationId,
+      dispatchedAt: ago(15 * MIN),
+      heldInputTokens: 1000,
+    });
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 1, unresolved: 0 });
+    expect(await usageRow(env, id)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'generation',
+      cost_nanos: 10_000_000,
+      charge_micros: 10_710,
+    });
+  });
+
+  it('leaves a row its meter settled after the cron read it, and never releases one sent since', async () => {
+    const accountId = uniq('acct');
+    const settledByMeter = await insertUsage(env, {
+      accountId,
+      ...stale,
+      dispatchedAt: ago(15 * MIN),
+      heldInputTokens: 1000,
+    });
+    const sentSince = await insertUsage(env, { accountId, ...stale, heldInputTokens: 1000 });
+    const racing = afterSelect(PRICED, async () => {
+      await settleUsage(env.DB, settledByMeter, {
+        costNanos: 1_000_000,
+        markupBps: 0,
+        feeBps: 0,
+        reason: 'cost',
+      });
+      expect(await markDispatched(env.DB, sentSince)).toBe(true);
+    });
+    expect(await reconcilePendingUsage(racing, NOW)).toEqual({ settled: 0, unresolved: 0 });
+    expect(await usageRow(env, settledByMeter)).toMatchObject({
+      settle_reason: 'cost',
+      charge_micros: 1_000,
+    });
+    expect(await usageRow(env, sentSince)).toMatchObject({ status: 'pending' });
+  });
+});
+
+/**
+ * `env` whose D1 runs `hook` once, right after the first SELECT's rows are
+ * read: another writer acting between the cron's read and its settle.
+ */
+function afterSelect(base: AppEnv, hook: () => Promise<void>): AppEnv {
+  let ran = false;
+  const passThrough = <T extends object>(target: T, prop: string | symbol): unknown => {
+    const value: unknown = Reflect.get(target, prop);
+    return typeof value === 'function'
+      ? (value as (...a: unknown[]) => unknown).bind(target)
+      : value;
+  };
+  const statement = (stmt: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(stmt, {
+      get(target, prop) {
+        if (prop === 'bind') return (...values: unknown[]) => statement(target.bind(...values));
+        if (prop === 'all')
+          return async () => {
+            const result = await target.all();
+            if (!ran) {
+              ran = true;
+              await hook();
+            }
+            return result;
+          };
+        return passThrough(target, prop);
+      },
+    });
+  const DB = new Proxy(base.DB, {
+    get(target, prop) {
+      if (prop === 'prepare')
+        return (sql: string) => {
+          const stmt = target.prepare(sql);
+          return sql.trimStart().startsWith('SELECT') ? statement(stmt) : stmt;
+        };
+      return passThrough(target, prop);
+    },
+  });
+  return { ...base, DB };
+}

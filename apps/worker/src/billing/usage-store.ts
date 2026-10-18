@@ -262,7 +262,7 @@ export interface Settlement {
   /** Pool `hold` settlements: charge the row's full hold instead of the cost. */
   chargeHold?: boolean;
   /**
-   * Settle only while `dispatched_at` is still NULL (expiry's `released`), so
+   * Settle only while `dispatched_at` is still NULL (a backstop's `released`), so
    * a call stamped after the row was read is never released at 0.
    */
   requireUndispatched?: boolean;
