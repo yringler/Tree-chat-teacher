@@ -162,8 +162,11 @@ async function streamOnce(
     }
   } finally {
     const summary = foldStream(events);
+    const t = summary.terminal;
+    const unbilled =
+      t?.type === 'error' && (t.error.upstream === 'rejected' || t.error.upstream === 'not_sent');
     // An unreported cost (a direct provider, an aborted call) stays at its worst case.
-    await settleBudget(ticket, summary.billing.costUsd ?? call.worstUsd);
+    await settleBudget(ticket, unbilled ? 0 : (summary.billing.costUsd ?? call.worstUsd));
   }
   return { summary: foldStream(events), events };
 }
