@@ -8,6 +8,7 @@ import 'package:google_sign_in_platform_interface/google_sign_in_platform_interf
 import '../api/models.dart';
 import '../state/app_scope.dart';
 import '../state/notice.dart';
+import 'google_button.dart';
 import 'google_id_token.dart';
 import 'links.dart';
 import 'open_url.dart';
@@ -401,9 +402,6 @@ class _LoginPageState extends State<LoginPage> {
     final theme = Theme.of(context);
     final siteKey = options.turnstileSiteKey;
     final googleClientId = options.googleClientId;
-    // The device's Google sign-in takes the captcha below the email field,
-    // so its button comes after it; the browser's go first, as on the web
-    // apps.
     final deviceGoogle =
         widget.native &&
         _googleEnabled &&
@@ -411,13 +409,15 @@ class _LoginPageState extends State<LoginPage> {
         options.google &&
         googleClientId != null &&
         siteKey != null;
-    final browserProviders = widget.native
-        ? const <(String, String)>[]
-        : [
-            if (_googleEnabled && options.google)
-              ('google', 'Continue with Google'),
-            if (options.github) ('github', 'Continue with GitHub'),
-          ];
+    final browserGoogle = !widget.native && _googleEnabled && options.google;
+    final browserGithub = !widget.native && options.github;
+    final captcha = siteKey == null
+        ? const Text('Email sign-in is unavailable on this server.')
+        : widget.captcha(
+            key: ValueKey(_attempt),
+            siteKey: siteKey,
+            onToken: (token) => setState(() => _token = token),
+          );
     return [
       Text('Sign in to $brandName', style: theme.textTheme.titleLarge),
       const SizedBox(height: 4),
@@ -437,13 +437,35 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ],
       const SizedBox(height: 20),
-      if (browserProviders.isNotEmpty) ...[
-        for (final (provider, label) in browserProviders) ...[
+      // Google comes first, as on the web apps. On the device it signs in with
+      // a captcha token, as the email does, so the one human check sits right
+      // under it, above the email: the check shows its own progress beside
+      // the button that waits for it, and nothing appears or moves once it
+      // passes.
+      if (deviceGoogle) ...[
+        GoogleSignInButton(
+          onPressed: !_busy && _token != null
+              ? () => unawaited(_googleOnDeviceSignIn(googleClientId))
+              : null,
+        ),
+        const SizedBox(height: 12),
+        captcha,
+        const SizedBox(height: 8),
+        const _Divider('or by email'),
+        const SizedBox(height: 8),
+      ] else if (browserGoogle || browserGithub) ...[
+        if (browserGoogle) ...[
+          GoogleSignInButton(
+            onPressed: _busy ? null : () => unawaited(_social('google')),
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (browserGithub) ...[
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
-              onPressed: _busy ? null : () => unawaited(_social(provider)),
-              child: Text(label),
+              onPressed: _busy ? null : () => unawaited(_social('github')),
+              child: const Text('Continue with GitHub'),
             ),
           ),
           const SizedBox(height: 8),
@@ -459,15 +481,7 @@ class _LoginPageState extends State<LoginPage> {
         decoration: const InputDecoration(labelText: 'Email'),
         onSubmitted: (_) => unawaited(_send()),
       ),
-      const SizedBox(height: 16),
-      if (siteKey == null)
-        const Text('Email sign-in is unavailable on this server.')
-      else
-        widget.captcha(
-          key: ValueKey(_attempt),
-          siteKey: siteKey,
-          onToken: (token) => setState(() => _token = token),
-        ),
+      if (!deviceGoogle) ...[const SizedBox(height: 16), captcha],
       const SizedBox(height: 16),
       SizedBox(
         width: double.infinity,
@@ -476,20 +490,6 @@ class _LoginPageState extends State<LoginPage> {
           child: Text(widget.native ? 'Email me a code' : 'Email me a link'),
         ),
       ),
-      if (deviceGoogle) ...[
-        const SizedBox(height: 8),
-        const _Divider('or'),
-        const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(
-            onPressed: !_busy && _token != null
-                ? () => unawaited(_googleOnDeviceSignIn(googleClientId))
-                : null,
-            child: const Text('Continue with Google'),
-          ),
-        ),
-      ],
       const SizedBox(height: 16),
       Wrap(
         crossAxisAlignment: WrapCrossAlignment.center,

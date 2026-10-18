@@ -1084,6 +1084,78 @@ app-android-app-banner {
 .login-btn {
   justify-content: center;
   width: 100%;
+  min-height: 40px;
+}
+
+/*
+ * Google's sign-in button, to its branding guidelines
+ * (https://developers.google.com/identity/branding-guidelines): the
+ * standard-colour G, Google Sans Medium 14/20, Google's light theme on a light
+ * page and its dark theme on a dark one, 12px before the G, 10px after it and
+ * 12px after the label. The Flutter app's (lib/ui/google_button.dart) looks
+ * the same. The G is Google's own raster of it from the guidelines' download,
+ * on a transparent background; the font is Google Fonts' Google Sans, its
+ * Medium instance cut to Basic Latin (assets/GoogleSans-OFL.txt).
+ */
+@font-face {
+  font-family: 'Google Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../login/assets/GoogleSans-Medium.woff2') format('woff2');
+}
+
+.login-google {
+  --google-fill: #ffffff;
+  --google-stroke: #747775;
+  --google-text: #1f1f1f;
+  gap: 10px;
+  padding: 0 12px;
+  border-color: var(--google-stroke);
+  background: var(--google-fill);
+  color: var(--google-text);
+  font:
+    500 14px/20px 'Google Sans',
+    var(--font);
+}
+
+@media (prefers-color-scheme: dark) {
+  .login-google {
+    --google-fill: #131314;
+    --google-stroke: #8e918f;
+    --google-text: #e3e3e3;
+  }
+}
+
+.login-google:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--google-text) 8%, var(--google-fill));
+}
+
+.login-google:active:not(:disabled) {
+  background: color-mix(in srgb, var(--google-text) 12%, var(--google-fill));
+}
+
+.login-google:disabled {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--google-text) 12%, transparent);
+  background: color-mix(in srgb, var(--google-fill) 38%, transparent);
+}
+
+.login-google:disabled > * {
+  opacity: 0.38;
+}
+
+.login-google-g {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  background: image-set(
+      url('../login/assets/google-g.png') 1x,
+      url('../login/assets/google-g@2x.png') 2x,
+      url('../login/assets/google-g@3x.png') 3x,
+      url('../login/assets/google-g@4x.png') 4x
+    )
+    center / 20px 20px no-repeat;
 }
 
 .login-divider {

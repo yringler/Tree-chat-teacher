@@ -9,6 +9,7 @@ import 'package:tangent/state/app_scope.dart';
 import 'package:tangent/state/lessons_controller.dart';
 import 'package:tangent/state/session_controller.dart';
 import 'package:tangent/state/walkthrough_controller.dart';
+import 'package:tangent/ui/google_button.dart';
 import 'package:tangent/ui/google_id_token.dart';
 import 'package:tangent/ui/login_page.dart';
 
@@ -305,6 +306,52 @@ void main() {
     ));
   });
 
+  testWidgets('the web build puts Google first, then GitHub, then email', (
+    tester,
+  ) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(tester, api, native: false);
+    double top(Finder finder) => tester.getTopLeft(finder).dy;
+    final google = top(find.byType(GoogleSignInButton));
+    final github = top(find.text('Continue with GitHub'));
+    expect(google, lessThan(github));
+    expect(github, lessThan(top(find.byType(TextField))));
+    expect(
+      top(find.text('Solve')),
+      greaterThan(top(find.byType(TextField))),
+      reason: 'the browser\'s providers need no captcha',
+    );
+  });
+
+  for (final (brightness, fill, label) in [
+    (Brightness.light, const Color(0xFFFFFFFF), const Color(0xFF1F1F1F)),
+    (Brightness.dark, const Color(0xFF131314), const Color(0xFFE3E3E3)),
+  ]) {
+    testWidgets('the Google button takes Google\'s ${brightness.name} theme', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(brightness: brightness),
+          home: Scaffold(body: GoogleSignInButton(onPressed: () {})),
+        ),
+      );
+      final material = tester.widget<Material>(
+        find.descendant(
+          of: find.byType(GoogleSignInButton),
+          matching: find.byType(Material),
+        ),
+      );
+      expect(material.color, fill);
+      final text = tester.widget<Text>(find.text('Continue with Google'));
+      expect(text.style?.color, label);
+      expect(text.style?.fontFamily, 'Google Sans');
+      expect(find.image(const AssetImage('assets/google/g.png')), findsOne);
+    });
+  }
+
   testWidgets('no provider buttons when none is configured', (tester) async {
     final api = FakeTangentApi()..meAnswers = [unauthorized];
     await pumpLogin(tester, api, native: false);
@@ -331,9 +378,8 @@ void main() {
     );
     // A provider's browser callback can't sign the app in.
     expect(find.text('Continue with GitHub'), findsNothing);
-    OutlinedButton google() => tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Continue with Google'),
-    );
+    GoogleSignInButton google() =>
+        tester.widget<GoogleSignInButton>(find.byType(GoogleSignInButton));
     expect(google().onPressed, isNull, reason: 'no captcha token yet');
 
     await tester.tap(find.text('Solve'));
@@ -346,6 +392,23 @@ void main() {
       captchaToken: 'captcha-token',
     ));
     expect(session.status, SessionStatus.signedIn);
+  });
+
+  testWidgets('Android puts Google first, its captcha under it', (
+    tester,
+  ) async {
+    final api = FakeTangentApi()
+      ..meAnswers = [unauthorized]
+      ..loginOptionsAnswer = withProviders;
+    await pumpLogin(tester, api, native: true, googleOnDevice: true);
+    double top(Finder finder) => tester.getTopLeft(finder).dy;
+    final google = top(find.byType(GoogleSignInButton));
+    final captcha = top(find.text('Solve'));
+    final email = top(find.byType(TextField));
+    expect(google, lessThan(captcha));
+    expect(captcha, lessThan(email));
+    expect(find.text('Solve'), findsOneWidget, reason: 'one shared check');
+    expect(top(find.text('Email me a code')), greaterThan(email));
   });
 
   /// Taps the device's Google button after the captcha, with Google's
@@ -387,9 +450,8 @@ void main() {
       );
       expect(shown, contains('Google sign-in was cancelled'));
       expect(shown, contains('Details: canceled: [16] Account reauth failed.'));
-      OutlinedButton google() => tester.widget<OutlinedButton>(
-        find.widgetWithText(OutlinedButton, 'Continue with Google'),
-      );
+      GoogleSignInButton google() =>
+          tester.widget<GoogleSignInButton>(find.byType(GoogleSignInButton));
       expect(google().onPressed, isNull, reason: 'a new captcha first');
       await tester.tap(find.text('Solve'));
       await tester.pump();
