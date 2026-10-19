@@ -485,6 +485,78 @@ describe('modelPrice', () => {
     );
   });
 
+  it('keeps a configured long-context tier when the synced base price replaces the entry', async () => {
+    await sync([
+      {
+        id: HAIKU,
+        prompt: '0.00000012',
+        completion: '0.0000006',
+        context: 1_000_000,
+        cacheRead: '0.000000012',
+      },
+    ]);
+    expect(await modelPrice(env, HAIKU)).toEqual({
+      inMicrosPerMTok: 120_000,
+      outMicrosPerMTok: 600_000,
+      contextTokens: 1_000_000,
+      cacheReadMicrosPerMTok: 12_000,
+      cacheWriteMicrosPerMTok: 150_000,
+      // Anthropic's price above 100K input tokens, with its own write premium (⌈500_000 × 1.25⌉).
+      longContext: {
+        aboveInputTokens: 100_000,
+        inMicrosPerMTok: 500_000,
+        outMicrosPerMTok: 2_500_000,
+        cacheReadMicrosPerMTok: 50_000,
+        cacheWriteMicrosPerMTok: 625_000,
+      },
+    });
+  });
+
+  it('reads a long-context tier from MODEL_PRICES, and gives it the write premium on Claude', async () => {
+    const priced = {
+      ...env,
+      MODEL_PRICES: JSON.stringify({
+        [SONNET]: {
+          in: 3_000_000,
+          out: 15_000_000,
+          context: 1_000_000,
+          long: { above: 200_000, in: 6_000_000, out: 22_500_000, cacheRead: 600_000 },
+        },
+        [FLASH]: {
+          in: 100_000,
+          out: 400_000,
+          context: 131_072,
+          long: { above: 64_000, in: 200_000, out: 800_000, cacheWrite: 250_000 },
+        },
+      }),
+    } as AppEnv;
+    expect(await modelPrice(priced, SONNET)).toEqual({
+      inMicrosPerMTok: 3_000_000,
+      outMicrosPerMTok: 15_000_000,
+      contextTokens: 1_000_000,
+      cacheWriteMicrosPerMTok: 3_750_000,
+      longContext: {
+        aboveInputTokens: 200_000,
+        inMicrosPerMTok: 6_000_000,
+        outMicrosPerMTok: 22_500_000,
+        cacheReadMicrosPerMTok: 600_000,
+        cacheWriteMicrosPerMTok: 7_500_000,
+      },
+    });
+    // Not an explicit-cache model: the tier as configured.
+    expect(await modelPrice(priced, FLASH)).toEqual({
+      inMicrosPerMTok: 100_000,
+      outMicrosPerMTok: 400_000,
+      contextTokens: 131_072,
+      longContext: {
+        aboveInputTokens: 64_000,
+        inMicrosPerMTok: 200_000,
+        outMicrosPerMTok: 800_000,
+        cacheWriteMicrosPerMTok: 250_000,
+      },
+    });
+  });
+
   it("gives a direct Anthropic id (no anthropic/ prefix) the cache-write premium Anthropic's own API bills", () => {
     // A metered config of kind `anthropic` (BUILT_IN_PROVIDER) names `claude-…` directly.
     const price = {

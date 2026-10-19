@@ -304,12 +304,26 @@ export function backgroundEffort(env: AppEnv, model: string): ReasoningEffort | 
  * input price). Unset, a read costs the input price (never less than the
  * truth) and a write too, except on explicit-cache models, which
  * `pool/model-prices.ts` gives the write premium.
+ * `longContext`: the rates of a call whose input is over `aboveInputTokens`
+ * (`pool/pricing.ts` `priceForInput`), for a model whose provider charges the
+ * whole request more once its prompt passes a size; its cache prices fall
+ * back as the base ones do.
  */
 export interface ModelPrice {
   inMicrosPerMTok: number;
   outMicrosPerMTok: number;
   contextTokens: number;
   feeBps?: number;
+  cacheReadMicrosPerMTok?: number;
+  cacheWriteMicrosPerMTok?: number;
+  longContext?: LongContextPrice;
+}
+
+/** A model's rates above an input size (`ModelPrice.longContext`), in micro-USD per million tokens. */
+export interface LongContextPrice {
+  aboveInputTokens: number;
+  inMicrosPerMTok: number;
+  outMicrosPerMTok: number;
   cacheReadMicrosPerMTok?: number;
   cacheWriteMicrosPerMTok?: number;
 }
@@ -325,15 +339,21 @@ export interface ModelPrice {
  * wins over the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  // Normal and the background model: Anthropic's price, $0.10 / $0.50, cache read $0.01 (the
-  // write premium is added for Claude ids, pool/price-table.ts `withCacheWritePrice`).
-  // Anthropic charges $0.50 / $2.50 for a prompt over 100K tokens; the flat price holds because
-  // one call's input is capped at BUILT_IN_MAX_INPUT_TOKENS (60K by default).
+  // Normal and the background model: Anthropic's price, $0.10 / $0.50, cache read $0.01, and
+  // $0.50 / $2.50, cache read $0.05, for the whole request once its prompt is over 100K tokens
+  // (the write premium is added to both for Claude ids, pool/price-table.ts
+  // `withCacheWritePrice`). The daily sync replaces the base rates only; the tier stays.
   'anthropic/claude-haiku-5.5': {
     inMicrosPerMTok: 100_000,
     outMicrosPerMTok: 500_000,
     contextTokens: 1_000_000,
     cacheReadMicrosPerMTok: 10_000,
+    longContext: {
+      aboveInputTokens: 100_000,
+      inMicrosPerMTok: 500_000,
+      outMicrosPerMTok: 2_500_000,
+      cacheReadMicrosPerMTok: 50_000,
+    },
   },
   // The pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache read $0.003.
   // OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and as the pool's
@@ -727,7 +747,8 @@ const nonNegativeInt = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGE
 
 /**
  * `MODEL_PRICES`: `{"<model>": {"in": µ$/MTok, "out": µ$/MTok, "context": tokens,
- * "feeBps"?: bps, "cacheRead"?: µ$/MTok, "cacheWrite"?: µ$/MTok}}`.
+ * "feeBps"?: bps, "cacheRead"?: µ$/MTok, "cacheWrite"?: µ$/MTok, "long"?: {"above":
+ * tokens, "in", "out", "cacheRead"?, "cacheWrite"?}}}`.
  */
 const modelPricesSchema = z.record(
   z.string().min(1),
@@ -738,8 +759,25 @@ const modelPricesSchema = z.record(
     feeBps: nonNegativeInt.optional(),
     cacheRead: nonNegativeInt.optional(),
     cacheWrite: nonNegativeInt.optional(),
+    long: z
+      .strictObject({
+        above: nonNegativeInt.positive(),
+        in: nonNegativeInt,
+        out: nonNegativeInt,
+        cacheRead: nonNegativeInt.optional(),
+        cacheWrite: nonNegativeInt.optional(),
+      })
+      .optional(),
   }),
 );
+
+/** The optional cache prices of a `MODEL_PRICES` entry or its `long` tier, as `ModelPrice` fields. */
+function cachePrices(p: { cacheRead?: number | undefined; cacheWrite?: number | undefined }) {
+  return {
+    ...(p.cacheRead !== undefined ? { cacheReadMicrosPerMTok: p.cacheRead } : {}),
+    ...(p.cacheWrite !== undefined ? { cacheWriteMicrosPerMTok: p.cacheWrite } : {}),
+  };
+}
 
 function parsePrices(raw: string | undefined): {
   prices: Readonly<Record<string, ModelPrice>>;
@@ -753,8 +791,17 @@ function parsePrices(raw: string | undefined): {
       outMicrosPerMTok: p.out,
       contextTokens: p.context,
       ...(p.feeBps !== undefined ? { feeBps: p.feeBps } : {}),
-      ...(p.cacheRead !== undefined ? { cacheReadMicrosPerMTok: p.cacheRead } : {}),
-      ...(p.cacheWrite !== undefined ? { cacheWriteMicrosPerMTok: p.cacheWrite } : {}),
+      ...cachePrices(p),
+      ...(p.long
+        ? {
+            longContext: {
+              aboveInputTokens: p.long.above,
+              inMicrosPerMTok: p.long.in,
+              outMicrosPerMTok: p.long.out,
+              ...cachePrices(p.long),
+            },
+          }
+        : {}),
     };
   }
   return { prices, overrides: Object.keys(overrides) };

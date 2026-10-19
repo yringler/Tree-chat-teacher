@@ -16,7 +16,12 @@ import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { meteredRegistry } from '../src/billing/meter.js';
 import type { UsageMeterOptions } from '../src/billing/meter-run.js';
 import { createUsageMeter } from '../src/billing/personal-meter.js';
-import { reserveCreditReply, USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import {
+  replyHoldMicros,
+  replyInputTokens,
+  reserveCreditReply,
+  USAGE_HOLD_MICROS,
+} from '../src/billing/service.js';
 import { markDispatched, repriceReservation } from '../src/billing/usage-store.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
@@ -707,6 +712,74 @@ describe('credit calls sent without a reported cost or generation id', () => {
       { env: priced },
     );
     expect((await h.rows())[0]).toMatchObject({ settle_reason: 'tokens', charge_micros: 22_200 });
+  });
+
+  describe('on a model priced higher above 100K input tokens', () => {
+    /** $1 / $2 per million up to 100K input tokens, $5 / $10 above. */
+    const tiered = {
+      ...env,
+      MODEL_PRICES: JSON.stringify({
+        max: {
+          in: 1_000_000,
+          out: 2_000_000,
+          context: 1_000_000,
+          long: { above: 100_000, in: 5_000_000, out: 10_000_000 },
+        },
+      }),
+    } as AppEnv;
+    const finished = (inputTokens: number): ProviderEvent[] => [
+      { type: 'delta', text: 'Hello' },
+      { type: 'usage', usage: { inputTokens, outputTokens: 34 } },
+      { type: 'done', stopReason: 'stop' },
+    ];
+
+    it('charges the tokens of a call over the threshold at the long rates', async () => {
+      const h = await harness();
+      await h.run(finished(120_000), { env: tiered });
+      // 120_000 × 5 + 34 × 10 = 600_340 µ$.
+      expect((await h.rows())[0]).toMatchObject({
+        settle_reason: 'tokens',
+        cost_nanos: 600_340_000,
+        charge_micros: 600_340,
+      });
+    });
+
+    it('charges the tokens of a call under it at the base rates', async () => {
+      const h = await harness();
+      await h.run(finished(90_000), { env: tiered });
+      // 90_000 × 1 + 34 × 2 = 90_068 µ$.
+      expect((await h.rows())[0]).toMatchObject({
+        settle_reason: 'tokens',
+        cost_nanos: 90_068_000,
+        charge_micros: 90_068,
+      });
+    });
+
+    it('holds a reply whose input budget passes the threshold at the long rates', async () => {
+      const at = (input: number, inMicros: number, outMicros: number) =>
+        Math.max(
+          USAGE_HOLD_MICROS,
+          chargeMicros(
+            costFromTokensNanos(
+              {
+                inMicrosPerMTok: inMicros,
+                outMicrosPerMTok: outMicros,
+                contextTokens: 1_000_000,
+              },
+              replyInputTokens(input),
+              1000,
+            ),
+            0,
+            0,
+          ),
+        );
+      expect(
+        await replyHoldMicros(tiered, 'max', { maxInputTokens: 120_000, maxOutputTokens: 1000 }),
+      ).toBe(at(120_000, 5_000_000, 10_000_000));
+      expect(
+        await replyHoldMicros(tiered, 'max', { maxInputTokens: 60_000, maxOutputTokens: 1000 }),
+      ).toBe(at(60_000, 1_000_000, 2_000_000));
+    });
   });
 
   it.each<[string, ProviderEvent[]]>([

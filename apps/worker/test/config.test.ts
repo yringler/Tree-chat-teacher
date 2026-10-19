@@ -258,7 +258,28 @@ describe('appConfig', () => {
       cacheReadMicrosPerMTok: 1,
       cacheWriteMicrosPerMTok: 7,
     });
+    const tiered = appConfig(
+      blank({
+        MODEL_PRICES: JSON.stringify({
+          t: { in: 5, out: 6, context: 100, long: { above: 50, in: 10, out: 12, cacheRead: 1 } },
+        }),
+      }),
+    ).prices;
+    expect(tiered['t']).toEqual({
+      inMicrosPerMTok: 5,
+      outMicrosPerMTok: 6,
+      contextTokens: 100,
+      longContext: {
+        aboveInputTokens: 50,
+        inMicrosPerMTok: 10,
+        outMicrosPerMTok: 12,
+        cacheReadMicrosPerMTok: 1,
+      },
+    });
     for (const bad of [
+      JSON.stringify({ m: { in: 1, out: 1, context: 1, long: { in: 2, out: 2 } } }),
+      JSON.stringify({ m: { in: 1, out: 1, context: 1, long: { above: 0, in: 2, out: 2 } } }),
+      JSON.stringify({ m: { in: 1, out: 1, context: 1, long: { above: 1, in: 2, out: 2, x: 1 } } }),
       JSON.stringify({ m: { in: 1, out: 1, context: 1, cacheRead: -1 } }),
       '{not json',
       JSON.stringify({ m: { in: 1.5, out: 1, context: 1 } }),
