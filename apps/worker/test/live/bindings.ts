@@ -38,6 +38,7 @@ export const LIVE_HARNESS_BINDINGS: Readonly<Partial<Record<ConfigVarName, strin
 export const PRODUCTION_ONLY_VARS: readonly ConfigVarName[] = [
   'PROVIDERS',
   'BUILT_IN_PROVIDER',
+  'BUILT_IN_BACKENDS',
   'BUILT_IN_MAX_INPUT_TOKENS',
   'LEARN_NORMAL_MODEL',
   'LEARN_NORMAL_EFFORT',

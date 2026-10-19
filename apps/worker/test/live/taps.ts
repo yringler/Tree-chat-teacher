@@ -11,6 +11,7 @@ import type {
 } from '@tangent/shared';
 import { estimatedInputTokens } from '../../src/billing/service.js';
 import type { ModelPrice } from '../../src/config.js';
+import type { LegsOf } from '../../src/hosted/legs.js';
 import { priceOf, reserveBudget, SEARCH_ALLOWANCE_USD, settleBudget, worstUsd } from './harness.js';
 
 /** One provider call as the inner provider (under the meter) made it. */
@@ -45,6 +46,25 @@ export function tappedRegistry(
   };
 }
 
+/**
+ * `legsOf` with every leg's provider tapped as `tappedRegistry` taps one: the meter
+ * streams a call on its legs (hosted/legs.ts), so with more than one backend the tap
+ * goes under each leg. A tap's request names the leg's model, the backend's id of it.
+ */
+export function tappedLegs(
+  legsOf: LegsOf,
+  taps: Tap[],
+  price: (model: string) => Promise<ModelPrice>,
+): LegsOf {
+  return (provider, logical) =>
+    legsOf(provider, logical).map((leg) => ({
+      ...leg,
+      provider: decorateProvider(leg.provider, {
+        stream: (request) => tapped(leg.provider, request, taps, () => undefined, price),
+      }),
+    }));
+}
+
 async function* tapped(
   provider: LlmProvider,
   request: GenerateRequest,
@@ -67,7 +87,11 @@ async function* tapped(
   } finally {
     const summary = foldStream(events);
     taps.push({ request, events, summary });
-    await settleBudget(ticket, summary.billing.costUsd ?? worst);
+    const t = summary.terminal;
+    // Refused or never sent: nothing was billed upstream.
+    const unbilled =
+      t?.type === 'error' && (t.error.upstream === 'rejected' || t.error.upstream === 'not_sent');
+    await settleBudget(ticket, unbilled ? 0 : (summary.billing.costUsd ?? worst));
   }
 }
 
