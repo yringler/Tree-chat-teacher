@@ -36,12 +36,12 @@ export const GROUNDING_INSTRUCTIONS = `## Checking facts
 
 You can call the web_search tool once for this reply. Use it only when the answer depends on specifics you could misremember: names, dates, figures, quotations, specific studies or works, or recent or niche facts. Don't search for well-established conceptual explanations. Facts already cited with links earlier in this conversation were checked; rely on them rather than searching again.
 
-When you use search results, cite each claim they support with a Markdown link named after the site's domain, right after the claim, like [en.wikipedia.org](https://en.wikipedia.org/wiki/Example). If a result contradicts what you believed, say so plainly.`;
+When you use search results, cite each claim they support with a Markdown link named after the site's domain, right after the claim, like [en.wikipedia.org](https://en.wikipedia.org/wiki/Example), never an HTML <a> tag. If a result contradicts what you believed, say so plainly.`;
 
 /** Sent instead when the learner asked to check sources (search required). */
 export const CHECK_SOURCES_INSTRUCTIONS = `## Checking facts
 
-The user asked you to check your previous answer against sources. Search the web, then say plainly which of its claims the sources confirm, which they contradict (and what is right instead), and which you couldn't verify. Cite each checked claim with a Markdown link named after the site's domain, like [en.wikipedia.org](https://en.wikipedia.org/wiki/Example). Skip the tangents block.`;
+The user asked you to check your previous answer against sources. Search the web, then say plainly which of its claims the sources confirm, which they contradict (and what is right instead), and which you couldn't verify. Cite each checked claim with a Markdown link named after the site's domain, like [en.wikipedia.org](https://en.wikipedia.org/wiki/Example), never an HTML <a> tag. Skip the tangents block.`;
 
 /** The user message "Check sources" sends; the gate also recognizes it. */
 export const CHECK_SOURCES_PREFIX = 'Check your last answer against sources';
