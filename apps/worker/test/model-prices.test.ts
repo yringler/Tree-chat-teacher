@@ -18,8 +18,6 @@ const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
 /** Normal's and the background model's default, priced like the others (and so tracked). */
 const HAIKU = 'anthropic/claude-haiku-5.5';
-/** The pool's default model, priced like the others (and so tracked). */
-const V41 = 'deepseek/deepseek-v4.1-flash';
 /** Power's Max: priced (and so tracked) for the Max usage note, not for the pool. */
 const SONNET = 'anthropic/claude-sonnet-5.5';
 /** The fallback candidate: priced (and so tracked) though no default. */
@@ -27,10 +25,10 @@ const MINIMAX = 'minimax/minimax-m3';
 
 /**
  * The price setup without `MODEL_PRICES`, so the built-in placeholders
- * (Haiku, V4.1 Flash, FLASH, PRO and the rest) are what the sync refreshes; the pool
- * runs on FLASH here.
+ * (Haiku, FLASH, PRO and the rest) are what the sync refreshes; without the
+ * test's built-in provider, the pool runs Normal's Haiku here.
  */
-const env = { ...rawEnv, MODEL_PRICES: '', POOL_MODEL: FLASH } as unknown as AppEnv;
+const env = { ...rawEnv, MODEL_PRICES: '', BUILT_IN_PROVIDER: '' } as unknown as AppEnv;
 
 interface Listed {
   id: string;
@@ -198,7 +196,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [FLASH, PRO],
       unchanged: [],
-      missing: [HAIKU, V41, SONNET, MINIMAX],
+      missing: [HAIKU, SONNET, MINIMAX],
       anomalies: [],
     });
     expect(await storedPrice(env.DB, FLASH)).toEqual({
@@ -319,7 +317,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [],
       unchanged: [],
-      missing: [HAIKU, V41, FLASH, PRO, SONNET, MINIMAX],
+      missing: [HAIKU, FLASH, PRO, SONNET, MINIMAX],
       anomalies: [],
     });
     expect((await storedPrice(env.DB, FLASH))?.outMicrosPerMTok).toBe(2_000_000);
@@ -420,37 +418,6 @@ describe('modelPrice', () => {
       contextTokens: 1000,
       feeBps: 0,
     });
-  });
-
-  it("keeps V4.1 Flash at its MODEL_PRICES entry: OpenRouter's model-level price is no route's", async () => {
-    // OpenRouter's model-level list price ($0.0356 in, $1.00 out): the cheapest input of any
-    // endpoint with a dearer one's output. As the pool's max_price it admits only fp4 endpoints.
-    const modelLevel = { id: V41, prompt: '0.0000000356', completion: '0.000001' };
-    await sync([modelLevel]);
-    // A drop of less than 10×, so without an entry the sync replaces the placeholder ...
-    expect(await modelPrice(env, V41)).toMatchObject({
-      inMicrosPerMTok: 35_600,
-      outMicrosPerMTok: 1_000_000,
-    });
-    // ... but an entry, as wrangler.jsonc ships, wins over it: the pinned providers' price.
-    const pinned = {
-      ...env,
-      MODEL_PRICES: JSON.stringify({
-        [V41]: { in: 150_000, out: 600_000, context: 1_048_576, cacheRead: 3_000 },
-      }),
-    } as AppEnv;
-    expect(await modelPrice(pinned, V41)).toEqual(DEFAULT_MODEL_PRICES[V41]);
-    // Its daily sync still records the list price, and warns that the entry's output is below it.
-    warn.mockClear();
-    await syncModelPrices(pinned, T1, listing([modelLevel]).fetchImpl);
-    expect((await storedPrice(env.DB, V41))?.outMicrosPerMTok).toBe(1_000_000);
-    expect(
-      warn.mock.calls.some(
-        (c: unknown[]) =>
-          String(c[0]).includes('price_override_below_list') && String(c[0]).includes(V41),
-      ),
-    ).toBe(true);
-    expect(await modelPrice(pinned, V41)).toEqual(DEFAULT_MODEL_PRICES[V41]);
   });
 
   it('gives explicit-cache (Anthropic) models the cache-write premium unless configured', async () => {
@@ -644,7 +611,9 @@ describe('modelPrice', () => {
 
   it('prices the pool’s holds (resolvePoolParams) at the synced price', async () => {
     await sync([{ id: FLASH, prompt: '0.00000027', completion: '0.0000011' }]);
-    expect((await resolvePoolParams(env, null)).price).toEqual({
+    expect(
+      (await resolvePoolParams({ ...env, LEARN_NORMAL_MODEL: FLASH } as AppEnv, null)).price,
+    ).toEqual({
       inMicrosPerMTok: 270_000,
       outMicrosPerMTok: 1_100_000,
       contextTokens: 131_072,

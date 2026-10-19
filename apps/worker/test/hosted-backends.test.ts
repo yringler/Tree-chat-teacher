@@ -28,7 +28,7 @@ import {
 
 const HAIKU = 'anthropic/claude-haiku-5.5';
 const SONNET = 'anthropic/claude-sonnet-5.5';
-const FLASH = 'deepseek/deepseek-v4.1-flash';
+const FLASH = 'deepseek/deepseek-v4-flash';
 
 /** The default built-in provider (OpenRouter), on the operator's OpenRouter key. */
 const env = {
@@ -273,7 +273,7 @@ describe('the legs of a built-in call', () => {
   });
 
   it('leaves the pool’s max_price and pinned hosts on OpenRouter’s leg', async () => {
-    const e = { ...both, POOL_MODEL: HAIKU } as AppEnv;
+    const e = { ...both, BUILT_IN_PROVIDER: '', LEARN_NORMAL_MODEL: HAIKU } as AppEnv;
     const pool = await resolvePoolParams(e, null);
     const config = poolProviderConfig(e, pool);
     expect(config.options?.['extraBody']).toMatchObject({ provider: { max_price: {} } });
@@ -288,7 +288,9 @@ describe('the legs of a built-in call', () => {
       maxOutputTokens: pool.maxOutputTokens,
     });
     expect(leg.options).not.toHaveProperty('extraBody');
-    expect(leg.models).toEqual([{ id: 'claude-haiku-5-5', label: expect.any(String) }]);
+    expect(leg.models).toEqual([
+      { id: 'claude-haiku-5-5', label: expect.any(String), effort: 'high' },
+    ]);
     expect(leg.baseUrl).toBeUndefined();
   });
 

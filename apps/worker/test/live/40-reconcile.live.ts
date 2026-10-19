@@ -6,7 +6,7 @@
 import type { ContractExpectation } from '@tangent/providers/contract';
 import type { LlmProvider } from '@tangent/shared';
 import { describe } from 'vitest';
-import { DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_POOL_MODEL } from '../../src/config.js';
+import { DEFAULT_LEARN_NORMAL_MODEL } from '../../src/config.js';
 import {
   ABSOLUTE_SLACK_USD,
   builtInProvider,
@@ -32,13 +32,10 @@ interface ReconcileCase {
 
 const CASES: readonly ReconcileCase[] = [
   {
-    model: DEFAULT_POOL_MODEL,
+    // The pool runs Normal, pinned the same way, with max_price on OpenRouter's leg.
+    model: DEFAULT_LEARN_NORMAL_MODEL,
     provider: () => poolProvider(),
-    ratio: {
-      min: 0.95,
-      max: 1.02,
-      why: "the pool's pinning to StreamLake, whose price is the MODEL_PRICES entry",
-    },
+    ratio: NORMAL_RATIO_BAND,
   },
   {
     model: DEFAULT_LEARN_NORMAL_MODEL,

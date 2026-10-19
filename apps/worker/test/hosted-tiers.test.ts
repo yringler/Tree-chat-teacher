@@ -1,22 +1,25 @@
 // How each hosted tier asks its model: the `*_EFFORT`, `*_REPLY_TOKENS` and `*_PROVIDER_ORDER` vars of
-// Learn's Normal, the open pool and the background calls, and the
-// request each one sends upstream. An empty var is the default model's
+// Learn's Normal (which the open pool runs too, within its own caps) and the background calls, and
+// the request each one sends upstream. An empty var is the default model's
 // evaluated setting while the tier runs that model (a setting tuned for one
 // model says nothing about another), else the model's own: no effort, the default caps,
 // no pinning.
 import { createProviderRegistry } from '@tangent/providers';
-import type { GenerateRequest, ProviderConfig } from '@tangent/shared';
+import {
+  BUILT_IN_MAX_OUTPUT_TOKENS,
+  type GenerateRequest,
+  type ProviderConfig,
+} from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appConfig, DEFAULT_TIER_REQUESTS, effortVar } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { modelPrice } from '../src/pool/price-table.js';
-import { poolModel, resolvePoolParams } from '../src/pool/params.js';
+import { poolModel, replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import {
   builtInPowerConfig,
   DEFAULT_BACKGROUND_MODEL,
   DEFAULT_LEARN_NORMAL_MODEL,
-  DEFAULT_POOL_MODEL,
   DEFAULT_POWER_MAX_MODEL,
   poolChatSettings,
   poolProviderConfig,
@@ -35,8 +38,6 @@ const TIER_VARS = [
   'LEARN_NORMAL_REPLY_TOKENS',
   'LEARN_NORMAL_PROVIDER_ORDER',
   'BACKGROUND_EFFORT',
-  'POOL_EFFORT',
-  'POOL_PROVIDER_ORDER',
 ] as const;
 /** As deployed: the default OpenRouter config, every tier var empty unless overridden. */
 const deployed = (overrides: Partial<AppEnv> = {}) =>
@@ -46,7 +47,6 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
     LEARN_NORMAL_MODEL: '',
     POWER_MAX_MODEL: '',
     BACKGROUND_MODEL: '',
-    POOL_MODEL: '',
     MODEL_PRICES: '',
     TEST_POOL_ACCOUNT_ID: uniq('pool'),
     ...Object.fromEntries(TIER_VARS.map((k) => [k, ''])),
@@ -89,8 +89,6 @@ async function sentBody(
 
 /** Where Normal's Haiku is pinned: Anthropic's own endpoint, which keeps one prompt cache. */
 const HAIKU_PINNED = ['anthropic'];
-/** Where the pool's V4.1 Flash is pinned. */
-const FLASH_PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
 
 describe('tier config vars', () => {
   it('parse empty as unset; the default models fill it in later', () => {
@@ -98,16 +96,11 @@ describe('tier config vars', () => {
     const none = { effort: null, maxOutputTokens: null, providerOrder: [] };
     expect(c.learn.normal).toEqual(none);
     expect(c.background.effort).toBeNull();
-    expect(c.pool).toMatchObject({ effort: null, providerOrder: [] });
-    // What an empty var means on each default model.
+    // What an empty var means on the default model.
     expect(DEFAULT_TIER_REQUESTS).toEqual({
       normal: {
         model: 'anthropic/claude-haiku-5.5',
         request: { effort: 'high', maxOutputTokens: 16_384, providerOrder: HAIKU_PINNED },
-      },
-      pool: {
-        model: 'deepseek/deepseek-v4.1-flash',
-        request: { effort: 'low', maxOutputTokens: null, providerOrder: FLASH_PINNED },
       },
     });
   });
@@ -123,27 +116,15 @@ describe('tier config vars', () => {
     ]);
     expect(pool).toMatchObject({
       model: defaults.model,
-      effort: defaults.effort,
-      providerOrder: defaults.providerOrder,
       summaryEffort: defaults.summaryEffort,
-      maxOutputTokens: 8192,
+      maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
     });
-    expect(pool.model).toBe(DEFAULT_POOL_MODEL);
+    expect(pool.model).toBe(DEFAULT_LEARN_NORMAL_MODEL);
   });
 
-  it("wrangler.jsonc pins V4.1 Flash's price, so the daily sync can't move it", async () => {
+  it('wrangler.jsonc pins no price, so the daily sync keeps every price current', async () => {
     const live = asShipped();
-    expect(appConfig(live).priceOverrides).toEqual(['deepseek/deepseek-v4.1-flash']);
-    // The entry is the built-in one: $0.15 / $0.60, cache read $0.003, 1M context.
-    expect(appConfig(live).prices['deepseek/deepseek-v4.1-flash']).toEqual(
-      appConfig(deployed()).prices['deepseek/deepseek-v4.1-flash'],
-    );
-    expect(await modelPrice(live, 'deepseek/deepseek-v4.1-flash')).toEqual({
-      inMicrosPerMTok: 150_000,
-      outMicrosPerMTok: 600_000,
-      contextTokens: 1_048_576,
-      cacheReadMicrosPerMTok: 3_000,
-    });
+    expect(appConfig(live).priceOverrides).toEqual([]);
     // Power's Max note as deployed: about 20× (Haiku 5.5 against Sonnet 5.5).
     const [info] = await withUsageFactors(live, [
       {
@@ -168,8 +149,6 @@ describe('tier config vars', () => {
         LEARN_NORMAL_REPLY_TOKENS: '12000',
         LEARN_NORMAL_PROVIDER_ORDER: 'deepseek, novita ,',
         BACKGROUND_EFFORT: 'none',
-        POOL_EFFORT: 'low',
-        POOL_PROVIDER_ORDER: 'deepseek',
       }),
     );
     expect(c.learn.normal).toEqual({
@@ -178,16 +157,15 @@ describe('tier config vars', () => {
       providerOrder: ['deepseek', 'novita'],
     });
     expect(c.background.effort).toBe('none');
-    expect(c.pool).toMatchObject({ effort: 'low', providerOrder: ['deepseek'] });
   });
 
   it('refuses max (and anything else) as an effort', () => {
     for (const bad of ['max', 'xhigh', 'medium', 'off', 'minimal'])
-      expect(() => effortVar('POOL_EFFORT', bad)).toThrow(
-        `Invalid POOL_EFFORT="${bad}": expected none, low or high`,
+      expect(() => effortVar('LEARN_NORMAL_EFFORT', bad)).toThrow(
+        `Invalid LEARN_NORMAL_EFFORT="${bad}": expected none, low or high`,
       );
-    expect(effortVar('POOL_EFFORT', undefined)).toBeNull();
-    expect(effortVar('POOL_EFFORT', 'NONE')).toBe('none');
+    expect(effortVar('LEARN_NORMAL_EFFORT', undefined)).toBeNull();
+    expect(effortVar('LEARN_NORMAL_EFFORT', 'NONE')).toBe('none');
   });
 
   it('refuses a reply cap above the per-call bound (16,384), or a malformed one', () => {
@@ -286,71 +264,75 @@ describe("Learn's Normal with request settings", () => {
   });
 });
 
-describe('the open pool with request settings', () => {
-  it("asks the pool model with the pool's effort and pinning, merged with its max_price", async () => {
+describe("the open pool runs Normal's request settings, within its own caps", () => {
+  it("asks Haiku as Normal does: high effort, Anthropic's endpoint, merged with max_price", async () => {
+    const e = deployed();
+    const pool = await resolvePoolParams(e, null);
+    expect(pool.model).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    const config = poolProviderConfig(e, pool);
+    const normal = simpleProviderConfig(e).models[0]!;
+    // Normal's listing as it is, but for the pool's reply cap.
+    expect(config.models).toEqual([{ ...normal, maxOutputTokens: pool.maxOutputTokens }]);
+    expect(config).toMatchObject({
+      defaultModel: DEFAULT_LEARN_NORMAL_MODEL,
+      openModels: false,
+      maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
+      maxOutputTokens: pool.maxOutputTokens,
+    });
+    const body = await sentBody(config, { model: pool.model });
+    expect(body['reasoning']).toEqual({ effort: 'high' });
+    // OpenRouter's leg keeps the pool's max_price, at Haiku's $0.10 / $0.50 per MTok.
+    expect(body['provider']).toEqual({
+      order: HAIKU_PINNED,
+      allow_fallbacks: true,
+      max_price: { prompt: 0.1, completion: 0.5 },
+    });
+    // Summaries and titles at the background effort, as on credit.
+    expect(poolChatSettings(pool).summaryEffort).toBe('low');
+    expect(poolChatSettings(pool).summaryModel).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+  });
+
+  it("follows Normal's vars: another model, effort and pinning move the pool with it", async () => {
     const e = deployed({
-      POOL_EFFORT: 'low',
-      POOL_PROVIDER_ORDER: 'deepseek',
+      LEARN_NORMAL_MODEL: 'minimax/minimax-m3',
+      LEARN_NORMAL_EFFORT: 'low',
+      LEARN_NORMAL_PROVIDER_ORDER: 'novita',
       BACKGROUND_EFFORT: 'none',
-      // A tier on the same model keeps its own settings off the pool.
-      LEARN_NORMAL_MODEL: DEFAULT_POOL_MODEL,
-      LEARN_NORMAL_EFFORT: 'high',
     });
     const pool = await resolvePoolParams(e, null);
-    const config = poolProviderConfig(e, pool);
-    expect(config.models).toEqual([
-      {
-        id: DEFAULT_POOL_MODEL,
-        label: 'Normal',
-        effort: 'low',
-        providerOrder: ['deepseek'],
-      },
-    ]);
-    const body = await sentBody(config, { model: pool.model });
+    expect(pool.model).toBe('minimax/minimax-m3');
+    expect(pool.price).toMatchObject({ inMicrosPerMTok: 300_000, outMicrosPerMTok: 1_200_000 });
+    const body = await sentBody(poolProviderConfig(e, pool), { model: pool.model });
     expect(body['reasoning']).toEqual({ effort: 'low' });
     expect(body['provider']).toEqual({
-      order: ['deepseek'],
+      order: ['novita'],
       allow_fallbacks: true,
-      max_price: {
-        prompt: pool.price!.inMicrosPerMTok / 1_000_000,
-        completion: pool.price!.outMicrosPerMTok / 1_000_000,
-      },
+      max_price: { prompt: 0.3, completion: 1.2 },
     });
-    // A call that asks for no thinking (a summary at `none`) turns it off whatever the pool's effort.
-    const unthinking = await sentBody(config, { model: pool.model, reasoning: 'none' });
+    // A call that asks for no thinking (a summary at `none`) turns it off whatever Normal's effort.
+    const unthinking = await sentBody(poolProviderConfig(e, pool), {
+      model: pool.model,
+      reasoning: 'none',
+    });
     expect(unthinking['reasoning']).toEqual({ enabled: false });
     expect(poolChatSettings(pool).summaryEffort).toBe('none');
   });
 
-  it('asks the default pool model at low effort on its pinned providers, within max_price', async () => {
-    const e = deployed();
-    const pool = await resolvePoolParams(e, null);
-    expect(pool.model).toBe(DEFAULT_POOL_MODEL);
-    const body = await sentBody(poolProviderConfig(e, pool), { model: pool.model });
-    expect(body['reasoning']).toEqual({ effort: 'low' });
-    // Both pinned providers charge at most $0.15 / $0.60 per MTok, so max_price admits them.
-    expect(body['provider']).toEqual({
-      order: FLASH_PINNED,
-      allow_fallbacks: true,
-      max_price: { prompt: 0.15, completion: 0.6 },
-    });
-  });
-
-  it('keeps only max_price on another model by default', async () => {
-    const e = deployed({ POOL_MODEL: 'minimax/minimax-m3' });
-    const pool = await resolvePoolParams(e, null);
-    const body = await sentBody(poolProviderConfig(e, pool), { model: pool.model });
-    expect(body).not.toHaveProperty('reasoning');
-    expect(Object.keys(body['provider'] as object)).toEqual(['max_price']);
+  it("replies with as much room as credit's Normal, and a reply's ceiling fits each daily cap", async () => {
+    // As shipped: the pool's caps are the code defaults (the test bindings lower them).
+    const pool = await resolvePoolParams(asShipped(), null);
+    expect(pool.maxOutputTokens).toBe(BUILT_IN_MAX_OUTPUT_TOKENS);
+    const ceiling = replyCeilingMicros(pool, pool.price!);
+    // About 1.7 cents at Haiku's prices: under the $0.10 per user and $0.30 per network a day.
+    expect(ceiling).toBeGreaterThan(15_000);
+    expect(ceiling).toBeLessThan(20_000);
+    expect(ceiling).toBeLessThanOrEqual(pool.caps.user.spendMicrosPerDay);
+    expect(ceiling).toBeLessThanOrEqual(pool.caps.ip.spendMicrosPerDay);
   });
 });
 
 describe('MiniMax M3, a config-only fallback', () => {
-  it('is priced (so the pool may run it) but no default', async () => {
-    const e = deployed({ POOL_MODEL: 'minimax/minimax-m3' });
-    const pool = await resolvePoolParams(e, null);
-    expect(pool.price).not.toBeNull();
-    expect(pool.price).toMatchObject({ inMicrosPerMTok: 300_000, outMicrosPerMTok: 1_200_000 });
+  it('is priced (so Normal, and with it the pool, may run it) but no default', () => {
     expect(simpleProviderConfig(deployed()).models.some((m) => m.id.startsWith('minimax/'))).toBe(
       false,
     );

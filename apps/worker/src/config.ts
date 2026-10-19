@@ -108,9 +108,6 @@ export const CONFIG_VARS = [
   'POLAR_MEMBERSHIP_PRODUCT_ID',
   // The open pool
   'POOL_ENABLED',
-  'POOL_MODEL',
-  'POOL_EFFORT',
-  'POOL_PROVIDER_ORDER',
   'POOL_SYSTEM_PROMPT',
   'POOL_MAX_INPUT_TOKENS',
   'POOL_MAX_OUTPUT_TOKENS',
@@ -204,7 +201,7 @@ const TURNSTILE_TEST_SECRETS: readonly string[] = [
  */
 export const POOL_ACCOUNT_ID = 'pool';
 
-// ---- The hosted models: the owner's pick for paid paths, a live eval's for the pool
+// ---- The hosted models: the owner's pick, which the open pool runs too
 
 /** Learn's one model, and power's Normal (`LEARN_NORMAL_MODEL`). */
 export const DEFAULT_LEARN_NORMAL_MODEL = 'anthropic/claude-haiku-5.5';
@@ -216,27 +213,11 @@ export const DEFAULT_POWER_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
  */
 export const DEFAULT_BACKGROUND_MODEL = 'anthropic/claude-haiku-5.5';
 /**
- * The open pool's model (`POOL_MODEL`): the owner keeps the free pool on the
- * model a live eval picked. Per token it lists above Haiku 5.5, but its cache
- * reads cost less ($0.003 against $0.01 per million), and it is pinned to fp8
- * hosts with `max_price` routing, so no route costs more than its holds.
- */
-export const DEFAULT_POOL_MODEL = 'deepseek/deepseek-v4.1-flash';
-
-/**
  * Where Haiku is pinned: Anthropic's own endpoint, so one provider keeps the
  * prompt cache warm; fallbacks stay allowed (openai-compatible.ts
  * `pinnedRouting`), so an outage there doesn't fail the reply.
  */
 const HAIKU_PROVIDER_ORDER: readonly string[] = ['anthropic'];
-
-/**
- * Where V4.1 Flash is pinned: StreamLake, then DeepInfra, both fp8 and both
- * caching. Not `deepseek` (first-party): OpenRouter drops it for an account
- * that denies paid-data training, and the fallbacks then scatter across
- * about 28 providers, fp4 ones included, and lose the prompt cache.
- */
-const V4_1_FLASH_PROVIDER_ORDER: readonly string[] = ['streamlake/fp8', 'deepinfra/fp8'];
 
 /** How a hosted tier asks its default model when the tier's vars are empty. */
 export interface DefaultTierRequest {
@@ -251,10 +232,10 @@ export interface DefaultTierRequest {
  * tier runs that model (`withTierDefaults`). A tier moved to another model
  * starts from that model's own defaults (no effort sent, the default cap,
  * OpenRouter's routing): an effort or a pinned provider tuned for one model
- * says nothing about another. The pool's reply cap is
- * `POOL_MAX_OUTPUT_TOKENS` (8,192), whatever its model.
+ * says nothing about another. The open pool runs Normal as it is, under its
+ * own reply cap (`POOL_MAX_OUTPUT_TOKENS`).
  */
-export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal' | 'pool', DefaultTierRequest>> = {
+export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal', DefaultTierRequest>> = {
   normal: {
     model: DEFAULT_LEARN_NORMAL_MODEL,
     request: {
@@ -262,10 +243,6 @@ export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal' | 'pool', DefaultTi
       maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
       providerOrder: HAIKU_PROVIDER_ORDER,
     },
-  },
-  pool: {
-    model: DEFAULT_POOL_MODEL,
-    request: { effort: 'low', maxOutputTokens: null, providerOrder: V4_1_FLASH_PROVIDER_ORDER },
   },
 };
 
@@ -340,13 +317,12 @@ export interface LongContextPrice {
 }
 
 /**
- * Placeholder prices of the default pool model, of power's tiers, Normal
+ * Placeholder prices of power's tiers, Normal (which the open pool runs too)
  * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`;
- * `MAX_USAGE_FACTOR_FALLBACK` is their factor), of the models a tier can
- * move back to and of a fallback candidate: OpenRouter list prices when they
- * were added, or (V4.1 Flash) the price of its pinned providers. The daily
- * price sync (pool/model-prices.ts) replaces them with OpenRouter's current
- * list prices; `MODEL_PRICES` overrides or extends them, and an override also
+ * `MAX_USAGE_FACTOR_FALLBACK` is their factor), and of a fallback candidate:
+ * OpenRouter list prices when they were added. The daily price sync
+ * (pool/model-prices.ts) replaces them with OpenRouter's current list
+ * prices; `MODEL_PRICES` overrides or extends them, and an override also
  * wins over the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
@@ -366,17 +342,7 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
       cacheReadMicrosPerMTok: 50_000,
     },
   },
-  // The pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache read $0.003.
-  // OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and as the pool's
-  // `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this entry in
-  // `MODEL_PRICES`, where it wins over the daily sync.
-  'deepseek/deepseek-v4.1-flash': {
-    inMicrosPerMTok: 150_000,
-    outMicrosPerMTok: 600_000,
-    contextTokens: 1_048_576,
-    cacheReadMicrosPerMTok: 3_000,
-  },
-  // Other DeepSeek models, priced so a tier or the pool can move to one by config alone.
+  // DeepSeek models, priced so Normal (and with it the pool) can move to one by config alone.
   'deepseek/deepseek-v4-flash': {
     inMicrosPerMTok: 100_000,
     outMicrosPerMTok: 400_000,
@@ -392,8 +358,8 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
     outMicrosPerMTok: 10_000_000,
     contextTokens: 1_000_000,
   },
-  // A fallback candidate, no default: priced so the pool (`POOL_MODEL`) or a
-  // tier can be moved to it by config alone, without a code change.
+  // A fallback candidate, no default: priced so a tier (and with Normal, the
+  // pool) can be moved to it by config alone, without a code change.
   'minimax/minimax-m3': {
     inMicrosPerMTok: 300_000,
     outMicrosPerMTok: 1_200_000,
@@ -434,9 +400,9 @@ export interface PoolRateLimits {
 }
 
 /**
- * How one hosted tier asks its model (`LEARN_NORMAL_*`, `POOL_*`), as
- * parsed: an empty var is null (or no providers). The tier's model is
- * resolved by the caller (simple-mode.ts, pool/params.ts), which fills the
+ * How one hosted tier asks its model (`LEARN_NORMAL_*`), as parsed: an
+ * empty var is null (or no providers). The tier's model is resolved by the
+ * caller (simple-mode.ts), which fills the
  * empty settings from `DEFAULT_TIER_REQUESTS` while the tier runs
  * its default model (`withTierDefaults`); on any other model they stay
  * empty: no effort sent, the default output cap, OpenRouter's own routing.
@@ -458,12 +424,6 @@ export interface TierRequestConfig {
 export interface PoolConfig {
   /** `POOL_ACCOUNT_ID`; in the tests, `TEST_POOL_ACCOUNT_ID`. */
   accountId: string;
-  /** `POOL_MODEL`; null = `DEFAULT_POOL_MODEL`, resolved by the caller (pool/params.ts `poolModel`). */
-  model: string | null;
-  /** `POOL_EFFORT` (null = the model's default). */
-  effort: ReasoningEffort | null;
-  /** `POOL_PROVIDER_ORDER`. */
-  providerOrder: readonly string[];
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
@@ -994,13 +954,10 @@ function parse(env: AppEnv): AppConfig {
     },
     pool: {
       accountId: (testSeams && text('TEST_POOL_ACCOUNT_ID')) || POOL_ACCOUNT_ID,
-      model: text('POOL_MODEL'),
-      effort: effort('POOL_EFFORT'),
-      providerOrder: listVar(v('POOL_PROVIDER_ORDER')),
       systemPrompt:
         text('POOL_SYSTEM_PROMPT') ?? text('LEARN_SYSTEM_PROMPT') ?? DEFAULT_SYSTEM_PROMPT,
       maxInputTokens: int('POOL_MAX_INPUT_TOKENS', 16_000, { min: 1 }),
-      maxOutputTokens: int('POOL_MAX_OUTPUT_TOKENS', 8192, { min: 1 }),
+      maxOutputTokens: int('POOL_MAX_OUTPUT_TOKENS', BUILT_IN_MAX_OUTPUT_TOKENS, { min: 1 }),
       maxMessageChars: int('POOL_MAX_MESSAGE_CHARS', 4000, { min: 1 }),
       caps: {
         user: {

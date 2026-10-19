@@ -75,11 +75,10 @@ DEV_ALLOW_NO_AUTH=true
 # `u_<your user id>` under Option B, for both apps), then pick "Use Tangent credit" and chat at
 # http://localhost:8787/learn/, or pick the "Tangent credit" provider in the power app.
 
-# --- The open pool (docs/operating.md, "The open pool"); on in wrangler.jsonc. Its caps and model are the POOL_* vars,
-# its price table MODEL_PRICES (docs/configuration.md). With Option C's fake provider, price its
-# "normal" model so the pool can reserve for it:
+# --- The open pool (docs/operating.md, "The open pool"); on in wrangler.jsonc. It runs Normal; its
+# caps are the POOL_* vars, its price table MODEL_PRICES (docs/configuration.md). With Option C's
+# fake provider, price its "normal" model so the pool can reserve for it:
 # POOL_ENABLED=true
-# POOL_MODEL=normal
 # MODEL_PRICES='{"normal":{"in":100000,"out":400000,"context":131072}}'
 # Learn then spends from the pool when it picks the pool, or when its credit runs out (sends only).
 # Admin-granted personal credit without payments:

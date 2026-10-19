@@ -18,7 +18,6 @@ import {
 import {
   appConfig,
   backgroundEffort,
-  DEFAULT_POOL_MODEL,
   DEFAULT_TIER_REQUESTS,
   withTierDefaults,
   type TierRequestConfig,
@@ -32,7 +31,6 @@ import type { PoolParams } from './pool/params.js';
 export {
   DEFAULT_BACKGROUND_MODEL,
   DEFAULT_LEARN_NORMAL_MODEL,
-  DEFAULT_POOL_MODEL,
   DEFAULT_POWER_MAX_MODEL,
 } from './config.js';
 
@@ -56,8 +54,6 @@ export {
  * provider-configs.ts `learnKeyConfig`).
  */
 
-/** What the pool model is called where Learn's config doesn't list it (it is no tier). */
-export const POOL_MODEL_LABEL = 'Lite';
 /**
  * What Learn replies with on the learner's own Anthropic key, whatever a
  * branch stores: the one model that key's config lists, so every other model
@@ -210,17 +206,6 @@ export function simpleFastModel(
 }
 
 /**
- * The pool's model when `POOL_MODEL` is empty: `DEFAULT_POOL_MODEL`, as
- * `onBuiltIn` resolves it.
- */
-export function defaultPoolModel(
-  env: AppEnv,
-  config: ProviderConfig = simpleProviderConfig(env),
-): string {
-  return onBuiltIn(env, DEFAULT_POOL_MODEL, config);
-}
-
-/**
  * `wanted` on the built-in provider. A BUILT_IN_PROVIDER override is a
  * closed list, so there it is `wanted` when Learn's models include it, else
  * the override's default.
@@ -276,30 +261,27 @@ export function simpleSystemPrompt(env: AppEnv): string {
 }
 
 /**
- * The built-in provider as the open pool uses it: the simple config
- * (same key, same BUILT_IN_PROVIDER override) with the pool model as its only
- * model, and one call's cost bounded by the pool's caps: the context window
- * is the pool's input cap plus its output cap. On a routing endpoint
- * (OpenRouter, `ProviderTraits.routing`), routing is capped at the price
- * table's price (`provider.max_price`, $/MTok), so an over-priced route fails
- * upstream (released) instead of costing the operator. Other endpoints
- * (OpenAI, Workers AI, local servers) get no `provider` field, which strict
- * APIs reject; there the table must be the endpoint's own price.
- * The pool model carries the pool's own effort and pinned providers
- * (`POOL_EFFORT`, `POOL_PROVIDER_ORDER`), never a tier's, even when a tier
- * runs the same model; pinning merges with `max_price` (openai-compatible.ts).
+ * The built-in provider as the open pool uses it: the simple config (same
+ * key, same BUILT_IN_PROVIDER override) with Normal's listing as its only
+ * model, as Normal asks it (its effort and pinned providers), and one call's
+ * cost bounded by the pool's caps: the context window is the pool's input
+ * cap plus its output cap, which replaces Normal's reply cap. On a routing endpoint (OpenRouter,
+ * `ProviderTraits.routing`), routing is also capped at the price table's
+ * price (`provider.max_price`, $/MTok), so an over-priced route fails
+ * upstream (released) instead of costing the operator; pinning merges with
+ * it (openai-compatible.ts). Other endpoints (OpenAI, Workers AI, local
+ * servers) get no `provider` field, which strict APIs reject; there the
+ * table must be the endpoint's own price.
  */
 export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfig {
   const base = simpleProviderConfig(env);
-  const listed = base.models.find((m) => m.id === pool.model);
+  const listed = base.models.find((m) => m.id === pool.model) ?? {
+    id: pool.model,
+    label: TIER_LABELS.normal,
+  };
   const config: ProviderConfig = {
     ...base,
-    models: [
-      withRequestConfig(
-        { id: pool.model, label: listed?.label ?? POOL_MODEL_LABEL },
-        { effort: pool.effort, providerOrder: pool.providerOrder },
-      ),
-    ],
+    models: [{ ...listed, maxOutputTokens: pool.maxOutputTokens }],
     defaultModel: pool.model,
     openModels: false,
     maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
@@ -311,7 +293,8 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
 
 /**
  * Chat settings of a pool generation: the pool's input and output caps, and
- * summaries and titles on the pool model (so on the pool too).
+ * summaries and titles on the pool model (so on the pool too, whose holds are
+ * priced for that one model) at the background effort, as on credit.
  */
 export function poolChatSettings(pool: PoolParams): ChatSettings {
   return {

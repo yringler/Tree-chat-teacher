@@ -8,8 +8,8 @@ import {
   boolVar,
   ConfigError,
   DEFAULT_BACKGROUND_MODEL,
+  DEFAULT_LEARN_NORMAL_MODEL,
   DEFAULT_MODEL_PRICES,
-  DEFAULT_POOL_MODEL,
   enumVar,
   intVar,
   POOL_ACCOUNT_ID,
@@ -188,9 +188,8 @@ describe('appConfig', () => {
     expect(c.prices).toEqual(DEFAULT_MODEL_PRICES);
     expect(c.pool).toMatchObject({
       accountId: 'pool',
-      model: null,
       maxInputTokens: 16_000,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 16_384,
       maxMessageChars: 4000,
       limits: { userPerMinute: 6, ipPerMinute: 20 },
       minAccountAgeMs: 0,
@@ -362,11 +361,12 @@ describe('resolvePoolParams', () => {
 
   it('reports the pool off when its synced price puts a reply over the caps, as it refuses then', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    // A placeholder-priced pool model (no MODEL_PRICES entry pins it), so the synced price applies.
+    // A placeholder-priced Normal, so the pool's (no MODEL_PRICES entry pins it): the synced price applies.
     const model = 'minimax/minimax-m3';
     const synced = {
       ...env,
-      POOL_MODEL: model,
+      BUILT_IN_PROVIDER: '',
+      LEARN_NORMAL_MODEL: model,
       MODEL_PRICES: '',
       TEST_POOL_ACCOUNT_ID: `pool-synced-${Date.now()}`,
     } as AppEnv;
@@ -389,26 +389,23 @@ describe('resolvePoolParams', () => {
     }
   });
 
-  it('defaults the model to DEFAULT_POOL_MODEL, never BACKGROUND_MODEL; an unpriced model has no price', async () => {
-    const noModel = { ...env, POOL_MODEL: '' } as AppEnv;
-    // A BUILT_IN_PROVIDER override is a closed list: the fake config doesn't list
-    // DEFAULT_POOL_MODEL, so its default, whatever the background model.
-    expect(poolModel(noModel)).toBe('max');
-    expect(poolModel({ ...noModel, BACKGROUND_MODEL: 'normal' } as AppEnv)).toBe('max');
-    // As deployed (the OpenRouter config): V4.1 Flash, while summaries and titles run Haiku.
-    const deployed = blank({ BUILT_IN_PROVIDER: '', BACKGROUND_MODEL: '' });
+  it("runs Normal's model, never BACKGROUND_MODEL; an unpriced model has no price", async () => {
+    // The test's BUILT_IN_PROVIDER override: its `tier: "normal"` model, not its default.
+    expect(poolModel(env)).toBe('normal');
+    expect(poolModel({ ...env, BACKGROUND_MODEL: 'max' } as AppEnv)).toBe('normal');
+    // As deployed (the OpenRouter config): Haiku, as for Normal, summaries and titles.
+    const deployed = blank({ BUILT_IN_PROVIDER: '', BACKGROUND_MODEL: '', LEARN_NORMAL_MODEL: '' });
     expect(appConfig(deployed).background.model).toBe(DEFAULT_BACKGROUND_MODEL);
-    expect(poolModel(deployed)).toBe(DEFAULT_POOL_MODEL);
+    expect(poolModel(deployed)).toBe(DEFAULT_LEARN_NORMAL_MODEL);
     // Its ceiling hold fits the default daily caps, so the pool is priced, not refused as unpriced.
     expect(poolConfigProblem(deployed)).toBeNull();
     const params = await resolvePoolParams(deployed, null);
-    expect(params.model).toBe(DEFAULT_POOL_MODEL);
+    expect(params.model).toBe(DEFAULT_LEARN_NORMAL_MODEL);
     expect(params.price).not.toBeNull();
     const ceiling = replyCeilingMicros(params, params.price!);
     expect(ceiling).toBeLessThanOrEqual(params.caps.user.spendMicrosPerDay);
     expect(ceiling).toBeLessThanOrEqual(params.caps.ip.spendMicrosPerDay);
-    expect(
-      (await resolvePoolParams({ ...env, POOL_MODEL: 'vendor/unpriced' } as AppEnv, null)).price,
-    ).toBeNull();
+    const unpriced = { ...deployed, LEARN_NORMAL_MODEL: 'vendor/unpriced' } as AppEnv;
+    expect((await resolvePoolParams(unpriced, null)).price).toBeNull();
   });
 });

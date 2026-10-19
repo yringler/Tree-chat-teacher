@@ -3,7 +3,7 @@ import type { ProviderConfig } from '@tangent/shared';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { hostedChain } from '../hosted/registry.js';
-import { poolModel, poolRequest } from '../pool/params.js';
+import { poolModel } from '../pool/params.js';
 import { builtInAvailable, poolAvailable } from '../availability.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
 
@@ -31,7 +31,7 @@ export interface HostedAi {
 }
 
 export interface HostedModel {
-  /** The model id, e.g. `deepseek/deepseek-v4.1-flash`. */
+  /** The model id, e.g. `anthropic/claude-haiku-5.5`. */
   id: string;
   /** Who made it (from the id's vendor prefix), or null when the id has none. */
   maker: string | null;
@@ -146,8 +146,9 @@ export function hostedAi(env: AppEnv): HostedAi | null {
     }
   }
   if (pool) {
+    // The pool runs Normal's listing, pinned providers included (`poolProviderConfig`).
     const id = poolModel(env);
-    add(id, 'the open pool', poolRequest(env, id).providerOrder);
+    add(id, 'the open pool', config.models.find((m) => m.id === id)?.providerOrder ?? []);
   }
   if (credit) {
     // Summaries and titles run on the background model's listing in Learn's config (if any).

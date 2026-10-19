@@ -2,22 +2,24 @@
 // `appConfig(env)` and handed to the meter and to PoolBank as arguments, so
 // the Durable Objects read no pool config of their own (a per-request env,
 // e.g. a test's, then applies everywhere).
-import type { PoolBlockDetails, ReasoningEffort, UsagePurpose } from '@tangent/shared';
+import {
+  tierModel,
+  type PoolBlockDetails,
+  type ReasoningEffort,
+  type UsagePurpose,
+} from '@tangent/shared';
 import {
   appConfig,
   backgroundEffort,
-  DEFAULT_TIER_REQUESTS,
-  withTierDefaults,
   type ModelPrice,
   type PoolCaps,
   type PoolConfig,
   type PoolRateLimits,
-  type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import type { HostedBackendId } from '../hosted/backend.js';
 import { hostedBackend, hostedChain, usageBackend, type UsageBackend } from '../hosted/registry.js';
-import { defaultPoolModel } from '../simple-mode.js';
+import { simpleProviderConfig } from '../simple-mode.js';
 import { modelPrice, withCacheWritePrice } from './price-table.js';
 import type {
   PoolAdmitRequest,
@@ -53,7 +55,7 @@ export const POOL_SESSION_ESTIMATE_MICROS = 20_000;
 export interface PoolParams extends UsageBackend {
   /** The pool's ledger account id (config.ts `POOL_ACCOUNT_ID`). */
   accountId: string;
-  /** The one model pool calls use; every pool hold is priced for it. */
+  /** The one model pool calls use, Normal's (`poolModel`); every pool hold is priced for it. */
   model: string;
   /**
    * Its price entry with `feeBps` filled in, the fee its holds are grossed up
@@ -68,11 +70,7 @@ export interface PoolParams extends UsageBackend {
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
-  /** The pool model's reasoning effort (`POOL_EFFORT`, else the default model's); null = its default. */
-  effort: ReasoningEffort | null;
-  /** OpenRouter providers pinned for the pool model (`POOL_PROVIDER_ORDER`, else the default model's). */
-  providerOrder: readonly string[];
-  /** The effort of the pool's summaries and titles (`backgroundEffort`); null = `effort`. */
+  /** The effort of the pool's summaries and titles (`backgroundEffort`); null = the model's own. */
   summaryEffort: ReasoningEffort | null;
   /** The longest message a pool send accepts (`POOL_MAX_MESSAGE_CHARS`). */
   maxMessageChars: number;
@@ -82,28 +80,14 @@ export interface PoolParams extends UsageBackend {
   ipKey: string | null;
 }
 
-/** The pool model: `POOL_MODEL`, else `DEFAULT_POOL_MODEL` (`defaultPoolModel`). */
-export function poolModel(env: AppEnv): string {
-  return appConfig(env).pool.model ?? defaultPoolModel(env);
-}
-
 /**
- * How the pool asks `model` (its model, `poolModel`): `POOL_EFFORT` and
- * `POOL_PROVIDER_ORDER`, else the default pool model's evaluated settings
- * while it runs that model (`withTierDefaults`). The reply cap is
- * `POOL_MAX_OUTPUT_TOKENS`, apart.
+ * The pool model: Normal (`LEARN_NORMAL_MODEL`; with a `BUILT_IN_PROVIDER`
+ * override, its `tier: "normal"` model, else its default). The pool asks it
+ * as Normal does (simple-mode.ts `poolProviderConfig`), within its own caps.
  */
-export function poolRequest(
-  env: AppEnv,
-  model: string = poolModel(env),
-): Pick<TierRequestConfig, 'effort' | 'providerOrder'> {
-  const pool = appConfig(env).pool;
-  const { effort, providerOrder } = withTierDefaults(
-    { effort: pool.effort, maxOutputTokens: null, providerOrder: pool.providerOrder },
-    DEFAULT_TIER_REQUESTS.pool,
-    model,
-  );
-  return { effort, providerOrder };
+export function poolModel(env: AppEnv): string {
+  const config = simpleProviderConfig(env);
+  return tierModel(config.models, 'normal')?.id ?? config.defaultModel;
 }
 
 /**
@@ -125,7 +109,6 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const pool = config.pool;
   const model = poolModel(env);
   const entry = await modelPrice(env, model);
-  const request = poolRequest(env, model);
   const price = entry ? { ...entry, feeBps: poolFeeBps(env, model, entry) } : null;
   const fee = (id: HostedBackendId) => hostedBackend(id).feeBps(env, entry ?? {});
   return {
@@ -138,8 +121,6 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
     systemPrompt: pool.systemPrompt,
     maxInputTokens: pool.maxInputTokens,
     maxOutputTokens: pool.maxOutputTokens,
-    effort: request.effort,
-    providerOrder: request.providerOrder,
     summaryEffort: backgroundEffort(env, model),
     maxMessageChars: pool.maxMessageChars,
     caps: pool.caps,
