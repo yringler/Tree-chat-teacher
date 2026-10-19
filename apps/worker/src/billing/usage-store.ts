@@ -7,6 +7,7 @@ import { chargeMicros, type Payer, type UsagePurpose } from '@tangent/shared';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { HostedBackendId } from '../hosted/backend.js';
+import type { UsageBackend } from '../hosted/registry.js';
 
 /** Who pays for a metered call: never the user's own key, which is never metered. */
 export type MeteredPayer = Exclude<Payer, 'own-key'>;
@@ -166,8 +167,8 @@ export async function reservePersonalUsage(
 /**
  * Personal credit: sets a pending, undispatched reservation's hold to
  * `holdMicros` once the call's own worst case is known, with the input
- * tokens it was sized with, and its node (the reply's, unknown when it was
- * reserved). Lowering the hold always succeeds;
+ * tokens it was sized with, its node (the reply's, unknown when it was
+ * reserved) and the backend it is sent on. Lowering the hold always succeeds;
  * raising it only while the rest of the available balance covers the
  * increase, in the same statement. Resolves the row's markup and fee, or
  * null when it is no longer such a row or the balance can't cover the hold.
@@ -179,16 +180,26 @@ export async function repriceReservation(
   holdMicros: number,
   nodeId: string | null,
   heldInputTokens: number,
+  sentOn: UsageBackend,
 ): Promise<{ feeBps: number; markupBps: number } | null> {
   const row = await db
     .prepare(
-      `UPDATE usage_events SET hold_micros = ?3, node_id = COALESCE(node_id, ?4), held_input_tokens = ?5
+      `UPDATE usage_events SET hold_micros = ?3, node_id = COALESCE(node_id, ?4), held_input_tokens = ?5,
+         backend = ?6, backend_model = ?7
        WHERE id = ?2 AND account_id = ?1 AND funding = '${STORED_FUNDING.credit}' AND status = 'pending'
          AND dispatched_at IS NULL
          AND (?3 <= hold_micros OR ${AVAILABLE_SQL} + hold_micros >= ?3)
        RETURNING fee_bps, markup_bps`,
     )
-    .bind(accountId, usageId, holdMicros, nodeId, heldInputTokens)
+    .bind(
+      accountId,
+      usageId,
+      holdMicros,
+      nodeId,
+      heldInputTokens,
+      sentOn.backend,
+      sentOn.backendModel,
+    )
     .first<Pick<UsageSql, 'fee_bps' | 'markup_bps'>>();
   return row ? { feeBps: row.fee_bps, markupBps: row.markup_bps } : null;
 }
@@ -240,27 +251,52 @@ export async function markDispatched(
 
 /**
  * Pool: lowers a pending reservation's hold to `holdMicros` (never raises it),
- * once the exact worst case of the call is known. Only raises the pool's
- * available balance, so it needs no lock. Resolves the row's resulting hold
- * and fee, or null when it is no longer an undispatched pending row of
- * `accountId` (another call already claimed it).
+ * once the exact worst case of the call is known, and points it at the
+ * backend it is sent on, with that backend's fee (the hold was grossed up by
+ * the dearest of the chain's). Only raises the pool's available balance, so
+ * it needs no lock. Resolves false when it is no longer an undispatched
+ * pending row of `accountId` (another call already claimed it).
  */
 export async function shrinkHold(
   db: D1Database,
   usageId: string,
   accountId: string,
   holdMicros: number,
-): Promise<{ holdMicros: number; feeBps: number } | null> {
-  const row = await db
+  sentOn: UsageBackend & { feeBps: number },
+): Promise<boolean> {
+  const result = await db
     .prepare(
-      `UPDATE usage_events SET hold_micros = MIN(hold_micros, ?)
-       WHERE id = ? AND account_id = ? AND funding = 'pool' AND status = 'pending'
-         AND dispatched_at IS NULL
-       RETURNING hold_micros, fee_bps`,
+      `UPDATE usage_events SET hold_micros = MIN(hold_micros, ?1), backend = ?4, backend_model = ?5,
+         fee_bps = ?6
+       WHERE id = ?2 AND account_id = ?3 AND funding = 'pool' AND status = 'pending'
+         AND dispatched_at IS NULL`,
     )
-    .bind(holdMicros, usageId, accountId)
-    .first<Pick<UsageSql, 'hold_micros' | 'fee_bps'>>();
-  return row ? { holdMicros: row.hold_micros, feeBps: row.fee_bps } : null;
+    .bind(holdMicros, usageId, accountId, sentOn.backend, sentOn.backendModel, sentOn.feeBps)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Points a dispatched, pending row at the backend its call falls back to,
+ * with the fee it is charged there (credit's stays 0), once the backend it
+ * was sent to refused it before anything was billed. The row keeps its hold
+ * and its `dispatched_at`: a request did go out. Resolves false when the row
+ * is no longer pending (settled or expired meanwhile): the call must then not
+ * be sent again.
+ */
+export async function repointUsage(
+  db: D1Database,
+  usageId: string,
+  sentOn: UsageBackend & { feeBps: number },
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE usage_events SET backend = ?1, backend_model = ?2, fee_bps = ?3
+       WHERE id = ?4 AND status = 'pending' AND dispatched_at IS NOT NULL`,
+    )
+    .bind(sentOn.backend, sentOn.backendModel, sentOn.feeBps, usageId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export interface Settlement {

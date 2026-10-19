@@ -15,7 +15,8 @@ import {
   type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
-import { hostedChain, usageBackend, type UsageBackend } from '../hosted/registry.js';
+import type { HostedBackendId } from '../hosted/backend.js';
+import { hostedBackend, hostedChain, usageBackend, type UsageBackend } from '../hosted/registry.js';
 import { defaultPoolModel } from '../simple-mode.js';
 import { modelPrice, withCacheWritePrice } from './price-table.js';
 import type {
@@ -59,8 +60,11 @@ export interface PoolParams extends UsageBackend {
    * by (`poolFeeBps`); null = not priced, so the pool refuses (`unpriced`).
    */
   price: (ModelPrice & { feeBps: number }) | null;
-  /** The fee its calls are charged: the first backend's (`backend`), which they are sent to. */
-  feeBps: number;
+  /**
+   * The fee its calls are charged on each backend: the meter charges the one
+   * of the backend a call is sent on (`backend` before it is sent).
+   */
+  feeBpsByBackend: Record<HostedBackendId, number>;
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
@@ -123,12 +127,12 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const entry = await modelPrice(env, model);
   const request = poolRequest(env, model);
   const price = entry ? { ...entry, feeBps: poolFeeBps(env, model, entry) } : null;
-  const [first] = hostedChain(env, model);
+  const fee = (id: HostedBackendId) => hostedBackend(id).feeBps(env, entry ?? {});
   return {
     accountId: pool.accountId,
     model,
     ...usageBackend(env, model),
-    feeBps: first!.backend.feeBps(env, entry ?? {}),
+    feeBpsByBackend: { openrouter: fee('openrouter'), anthropic: fee('anthropic') },
     // A price whose reply ceiling no cap admits refuses as `unpriced` (logged), not as the user's cap.
     price: price && reportCeilingProblem(pool, model, price) === null ? price : null,
     systemPrompt: pool.systemPrompt,

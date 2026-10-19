@@ -3,6 +3,8 @@ import {
   costUsdToNanos,
   type GenerateRequest,
   type LlmProvider,
+  type ProviderError,
+  type ProviderErrorCode,
   type ProviderEvent,
   type ProviderInfo,
   type ProviderKind,
@@ -23,6 +25,10 @@ import {
   USAGE_HOLD_MICROS,
 } from '../src/billing/service.js';
 import { markDispatched, repriceReservation } from '../src/billing/usage-store.js';
+import { anthropicBackend } from '../src/hosted/anthropic.js';
+import { breakerOpen } from '../src/hosted/breaker.js';
+import type { LegsOf } from '../src/hosted/legs.js';
+import { openRouterBackend } from '../src/hosted/openrouter.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
@@ -126,6 +132,7 @@ interface Harness {
       stopAfter?: number;
       kind?: ProviderKind;
       webSearch?: WebSearchRequest;
+      legsOf?: LegsOf;
     },
   ): Promise<ProviderEvent[]>;
   rows(): Promise<UsageRow[]>;
@@ -156,6 +163,7 @@ async function harness(account: AccountContext = simpleAccount()): Promise<Harne
         registryOf(scriptedProvider(script, undefined, opts.kind)),
         meter,
         onlyBuiltIn,
+        opts.legsOf,
       );
       const out: ProviderEvent[] = [];
       const req = request(opts.tag, undefined, opts.webSearch);
@@ -875,6 +883,7 @@ describe('credit calls the user stopped', () => {
 
 describe('reserved replies on credit', () => {
   const target = { treeId: 'tree_1', branchId: 'branch_1', providerId: 'openrouter', model: 'max' };
+  const ON_OPENROUTER = { backend: 'openrouter', backendModel: 'max' } as const;
   const reply = [
     { type: 'billing', costUsd: COST },
     { type: 'done', stopReason: 'stop' },
@@ -906,7 +915,15 @@ describe('reserved replies on credit', () => {
     const id = await reserveCreditReply(env, h.account, target, 500_000);
     await setAvailable(h.account.billingAccountId, -1_000);
     expect(
-      await repriceReservation(env.DB, id, h.account.billingAccountId, 400_000, 'n1', 7),
+      await repriceReservation(
+        env.DB,
+        id,
+        h.account.billingAccountId,
+        400_000,
+        'n1',
+        7,
+        ON_OPENROUTER,
+      ),
     ).toEqual({ feeBps: 0, markupBps: 0 });
     await h.run(reply, { tag: { ...tag, reservationId: id } });
     const rows = await h.rows();
@@ -928,9 +945,13 @@ describe('reserved replies on credit', () => {
     const accountId = h.account.billingAccountId;
     const id = await reserveCreditReply(env, h.account, target, 1_000);
     await setAvailable(accountId, 4_000);
-    expect(await repriceReservation(env.DB, id, accountId, 5_001, null, 7)).toBeNull();
+    expect(
+      await repriceReservation(env.DB, id, accountId, 5_001, null, 7, ON_OPENROUTER),
+    ).toBeNull();
     expect((await usageRow(env, id)).hold_micros).toBe(1_000);
-    expect(await repriceReservation(env.DB, id, accountId, 5_000, null, 7)).not.toBeNull();
+    expect(
+      await repriceReservation(env.DB, id, accountId, 5_000, null, 7, ON_OPENROUTER),
+    ).not.toBeNull();
     expect((await usageRow(env, id)).hold_micros).toBe(5_000);
   });
 
@@ -939,9 +960,13 @@ describe('reserved replies on credit', () => {
     const accountId = h.account.billingAccountId;
     const dispatched = await reserveCreditReply(env, h.account, target, 1_000);
     expect(await markDispatched(env.DB, dispatched)).toBe(true);
-    expect(await repriceReservation(env.DB, dispatched, accountId, 500, null, 7)).toBeNull();
+    expect(
+      await repriceReservation(env.DB, dispatched, accountId, 500, null, 7, ON_OPENROUTER),
+    ).toBeNull();
     const other = await reserveCreditReply(env, h.account, target, 1_000);
-    expect(await repriceReservation(env.DB, other, uniq('acct'), 500, null, 7)).toBeNull();
+    expect(
+      await repriceReservation(env.DB, other, uniq('acct'), 500, null, 7, ON_OPENROUTER),
+    ).toBeNull();
     expect((await usageRow(env, other)).hold_micros).toBe(1_000);
   });
 
@@ -1167,6 +1192,272 @@ describe('credit calls on an endpoint whose cost leaves searches out (Anthropic)
   });
 });
 
+describe('falling back to the next backend', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** An error the upstream answered with before any output (`upstream: 'rejected'`). */
+  function refused(
+    code: ProviderErrorCode,
+    status: number,
+    extra: Partial<ProviderError> = {},
+  ): ProviderEvent {
+    return {
+      type: 'error',
+      error: {
+        code,
+        message: `HTTP ${status}`,
+        status,
+        retryable: true,
+        upstream: 'rejected',
+        ...extra,
+      },
+    };
+  }
+
+  /** Anthropic plays `first`; the call's own provider (OpenRouter) is the next leg. */
+  function anthropicFirst(first: ProviderEvent[]): { legsOf: LegsOf; firstCalls: () => number } {
+    const leg = scriptedProvider(first, undefined, 'anthropic');
+    return {
+      legsOf: (provider, model) => [
+        { backend: anthropicBackend, model: 'claude-max', provider: leg },
+        { backend: openRouterBackend, model, provider },
+      ],
+      firstCalls: () => leg.calls,
+    };
+  }
+
+  const answer: ProviderEvent[] = [
+    { type: 'delta', text: 'Hello' },
+    { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+    { type: 'billing', costUsd: COST },
+    { type: 'done', stopReason: 'stop' },
+  ];
+
+  const logged = (spy: { mock: { calls: unknown[][] } }, event: string) =>
+    spy.mock.calls
+      .map(([line]) =>
+        typeof line === 'string' ? (JSON.parse(line) as Record<string, unknown>) : null,
+      )
+      .filter((l) => l?.['event'] === event);
+
+  it('runs the next backend after a 429 before any output: the client sees only its events, charged once', async () => {
+    const log = vi.spyOn(console, 'log');
+    const warn = vi.spyOn(console, 'warn');
+    const h = await harness();
+    const { legsOf, firstCalls } = anthropicFirst([
+      refused('rate_limit', 429, { retryAfterMs: 45_000 }),
+    ]);
+    const events = await h.run(answer, { tag, legsOf });
+    expect(firstCalls()).toBe(1);
+    expect(events).toEqual(answer);
+    const rows = await h.rows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      backend: 'openrouter',
+      backend_model: 'max',
+      fee_bps: 0,
+      status: 'settled',
+      settle_reason: 'cost',
+      charge_micros: 1234,
+      generation_id: null,
+    });
+    expect(rows[0]!.dispatched_at).not.toBeNull();
+    expect((await getBalance(env.DB, h.account.billingAccountId)).balanceMicros).toBe(
+      1_000_000 - 1234,
+    );
+    expect(logged(warn, 'backend_fallback')).toEqual([
+      {
+        event: 'backend_fallback',
+        usageId: rows[0]!.id,
+        from: 'anthropic',
+        to: 'openrouter',
+        model: 'max',
+        code: 'rate_limit',
+        status: 429,
+        retryAfterMs: 45_000,
+        purpose: 'reply',
+        funding: 'credit',
+      },
+    ]);
+    expect(breakerOpen('anthropic')).toBe(true);
+    expect(logged(log, 'llm_call')).toMatchObject([
+      { backend: 'openrouter', backendModel: 'max', fellBackFrom: ['anthropic'], error: null },
+    ]);
+  });
+
+  it('falls back on an overload, a server error and a connection that failed before it was sent', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const failures: ProviderEvent[] = [
+      refused('overloaded', 529),
+      refused('server', 502),
+      {
+        type: 'error',
+        error: { code: 'network', message: 'reset', retryable: true, upstream: 'not_sent' },
+      },
+    ];
+    for (const failure of failures) {
+      const h = await harness();
+      const events = await h.run(answer, { legsOf: anthropicFirst([failure]).legsOf });
+      expect(events).toEqual(answer);
+      expect((await h.rows())[0]).toMatchObject({ backend: 'openrouter', charge_micros: 1234 });
+    }
+  });
+
+  it('never falls back once the first backend yielded anything: the reply is charged by the usual rules', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const midStream: ProviderEvent = {
+      type: 'error',
+      error: { code: 'overloaded', message: 'Overloaded', retryable: true, upstream: 'stream' },
+    };
+    const h = await harness();
+    const first = [
+      { type: 'delta', text: 'Hel' },
+      { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+      midStream,
+    ] satisfies ProviderEvent[];
+    const events = await h.run(answer, { env: PRICED, legsOf: anthropicFirst(first).legsOf });
+    expect(events).toEqual(first);
+    expect((await h.rows())[0]).toMatchObject({
+      backend: 'anthropic',
+      backend_model: 'claude-max',
+      status: 'settled',
+      settle_reason: 'tokens',
+      charge_micros: 22_200,
+    });
+
+    // Not after a search started or a generation id came either, whatever the error.
+    for (const before of [
+      { type: 'activity', kind: 'web_search' },
+      { type: 'billing', generationId: uniq('gen') },
+    ] satisfies ProviderEvent[]) {
+      const other = await harness();
+      const out = await other.run(answer, {
+        legsOf: anthropicFirst([before, refused('rate_limit', 429)]).legsOf,
+      });
+      expect(out).toEqual([before, refused('rate_limit', 429)]);
+      expect((await other.rows())[0]).toMatchObject({ backend: 'anthropic' });
+    }
+  });
+
+  it('never falls back on a refusal about the call itself', async () => {
+    for (const failure of [
+      refused('invalid_request', 400),
+      refused('context_length', 400),
+      refused('auth', 401),
+      refused('invalid_request', 402),
+      refused('config', 400),
+    ]) {
+      const h = await harness();
+      const { legsOf, firstCalls } = anthropicFirst([failure]);
+      const events = await h.run(answer, { tag, legsOf });
+      expect(firstCalls()).toBe(1);
+      expect(events).toEqual([failure]);
+      expect((await h.rows())[0]).toMatchObject({
+        backend: 'anthropic',
+        status: 'settled',
+        settle_reason: 'released',
+        charge_micros: 0,
+      });
+    }
+    expect(breakerOpen('anthropic')).toBe(false);
+  });
+
+  it("surfaces the last backend's error when every backend refuses, and charges nothing", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const h = await harness();
+    const last = refused('overloaded', 529);
+    const events = await h.run([last], {
+      legsOf: anthropicFirst([refused('rate_limit', 429)]).legsOf,
+    });
+    expect(events).toEqual([last]);
+    expect((await h.rows())[0]).toMatchObject({
+      backend: 'openrouter',
+      status: 'settled',
+      settle_reason: 'released',
+      charge_micros: 0,
+    });
+    expect(breakerOpen('anthropic')).toBe(true);
+    expect(breakerOpen('openrouter')).toBe(true);
+  });
+
+  it('surfaces the error, sending nothing more, when the row cannot be pointed at the next backend', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const h = await harness();
+    const failure = refused('rate_limit', 429);
+    const events = await h.run(answer, {
+      env: envWithFailingDb(env, /SET backend = /),
+      legsOf: anthropicFirst([failure]).legsOf,
+    });
+    expect(events).toEqual([failure]);
+    expect((await h.rows())[0]).toMatchObject({
+      backend: 'anthropic',
+      settle_reason: 'released',
+      charge_micros: 0,
+    });
+  });
+
+  it("points a reserved reply's row at the backend it is sent on, and on to the next one", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const target = {
+      treeId: 'tree_1',
+      branchId: 'branch_1',
+      providerId: 'openrouter',
+      model: 'max',
+    };
+    const h = await harness();
+    const served = await reserveCreditReply(env, h.account, target, 500_000);
+    expect(await usageRow(env, served)).toMatchObject({ backend: 'openrouter' });
+    await h.run(answer, {
+      tag: { ...tag, reservationId: served },
+      legsOf: anthropicFirst(answer).legsOf,
+    });
+    expect(await usageRow(env, served)).toMatchObject({
+      backend: 'anthropic',
+      backend_model: 'claude-max',
+      charge_micros: 1234,
+    });
+
+    const fellBack = await reserveCreditReply(env, h.account, target, 500_000);
+    await h.run(answer, {
+      tag: { ...tag, reservationId: fellBack },
+      legsOf: anthropicFirst([refused('overloaded', 529)]).legsOf,
+    });
+    expect(await h.rows()).toHaveLength(2);
+    expect(await usageRow(env, fellBack)).toMatchObject({
+      backend: 'openrouter',
+      backend_model: 'max',
+      status: 'settled',
+      charge_micros: 1234,
+    });
+  });
+
+  it('looks up only the generation of the backend that served the call', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const h = await harness();
+    const gen = uniq('gen-served');
+    await scriptGeneration(gen, [{ costUsd: 0.002 }]);
+    await h.run(
+      [
+        { type: 'billing', generationId: gen },
+        { type: 'delta', text: 'partial' },
+        { type: 'error', error: { code: 'aborted', message: 'aborted', retryable: false } },
+      ],
+      { legsOf: anthropicFirst([refused('rate_limit', 429)]).legsOf },
+    );
+    await h.settleBackground();
+    expect((await h.rows())[0]).toMatchObject({
+      backend: 'openrouter',
+      generation_id: gen,
+      settle_reason: 'generation',
+      charge_micros: 2000,
+    });
+    expect((await generationCalls(gen)).count).toBe(1);
+  });
+});
+
 describe('the call log', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -1223,6 +1514,7 @@ describe('the call log', () => {
         finishReason: 'stop',
         truncated: false,
         error: null,
+        fellBackFrom: [],
       },
     ]);
     // The charge is the reported cost, whatever the cap was.

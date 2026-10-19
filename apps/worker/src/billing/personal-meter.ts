@@ -9,7 +9,8 @@
 //      row repriced. Either records the input estimate the hold was sized
 //      with, and is stamped dispatched right before the call goes upstream,
 //      so the cron can charge that input if this meter dies. Awaited; no row
-//      (or no stamp), no call.
+//      (or no stamp), no call. The row records the backend the call is sent
+//      on, and follows it when it falls back (billing/meter.ts).
 //   2. Tap `billing` (generation id, reported cost) and `usage` (tokens).
 //   3. At the terminal event, settle by the metered policy (settle-policy.ts):
 //      released at 0 when nothing can have been billed upstream, else the
@@ -22,7 +23,12 @@ import { DomainError, PaymentRequiredError } from '@tangent/core';
 import type { ModelPrice } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { creditPrice } from '../pool/model-prices.js';
-import { ObservedRun, type UsageMeter, type UsageMeterOptions } from './meter-run.js';
+import {
+  ObservedRun,
+  type MeterLeg,
+  type UsageMeter,
+  type UsageMeterOptions,
+} from './meter-run.js';
 import { meteredSettlement } from './settle-policy.js';
 import {
   creditHoldMicros,
@@ -68,10 +74,21 @@ class PersonalRun extends ObservedRun {
     private readonly price: ModelPrice,
     /** The estimated input tokens its hold was sized with. */
     private readonly heldInputTokens: number,
-    /** Each search's fee where the provider bills it outside a reported cost. */
-    private readonly searchFeeMicros: number,
+    /** Each search's fee where the backend it runs on bills it outside a reported cost. */
+    private searchFeeMicros: number,
+    /** The search fee its hold covers: the dearest of its legs'. */
+    private readonly heldSearchFeeMicros: number,
   ) {
     super(env, usageId, markupBps, feeBps, defer, options, request);
+  }
+
+  protected feeBpsOn(leg: MeterLeg): number | null {
+    // Credit's rates are the same on every backend; only a search fee can differ.
+    return leg.searchFeeMicros <= this.heldSearchFeeMicros ? this.feeBps : null;
+  }
+
+  protected override movedTo(leg: MeterLeg): void {
+    this.searchFeeMicros = leg.searchFeeMicros;
   }
 
   override async dispatch(): Promise<boolean> {
@@ -134,6 +151,7 @@ export function createUsageMeter(
       const inputTokens = estimatedInputTokens(request);
       // Sent on the first leg; held for the dearest search fee of any.
       const { searchFeeMicros, backend, backendModel } = legs[0]!;
+      const sentOn = { backend, backendModel };
       const holdSearchFeeMicros = Math.max(...legs.map((l) => l.searchFeeMicros));
       const searchFeesMicros = (request.webSearch?.maxUses ?? 0) * holdSearchFeeMicros;
       const holdMicros = creditHoldMicros(
@@ -156,6 +174,7 @@ export function createUsageMeter(
           price,
           inputTokens,
           searchFeeMicros,
+          holdSearchFeeMicros,
         );
       if (tag?.reservationId) {
         const claimed = await repriceReservation(
@@ -165,6 +184,7 @@ export function createUsageMeter(
           holdMicros,
           tag.nodeId,
           inputTokens,
+          sentOn,
         );
         if (claimed) return run(tag.reservationId, claimed);
         // Already used (a reply retried without its web search), or too dear for the balance:
@@ -184,8 +204,7 @@ export function createUsageMeter(
           purpose,
           providerId,
           model,
-          backend,
-          backendModel,
+          ...sentOn,
           holdMicros,
           heldInputTokens: inputTokens,
           ...rates,

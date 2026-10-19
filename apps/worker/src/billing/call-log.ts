@@ -1,8 +1,8 @@
 // Every metered call also logs one line at its end (`event: 'llm_call'`, a
 // warning when its output cap cut it off): the model, its tier, the effort
-// asked for, the backend it was sent to and the upstream that served it, the
-// tokens (cached and reasoning shares too), the reported cost and the finish
-// reason, so cache hit rates and how often a tier's cap ends replies can be
+// asked for, the backend that served it (and those it fell back from), the
+// upstream behind that backend, the tokens (cached and reasoning shares too),
+// the reported cost and the finish reason, so cache hit rates and how often a tier's cap ends replies can be
 // read from the Worker's logs. The charge never comes from this line: it is
 // the reported (or looked-up) cost, or the tokens at the list price (meter-run.ts).
 import {
@@ -12,6 +12,7 @@ import {
   type ProviderEvent,
   type ProviderUsage,
 } from '@tangent/shared';
+import type { HostedBackendId } from '../hosted/backend.js';
 import type { HostedLeg } from '../hosted/legs.js';
 import type { UsageMeter } from './meter-run.js';
 import { logEvent } from '../log.js';
@@ -23,14 +24,22 @@ export class CallLog {
   private readonly usage: Partial<ProviderUsage> = {};
   private stopReason: string | null = null;
   private error: string | null = null;
+  /** The backends that refused the call before the one that served it, in order. */
+  private readonly fellBackFrom: HostedBackendId[] = [];
 
   constructor(
     private readonly provider: LlmProvider,
     private readonly request: GenerateRequest,
     private readonly funding: UsageMeter['funding'],
-    /** The backend the call was sent to. */
-    private readonly leg: Pick<HostedLeg, 'backend' | 'model'>,
+    /** The backend the call is sent to. */
+    private leg: Pick<HostedLeg, 'backend' | 'model'>,
   ) {}
+
+  /** The call fell back from its backend to `leg`'s. */
+  fellBackTo(leg: Pick<HostedLeg, 'backend' | 'model'>): void {
+    this.fellBackFrom.push(this.leg.backend.id);
+    this.leg = leg;
+  }
 
   observe(event: ProviderEvent): void {
     if (event.type === 'billing') {
@@ -73,6 +82,7 @@ export class CallLog {
         finishReason: this.stopReason,
         truncated,
         error: this.error,
+        fellBackFrom: this.fellBackFrom,
       });
     } catch (e) {
       logEvent('error', 'llm_call_log_failed', { usageId, error: e });

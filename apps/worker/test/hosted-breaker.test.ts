@@ -1,17 +1,19 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OPENROUTER_PROVIDER_ID, type ProviderError } from '@tangent/shared';
-import type { AppEnv } from '../src/env.js';
 import {
-  breakerClock,
-  breakerOpen,
-  breakerWindowMs,
-  resetBreakers,
-  tripBreaker,
-} from '../src/hosted/breaker.js';
+  OPENROUTER_PROVIDER_ID,
+  type GenerateRequest,
+  type ProviderError,
+  type ProviderEvent,
+} from '@tangent/shared';
+import type { AppEnv } from '../src/env.js';
+import { breakerClock, breakerOpen, breakerWindowMs, tripBreaker } from '../src/hosted/breaker.js';
+import { grantCredit } from '../src/billing/ledger.js';
+import { meteredRegistry } from '../src/billing/meter.js';
+import { createUsageMeter } from '../src/billing/personal-meter.js';
 import { hostedLegs } from '../src/hosted/legs.js';
 import { registryFor } from '../src/registries.js';
-import { simpleAccount } from './mocks/billing-helpers.js';
+import { ensureUser, simpleAccount, uniq, usageRows } from './mocks/billing-helpers.js';
 
 const HAIKU = 'anthropic/claude-haiku-5.5';
 const SEC = 1_000;
@@ -48,7 +50,6 @@ function chain(): string[] {
 }
 
 afterEach(() => {
-  resetBreakers();
   vi.restoreAllMocks();
 });
 
@@ -122,6 +123,128 @@ describe('the breaker', () => {
     // Both windows pass: Anthropic is the first choice again.
     at(30 * SEC);
     expect(chain()).toEqual(['anthropic', 'openrouter']);
+    expect(breakerOpen('anthropic')).toBe(false);
+  });
+});
+
+/** OpenRouter's stream of a short reply that reports its cost. */
+function openRouterReply(): Response {
+  const chunks = [
+    { choices: [{ delta: { content: 'Hi' } }] },
+    {
+      choices: [{ delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.001 },
+    },
+  ];
+  const body = chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n';
+  return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+}
+
+/** Anthropic answers 529 with `retry-after: 90`; OpenRouter answers. Returns each request's origin. */
+function overloadedAnthropic(): string[] {
+  const origins: string[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    const origin = new URL(new Request(input, init).url).origin;
+    origins.push(origin);
+    if (origin === 'https://api.anthropic.com') {
+      const body = { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), { status: 529, headers: { 'retry-after': '90' } }),
+      );
+    }
+    return Promise.resolve(openRouterReply());
+  });
+  return origins;
+}
+
+function haikuRequest(): GenerateRequest {
+  return {
+    model: HAIKU,
+    system: null,
+    messages: [{ role: 'user', content: 'hi' }],
+    maxOutputTokens: 100,
+    signal: new AbortController().signal,
+    usageTag: { purpose: 'reply', treeId: 'tree_1', branchId: 'branch_1', nodeId: uniq('n') },
+  };
+}
+
+describe('a call whose first backend is overloaded', () => {
+  it('runs on the next, keeps later calls off the first for its retry-after, then returns to it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const origins = overloadedAnthropic();
+    const account = simpleAccount();
+    await ensureUser(both, account.userId!);
+    await grantCredit(both.DB, {
+      accountId: account.billingAccountId,
+      kind: 'adjustment',
+      amountMicros: 5_000_000,
+      providerRef: `test-funds:${account.billingAccountId}`,
+    });
+    const registry = meteredRegistry(
+      registryFor(both, account),
+      createUsageMeter(both, account, () => undefined),
+      () => true,
+      hostedLegs(both),
+    );
+    const call = async (): Promise<ProviderEvent[]> => {
+      const events: ProviderEvent[] = [];
+      for await (const e of registry.get(OPENROUTER_PROVIDER_ID)!.stream(haikuRequest()))
+        events.push(e);
+      return events;
+    };
+
+    at(1_000_000);
+    expect((await call()).at(-1)).toMatchObject({ type: 'done' });
+    expect(origins).toEqual(['https://api.anthropic.com', 'https://openrouter.ai']);
+    const lines = warn.mock.calls.map(([l]) => JSON.parse(String(l)) as Record<string, unknown>);
+    expect(lines.find((l) => l['event'] === 'backend_circuit_open')).toEqual({
+      event: 'backend_circuit_open',
+      backend: 'anthropic',
+      untilMs: 1_000_000 + 90 * SEC,
+      reason: 'overloaded',
+    });
+    expect(lines.find((l) => l['event'] === 'backend_fallback')).toMatchObject({
+      from: 'anthropic',
+      to: 'openrouter',
+      code: 'overloaded',
+      status: 529,
+      retryAfterMs: 90 * SEC,
+    });
+
+    // While it is open, the next call starts on OpenRouter.
+    origins.length = 0;
+    at(1_000_000 + 89 * SEC);
+    expect((await call()).at(-1)).toMatchObject({ type: 'done' });
+    expect(origins).toEqual(['https://openrouter.ai']);
+
+    // Once it expires, Anthropic is tried first again.
+    origins.length = 0;
+    at(1_000_000 + 90 * SEC);
+    await call();
+    expect(origins[0]).toBe('https://api.anthropic.com');
+
+    const rows = await usageRows(both, account.billingAccountId);
+    expect(rows.map((r) => [r.backend, r.status, r.charge_micros])).toEqual([
+      ['openrouter', 'settled', 1000],
+      ['openrouter', 'settled', 1000],
+      ['openrouter', 'settled', 1000],
+    ]);
+  });
+
+  it("never sends a learner's own-key call anywhere else, nor lets it open the breaker", async () => {
+    const origins: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      origins.push(new URL(new Request(input, init).url).origin);
+      return Promise.resolve(new Response('{"error":{"message":"busy"}}', { status: 429 }));
+    });
+    const account = { ...simpleAccount(), payer: 'own-key' as const };
+    const own = registryFor(both, account, { [OPENROUTER_PROVIDER_ID]: 'sk-or-learner' });
+    const events: ProviderEvent[] = [];
+    for await (const e of own.get(OPENROUTER_PROVIDER_ID)!.stream(haikuRequest())) events.push(e);
+    expect(events).toMatchObject([{ type: 'error', error: { code: 'rate_limit' } }]);
+    expect(origins).toEqual(['https://openrouter.ai']);
+    expect(breakerOpen('openrouter')).toBe(false);
     expect(breakerOpen('anthropic')).toBe(false);
   });
 });

@@ -746,7 +746,7 @@ describe('Pool meter', () => {
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     // Anthropic first: charged its fee (none), held at the dearest of the chain's (OpenRouter's).
-    const p = params(poolId, { backend: 'anthropic', backendModel: 'claude-normal', feeBps: 0 });
+    const p = params(poolId, { backend: 'anthropic', backendModel: 'claude-normal' });
     expect(p.price!.feeBps).toBe(550);
     const asked: string[] = [];
     const leg: LlmProvider = {
@@ -786,6 +786,191 @@ describe('Pool meter', () => {
       settle_reason: 'tokens',
       // 300 tokens at 1 µ$ each, no fee.
       charge_micros: 300,
+    });
+  });
+
+  describe('falling back to the next backend', () => {
+    const overloaded: ProviderEvent = {
+      type: 'error',
+      error: {
+        code: 'overloaded',
+        message: 'Overloaded',
+        status: 529,
+        retryable: true,
+        upstream: 'rejected',
+      },
+    };
+    /** A leg that reports 300 tokens and no cost. */
+    const answers = async function* (): AsyncGenerator<ProviderEvent> {
+      yield { type: 'delta', text: 'x' };
+      yield { type: 'usage', usage: { inputTokens: 100, outputTokens: 200 } };
+      yield { type: 'done', stopReason: 'stop' };
+    };
+    const refuses = async function* (): AsyncGenerator<ProviderEvent> {
+      yield overloaded;
+    };
+
+    /** Runs a pool call on `p` with Anthropic's leg playing `anthropic` and OpenRouter's `openRouter`, in `order`. */
+    async function runLegs(
+      p: PoolParams,
+      order: ['anthropic', 'openrouter'] | ['openrouter', 'anthropic'],
+      play: {
+        anthropic: () => AsyncGenerator<ProviderEvent>;
+        openrouter: () => AsyncGenerator<ProviderEvent>;
+      },
+      t: UsageTag = tag(),
+    ): Promise<{ events: ProviderEvent[]; asked: string[] }> {
+      const asked: string[] = [];
+      const leg = (id: 'anthropic' | 'openrouter'): LlmProvider =>
+        providerOf(async function* () {
+          asked.push(id);
+          yield* play[id]();
+        });
+      const outer = leg('openrouter');
+      const anthropic = {
+        backend: anthropicBackend,
+        model: 'claude-normal',
+        provider: leg('anthropic'),
+      };
+      const deferred: Promise<unknown>[] = [];
+      const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
+      const registry = meteredRegistry(
+        registryOf(outer),
+        meter,
+        () => true,
+        (provider, model) => {
+          const openrouter = { backend: openRouterBackend, model, provider };
+          return order[0] === 'anthropic' ? [anthropic, openrouter] : [openrouter, anthropic];
+        },
+      );
+      const events = await drain(registry.get('openrouter')!.stream(genRequest(t)));
+      await settleAll(deferred);
+      return { events, asked };
+    }
+
+    it('runs OpenRouter after Anthropic refuses: its fee, within the hold, charged once', async () => {
+      quiet();
+      const poolId = uniq('pool');
+      await fund(poolId, 100_000);
+      const p = params(poolId, { backend: 'anthropic', backendModel: 'claude-normal' });
+      const { events, asked } = await runLegs(p, ['anthropic', 'openrouter'], {
+        anthropic: refuses,
+        openrouter: answers,
+      });
+      expect(asked).toEqual(['anthropic', 'openrouter']);
+      expect(events.map((e) => e.type)).toEqual(['delta', 'usage', 'done']);
+      const rows = await poolRows(poolId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        backend: 'openrouter',
+        backend_model: 'normal',
+        fee_bps: 550,
+        // Held at the dearest fee of the chain, OpenRouter's, from the start.
+        hold_micros: Math.ceil(2070 * 1.055),
+        settle_reason: 'tokens',
+        // 300 tokens at 1 µ$, × 1.055 = 316.5 → 317.
+        charge_micros: 317,
+        overage_micros: 0,
+      });
+      expect(rows[0]!.charge_micros!).toBeLessThanOrEqual(rows[0]!.hold_micros);
+      expect(await available(poolId)).toBe(100_000 - 317);
+    });
+
+    it('runs Anthropic after OpenRouter refuses, and charges it no fee', async () => {
+      quiet();
+      const poolId = uniq('pool');
+      await fund(poolId, 100_000);
+      const { asked } = await runLegs(params(poolId), ['openrouter', 'anthropic'], {
+        anthropic: answers,
+        openrouter: refuses,
+      });
+      expect(asked).toEqual(['openrouter', 'anthropic']);
+      const [row] = await poolRows(poolId);
+      expect(row).toMatchObject({
+        backend: 'anthropic',
+        backend_model: 'claude-normal',
+        fee_bps: 0,
+        charge_micros: 300,
+      });
+    });
+
+    it("surfaces the error, charging nothing, when the hold can't cover the next backend's fee", async () => {
+      quiet();
+      const poolId = uniq('pool');
+      await fund(poolId, 100_000);
+      // Held without OpenRouter's fee, as if the chain were Anthropic's alone.
+      const p = params(poolId, {
+        backend: 'anthropic',
+        backendModel: 'claude-normal',
+        price: { ...BASE_PARAMS.price!, feeBps: 0 },
+      });
+      const { events, asked } = await runLegs(p, ['anthropic', 'openrouter'], {
+        anthropic: refuses,
+        openrouter: answers,
+      });
+      expect(asked).toEqual(['anthropic']);
+      expect(events).toEqual([overloaded]);
+      const [row] = await poolRows(poolId);
+      expect(row).toMatchObject({
+        backend: 'anthropic',
+        settle_reason: 'released',
+        charge_micros: 0,
+      });
+      expect(await available(poolId)).toBe(100_000);
+    });
+
+    it("points a reply's reservation at the backend it is sent on, and its fee", async () => {
+      quiet();
+      const poolId = uniq('pool');
+      await fund(poolId, 100_000);
+      const p = params(poolId);
+      const reservationId = await reserved(poolId, {
+        holdMicros: replyCeilingMicros(p, p.price!),
+        feeBps: p.price!.feeBps,
+        backend: 'openrouter',
+        backendModel: 'normal',
+      });
+      await runLegs(
+        p,
+        ['anthropic', 'openrouter'],
+        { anthropic: answers, openrouter: refuses },
+        tag({ reservationId }),
+      );
+      expect(await usageRow(env, reservationId)).toMatchObject({
+        backend: 'anthropic',
+        backend_model: 'claude-normal',
+        fee_bps: 0,
+        status: 'settled',
+        charge_micros: 300,
+      });
+    });
+
+    it("moves a reply's reservation on to the next backend, the hold only shrinking", async () => {
+      quiet();
+      const poolId = uniq('pool');
+      await fund(poolId, 100_000);
+      const p = params(poolId, { backend: 'anthropic', backendModel: 'claude-normal' });
+      const ceiling = replyCeilingMicros(p, p.price!);
+      const reservationId = await reserved(poolId, {
+        holdMicros: ceiling,
+        feeBps: 0,
+        backend: 'anthropic',
+        backendModel: 'claude-normal',
+      });
+      await runLegs(
+        p,
+        ['anthropic', 'openrouter'],
+        { anthropic: refuses, openrouter: answers },
+        tag({ reservationId }),
+      );
+      const row = await usageRow(env, reservationId);
+      expect(row).toMatchObject({
+        backend: 'openrouter',
+        fee_bps: 550,
+        hold_micros: Math.ceil(2070 * 1.055),
+        charge_micros: 317,
+      });
+      expect(row.hold_micros).toBeLessThan(ceiling);
     });
   });
 

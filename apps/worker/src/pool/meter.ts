@@ -1,7 +1,10 @@
 // The open pool's meter (`createPoolUsageMeter`):
 //   1. Reserve the call's exact worst case through PoolBank (or shrink the
 //      reservation the reply already holds, `UsageTag.reservationId`); a
-//      refusal fails the call before anything is sent.
+//      refusal fails the call before anything is sent. The hold is grossed up
+//      by the dearest fee of its backends; the row records the backend it is
+//      sent on and that backend's fee, and follows it when it falls back
+//      (billing/meter.ts), the hold never growing.
 //   2. Stamp `dispatched_at` (awaited) right before the upstream call, which
 //      runs with the pool's output cap and a timeout; a reservation too close
 //      to its TTL for the call to finish first is refused instead.
@@ -12,7 +15,12 @@
 //      never exceeds the hold; the excess is recorded as overage.
 import type { GenerateRequest } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
-import { ObservedRun, type UsageMeter, type UsageMeterOptions } from '../billing/meter-run.js';
+import {
+  ObservedRun,
+  type MeterLeg,
+  type UsageMeter,
+  type UsageMeterOptions,
+} from '../billing/meter-run.js';
 import { markDispatched, shrinkHold } from '../billing/usage-store.js';
 import { poolBank } from './ids.js';
 import {
@@ -68,6 +76,12 @@ class PoolRun extends ObservedRun {
     callerSignal: AbortSignal,
   ) {
     super(env, usageId, markupBps, feeBps, defer, options, request, callerSignal);
+  }
+
+  protected feeBpsOn(leg: MeterLeg): number | null {
+    // The hold was grossed up by `price.feeBps`: a dearer fee could charge past it.
+    const feeBps = this.pool.feeBpsByBackend[leg.backend];
+    return this.pool.price !== null && feeBps <= this.pool.price.feeBps ? feeBps : null;
   }
 
   override async dispatch(): Promise<boolean> {
@@ -139,7 +153,7 @@ export function createPoolUsageMeter(
 ): UsageMeter {
   return {
     funding: 'pool',
-    async begin({ tag, providerId, request }) {
+    async begin({ tag, providerId, request, legs }) {
       const price = pool.price;
       if (!price) throw new PoolRefusedError({ reason: 'unpriced' });
       const maxOutput = Math.min(
@@ -160,16 +174,17 @@ export function createPoolUsageMeter(
       const holdMicros = worstCaseHoldMicros(price, request, maxOutput, price.feeBps);
       let usageId: string;
       // Held at the dearest backend's fee, charged at the fee of the one it is sent to.
-      let feeBps = pool.feeBps;
+      const { backend, backendModel } = legs[0]!;
+      const feeBps = pool.feeBpsByBackend[backend];
       if (tag?.reservationId) {
         // The reply was reserved at its ceiling before the prompt existed: shrink, never re-reserve.
-        const shrunk = await shrinkHold(env.DB, tag.reservationId, pool.accountId, holdMicros);
-        if (!shrunk) throw new Error(`Pool reservation ${tag.reservationId} is no longer pending`);
+        const sentOn = { backend, backendModel, feeBps };
+        if (!(await shrinkHold(env.DB, tag.reservationId, pool.accountId, holdMicros, sentOn)))
+          throw new Error(`Pool reservation ${tag.reservationId} is no longer pending`);
         usageId = tag.reservationId;
-        feeBps = shrunk.feeBps;
       } else {
         const result = await poolBank(env, pool.accountId).reserve(
-          poolReserveRequest(pool, userId, {
+          poolReserveRequest({ ...pool, backend, backendModel }, userId, {
             purpose: tag?.purpose ?? 'other',
             treeId: tag?.treeId ?? null,
             branchId: tag?.branchId ?? null,
