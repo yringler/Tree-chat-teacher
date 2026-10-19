@@ -803,6 +803,37 @@ describe('anthropic web search', () => {
     expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end_turn' });
   });
 
+  it('reports zero searches when the final usage bills none (an errored search)', async () => {
+    const errored = STREAM.map((f) =>
+      f.includes('server_tool_use') && f.includes('web_search_requests')
+        ? frame('message_delta', {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' },
+            usage: { output_tokens: 40 },
+          })
+        : f,
+    );
+    const m = mockFetch(() => sseResponse(errored).response);
+    const provider = createAnthropicProvider(WS, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
+    const events = await collect(provider.stream(req({ webSearch })));
+    // The search block still started (activity), but nothing was billed: the count replaces it.
+    expect(events).toContainEqual({ type: 'activity', kind: 'web_search' });
+    expect(events).toContainEqual({ type: 'billing', webSearches: 0 });
+  });
+
+  it('reports no search count on a reply sent without the search tool', async () => {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(WS, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
+    const events = await collect(provider.stream(req()));
+    expect(events.some((e) => e.type === 'billing')).toBe(false);
+  });
+
   it('leaves tool_choice on auto when a search is required', async () => {
     const { provider, calls } = setupWs(WS);
     await collect(provider.stream(req({ webSearch: { ...webSearch, mode: 'required' } })));

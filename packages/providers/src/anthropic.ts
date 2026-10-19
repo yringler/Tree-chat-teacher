@@ -277,9 +277,12 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             if (isRecord(usage)) {
               const u = usageOf(usage);
               if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
+              // The billed count. With the tool sent, an absent count is 0 (a search
+              // that errored is not billed), replacing the guess its started block made.
               const stu = usage['server_tool_use'];
               const webSearches = isRecord(stu) ? num(stu['web_search_requests']) : undefined;
               if (webSearches !== undefined) yield { type: 'billing', webSearches };
+              else if (webSearch) yield { type: 'billing', webSearches: 0 };
             }
             break;
           }
