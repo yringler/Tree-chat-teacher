@@ -22,6 +22,12 @@ export interface PowerProfile {
      * and nothing is locked, so a new tree never defaults onto credit.
      */
     defaultRouteFacts?: () => Promise<DefaultRouteFacts>;
+    /**
+     * The most input a summary on a credit route sends: its prompt is clipped
+     * to it, as a reply's context is to the server's input cap, so a long
+     * compaction prefix costs no more than a reply. Absent: no cap.
+     */
+    summaryMaxInputTokens?: number;
   };
 }
 
@@ -42,6 +48,12 @@ export interface LearnProfile {
    * the learner pays with their own key or credit, false on the pool.
    */
   customPrompt: boolean;
+  /**
+   * Set where the request pays with Tangent credit: the most input a summary
+   * sends, its prompt clipped to it as on power's credit routes. Absent on
+   * the learner's own key.
+   */
+  summaryMaxInputTokens?: number;
 }
 
 /**

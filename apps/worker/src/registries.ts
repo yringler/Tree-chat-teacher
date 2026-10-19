@@ -48,6 +48,7 @@ import {
   poolChatSettings,
   poolProviderConfig,
   simpleChatSettings,
+  simpleMaxInputTokens,
   simpleProviderConfig,
   simpleSystemPrompt,
 } from './simple-mode.js';
@@ -340,9 +341,9 @@ export function chatService(
   if (account.mode === 'simple') {
     // Learn pays per request: its one registry is on the operator's key exactly when the
     // request pays with credit or the pool, and branch funding is ignored.
+    const operatorPaid = callPayer(account, 'own-key') !== 'own-key';
     if (pooled) providers = poolGeneratingRegistry(env, pooled, defer, registry);
-    else if (callPayer(account, 'own-key') !== 'own-key')
-      providers = meteredLazily(registry, env, account, defer);
+    else if (operatorPaid) providers = meteredLazily(registry, env, account, defer);
     profile = pool
       ? {
           kind: 'pool',
@@ -353,8 +354,13 @@ export function chatService(
           // A client-set anchor quote gets no more room than a message.
           anchorQuoteMaxChars: pool.maxMessageChars,
         }
-      : // The tree's learner instructions only where the learner pays: the pool keeps its locked prompt.
-        { kind: 'learn', customPrompt: account.payer !== 'pool' };
+      : {
+          kind: 'learn',
+          // The tree's learner instructions only where the learner pays: the pool keeps its locked prompt.
+          customPrompt: account.payer !== 'pool',
+          // On credit a summary's input is capped as a reply's is.
+          ...(operatorPaid ? { summaryMaxInputTokens: simpleMaxInputTokens(env) } : {}),
+        };
   } else {
     // Power: own keys unmetered; Tangent credit, every call metered.
     const credit = creditRegistryFor(env, account);
@@ -366,6 +372,8 @@ export function chatService(
             // A new tree's default route starts on credit only when it can pay, so a first
             // send is never a 402 for credit nobody bought.
             defaultRouteFacts: () => defaultRouteFacts(env, account),
+            // The same cap as a reply's input on credit (`serverInputCap`).
+            summaryMaxInputTokens: simpleMaxInputTokens(env),
           },
         }
       : { kind: 'power' };

@@ -154,17 +154,32 @@ export class RouteResolver {
     return provider;
   }
 
-  /** Where summaries and titles of `branch` run: the configured summary route, else the branch's. */
-  summaryTarget(branch: Branch): { provider: LlmProvider; model: string } {
+  /**
+   * Where summaries and titles of `branch` run: the configured summary route,
+   * else the branch's. `maxInputTokens` is the cap a summary's prompt is
+   * clipped to where Tangent credit pays for it (the profile's
+   * `summaryMaxInputTokens`); absent on the user's own key.
+   */
+  summaryTarget(branch: Branch): { provider: LlmProvider; model: string; maxInputTokens?: number } {
     const { summaryProviderId, summaryModel } = this.settings;
     const providers = this.providers;
-    // A configured summary provider is an own-key route (never credit, in power).
+    // Learn's one registry is paid one way for the whole request, the summary route too.
+    const learnCap = this.profile.kind === 'learn' ? this.profile.summaryMaxInputTokens : undefined;
+    const learn = learnCap === undefined ? {} : { maxInputTokens: learnCap };
+    // A configured summary provider is an own-key route in power (never credit).
     if (summaryProviderId && isProviderAvailable(providers, summaryProviderId)) {
       const provider = providers.get(summaryProviderId);
-      if (provider) return { provider, model: summaryModel ?? provider.defaultModel() };
+      if (provider) return { provider, model: summaryModel ?? provider.defaultModel(), ...learn };
     }
     // No summary provider configured, or not one this user has a key for:
     // summarize on the branch's own route and model.
-    return { provider: this.requireProvider(branch), model: this.modelOf(branch) };
+    const creditCap =
+      this.fundingOf(branch) === 'credit' ? this.credit?.summaryMaxInputTokens : undefined;
+    return {
+      provider: this.requireProvider(branch),
+      model: this.modelOf(branch),
+      ...learn,
+      ...(creditCap === undefined ? {} : { maxInputTokens: creditCap }),
+    };
   }
 }
