@@ -207,8 +207,10 @@ export const DEFAULT_POWER_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
  */
 export const DEFAULT_BACKGROUND_MODEL = 'anthropic/claude-haiku-5.5';
 /**
- * The open pool's model (`POOL_MODEL`): the pool is free to the learner and
- * capped, so it runs a cheaper model than the paid paths.
+ * The open pool's model (`POOL_MODEL`): the owner keeps the free pool on the
+ * model a live eval picked. Per token it lists above Haiku 5.5, but its cache
+ * reads cost less ($0.003 against $0.01 per million), and it is pinned to fp8
+ * hosts with `max_price` routing, so no route costs more than its holds.
  */
 export const DEFAULT_POOL_MODEL = 'deepseek/deepseek-v4.1-flash';
 

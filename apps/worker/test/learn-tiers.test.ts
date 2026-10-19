@@ -63,7 +63,7 @@ describe("the built-in provider's models", () => {
     expect(DEFAULT_POWER_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
     // The background model is no tier, but today it is Normal's model, asked differently.
     expect(DEFAULT_BACKGROUND_MODEL).toBe(DEFAULT_LEARN_NORMAL_MODEL);
-    // The free pool stays on the cheaper model.
+    // The free pool stays on the model its eval picked, not the paid tiers' Haiku.
     expect(DEFAULT_POOL_MODEL).toBe('deepseek/deepseek-v4.1-flash');
   });
 
