@@ -49,10 +49,10 @@ describe('Segmented', () => {
   });
 
   it('when disabled, says why and picks nothing', async () => {
-    const s = await segmented({ disabled: true, description: 'The open pool uses Lite.' });
+    const s = await segmented({ disabled: true, description: 'The open pool uses Normal.' });
     const group = screen.getByRole('radiogroup', { name: 'Tutor' });
     const describedBy = group.getAttribute('aria-describedby')!;
-    expect(document.getElementById(describedBy)?.textContent).toBe('The open pool uses Lite.');
+    expect(document.getElementById(describedBy)?.textContent).toBe('The open pool uses Normal.');
     for (const radio of screen.getAllByRole<HTMLButtonElement>('radio'))
       expect(radio.disabled).toBe(true);
     screen

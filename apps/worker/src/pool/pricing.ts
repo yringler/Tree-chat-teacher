@@ -92,6 +92,30 @@ export function exceedsInputLimit(limitTokens: number, request: InputOf): boolea
 }
 
 /**
+ * The rates a call with `inputTokens` in is priced at: the long-context
+ * tier's (`ModelPrice.longContext`) once its input is over the tier's
+ * threshold, the whole call at them as the provider bills it; else the base
+ * rates. The tier's unset cache prices fall back to its own input price, never
+ * the base ones, so no token is priced below what it costs there.
+ */
+function priceForInput(price: ModelPrice, inputTokens: number | null): ModelPrice {
+  const long = price.longContext;
+  if (!long || tokensOf(inputTokens) <= BigInt(long.aboveInputTokens)) return price;
+  return {
+    inMicrosPerMTok: long.inMicrosPerMTok,
+    outMicrosPerMTok: long.outMicrosPerMTok,
+    contextTokens: price.contextTokens,
+    ...(price.feeBps !== undefined ? { feeBps: price.feeBps } : {}),
+    ...(long.cacheReadMicrosPerMTok !== undefined
+      ? { cacheReadMicrosPerMTok: long.cacheReadMicrosPerMTok }
+      : {}),
+    ...(long.cacheWriteMicrosPerMTok !== undefined
+      ? { cacheWriteMicrosPerMTok: long.cacheWriteMicrosPerMTok }
+      : {}),
+  };
+}
+
+/**
  * The most one input token can cost: the input price, or the cache-write
  * price when that is higher (a prompt-cached request may write all its input).
  */
@@ -101,7 +125,8 @@ export function maxInputMicrosPerMTok(price: ModelPrice): number {
 
 /**
  * A bound on the true cost of `inputTokens` in (at `maxInputMicrosPerMTok`)
- * and `outputTokens` out, in micro-USD, with the fee and no markup. Rounded
+ * and `outputTokens` out, in micro-USD, with the fee and no markup, at the
+ * rates of that much input (`priceForInput`). Rounded
  * as a token-priced settle is (to nano-USD, then up to micro-USD,
  * `chargeFromTokensMicros`): a single rounding can come out a micro-dollar
  * below that settle.
@@ -112,9 +137,10 @@ function priceMicros(
   outputTokens: number,
   feeBps: number,
 ): number {
+  const rates = priceForInput(price, inputTokens);
   const raw =
-    tokensOf(inputTokens) * BigInt(maxInputMicrosPerMTok(price)) +
-    tokensOf(outputTokens) * BigInt(price.outMicrosPerMTok);
+    tokensOf(inputTokens) * BigInt(maxInputMicrosPerMTok(rates)) +
+    tokensOf(outputTokens) * BigInt(rates.outMicrosPerMTok);
   return chargeMicros(nanosOfRaw(raw), 0, feeBps);
 }
 
@@ -194,8 +220,8 @@ function minBig(a: bigint, b: bigint): bigint {
 
 /**
  * The model price of `inputTokens` in (of which `cache` was read from or
- * written to the prompt cache) and `outputTokens` out, in nano-USD (rounded
- * up), before fees.
+ * written to the prompt cache) and `outputTokens` out, at the rates of that
+ * much input (`priceForInput`), in nano-USD (rounded up), before fees.
  */
 export function costFromTokensNanos(
   price: ModelPrice,
@@ -203,9 +229,10 @@ export function costFromTokensNanos(
   outputTokens: number | null,
   cache: CacheTokens = {},
 ): number {
+  const rates = priceForInput(price, inputTokens);
   // µ$/MTok × tokens / 10⁶ = µ$; × 1000 = n$.
   const raw =
-    inputRaw(price, inputTokens, cache) + tokensOf(outputTokens) * BigInt(price.outMicrosPerMTok);
+    inputRaw(rates, inputTokens, cache) + tokensOf(outputTokens) * BigInt(rates.outMicrosPerMTok);
   return nanosOfRaw(raw);
 }
 

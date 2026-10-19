@@ -268,6 +268,94 @@ describe('pool pricing with prompt caching', () => {
   });
 });
 
+describe('pricing above a long-context threshold', () => {
+  // Haiku 5.5-like: $0.10 / $0.50 up to 100K input tokens, $0.50 / $2.50 above.
+  const BASE = {
+    inMicrosPerMTok: 100_000,
+    outMicrosPerMTok: 500_000,
+    cacheReadMicrosPerMTok: 10_000,
+    cacheWriteMicrosPerMTok: 125_000,
+  };
+  const LONG = {
+    inMicrosPerMTok: 500_000,
+    outMicrosPerMTok: 2_500_000,
+    cacheReadMicrosPerMTok: 50_000,
+    cacheWriteMicrosPerMTok: 625_000,
+  };
+  const TIERED: ModelPrice = {
+    ...BASE,
+    contextTokens: 1_000_000,
+    longContext: { aboveInputTokens: 100_000, ...LONG },
+  };
+  /** The same model priced flat at each tier's rates. */
+  const FLAT_BASE: ModelPrice = { ...BASE, contextTokens: 1_000_000 };
+  const FLAT_LONG: ModelPrice = { ...LONG, contextTokens: 1_000_000 };
+
+  it('charges the whole call at the long rates once its input exceeds the threshold', () => {
+    // 120_000 × $0.50 + 1000 × $2.50 per million: 62_500 µ$.
+    expect(costFromTokensNanos(TIERED, 120_000, 1000, { readTokens: 0, writeTokens: 0 })).toBe(
+      62_500_000,
+    );
+    expect(
+      chargeFromTokensMicros(TIERED, 120_000, 1000, 0, 0, { readTokens: 0, writeTokens: 0 }),
+    ).toBe(62_500);
+    // Cache reads at the long read price: 100_000 × $0.05 + 20_000 × $0.50.
+    expect(costFromTokensNanos(TIERED, 120_000, 0, { readTokens: 100_000, writeTokens: 0 })).toBe(
+      15_000_000,
+    );
+    // Unknown cache share: the long write price, the most an input token can cost there.
+    expect(costFromTokensNanos(TIERED, 120_000, 1000)).toBe(
+      costFromTokensNanos(FLAT_LONG, 120_000, 1000),
+    );
+  });
+
+  it('charges the base rates at or under the threshold', () => {
+    // 90_000 × $0.10 + 1000 × $0.50 per million: 9_500 µ$.
+    expect(costFromTokensNanos(TIERED, 90_000, 1000, { readTokens: 0, writeTokens: 0 })).toBe(
+      9_500_000,
+    );
+    for (const input of [0, 90_000, 100_000]) {
+      expect(costFromTokensNanos(TIERED, input, 1000)).toBe(
+        costFromTokensNanos(FLAT_BASE, input, 1000),
+      );
+    }
+    expect(costFromTokensNanos(TIERED, 100_001, 1000)).toBe(
+      costFromTokensNanos(FLAT_LONG, 100_001, 1000),
+    );
+  });
+
+  it('holds a request whose input bound exceeds the threshold at the long rates', () => {
+    const long = { system: null, messages: [msg('x'.repeat(120_000))] };
+    expect(inputBoundTokens(long)).toBeGreaterThan(100_000);
+    expect(worstCaseHoldMicros(TIERED, long, 1000, 0)).toBe(
+      worstCaseHoldMicros(FLAT_LONG, long, 1000, 0),
+    );
+    const short = { system: null, messages: [msg('x'.repeat(90_000))] };
+    expect(worstCaseHoldMicros(TIERED, short, 1000, 0)).toBe(
+      worstCaseHoldMicros(FLAT_BASE, short, 1000, 0),
+    );
+    // A ceiling whose input limit passes the threshold is at the long rates too.
+    expect(ceilingHoldMicros(TIERED, 60_000, 1000, 0)).toBe(
+      ceilingHoldMicros(FLAT_LONG, 60_000, 1000, 0),
+    );
+    expect(ceilingHoldMicros(TIERED, 16_000, 1000, 0)).toBe(
+      ceilingHoldMicros(FLAT_BASE, 16_000, 1000, 0),
+    );
+  });
+
+  it('settles tokens at the long rates above the threshold', () => {
+    const facts = { dispatched: true, outputTokens: 1000, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    expect(meteredSettlement({ ...facts, inputTokens: 120_000, price: TIERED })).toEqual({
+      reason: 'tokens',
+      costNanos: 62_500_000,
+    });
+    expect(meteredSettlement({ ...facts, inputTokens: 90_000, price: TIERED })).toEqual({
+      reason: 'tokens',
+      costNanos: 9_500_000,
+    });
+  });
+});
+
 describe('pool settle policy', () => {
   const price = { ...FLASH };
   it('releases what never left, or was refused upstream', () => {
@@ -351,6 +439,86 @@ describe('pool settle policy', () => {
       reason: 'hold',
       costNanos: null,
     });
+  });
+
+  it("adds a stopped call's streamed output, estimated at 3.5 characters a token", () => {
+    const stopped = { dispatched: true, userStopped: true, heldInputTokens: 1000, price };
+    // 1000 in × 0.1 µ$ + ceil(8 / 3.5) = 3 out × 0.4 µ$ = 100 + 1.2 µ$.
+    expect(meteredSettlement({ ...stopped, streamedChars: 8 })).toEqual({
+      reason: 'tokens',
+      costNanos: 101_200,
+    });
+    // The reported input, and ceil(7 / 3.5) = 2 out: 1 + 0.8 µ$.
+    expect(meteredSettlement({ ...stopped, inputTokens: 10, streamedChars: 7 })).toEqual({
+      reason: 'tokens',
+      costNanos: 1_800,
+    });
+    // Nothing streamed, or no estimate: its input alone.
+    for (const streamedChars of [0, null]) {
+      expect(meteredSettlement({ ...stopped, streamedChars })).toEqual({
+        reason: 'tokens',
+        costNanos: 100_000,
+      });
+    }
+    // A call whose meter died is charged its input alone, whatever streamed.
+    expect(
+      meteredSettlement({ ...stopped, userStopped: false, meterLost: true, streamedChars: 8 }),
+    ).toEqual({ reason: 'tokens', costNanos: 100_000 });
+    // At most the output cap its hold covers.
+    expect(meteredSettlement({ ...stopped, streamedChars: 8, outputCapTokens: 1 })).toEqual({
+      reason: 'tokens',
+      costNanos: 100_400,
+    });
+    // Reported counts win over the estimate.
+    expect(
+      meteredSettlement({ ...stopped, inputTokens: 10, outputTokens: 1, streamedChars: 80 }),
+    ).toEqual({ reason: 'tokens', costNanos: 1_400 });
+  });
+
+  it('prices the estimated output at the long-context rate its input reaches', () => {
+    const tiered: ModelPrice = {
+      ...price,
+      longContext: { aboveInputTokens: 100, inMicrosPerMTok: 200_000, outMicrosPerMTok: 800_000 },
+    };
+    // 1000 in × 0.2 µ$ + ceil(35 / 3.5) = 10 out × 0.8 µ$.
+    expect(
+      meteredSettlement({
+        dispatched: true,
+        userStopped: true,
+        inputTokens: 1000,
+        streamedChars: 35,
+        price: tiered,
+      }),
+    ).toEqual({ reason: 'tokens', costNanos: 208_000 });
+  });
+
+  it('adds searches at their fee to a tokens settlement, never to a reported cost', () => {
+    const searched = { dispatched: true, webSearches: 2, searchFeeMicros: 10_000, price };
+    expect(meteredSettlement({ ...searched, inputTokens: 1000, outputTokens: 500 })).toEqual({
+      reason: 'tokens',
+      costNanos: 300_000 + 20_000_000,
+    });
+    expect(meteredSettlement({ ...searched, userStopped: true, heldInputTokens: 1000 })).toEqual({
+      reason: 'tokens',
+      costNanos:
+        costFromTokensNanos(price, 1000, 0, { readTokens: 0, writeTokens: 0 }) + 20_000_000,
+    });
+    // OpenRouter's reported cost (or its lookup) already holds the search fee.
+    expect(meteredSettlement({ ...searched, costUsd: 0.001 })).toEqual({
+      reason: 'cost',
+      costNanos: 1_000_000,
+    });
+    expect(meteredSettlement({ ...searched, generationCostUsd: 0.002 })).toEqual({
+      reason: 'generation',
+      costNanos: 2_000_000,
+    });
+    // No fee (an endpoint whose cost reports it) or no search: the tokens alone.
+    expect(
+      meteredSettlement({ ...searched, searchFeeMicros: 0, inputTokens: 1000, outputTokens: 500 }),
+    ).toEqual({ reason: 'tokens', costNanos: 300_000 });
+    expect(
+      meteredSettlement({ ...searched, webSearches: null, inputTokens: 1000, outputTokens: 500 }),
+    ).toEqual({ reason: 'tokens', costNanos: 300_000 });
   });
 });
 

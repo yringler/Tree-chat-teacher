@@ -79,6 +79,8 @@ export const CONFIG_VARS = [
   'GROUNDING_AUTO_DAILY_CAP',
   // The built-in provider and its models
   'BUILT_IN_API_KEY',
+  'BUILT_IN_BACKENDS',
+  'BUILT_IN_ANTHROPIC_API_KEY',
   'BUILT_IN_PROVIDER',
   'BUILT_IN_MAX_INPUT_TOKENS',
   'LEARN_NORMAL_MODEL',
@@ -106,9 +108,6 @@ export const CONFIG_VARS = [
   'POLAR_MEMBERSHIP_PRODUCT_ID',
   // The open pool
   'POOL_ENABLED',
-  'POOL_MODEL',
-  'POOL_EFFORT',
-  'POOL_PROVIDER_ORDER',
   'POOL_SYSTEM_PROMPT',
   'POOL_MAX_INPUT_TOKENS',
   'POOL_MAX_OUTPUT_TOKENS',
@@ -166,6 +165,7 @@ export const CONFIG_SECRETS: ReadonlySet<ConfigVarName> = new Set<ConfigVarName>
   'OPENROUTER_API_KEY',
   'AI_GATEWAY_TOKEN',
   'BUILT_IN_API_KEY',
+  'BUILT_IN_ANTHROPIC_API_KEY',
   'MEMBERSHIP_WAIVER_CODE',
   'POLAR_ACCESS_TOKEN',
   'POLAR_WEBHOOK_SECRET',
@@ -173,6 +173,12 @@ export const CONFIG_SECRETS: ReadonlySet<ConfigVarName> = new Set<ConfigVarName>
 
 /** The secret behind the built-in provider (its default config's `apiKeySecret`). */
 export const BUILT_IN_API_KEY_SECRET = 'BUILT_IN_API_KEY';
+/** The operator's Anthropic key, which only the built-in provider's Anthropic backend spends. */
+export const BUILT_IN_ANTHROPIC_API_KEY_SECRET = 'BUILT_IN_ANTHROPIC_API_KEY';
+
+/** The hosted backends the built-in provider can run a call on (`BUILT_IN_BACKENDS`, hosted/). */
+export const HOSTED_BACKEND_IDS = ['openrouter', 'anthropic'] as const;
+export type HostedBackendId = (typeof HOSTED_BACKEND_IDS)[number];
 
 // ---- Defaults
 
@@ -195,26 +201,23 @@ const TURNSTILE_TEST_SECRETS: readonly string[] = [
  */
 export const POOL_ACCOUNT_ID = 'pool';
 
-// ---- The hosted models: the defaults a live eval of the candidates picked (2026-10-08)
+// ---- The hosted models: the owner's pick, which the open pool runs too
 
 /** Learn's one model, and power's Normal (`LEARN_NORMAL_MODEL`). */
-export const DEFAULT_LEARN_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
+export const DEFAULT_LEARN_NORMAL_MODEL = 'anthropic/claude-haiku-5.5';
 /** Power's Max, the stronger model it suggests (`POWER_MAX_MODEL`). */
 export const DEFAULT_POWER_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
 /**
- * The background model (`BACKGROUND_MODEL`): Learn's summaries and titles,
- * and the open pool's default model. Not a tier, though today it is the same
- * model as Normal, asked differently.
+ * The background model (`BACKGROUND_MODEL`): Learn's summaries and titles.
+ * Not a tier, though today it is the same model as Normal, asked differently.
  */
-export const DEFAULT_BACKGROUND_MODEL = 'deepseek/deepseek-v4.1-flash';
-
+export const DEFAULT_BACKGROUND_MODEL = 'anthropic/claude-haiku-5.5';
 /**
- * Where V4.1 Flash is pinned: StreamLake, then DeepInfra, both fp8 and both
- * caching. Not `deepseek` (first-party): OpenRouter drops it for an account
- * that denies paid-data training, and the fallbacks then scatter across
- * about 28 providers, fp4 ones included, and lose the prompt cache.
+ * Where Haiku is pinned: Anthropic's own endpoint, so one provider keeps the
+ * prompt cache warm; fallbacks stay allowed (openai-compatible.ts
+ * `pinnedRouting`), so an outage there doesn't fail the reply.
  */
-const V4_1_FLASH_PROVIDER_ORDER: readonly string[] = ['streamlake/fp8', 'deepinfra/fp8'];
+const HAIKU_PROVIDER_ORDER: readonly string[] = ['anthropic'];
 
 /** How a hosted tier asks its default model when the tier's vars are empty. */
 export interface DefaultTierRequest {
@@ -229,28 +232,24 @@ export interface DefaultTierRequest {
  * tier runs that model (`withTierDefaults`). A tier moved to another model
  * starts from that model's own defaults (no effort sent, the default cap,
  * OpenRouter's routing): an effort or a pinned provider tuned for one model
- * says nothing about another. The pool's reply cap is
- * `POOL_MAX_OUTPUT_TOKENS` (8,192), whatever its model.
+ * says nothing about another. The open pool runs Normal as it is, under its
+ * own reply cap (`POOL_MAX_OUTPUT_TOKENS`).
  */
-export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal' | 'pool', DefaultTierRequest>> = {
+export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal', DefaultTierRequest>> = {
   normal: {
     model: DEFAULT_LEARN_NORMAL_MODEL,
     request: {
       effort: 'high',
       maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
-      providerOrder: V4_1_FLASH_PROVIDER_ORDER,
+      providerOrder: HAIKU_PROVIDER_ORDER,
     },
-  },
-  pool: {
-    model: DEFAULT_BACKGROUND_MODEL,
-    request: { effort: 'low', maxOutputTokens: null, providerOrder: V4_1_FLASH_PROVIDER_ORDER },
   },
 };
 
 /**
  * The effort of summaries and titles on the default background model when
  * `BACKGROUND_EFFORT` is empty. Without one they would run at the effort of
- * the model's listing, which on V4.1 Flash is Normal's `high`.
+ * the model's listing, which on Haiku is Normal's `high`.
  */
 export const DEFAULT_BACKGROUND_EFFORT: { model: string; effort: ReasoningEffort } = {
   model: DEFAULT_BACKGROUND_MODEL,
@@ -293,6 +292,10 @@ export function backgroundEffort(env: AppEnv, model: string): ReasoningEffort | 
  * input price). Unset, a read costs the input price (never less than the
  * truth) and a write too, except on explicit-cache models, which
  * `pool/model-prices.ts` gives the write premium.
+ * `longContext`: the rates of a call whose input is over `aboveInputTokens`
+ * (`pool/pricing.ts` `priceForInput`), for a model whose provider charges the
+ * whole request more once its prompt passes a size; its cache prices fall
+ * back as the base ones do.
  */
 export interface ModelPrice {
   inMicrosPerMTok: number;
@@ -301,30 +304,45 @@ export interface ModelPrice {
   feeBps?: number;
   cacheReadMicrosPerMTok?: number;
   cacheWriteMicrosPerMTok?: number;
+  longContext?: LongContextPrice;
+}
+
+/** A model's rates above an input size (`ModelPrice.longContext`), in micro-USD per million tokens. */
+export interface LongContextPrice {
+  aboveInputTokens: number;
+  inMicrosPerMTok: number;
+  outMicrosPerMTok: number;
+  cacheReadMicrosPerMTok?: number;
+  cacheWriteMicrosPerMTok?: number;
 }
 
 /**
- * Placeholder prices of the default pool model, of power's tiers, Normal
+ * Placeholder prices of power's tiers, Normal (which the open pool runs too)
  * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`;
- * `MAX_USAGE_FACTOR_FALLBACK` is their factor), of the previous defaults and
- * of a fallback candidate: OpenRouter list prices when they were added, or
- * (V4.1 Flash) the price of its pinned providers. The daily price sync
- * (pool/model-prices.ts) replaces them with OpenRouter's current list prices;
- * `MODEL_PRICES` overrides or extends them, and an override also wins over
- * the synced price.
+ * `MAX_USAGE_FACTOR_FALLBACK` is their factor), and of a fallback candidate:
+ * OpenRouter list prices when they were added. The daily price sync
+ * (pool/model-prices.ts) replaces them with OpenRouter's current list
+ * prices; `MODEL_PRICES` overrides or extends them, and an override also
+ * wins over the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  // Normal and the pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache
-  // read $0.003. OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and
-  // as the pool's `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this
-  // entry in `MODEL_PRICES`, where it wins over the daily sync.
-  'deepseek/deepseek-v4.1-flash': {
-    inMicrosPerMTok: 150_000,
-    outMicrosPerMTok: 600_000,
-    contextTokens: 1_048_576,
-    cacheReadMicrosPerMTok: 3_000,
+  // Normal and the background model: Anthropic's price, $0.10 / $0.50, cache read $0.01, and
+  // $0.50 / $2.50, cache read $0.05, for the whole request once its prompt is over 100K tokens
+  // (the write premium is added to both for Claude ids, pool/price-table.ts
+  // `withCacheWritePrice`). The daily sync replaces the base rates only; the tier stays.
+  'anthropic/claude-haiku-5.5': {
+    inMicrosPerMTok: 100_000,
+    outMicrosPerMTok: 500_000,
+    contextTokens: 1_000_000,
+    cacheReadMicrosPerMTok: 10_000,
+    longContext: {
+      aboveInputTokens: 100_000,
+      inMicrosPerMTok: 500_000,
+      outMicrosPerMTok: 2_500_000,
+      cacheReadMicrosPerMTok: 50_000,
+    },
   },
-  // The previous pool and Normal models, priced so moving back is a config change.
+  // DeepSeek models, priced so Normal (and with it the pool) can move to one by config alone.
   'deepseek/deepseek-v4-flash': {
     inMicrosPerMTok: 100_000,
     outMicrosPerMTok: 400_000,
@@ -340,8 +358,8 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
     outMicrosPerMTok: 10_000_000,
     contextTokens: 1_000_000,
   },
-  // A fallback candidate, no default: priced so the pool (`POOL_MODEL`) or a
-  // tier can be moved to it by config alone, without a code change.
+  // A fallback candidate, no default: priced so a tier (and with Normal, the
+  // pool) can be moved to it by config alone, without a code change.
   'minimax/minimax-m3': {
     inMicrosPerMTok: 300_000,
     outMicrosPerMTok: 1_200_000,
@@ -382,9 +400,9 @@ export interface PoolRateLimits {
 }
 
 /**
- * How one hosted tier asks its model (`LEARN_NORMAL_*`, `POOL_*`), as
- * parsed: an empty var is null (or no providers). The tier's model is
- * resolved by the caller (simple-mode.ts, pool/params.ts), which fills the
+ * How one hosted tier asks its model (`LEARN_NORMAL_*`), as parsed: an
+ * empty var is null (or no providers). The tier's model is resolved by the
+ * caller (simple-mode.ts), which fills the
  * empty settings from `DEFAULT_TIER_REQUESTS` while the tier runs
  * its default model (`withTierDefaults`); on any other model they stay
  * empty: no effort sent, the default output cap, OpenRouter's own routing.
@@ -406,12 +424,6 @@ export interface TierRequestConfig {
 export interface PoolConfig {
   /** `POOL_ACCOUNT_ID`; in the tests, `TEST_POOL_ACCOUNT_ID`. */
   accountId: string;
-  /** `POOL_MODEL`; null = the built-in provider's background model, resolved by the caller. */
-  model: string | null;
-  /** `POOL_EFFORT` (null = the model's default). */
-  effort: ReasoningEffort | null;
-  /** `POOL_PROVIDER_ORDER`. */
-  providerOrder: readonly string[];
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
@@ -548,6 +560,8 @@ export interface AppConfig {
     fake: string | null;
   };
   builtIn: {
+    /** `BUILT_IN_BACKENDS`: the backends a built-in call may run on, first choice first. */
+    backends: readonly HostedBackendId[];
     /** `BUILT_IN_PROVIDER` as JSON text (parsed by simple-mode.ts); null = OpenRouter, Normal and Max. */
     provider: string | null;
     /** Per-call input cap of Learn and of Tangent credit in power. */
@@ -682,6 +696,22 @@ function listVar(raw: string | undefined): string[] {
     .filter((s) => s !== '');
 }
 
+/**
+ * `BUILT_IN_BACKENDS`: comma-separated backend ids (any case), in order, each
+ * at most once; empty is OpenRouter alone.
+ */
+export function backendsVar(name: string, raw: string | undefined): HostedBackendId[] {
+  const ids = listVar(raw).map((s) => s.toLowerCase());
+  if (ids.length === 0) return ['openrouter'];
+  const expected = `a comma-separated list of ${HOSTED_BACKEND_IDS.join(', ')}, each once`;
+  const known = ids.filter((id): id is HostedBackendId =>
+    (HOSTED_BACKEND_IDS as readonly string[]).includes(id),
+  );
+  if (known.length !== ids.length || new Set(known).size !== known.length)
+    throw new ConfigError(name, raw?.trim() ?? '', expected);
+  return known;
+}
+
 /** JSON validated by `schema`; empty gives `fallback`. */
 export function jsonVar<T>(
   name: string,
@@ -706,7 +736,8 @@ const nonNegativeInt = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGE
 
 /**
  * `MODEL_PRICES`: `{"<model>": {"in": µ$/MTok, "out": µ$/MTok, "context": tokens,
- * "feeBps"?: bps, "cacheRead"?: µ$/MTok, "cacheWrite"?: µ$/MTok}}`.
+ * "feeBps"?: bps, "cacheRead"?: µ$/MTok, "cacheWrite"?: µ$/MTok, "long"?: {"above":
+ * tokens, "in", "out", "cacheRead"?, "cacheWrite"?}}}`.
  */
 const modelPricesSchema = z.record(
   z.string().min(1),
@@ -717,8 +748,25 @@ const modelPricesSchema = z.record(
     feeBps: nonNegativeInt.optional(),
     cacheRead: nonNegativeInt.optional(),
     cacheWrite: nonNegativeInt.optional(),
+    long: z
+      .strictObject({
+        above: nonNegativeInt.positive(),
+        in: nonNegativeInt,
+        out: nonNegativeInt,
+        cacheRead: nonNegativeInt.optional(),
+        cacheWrite: nonNegativeInt.optional(),
+      })
+      .optional(),
   }),
 );
+
+/** The optional cache prices of a `MODEL_PRICES` entry or its `long` tier, as `ModelPrice` fields. */
+function cachePrices(p: { cacheRead?: number | undefined; cacheWrite?: number | undefined }) {
+  return {
+    ...(p.cacheRead !== undefined ? { cacheReadMicrosPerMTok: p.cacheRead } : {}),
+    ...(p.cacheWrite !== undefined ? { cacheWriteMicrosPerMTok: p.cacheWrite } : {}),
+  };
+}
 
 function parsePrices(raw: string | undefined): {
   prices: Readonly<Record<string, ModelPrice>>;
@@ -732,8 +780,17 @@ function parsePrices(raw: string | undefined): {
       outMicrosPerMTok: p.out,
       contextTokens: p.context,
       ...(p.feeBps !== undefined ? { feeBps: p.feeBps } : {}),
-      ...(p.cacheRead !== undefined ? { cacheReadMicrosPerMTok: p.cacheRead } : {}),
-      ...(p.cacheWrite !== undefined ? { cacheWriteMicrosPerMTok: p.cacheWrite } : {}),
+      ...cachePrices(p),
+      ...(p.long
+        ? {
+            longContext: {
+              aboveInputTokens: p.long.above,
+              inMicrosPerMTok: p.long.in,
+              outMicrosPerMTok: p.long.out,
+              ...cachePrices(p.long),
+            },
+          }
+        : {}),
     };
   }
   return { prices, overrides: Object.keys(overrides) };
@@ -876,6 +933,7 @@ function parse(env: AppEnv): AppConfig {
       fake: testSeams ? text('FAKE_PAYMENTS') : null,
     },
     builtIn: {
+      backends: backendsVar('BUILT_IN_BACKENDS', v('BUILT_IN_BACKENDS')),
       provider: text('BUILT_IN_PROVIDER'),
       maxInputTokens: int('BUILT_IN_MAX_INPUT_TOKENS', DEFAULT_BUILT_IN_MAX_INPUT_TOKENS, {
         min: 1,
@@ -896,13 +954,10 @@ function parse(env: AppEnv): AppConfig {
     },
     pool: {
       accountId: (testSeams && text('TEST_POOL_ACCOUNT_ID')) || POOL_ACCOUNT_ID,
-      model: text('POOL_MODEL'),
-      effort: effort('POOL_EFFORT'),
-      providerOrder: listVar(v('POOL_PROVIDER_ORDER')),
       systemPrompt:
         text('POOL_SYSTEM_PROMPT') ?? text('LEARN_SYSTEM_PROMPT') ?? DEFAULT_SYSTEM_PROMPT,
       maxInputTokens: int('POOL_MAX_INPUT_TOKENS', 16_000, { min: 1 }),
-      maxOutputTokens: int('POOL_MAX_OUTPUT_TOKENS', 8192, { min: 1 }),
+      maxOutputTokens: int('POOL_MAX_OUTPUT_TOKENS', BUILT_IN_MAX_OUTPUT_TOKENS, { min: 1 }),
       maxMessageChars: int('POOL_MAX_MESSAGE_CHARS', 4000, { min: 1 }),
       caps: {
         user: {

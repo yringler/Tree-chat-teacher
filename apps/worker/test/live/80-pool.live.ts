@@ -7,6 +7,7 @@
 import { chargeMicros, costUsdToNanos, type StreamEvent } from '@tangent/shared';
 import { describe } from 'vitest';
 import { getBalance } from '../../src/billing/ledger.js';
+import { DEFAULT_LEARN_NORMAL_MODEL } from '../../src/config.js';
 import type { AppEnv, PoolAccount } from '../../src/env.js';
 import { replyCeilingMicros, resolvePoolParams, type PoolParams } from '../../src/pool/params.js';
 import { meteredSettlement } from '../../src/billing/settle-policy.js';
@@ -84,6 +85,9 @@ describe('the open pool, end to end', () => {
     const notes: string[] = [];
     if (events.at(-1)?.type !== 'done')
       failures.push(`the reply ended with ${events.at(-1)?.type}`);
+    // As deployed, the free pool runs Normal's model.
+    if (params.model !== DEFAULT_LEARN_NORMAL_MODEL)
+      failures.push(`the pool runs ${params.model}, not ${DEFAULT_LEARN_NORMAL_MODEL}`);
 
     for (const shape of sent) {
       if (shape.model !== params.model)
@@ -121,7 +125,8 @@ describe('the open pool, end to end', () => {
         continue;
       }
       const settled = meteredSettlement({ dispatched: true, costUsd: lookup.cost.costUsd });
-      if (settled.costNanos !== row.cost_nanos)
+      // The stream's cost and the generation endpoint's can round a nano-dollar apart.
+      if (Math.abs((settled.costNanos ?? 0) - (row.cost_nanos ?? 0)) > 1)
         failures.push(
           `${label}: settled at ${row.cost_nanos} n$, the generation's cost is ${costUsdToNanos(lookup.cost.costUsd)}`,
         );

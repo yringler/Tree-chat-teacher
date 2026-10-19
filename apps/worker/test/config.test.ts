@@ -4,8 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   androidAppIdVar,
   appConfig,
+  backendsVar,
   boolVar,
   ConfigError,
+  DEFAULT_BACKGROUND_MODEL,
+  DEFAULT_LEARN_NORMAL_MODEL,
   DEFAULT_MODEL_PRICES,
   enumVar,
   intVar,
@@ -103,6 +106,19 @@ describe('config parsers', () => {
     );
   });
 
+  it('backendsVar: backend ids in order, any case; empty is OpenRouter; unknown or repeated ids throw', () => {
+    expect(backendsVar('B', undefined)).toEqual(['openrouter']);
+    expect(backendsVar('B', ' ')).toEqual(['openrouter']);
+    expect(backendsVar('B', 'Anthropic, openrouter')).toEqual(['anthropic', 'openrouter']);
+    expect(backendsVar('B', 'anthropic')).toEqual(['anthropic']);
+    for (const bad of ['bedrock', 'openrouter,anthropic,openrouter', 'anthropic;openrouter'])
+      expect(() => backendsVar('B', bad)).toThrow(ConfigError);
+    expect(() => appConfig(blank({ BUILT_IN_BACKENDS: 'openai' }))).toThrow(
+      'Invalid BUILT_IN_BACKENDS="openai"',
+    );
+    expect(appConfig(blank({ BUILT_IN_BACKENDS: '' })).builtIn.backends).toEqual(['openrouter']);
+  });
+
   it('AUTO_TITLE="False" turns titles off, and DEV_ALLOW_NO_AUTH is exact', () => {
     expect(appConfig(blank({ AUTO_TITLE: 'False' })).power.autoTitle).toBe(false);
     expect(appConfig(blank({ AUTO_TITLE: '' })).power.autoTitle).toBe(true);
@@ -172,9 +188,8 @@ describe('appConfig', () => {
     expect(c.prices).toEqual(DEFAULT_MODEL_PRICES);
     expect(c.pool).toMatchObject({
       accountId: 'pool',
-      model: null,
       maxInputTokens: 16_000,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 16_384,
       maxMessageChars: 4000,
       limits: { userPerMinute: 6, ipPerMinute: 20 },
       minAccountAgeMs: 0,
@@ -256,7 +271,28 @@ describe('appConfig', () => {
       cacheReadMicrosPerMTok: 1,
       cacheWriteMicrosPerMTok: 7,
     });
+    const tiered = appConfig(
+      blank({
+        MODEL_PRICES: JSON.stringify({
+          t: { in: 5, out: 6, context: 100, long: { above: 50, in: 10, out: 12, cacheRead: 1 } },
+        }),
+      }),
+    ).prices;
+    expect(tiered['t']).toEqual({
+      inMicrosPerMTok: 5,
+      outMicrosPerMTok: 6,
+      contextTokens: 100,
+      longContext: {
+        aboveInputTokens: 50,
+        inMicrosPerMTok: 10,
+        outMicrosPerMTok: 12,
+        cacheReadMicrosPerMTok: 1,
+      },
+    });
     for (const bad of [
+      JSON.stringify({ m: { in: 1, out: 1, context: 1, long: { in: 2, out: 2 } } }),
+      JSON.stringify({ m: { in: 1, out: 1, context: 1, long: { above: 0, in: 2, out: 2 } } }),
+      JSON.stringify({ m: { in: 1, out: 1, context: 1, long: { above: 1, in: 2, out: 2, x: 1 } } }),
       JSON.stringify({ m: { in: 1, out: 1, context: 1, cacheRead: -1 } }),
       '{not json',
       JSON.stringify({ m: { in: 1.5, out: 1, context: 1 } }),
@@ -325,11 +361,12 @@ describe('resolvePoolParams', () => {
 
   it('reports the pool off when its synced price puts a reply over the caps, as it refuses then', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    // A placeholder-priced pool model (no MODEL_PRICES entry pins it), so the synced price applies.
+    // A placeholder-priced Normal, so the pool's (no MODEL_PRICES entry pins it): the synced price applies.
     const model = 'minimax/minimax-m3';
     const synced = {
       ...env,
-      POOL_MODEL: model,
+      BUILT_IN_PROVIDER: '',
+      LEARN_NORMAL_MODEL: model,
       MODEL_PRICES: '',
       TEST_POOL_ACCOUNT_ID: `pool-synced-${Date.now()}`,
     } as AppEnv;
@@ -352,13 +389,23 @@ describe('resolvePoolParams', () => {
     }
   });
 
-  it("defaults the model to Learn's background model; an unpriced model has no price", async () => {
-    const noModel = { ...env, POOL_MODEL: '' } as AppEnv;
-    // BACKGROUND_MODEL when the fake config lists it, else that config's default.
-    expect(poolModel({ ...noModel, BACKGROUND_MODEL: 'normal' } as AppEnv)).toBe('normal');
-    expect(poolModel(noModel)).toBe('max');
-    expect(
-      (await resolvePoolParams({ ...env, POOL_MODEL: 'vendor/unpriced' } as AppEnv, null)).price,
-    ).toBeNull();
+  it("runs Normal's model, never BACKGROUND_MODEL; an unpriced model has no price", async () => {
+    // The test's BUILT_IN_PROVIDER override: its `tier: "normal"` model, not its default.
+    expect(poolModel(env)).toBe('normal');
+    expect(poolModel({ ...env, BACKGROUND_MODEL: 'max' } as AppEnv)).toBe('normal');
+    // As deployed (the OpenRouter config): Haiku, as for Normal, summaries and titles.
+    const deployed = blank({ BUILT_IN_PROVIDER: '', BACKGROUND_MODEL: '', LEARN_NORMAL_MODEL: '' });
+    expect(appConfig(deployed).background.model).toBe(DEFAULT_BACKGROUND_MODEL);
+    expect(poolModel(deployed)).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    // Its ceiling hold fits the default daily caps, so the pool is priced, not refused as unpriced.
+    expect(poolConfigProblem(deployed)).toBeNull();
+    const params = await resolvePoolParams(deployed, null);
+    expect(params.model).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    expect(params.price).not.toBeNull();
+    const ceiling = replyCeilingMicros(params, params.price!);
+    expect(ceiling).toBeLessThanOrEqual(params.caps.user.spendMicrosPerDay);
+    expect(ceiling).toBeLessThanOrEqual(params.caps.ip.spendMicrosPerDay);
+    const unpriced = { ...deployed, LEARN_NORMAL_MODEL: 'vendor/unpriced' } as AppEnv;
+    expect((await resolvePoolParams(unpriced, null)).price).toBeNull();
   });
 });

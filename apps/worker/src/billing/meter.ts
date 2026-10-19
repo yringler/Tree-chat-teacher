@@ -11,25 +11,72 @@
 // and the cron (reconcile.ts) and, for the pool, PoolBank's expiry alarm are
 // the backstops.
 //
+// A call runs on its legs (hosted/legs.ts): the hosted backends that can
+// serve its model, first choice first. It is sent on the first; its hold
+// covers any of them. It falls back to the next only when a leg was refused
+// (rate limited, overloaded, a server error, a failed connection) before it
+// yielded anything: nothing was billed upstream and the client has seen
+// nothing of it, so the payer is charged once, for the leg that answered, and
+// no started reply is cut off. Its row is pointed at the next leg in one
+// conditional statement; a refusal also opens the backend's breaker for the
+// model (hosted/breaker.ts), which puts it last in later calls' chains for a while.
+//
 // Every metered call also logs one line at its end (call-log.ts).
 import type {
   GenerateRequest,
   LlmProvider,
+  ProviderError,
+  ProviderErrorCode,
   ProviderEvent,
   ProviderRegistry,
 } from '@tangent/shared';
-import { decorateProvider } from '@tangent/providers';
+import { decorateProvider, unreportedSearchFeeMicros } from '@tangent/providers';
+import { tripBreaker } from '../hosted/breaker.js';
+import { singleLeg, type HostedLeg, type LegsOf } from '../hosted/legs.js';
 import { PoolRefusedError, PoolRequestTooLargeError } from '../pool/meter.js';
 import { CallLog } from './call-log.js';
-import type { MeterRun, UsageMeter } from './meter-run.js';
+import type { MeterLeg, MeterRun, UsageMeter } from './meter-run.js';
 import { CreditRefusedError } from './personal-meter.js';
 import { logEvent } from '../log.js';
+
+/** The errors that say a backend can't take the call just now, rather than that the call is wrong. */
+const FALLBACK_CODES: ReadonlySet<ProviderErrorCode> = new Set<ProviderErrorCode>([
+  'rate_limit',
+  'overloaded',
+  'server',
+  'network',
+]);
+
+/**
+ * Whether a leg that ended in `error` before yielding anything may be retried
+ * on the next: refused by the backend (`rejected`) or never sent there
+ * (`not_sent`), so nothing was billed, for a reason of the backend's own.
+ * A bad request, a context too long, a key or payment problem would fail the
+ * same way anywhere; an `unknown` failure may have come after the request
+ * went out; an abort is the caller's.
+ */
+function fallsBack(error: ProviderError): boolean {
+  return (
+    (error.upstream === 'not_sent' || error.upstream === 'rejected') &&
+    FALLBACK_CODES.has(error.code)
+  );
+}
+
+function meterLeg(leg: HostedLeg): MeterLeg {
+  return {
+    backend: leg.backend.id,
+    backendModel: leg.model,
+    searchFeeMicros: unreportedSearchFeeMicros(leg.provider.kind),
+  };
+}
 
 async function* meteredStream(
   provider: LlmProvider,
   request: GenerateRequest,
   meter: UsageMeter,
+  legsOf: LegsOf,
 ): AsyncGenerator<ProviderEvent> {
+  const legs = legsOf(provider, request.model);
   let run: MeterRun;
   try {
     run = await meter.begin({
@@ -38,6 +85,7 @@ async function* meteredStream(
       model: request.model,
       request,
       maxOutputTokens: provider.capabilities(request.model).maxOutputTokens,
+      legs: legs.map(meterLeg),
     });
   } catch (e) {
     // No row, no upstream call: the provider contract is "never throw", so fail as an event.
@@ -117,17 +165,55 @@ async function* meteredStream(
       };
       return;
     }
-    log = new CallLog(provider, run.request, meter.funding);
-    for await (const event of provider.stream(run.request)) {
-      run.observe(event);
-      log.observe(event);
-      if (event.type === 'done' || event.type === 'error') {
+    log = new CallLog(provider, run.request, meter.funding, legs[0]!);
+    for (let i = 0; ; i++) {
+      const leg = legs[i]!;
+      const next = legs[i + 1];
+      let yielded = false;
+      let refused: ProviderError | null = null;
+      // Upstream the model goes by the leg's id; the row, the log and the reply keep the logical one.
+      for await (const event of leg.provider.stream({ ...run.request, model: leg.model })) {
+        if (event.type === 'error') {
+          tripBreaker(leg.backend.id, leg.model, event.error, Date.now());
+          if (next && !yielded && fallsBack(event.error) && !run.request.signal.aborted) {
+            refused = event.error;
+            break;
+          }
+        }
+        yielded = true;
+        run.observe(event);
+        log.observe(event);
+        if (event.type === 'done' || event.type === 'error') {
+          finished = true;
+          await run.finish();
+          yield event;
+          return;
+        }
+        yield event;
+      }
+      // The provider contract ends every stream in a terminal event; without one, `finally` settles.
+      if (!refused || !next) return;
+      if (!(await run.switchTo(meterLeg(next)))) {
+        const event: ProviderEvent = { type: 'error', error: refused };
+        run.observe(event);
+        log.observe(event);
         finished = true;
         await run.finish();
         yield event;
         return;
       }
-      yield event;
+      logEvent('warn', 'backend_fallback', {
+        usageId: run.usageId,
+        from: leg.backend.id,
+        to: next.backend.id,
+        model: request.model,
+        code: refused.code,
+        status: refused.status ?? null,
+        retryAfterMs: refused.retryAfterMs ?? null,
+        purpose: request.usageTag?.purpose ?? 'other',
+        funding: meter.funding,
+      });
+      log.fellBackTo(next);
     }
   } finally {
     // The consumer stopped reading early (a provider never throws, and always ends in a terminal event).
@@ -136,21 +222,24 @@ async function* meteredStream(
   }
 }
 
-function meteredProvider(provider: LlmProvider, meter: UsageMeter): LlmProvider {
+function meteredProvider(provider: LlmProvider, meter: UsageMeter, legsOf: LegsOf): LlmProvider {
   return decorateProvider(provider, {
-    stream: (request) => meteredStream(provider, request, meter),
+    stream: (request) => meteredStream(provider, request, meter, legsOf),
   });
 }
 
 /**
  * Wraps `get(id).stream(req)` with the meter for the providers `metered`
  * accepts; the others pass through. The Worker (registries.ts) wraps only
- * registries whose every route is paid on the operator's key, so it accepts all.
+ * registries whose every route is paid on the operator's key, so it accepts
+ * all, and runs each call on its hosted legs (`hostedLegs`); by default a
+ * call runs on the provider itself.
  */
 export function meteredRegistry(
   inner: ProviderRegistry,
   meter: UsageMeter,
   metered: (providerId: string) => boolean,
+  legsOf: LegsOf = singleLeg,
 ): ProviderRegistry {
   const cache = new WeakMap<LlmProvider, LlmProvider>();
   return {
@@ -159,7 +248,7 @@ export function meteredRegistry(
       if (!provider || !metered(providerId)) return provider;
       let wrapped = cache.get(provider);
       if (!wrapped) {
-        wrapped = meteredProvider(provider, meter);
+        wrapped = meteredProvider(provider, meter, legsOf);
         cache.set(provider, wrapped);
       }
       return wrapped;

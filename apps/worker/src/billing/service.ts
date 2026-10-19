@@ -4,6 +4,7 @@
 // write goes to `AccountContext.billingAccountId`, the same in both modes.
 import {
   CHARS_PER_TOKEN,
+  DEFAULT_GROUNDING_SETTINGS,
   DomainError,
   estimateTokens,
   MESSAGE_OVERHEAD_TOKENS,
@@ -21,10 +22,13 @@ import {
   type PurchaseInfo,
   type UsageListResponse,
 } from '@tangent/shared';
+import { unreportedSearchFeeMicros } from '@tangent/providers';
 import type { ModelPrice } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { creditGrants, usageEvents } from '../db/schema.js';
 import { callPayer, type AccountContext, type AppEnv } from '../env.js';
+import { openRouterBackend } from '../hosted/openrouter.js';
+import { hostedChain, usageBackend } from '../hosted/registry.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { chargeFromTokensMicros, renderAllowanceBytes, type InputOf } from '../pool/pricing.js';
 import { builtInAvailable, personalCreditReady } from '../availability.js';
@@ -35,6 +39,8 @@ import { checkoutReturnUrl } from './return-urls.js';
 import { paymentProvider, paymentsConfigured } from './payments/index.js';
 import { reservePersonalUsage } from './usage-store.js';
 import { appConfig } from '../config.js';
+import { simpleProviderConfig } from '../simple-mode.js';
+import { groundingPolicy } from './grounding.js';
 
 const MAX_USAGE_PAGE = 100;
 
@@ -82,8 +88,10 @@ export function replyInputTokens(maxInputTokens: number): number {
 /**
  * What a credit call on a model at `price` holds: its worst case,
  * `inputTokens` at the most an input token can cost plus `maxOutputTokens`
- * out at `rates`, rounded up; never below
- * `USAGE_HOLD_MICROS`. Web searches are not priced in: the floor covers one.
+ * out at `rates`, rounded up, plus `searchFeesMicros`: the fees of the most
+ * searches it may run where its provider bills them outside a reported cost
+ * (Anthropic). Never below `USAGE_HOLD_MICROS`, which covers one search
+ * where a reported cost holds its fee (OpenRouter).
  */
 export function creditHoldMicros(
   env: AppEnv,
@@ -91,6 +99,7 @@ export function creditHoldMicros(
   inputTokens: number,
   maxOutputTokens: number,
   rates: { markupBps: number; feeBps: number },
+  searchFeesMicros = 0,
 ): number {
   const worst = chargeFromTokensMicros(
     price,
@@ -99,7 +108,7 @@ export function creditHoldMicros(
     rates.feeBps,
     rates.markupBps,
   );
-  return Math.max(USAGE_HOLD_MICROS, worst);
+  return Math.max(USAGE_HOLD_MICROS, worst + searchFeesMicros);
 }
 
 /**
@@ -144,7 +153,9 @@ export async function requireCreditPrice(env: AppEnv, model: string): Promise<Mo
 
 /**
  * The hold of a reply on `model` before its prompt exists: its input budget
- * (`replyInputTokens`) and output cap at the model's price.
+ * (`replyInputTokens`) and output cap at the model's price, plus the fees of
+ * the most searches a reply may run where the built-in provider bills them
+ * outside a reported cost (`replySearchFeesMicros`), as the meter holds them.
  */
 export async function replyHoldMicros(
   env: AppEnv,
@@ -158,7 +169,25 @@ export async function replyHoldMicros(
     replyInputTokens(budget.maxInputTokens),
     budget.maxOutputTokens,
     CREDIT_RATES,
+    replySearchFeesMicros(env, model),
   );
+}
+
+/**
+ * The unreported search fees a reply on credit may owe: one fee per search
+ * it may run (`GroundingSettings.maxUses`) where a backend it may run on
+ * bills searches outside a reported cost (Anthropic), none while grounding
+ * is off.
+ */
+function replySearchFeesMicros(env: AppEnv, model: string): number {
+  if (groundingPolicy(env) === 'off') return 0;
+  // OpenRouter's leg runs on the built-in config (a BUILT_IN_PROVIDER override's kind, say);
+  // another backend's on its own endpoint.
+  const builtInKind = simpleProviderConfig(env).kind;
+  const fees = hostedChain(env, model).map(({ backend }) =>
+    unreportedSearchFeeMicros(backend === openRouterBackend ? builtInKind : backend.config().kind),
+  );
+  return Math.max(...fees) * DEFAULT_GROUNDING_SETTINGS.maxUses;
 }
 
 /**
@@ -220,6 +249,7 @@ export async function reserveCreditReply(
       purpose: 'reply',
       providerId: target.providerId,
       model: target.model,
+      ...usageBackend(env, target.model),
       holdMicros,
       // Its prompt doesn't exist yet: the meter records its estimate when it reprices the row.
       heldInputTokens: null,

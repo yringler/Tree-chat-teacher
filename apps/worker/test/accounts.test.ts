@@ -243,7 +243,7 @@ const LEARN_ANTHROPIC = {
   models: [
     { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
     { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+    { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5' },
   ],
 };
 
@@ -263,7 +263,7 @@ describe("Learn on the learner's own Anthropic key", () => {
     expect(ids).toContain(LEARN_ANTHROPIC_REPLY_MODEL);
     expect(ids).toContain(LEARN_ANTHROPIC_BACKGROUND_MODEL);
     expect(LEARN_ANTHROPIC_REPLY_MODEL).toMatch(/sonnet/);
-    expect(LEARN_ANTHROPIC_BACKGROUND_MODEL).toMatch(/haiku/);
+    expect(LEARN_ANTHROPIC_BACKGROUND_MODEL).toBe('claude-haiku-5-5');
   });
 
   it("replies on power's Anthropic endpoint with the user's key, on Sonnet only, never the operator's key", () => {
@@ -303,7 +303,7 @@ describe("Learn on the learner's own Anthropic key", () => {
     const chat = chatService(e, account, { apiKeys: { anthropic: 'sk-ant-goodUSER' } });
     const tree = makeTree();
     for (const [providerId, model] of [
-      ['openrouter', 'deepseek/deepseek-v4.1-flash'],
+      ['openrouter', 'anthropic/claude-haiku-5.5'],
       ['anthropic', 'claude-opus-5-5'],
       ['anthropic', LEARN_ANTHROPIC_BACKGROUND_MODEL],
     ] as const)
@@ -317,7 +317,7 @@ describe("Learn on the learner's own Anthropic key", () => {
     expect(chatSettingsFor(e, account)).toMatchObject({
       summaryProviderId: 'anthropic',
       summaryModel: LEARN_ANTHROPIC_BACKGROUND_MODEL,
-      summaryEffort: null,
+      summaryEffort: 'low',
       autoTitle: true,
     });
     // On OpenRouter (or credit), the built-in provider's background model.

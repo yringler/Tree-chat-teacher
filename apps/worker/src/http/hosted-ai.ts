@@ -1,16 +1,19 @@
 import { PROVIDER_KINDS, providerTraits } from '@tangent/providers';
 import type { ProviderConfig } from '@tangent/shared';
+import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
-import { poolModel, poolRequest } from '../pool/params.js';
+import { hostedChain } from '../hosted/registry.js';
+import { poolModel } from '../pool/params.js';
 import { builtInAvailable, poolAvailable } from '../availability.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
 
 /**
  * Who handles the text of a request paid by Tangent (credit or the open
  * pool), as the privacy policy names them: worked out from the deployment's
- * config (the built-in provider, Learn's models and pinned hosts, the pool
- * model), so the policy stays true when the operator changes a model or a
- * host. Nothing here is a claim about how a host treats the data.
+ * config (the built-in provider and its backends, Learn's models and pinned
+ * hosts, the pool model), so the policy stays true when the operator changes
+ * a model, a host or a backend. Nothing here is a claim about how a host
+ * treats the data.
  */
 export interface HostedAi {
   /** The built-in endpoint is OpenRouter (directly or through Cloudflare's AI Gateway). */
@@ -23,10 +26,12 @@ export interface HostedAi {
   models: HostedModel[];
   /** Power mode offers Tangent credit, on any model the user picks. */
   powerCredit: boolean;
+  /** Anthropic receives some of these requests directly, not through OpenRouter (`BUILT_IN_BACKENDS`). */
+  anthropic: boolean;
 }
 
 export interface HostedModel {
-  /** The model id, e.g. `deepseek/deepseek-v4.1-flash`. */
+  /** The model id, e.g. `anthropic/claude-haiku-5.5`. */
   id: string;
   /** Who made it (from the id's vendor prefix), or null when the id has none. */
   maker: string | null;
@@ -36,6 +41,8 @@ export interface HostedModel {
   hosts: string[];
   /** OpenRouter may send it to another host when the pinned ones can't take it (`allow_fallbacks`). */
   fallbacks: boolean;
+  /** It is sent to Anthropic's own API, not through OpenRouter (its hosts don't apply). */
+  direct: boolean;
 }
 
 /**
@@ -110,8 +117,11 @@ export function hostedAi(env: AppEnv): HostedAi | null {
   // The operator's explicit `allow_fallbacks` wins over the pinning's default (openai-compatible.ts).
   const fallbacks = routing['allow_fallbacks'] !== false;
   const models: HostedModel[] = [];
+  /** Whether a call on `id` goes to Anthropic's own API (the first backend of its chain). */
+  const direct = (id: string) => hostedChain(env, id)[0]!.backend.id === 'anthropic';
   const add = (id: string, use: string, hosts: readonly string[]) => {
-    const pinned = openRouter ? hosts.map(companyName) : [];
+    const onAnthropic = direct(id);
+    const pinned = openRouter && !onAnthropic ? hosts.map(companyName) : [];
     const same = models.find((m) => m.id === id && m.hosts.join() === pinned.join());
     if (same) {
       if (!same.uses.includes(use)) same.uses.push(use);
@@ -124,6 +134,7 @@ export function hostedAi(env: AppEnv): HostedAi | null {
       uses: [use],
       hosts: pinned,
       fallbacks,
+      direct: onAnthropic,
     });
   };
 
@@ -135,8 +146,9 @@ export function hostedAi(env: AppEnv): HostedAi | null {
     }
   }
   if (pool) {
+    // The pool runs Normal's listing, pinned providers included (`poolProviderConfig`).
     const id = poolModel(env);
-    add(id, 'the open pool', poolRequest(env, id).providerOrder);
+    add(id, 'the open pool', config.models.find((m) => m.id === id)?.providerOrder ?? []);
   }
   if (credit) {
     // Summaries and titles run on the background model's listing in Learn's config (if any).
@@ -154,5 +166,7 @@ export function hostedAi(env: AppEnv): HostedAi | null {
     endpoint: openRouter ? 'OpenRouter' : endpointName(config),
     models,
     powerCredit: credit,
+    // Power's Max on credit, too, when it is a Claude model Anthropic serves.
+    anthropic: models.some((m) => m.direct) || (credit && direct(appConfig(env).power.maxModel)),
   };
 }

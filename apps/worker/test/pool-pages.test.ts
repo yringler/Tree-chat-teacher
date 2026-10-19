@@ -6,7 +6,7 @@ import type { PoolMeResponse, PoolModelInfo, PoolStatusResponse } from '@tangent
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
-import { appConfig, DEFAULT_BACKGROUND_MODEL, DEFAULT_POWER_MAX_MODEL } from '../src/config.js';
+import { appConfig, DEFAULT_LEARN_NORMAL_MODEL } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { POOL_SESSION_ESTIMATE_MICROS } from '../src/pool/params.js';
 import { poolModelInfo, poolStatus } from '../src/pool/status.js';
@@ -24,9 +24,9 @@ function visitor(e: AppEnv) {
   return (path: string) => app.request(`${BASE}${path}`, {}, e);
 }
 
-/** An env (auth configured) whose pool is `poolId`, asking its model with a low effort as deployed. */
+/** An env (auth configured) whose pool is `poolId`. */
 function poolEnv(poolId: string, overrides: Partial<AppEnv> = {}): AppEnv {
-  return authEnv({ TEST_POOL_ACCOUNT_ID: poolId, POOL_EFFORT: 'low', ...overrides });
+  return authEnv({ TEST_POOL_ACCOUNT_ID: poolId, ...overrides });
 }
 
 /** A settled pool row of `userId` (no pending rows: other suites' crons would expire them). */
@@ -65,9 +65,8 @@ describe('GET /api/pool/status', () => {
       enabled: true,
       availableMicros: 1_000_000,
       sessionsRemaining: Math.floor(1_000_000 / POOL_SESSION_ESTIMATE_MICROS),
-      // The fake's Normal, asked with the pool's effort (`POOL_EFFORT`, which the fake's
-      // listing doesn't set) and its shorter reply cap.
-      model: { id: 'normal', label: 'Normal', thinking: 'other', replies: 'shorter' },
+      // The fake's Normal, with the test bindings' shorter pool reply cap.
+      model: { id: 'normal', label: 'Normal', replies: 'shorter' },
     });
     // The edge copy answers the next minute's visitors, whatever D1 says meanwhile.
     await fundPool(poolId, 2_000_000);
@@ -139,41 +138,31 @@ describe('GET /api/pool/me', () => {
 });
 
 describe('poolModelInfo', () => {
-  /** The pool's model as shipped, with `overrides`: Normal's model, asked by the pool's settings. */
+  /** The pool's model as shipped, with `overrides`. */
   const info = (overrides: Partial<AppEnv>) => poolModelInfo(shippedEnv(env, overrides));
-  const normal = { id: DEFAULT_BACKGROUND_MODEL, label: 'Normal' };
+  const normal = { id: DEFAULT_LEARN_NORMAL_MODEL, label: 'Normal' };
 
   it.each<[string, Partial<AppEnv>, PoolModelInfo]>([
+    ['as shipped: Normal, with as much room to reply', {}, normal],
     [
-      'as shipped: less thinking, shorter replies',
-      {},
-      { ...normal, thinking: 'lighter', replies: 'shorter' },
+      'a lower pool reply cap',
+      { POOL_MAX_OUTPUT_TOKENS: '8192' },
+      { ...normal, replies: 'shorter' },
     ],
-    ['asked like Normal', { POOL_EFFORT: 'high', POOL_MAX_OUTPUT_TOKENS: '16384' }, normal],
     [
-      'longer replies',
-      { POOL_EFFORT: 'high', POOL_MAX_OUTPUT_TOKENS: '32000' },
+      'a higher pool reply cap',
+      { POOL_MAX_OUTPUT_TOKENS: '32000' },
       { ...normal, replies: 'longer' },
     ],
     [
-      'no thinking',
-      { POOL_EFFORT: 'none' },
-      { ...normal, thinking: 'lighter', replies: 'shorter' },
+      "a lower cap on Normal's replies",
+      { LEARN_NORMAL_REPLY_TOKENS: '12000' },
+      { ...normal, replies: 'longer' },
     ],
     [
-      'more thinking than the tier',
-      { LEARN_NORMAL_EFFORT: 'low', POOL_EFFORT: 'high' },
-      { ...normal, thinking: 'more', replies: 'shorter' },
-    ],
-    [
-      'a model that is no tier',
-      { BACKGROUND_MODEL: 'deepseek/deepseek-v4-flash' },
-      { id: 'deepseek/deepseek-v4-flash', label: 'Lite' },
-    ],
-    [
-      "power's Max, which Learn doesn't list",
-      { POOL_MODEL: DEFAULT_POWER_MAX_MODEL, POOL_EFFORT: '', POOL_MAX_OUTPUT_TOKENS: '16384' },
-      { id: DEFAULT_POWER_MAX_MODEL, label: 'Lite' },
+      'Normal on another model',
+      { LEARN_NORMAL_MODEL: 'deepseek/deepseek-v4-flash' },
+      { id: 'deepseek/deepseek-v4-flash', label: 'Normal' },
     ],
   ])('%s', (_, overrides, expected) => {
     expect(info(overrides)).toEqual(expected);

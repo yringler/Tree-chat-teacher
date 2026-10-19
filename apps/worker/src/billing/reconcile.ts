@@ -1,17 +1,20 @@
 // Settling usage whose cost the stream didn't report (aborted, truncated or
 // evicted generations): OpenRouter's generation endpoint, with retries right
-// after the stream and a cron backstop.
+// after the stream and a cron backstop. Only a row on a backend with a lookup
+// (`LOOKUP_ROW_SQL`) is looked up; the cron settles the others as rows
+// without a generation id.
 import { costUsdToNanos } from '@tangent/shared';
-import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
+import type { GenerationCost } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
+import { openRouterBackend } from '../hosted/openrouter.js';
+import { LOOKUP_ROW_SQL } from '../hosted/registry.js';
 import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { POOL_EXPIRE_BATCH, POOL_GIVE_UP_MS, POOL_RESERVATION_TTL_MS } from '../pool/params.js';
-import { builtInApiKey } from '../simple-mode.js';
 import { meteredSettlement } from './settle-policy.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
 import { logEvent } from '../log.js';
@@ -37,6 +40,9 @@ const CRON_BATCH = 200;
 /** Pools the cron expires reservations for, at most, per run. */
 const CRON_POOL_LIMIT = 10;
 
+/** Where a generation id is looked up: the one backend with generations. */
+const lookupBackend = openRouterBackend;
+
 function sleep(ms: number): Promise<void> {
   return ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();
 }
@@ -47,7 +53,7 @@ async function lookup(
   fetchImpl?: typeof fetch,
 ): Promise<GenerationCost | null> {
   try {
-    return await fetchOpenRouterGeneration(generationId, key, fetchImpl);
+    return await lookupBackend.fetchGeneration(generationId, key, fetchImpl);
   } catch (e) {
     logEvent('warn', 'generation_lookup_failed', { generationId, error: e });
     return null;
@@ -82,7 +88,7 @@ export async function reconcileGeneration(
   generationId: string,
   options: { delaysMs?: readonly number[]; fetchImpl?: typeof fetch } = {},
 ): Promise<boolean> {
-  const key = builtInApiKey(env);
+  const key = lookupBackend.apiKey(env);
   if (!key) {
     logEvent('warn', 'reconcile_no_key', { usageId: target.usageId });
     return false;
@@ -128,7 +134,8 @@ type PendingRow = Pick<
 
 /**
  * Cron backstop (`scheduled`, every 10 minutes) for pending personal usage
- * rows older than 2 minutes: with a generation id → settle from OpenRouter's
+ * rows older than 2 minutes: with a generation id on a backend that has
+ * lookups (`LOOKUP_ROW_SQL`) → settle from OpenRouter's
  * reported cost, still pending after 24 hours → `unresolved` at 0, logged
  * for manual review; without one after 10 minutes → by the metered rule
  * (`meteredSettlement`, see CRON_NO_ID_AGE_MS): released at 0 if never sent,
@@ -142,15 +149,15 @@ export async function reconcilePendingUsage(
 ): Promise<{ settled: number; unresolved: number }> {
   const nowMs = now.getTime();
   const { results } = await env.DB.prepare(
-    `SELECT id, generation_id, markup_bps, fee_bps, created_at, input_tokens, output_tokens,
-            model, dispatched_at, held_input_tokens
+    `SELECT id, CASE WHEN ${LOOKUP_ROW_SQL} THEN generation_id END AS generation_id, markup_bps,
+            fee_bps, created_at, input_tokens, output_tokens, model, dispatched_at, held_input_tokens
      FROM usage_events WHERE status = 'pending' AND funding <> 'pool' AND created_at < ?
      ORDER BY created_at LIMIT ?`,
   )
     .bind(new Date(nowMs - CRON_MIN_AGE_MS).toISOString(), CRON_BATCH)
     .all<PendingRow>();
 
-  const key = builtInApiKey(env);
+  const key = lookupBackend.apiKey(env);
   // Per model for this run. A failed lookup leaves its rows for the next run, until they give up.
   const prices = new Map<string, Promise<ModelPrice | null>>();
   const priceOf = (model: string, age: number): Promise<ModelPrice | null> => {
@@ -188,6 +195,8 @@ export async function reconcilePendingUsage(
         }
       } else if (age > CRON_NO_ID_AGE_MS) {
         const dispatched = row.dispatched_at !== null;
+        // No search fee: a provider that bills searches outside its cost (Anthropic) reports
+        // the count with its final usage, which a meter that died never saw.
         const s = meteredSettlement({
           dispatched,
           inputTokens: row.input_tokens,

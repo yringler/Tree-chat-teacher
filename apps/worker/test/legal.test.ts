@@ -6,11 +6,7 @@ import { CANDIDATE_TTL_MS } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_BACKGROUND_MODEL,
-  DEFAULT_LEARN_NORMAL_MODEL,
-  DEFAULT_POWER_MAX_MODEL,
-} from '../src/config.js';
+import { DEFAULT_BACKGROUND_MODEL, DEFAULT_LEARN_NORMAL_MODEL } from '../src/config.js';
 import type { AppBindings, AppEnv } from '../src/env.js';
 import { hostedAi } from '../src/http/hosted-ai.js';
 import { legalRoutes } from '../src/http/legal.js';
@@ -172,12 +168,15 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
     expect(ai?.models).toEqual([
       {
         id: DEFAULT_LEARN_NORMAL_MODEL,
-        maker: 'DeepSeek',
+        maker: 'Anthropic',
+        // The pool runs Normal.
         uses: ["Learn's Normal model", 'the open pool', 'summaries and titles of conversations'],
-        hosts: ['StreamLake', 'DeepInfra'],
+        hosts: ['Anthropic'],
         fallbacks: true,
+        direct: false,
       },
     ]);
+    expect(ai?.anthropic).toBe(false);
     // The policy names each model and host.
     const privacy = await page('/privacy');
     for (const m of ai!.models) {
@@ -187,24 +186,36 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
     expect(privacy).toContain('Power mode on Tangent credit');
   });
 
-  it('follows a changed pinning or pool model', () => {
-    const ai = hostedAi(
-      deployment({
-        LEARN_NORMAL_PROVIDER_ORDER: 'deepinfra/fp8',
-        POOL_PROVIDER_ORDER: '',
-        POOL_MODEL: DEFAULT_POWER_MAX_MODEL,
-        // Caps that admit a Max reply's ceiling hold, or the pool is off.
-        POOL_SPEND_MICROS_PER_DAY: '5000000',
-        POOL_IP_SPEND_MICROS_PER_DAY: '5000000',
-      }),
+  it('names Anthropic as a direct processor of the Claude models it serves, when it is a backend', async () => {
+    const anthropic = {
+      BUILT_IN_BACKENDS: 'anthropic,openrouter',
+      BUILT_IN_ANTHROPIC_API_KEY: 'sk-ant-operator',
+    };
+    const ai = hostedAi(deployment(anthropic));
+    expect(ai?.anthropic).toBe(true);
+    expect(ai?.models.map((m) => [m.id, m.direct, m.hosts])).toEqual([
+      [DEFAULT_LEARN_NORMAL_MODEL, true, []],
+    ]);
+    const privacy = await page('/privacy', anthropic);
+    expect(privacy).toContain('Some Claude models go to Anthropic (USA) directly instead');
+    expect(privacy).toContain(
+      `<code>${DEFAULT_LEARN_NORMAL_MODEL}</code> (made by Anthropic), sent to Anthropic directly`,
     );
+    expect(privacy).toContain('or at Anthropic directly for the Claude models Tangent sends there');
+    // Without its key, Anthropic is no backend, and the policy doesn't name it.
+    const keyless = { ...anthropic, BUILT_IN_ANTHROPIC_API_KEY: '' };
+    expect(hostedAi(deployment(keyless))?.anthropic).toBe(false);
+    expect(await page('/privacy', keyless)).not.toContain('Anthropic (USA) directly');
+  });
+
+  it("follows a changed pinning, the pool's too", () => {
+    const ai = hostedAi(deployment({ LEARN_NORMAL_PROVIDER_ORDER: 'amazon-bedrock' }));
     expect(ai?.models.map((m) => [m.id, m.uses, m.hosts])).toEqual([
       [
         DEFAULT_LEARN_NORMAL_MODEL,
-        ["Learn's Normal model", 'summaries and titles of conversations'],
-        ['DeepInfra'],
+        ["Learn's Normal model", 'the open pool', 'summaries and titles of conversations'],
+        ['Amazon Bedrock'],
       ],
-      [DEFAULT_POWER_MAX_MODEL, ['the open pool'], []],
     ]);
   });
 
@@ -213,7 +224,7 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
     const ai = hostedAi(deployment(noPayments));
     expect(ai?.powerCredit).toBe(false);
     expect(ai?.models.map((m) => [m.id, m.uses])).toEqual([
-      [DEFAULT_BACKGROUND_MODEL, ['the open pool']],
+      [DEFAULT_LEARN_NORMAL_MODEL, ['the open pool']],
     ]);
     expect(await page('/privacy', noPayments)).not.toContain('Power mode on Tangent credit');
   });
@@ -226,7 +237,6 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
           [{ id: 'a/quick', label: 'Quick', tier: 'normal', providerOrder: ['some-host/fp8'] }],
           { extraBody: { provider: { allow_fallbacks: false } } },
         ),
-        POOL_MODEL: 'a/quick',
       }),
     );
     expect(ai?.models[0]).toMatchObject({ id: 'a/quick', hosts: ['some-host'], fallbacks: false });
@@ -237,7 +247,6 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
       BUILT_IN_PROVIDER: builtIn('https://api.openai.com/v1', [
         { id: 'a/quick', label: 'Normal', tier: 'normal' },
       ]),
-      POOL_MODEL: 'a/quick',
     };
     expect(hostedAi(deployment(other))).toMatchObject({
       openRouter: false,

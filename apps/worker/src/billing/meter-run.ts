@@ -1,11 +1,19 @@
 // What both fundings' meter runs share (billing/meter.ts wraps the stream
 // around them): the `UsageMeter` and `MeterRun` contracts, and `ObservedRun`,
 // which taps the stream for the generation id, the reported cost and the
-// tokens, and settles the call's `usage_events` row.
+// tokens, follows the call onto the next backend when it falls back, and
+// settles the call's `usage_events` row.
 import type { GenerateRequest, ProviderEvent, ProviderUpstream, UsageTag } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
+import type { UsageBackend } from '../hosted/registry.js';
 import { reconcileGeneration, RECONCILE_RETRY_DELAYS_MS } from './reconcile.js';
-import { setGenerationId, settleUsage, type MeteredPayer, type Settlement } from './usage-store.js';
+import {
+  repointUsage,
+  setGenerationId,
+  settleUsage,
+  type MeteredPayer,
+  type Settlement,
+} from './usage-store.js';
 import { logEvent } from '../log.js';
 
 export interface UsageMeter {
@@ -19,7 +27,19 @@ export interface UsageMeter {
     request: GenerateRequest;
     /** The provider's output cap for `model`: the call's when the request sets none. */
     maxOutputTokens: number;
+    /**
+     * The backends the call may run on, first choice first: it is sent on the
+     * first, so its row records that one (a reservation is pointed at it),
+     * and its hold covers any of them.
+     */
+    legs: readonly MeterLeg[];
   }): Promise<MeterRun>;
+}
+
+/** What the meter knows of one backend a call may run on. */
+export interface MeterLeg extends UsageBackend {
+  /** The fee of each search it bills outside a reported cost (0 = none). */
+  searchFeeMicros: number;
 }
 
 export interface MeterRun {
@@ -31,6 +51,13 @@ export interface MeterRun {
   dispatch(): Promise<boolean>;
   /** Taps every provider event (`billing`, `usage`, ...). */
   observe(event: ProviderEvent): void;
+  /**
+   * Moves the dispatched call on to `leg`, after the backend it was sent to
+   * refused it before anything was billed: the row is pointed at `leg`, with
+   * its fee, and what the stream showed is forgotten. False = don't send it
+   * there (the row is no longer pending, or its hold can't cover `leg`).
+   */
+  switchTo(leg: MeterLeg): Promise<boolean>;
   /**
    * Settles inline when the cost is known, else defers reconciliation.
    * `consumerStopped`: the stream's reader stopped before its terminal event.
@@ -65,6 +92,8 @@ export abstract class ObservedRun implements MeterRun {
   protected upstream: ProviderUpstream | null = null;
   /** Web searches seen (reported count, else 1 once a search started); null = none seen. */
   protected webSearches: number | null = null;
+  /** Characters of reply text streamed (`delta` events). */
+  private streamedChars = 0;
   protected idWrite: Promise<void> = Promise.resolve();
   private finished = false;
   private consumerStopped = false;
@@ -73,7 +102,8 @@ export abstract class ObservedRun implements MeterRun {
     protected readonly env: AppEnv,
     readonly usageId: string,
     protected readonly markupBps: number,
-    protected readonly feeBps: number,
+    /** The fee of the backend the call is on (`switchTo` moves it). */
+    protected feeBps: number,
     protected readonly defer: (p: Promise<unknown>) => void,
     protected readonly options: UsageMeterOptions,
     readonly request: GenerateRequest,
@@ -86,13 +116,23 @@ export abstract class ObservedRun implements MeterRun {
     return this.consumerStopped || this.callerSignal.aborted;
   }
 
+  /**
+   * The streamed characters a stopped call's output is estimated from; null
+   * once there is a generation id, whose lookup gives the real cost instead.
+   */
+  protected get estimableOutputChars(): number | null {
+    return this.generationId === null ? this.streamedChars : null;
+  }
+
   dispatch(): Promise<boolean> {
     return Promise.resolve(true);
   }
 
   observe(event: ProviderEvent): void {
     try {
-      if (event.type === 'billing') {
+      if (event.type === 'delta') {
+        this.streamedChars += event.text.length;
+      } else if (event.type === 'billing') {
         if (event.generationId && event.generationId !== this.generationId) {
           this.generationId = event.generationId;
           // Persisted early so the cron can reconcile even if this isolate dies mid-stream.
@@ -133,6 +173,37 @@ export abstract class ObservedRun implements MeterRun {
     } catch (e) {
       logEvent('error', 'usage_observe_failed', { error: e });
     }
+  }
+
+  async switchTo(leg: MeterLeg): Promise<boolean> {
+    const feeBps = this.feeBpsOn(leg);
+    if (feeBps === null) return false;
+    try {
+      if (!(await repointUsage(this.env.DB, this.usageId, { ...leg, feeBps }))) return false;
+    } catch (e) {
+      logEvent('error', 'usage_repoint_failed', { usageId: this.usageId, error: e });
+      return false;
+    }
+    this.feeBps = feeBps;
+    this.generationId = null;
+    this.costUsd = null;
+    this.inputTokens = null;
+    this.outputTokens = null;
+    this.cacheReadTokens = null;
+    this.cacheWriteTokens = null;
+    this.upstream = null;
+    this.webSearches = null;
+    this.streamedChars = 0;
+    this.movedTo(leg);
+    return true;
+  }
+
+  /** The fee the call is charged on `leg`, or null when its hold can't cover a call there. */
+  protected abstract feeBpsOn(leg: MeterLeg): number | null;
+
+  /** The call now runs on `leg` (its own facts, such as its search fee). */
+  protected movedTo(_leg: MeterLeg): void {
+    // Nothing by default.
   }
 
   async finish(stop?: { consumerStopped: boolean }): Promise<void> {

@@ -6,38 +6,41 @@
 import type { ContractExpectation } from '@tangent/providers/contract';
 import type { LlmProvider } from '@tangent/shared';
 import { describe } from 'vitest';
+import { DEFAULT_LEARN_NORMAL_MODEL } from '../../src/config.js';
 import {
+  ABSOLUTE_SLACK_USD,
   builtInProvider,
   callWithRetry,
   creditProvider,
   lookUpGeneration,
+  NORMAL_RATIO_BAND,
   outcomeOf,
+  OVER_LIST_TOLERANCE,
+  poolProvider,
   priceOf,
   recompute,
   scenario,
   worstUsd,
 } from './harness.js';
 
-/** Reported over recomputed may exceed 1 by this much (rounding of tiny costs). */
-const OVER_LIST_TOLERANCE = 1.02;
-const ABSOLUTE_SLACK_USD = 2e-6;
-
 interface ReconcileCase {
   model: string;
-  provider: () => LlmProvider;
+  provider: () => LlmProvider | Promise<LlmProvider>;
   /** Where reported/recomputed is expected to fall, and why. */
   ratio: { min: number; max: number; why: string };
 }
 
 const CASES: readonly ReconcileCase[] = [
   {
-    model: 'deepseek/deepseek-v4.1-flash',
+    // The pool runs Normal, pinned the same way, with max_price on OpenRouter's leg.
+    model: DEFAULT_LEARN_NORMAL_MODEL,
+    provider: () => poolProvider(),
+    ratio: NORMAL_RATIO_BAND,
+  },
+  {
+    model: DEFAULT_LEARN_NORMAL_MODEL,
     provider: () => builtInProvider(),
-    ratio: {
-      min: 0.95,
-      max: 1.02,
-      why: 'pinned to StreamLake, whose price is the MODEL_PRICES entry',
-    },
+    ratio: NORMAL_RATIO_BAND,
   },
   {
     model: 'google/gemini-3.1-flash-lite',
@@ -62,7 +65,7 @@ describe('cost reconciliation', () => {
     scenario(`reported against recomputed: ${c.model}`, 'openrouter', async () => {
       const price = await priceOf(c.model);
       const { summary } = await callWithRetry({
-        provider: c.provider(),
+        provider: await c.provider(),
         request: {
           model: c.model,
           system: 'You are a concise tutor.',

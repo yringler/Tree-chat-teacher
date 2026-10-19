@@ -31,6 +31,7 @@ import {
 import { insertPendingUsageStatement } from '../billing/usage-store.js';
 import type { PoolCaps, PoolRateLimits } from '../config.js';
 import type { AppEnv } from '../env.js';
+import type { HostedBackendId } from '../hosted/backend.js';
 import { checkpointOf, maintainCheckpoint, type PoolMaintainResult } from './checkpoint.js';
 import {
   addedSinceStatement,
@@ -93,6 +94,9 @@ export interface PoolReserveRequest {
   providerId: string;
   /** The pool model the hold was priced for. */
   model: string;
+  /** The hosted backend the call is sent to, and the model's id there (`PoolParams`); unset = unknown. */
+  backend?: HostedBackendId | null;
+  backendModel?: string | null;
   /** Worst-case cost of the call, micro-USD. */
   holdMicros: number;
   /** Fee stored on the row and applied when it settles. */
@@ -274,6 +278,8 @@ export class PoolBank extends DurableObject<AppEnv> {
       purpose: req.purpose,
       providerId: req.providerId,
       model: req.model,
+      backend: req.backend ?? null,
+      backendModel: req.backendModel ?? null,
       holdMicros: hold,
       // The pool pays the call's true cost: Tangent charges its own pool no markup.
       markupBps: 0,

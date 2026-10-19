@@ -6,7 +6,6 @@ import {
   OPENROUTER_PROVIDER_ID,
   POOL_FUNDING_TEXT,
   POOL_MOTTO,
-  poolModelDifferences,
   poolModelText,
   roughWords,
   serviceFeeCents,
@@ -46,7 +45,7 @@ import { PRICING_STYLE } from './page-styles.js';
 export interface PricingFacts extends Offer {
   /** The open pool, while Learn may spend from it (`poolAvailable`). */
   pool: {
-    /** The pool's model and how it is asked against the tier that runs it (`poolModelInfo`). */
+    /** The pool's model, Normal's, and how its reply cap compares (`poolModelInfo`). */
     model: PoolModelInfo;
     maxOutputTokens: number;
     /** Each learner's daily caps, the same for everyone. */
@@ -76,14 +75,12 @@ export function pricingFacts(
 }
 
 /**
- * The pool's model as a noun phrase: "the Normal model" when the pool asks
- * the tier's model the same way (or runs a model of its own), else "Normal's
- * model with lighter thinking and shorter replies" (`poolModelText`).
+ * The pool's model as a noun phrase: "the Normal model", or "Normal's model
+ * with shorter replies" when the pool's reply cap differs (`poolModelText`).
  */
 function poolModelNoun(model: PoolModelInfo, opts: { replies?: boolean } = {}): string {
-  return poolModelDifferences(model, opts).length === 0
-    ? `the ${model.label} model`
-    : poolModelText(model, opts);
+  const text = poolModelText(model, opts);
+  return text === model.label ? `the ${model.label} model` : text;
 }
 
 type NoteId = 'pool' | 'own-key' | 'credit' | 'top-up' | 'membership' | 'power-read' | 'search';
@@ -169,7 +166,10 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, Child>> {
       credit.openRouterFeeBps > 0
         ? `OpenRouter’s ${formatBps(credit.openRouterFeeBps)} fee on the credit Tangent buys from it, and `
         : '';
-    texts.credit = `Credit pays each reply’s OpenRouter list price, exactly what OpenRouter reports the reply cost, with nothing added. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.`;
+    const charged = credit.anthropicDirect
+      ? 'Credit pays each reply’s OpenRouter list price, with nothing added: exactly what OpenRouter reports the reply cost, or, for a reply Anthropic answers directly, its tokens at that same list price plus Anthropic’s 1¢ per web search.'
+      : 'Credit pays each reply’s OpenRouter list price, exactly what OpenRouter reports the reply cost, with nothing added.';
+    texts.credit = `${charged} Summaries and titles made on credit are charged the same way, and your billing page lists every charge.`;
     texts['top-up'] = (
       <>
         Buy {formatCents(credit.minTopUpCents)} to {formatCents(credit.maxTopUpCents)} of credit at

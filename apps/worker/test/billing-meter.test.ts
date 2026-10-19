@@ -1,12 +1,17 @@
 import {
+  OPENROUTER_PROVIDER_ID,
   chargeMicros,
   costUsdToNanos,
   type GenerateRequest,
   type LlmProvider,
+  type ProviderError,
+  type ProviderErrorCode,
   type ProviderEvent,
   type ProviderInfo,
+  type ProviderKind,
   type ProviderRegistry,
   type UsageTag,
+  type WebSearchRequest,
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -14,9 +19,19 @@ import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { meteredRegistry } from '../src/billing/meter.js';
 import type { UsageMeterOptions } from '../src/billing/meter-run.js';
 import { createUsageMeter } from '../src/billing/personal-meter.js';
-import { reserveCreditReply, USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import {
+  replyHoldMicros,
+  replyInputTokens,
+  reserveCreditReply,
+  USAGE_HOLD_MICROS,
+} from '../src/billing/service.js';
 import { markDispatched, repriceReservation } from '../src/billing/usage-store.js';
+import { anthropicBackend } from '../src/hosted/anthropic.js';
+import { breakerOpen } from '../src/hosted/breaker.js';
+import { hostedLegs, type LegsOf } from '../src/hosted/legs.js';
+import { openRouterBackend } from '../src/hosted/openrouter.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
+import { registryFor } from '../src/registries.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
   ensureUser,
@@ -42,10 +57,11 @@ const FAST: UsageMeterOptions = { retryDelaysMs: [5, 5, 5, 5], settleRetryDelays
 function scriptedProvider(
   script: ProviderEvent[],
   onEvent?: (index: number) => Promise<void>,
+  kind: ProviderKind = 'fake',
 ): LlmProvider & { calls: number } {
   const provider = {
     id: 'openrouter',
-    kind: 'fake' as const,
+    kind,
     label: 'Tangent',
     calls: 0,
     models: () => [{ id: 'max', label: 'Max', tier: 'max' }],
@@ -90,7 +106,11 @@ function registryOf(provider: LlmProvider): ProviderRegistry {
 
 const onlyBuiltIn = (providerId: string) => providerId === 'openrouter';
 
-function request(tag?: UsageTag, signal = new AbortController().signal): GenerateRequest {
+function request(
+  tag?: UsageTag,
+  signal = new AbortController().signal,
+  webSearch?: WebSearchRequest,
+): GenerateRequest {
   return {
     model: 'max',
     system: null,
@@ -98,6 +118,7 @@ function request(tag?: UsageTag, signal = new AbortController().signal): Generat
     maxOutputTokens: 100,
     signal,
     ...(tag ? { usageTag: tag } : {}),
+    ...(webSearch ? { webSearch } : {}),
   };
 }
 
@@ -106,7 +127,15 @@ interface Harness {
   deferred: Promise<unknown>[];
   run(
     script: ProviderEvent[],
-    opts?: { tag?: UsageTag; env?: AppEnv; options?: UsageMeterOptions; stopAfter?: number },
+    opts?: {
+      tag?: UsageTag;
+      env?: AppEnv;
+      options?: UsageMeterOptions;
+      stopAfter?: number;
+      kind?: ProviderKind;
+      webSearch?: WebSearchRequest;
+      legsOf?: LegsOf;
+    },
   ): Promise<ProviderEvent[]>;
   rows(): Promise<UsageRow[]>;
   settleBackground(): Promise<void>;
@@ -132,9 +161,15 @@ async function harness(account: AccountContext = simpleAccount()): Promise<Harne
         (p) => deferred.push(p),
         opts.options ?? FAST,
       );
-      const registry = meteredRegistry(registryOf(scriptedProvider(script)), meter, onlyBuiltIn);
+      const registry = meteredRegistry(
+        registryOf(scriptedProvider(script, undefined, opts.kind)),
+        meter,
+        onlyBuiltIn,
+        opts.legsOf,
+      );
       const out: ProviderEvent[] = [];
-      for await (const event of registry.get('openrouter')!.stream(request(opts.tag))) {
+      const req = request(opts.tag, undefined, opts.webSearch);
+      for await (const event of registry.get('openrouter')!.stream(req)) {
         out.push(event);
         if (opts.stopAfter !== undefined && out.length >= opts.stopAfter) break;
       }
@@ -212,6 +247,22 @@ describe('usage meter', () => {
     expect(row!.settled_at).not.toBeNull();
     await h.settleBackground();
     expect((await h.rows())[0]!.generation_id).toBe(gen);
+  });
+
+  it('records the backend a credit call is sent to and its model there', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'billing', costUsd: COST },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { tag },
+    );
+    expect((await h.rows())[0]).toMatchObject({
+      model: 'max',
+      backend: 'openrouter',
+      backend_model: 'max',
+    });
   });
 
   it('settles at the list price with a membership too, whatever the service fee', async () => {
@@ -395,12 +446,12 @@ describe('usage meter', () => {
       ],
       { stopAfter: 1, env: PRICED },
     );
-    // Sent, but no id, cost or tokens when the consumer left: its estimated input, at the input price.
+    // Sent, but no id, cost or tokens when the consumer left: its estimated input, and 'a' as one output token.
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
       settle_reason: 'tokens',
-      cost_nanos: 750_000,
-      charge_micros: 750,
+      cost_nanos: 1_350_000,
+      charge_micros: 1_350,
     });
   });
 
@@ -689,6 +740,74 @@ describe('credit calls sent without a reported cost or generation id', () => {
     expect((await h.rows())[0]).toMatchObject({ settle_reason: 'tokens', charge_micros: 22_200 });
   });
 
+  describe('on a model priced higher above 100K input tokens', () => {
+    /** $1 / $2 per million up to 100K input tokens, $5 / $10 above. */
+    const tiered = {
+      ...env,
+      MODEL_PRICES: JSON.stringify({
+        max: {
+          in: 1_000_000,
+          out: 2_000_000,
+          context: 1_000_000,
+          long: { above: 100_000, in: 5_000_000, out: 10_000_000 },
+        },
+      }),
+    } as AppEnv;
+    const finished = (inputTokens: number): ProviderEvent[] => [
+      { type: 'delta', text: 'Hello' },
+      { type: 'usage', usage: { inputTokens, outputTokens: 34 } },
+      { type: 'done', stopReason: 'stop' },
+    ];
+
+    it('charges the tokens of a call over the threshold at the long rates', async () => {
+      const h = await harness();
+      await h.run(finished(120_000), { env: tiered });
+      // 120_000 × 5 + 34 × 10 = 600_340 µ$.
+      expect((await h.rows())[0]).toMatchObject({
+        settle_reason: 'tokens',
+        cost_nanos: 600_340_000,
+        charge_micros: 600_340,
+      });
+    });
+
+    it('charges the tokens of a call under it at the base rates', async () => {
+      const h = await harness();
+      await h.run(finished(90_000), { env: tiered });
+      // 90_000 × 1 + 34 × 2 = 90_068 µ$.
+      expect((await h.rows())[0]).toMatchObject({
+        settle_reason: 'tokens',
+        cost_nanos: 90_068_000,
+        charge_micros: 90_068,
+      });
+    });
+
+    it('holds a reply whose input budget passes the threshold at the long rates', async () => {
+      const at = (input: number, inMicros: number, outMicros: number) =>
+        Math.max(
+          USAGE_HOLD_MICROS,
+          chargeMicros(
+            costFromTokensNanos(
+              {
+                inMicrosPerMTok: inMicros,
+                outMicrosPerMTok: outMicros,
+                contextTokens: 1_000_000,
+              },
+              replyInputTokens(input),
+              1000,
+            ),
+            0,
+            0,
+          ),
+        );
+      expect(
+        await replyHoldMicros(tiered, 'max', { maxInputTokens: 120_000, maxOutputTokens: 1000 }),
+      ).toBe(at(120_000, 5_000_000, 10_000_000));
+      expect(
+        await replyHoldMicros(tiered, 'max', { maxInputTokens: 60_000, maxOutputTokens: 1000 }),
+      ).toBe(at(60_000, 1_000_000, 2_000_000));
+    });
+  });
+
   it.each<[string, ProviderEvent[]]>([
     ['no usage', [{ type: 'delta', text: 'Hel' }, failedMidStream]],
     ['the input alone', [{ type: 'usage', usage: { inputTokens: 12 } }, failedMidStream]],
@@ -734,13 +853,24 @@ describe('credit calls the user stopped', () => {
     error: { code: 'aborted', message: 'Request aborted', retryable: false },
   };
 
-  it('charges its estimated input at the input price when nothing was reported', async () => {
+  it('charges its estimated input and streamed output when nothing was reported', async () => {
+    // 5 input tokens × 150 µ$, and 'Hel' as ceil(3 / 3.5) = 1 output token × 600 µ$.
     expect(await stopped([{ type: 'delta', text: 'Hel' }, aborted], 1)).toMatchObject({
       status: 'settled',
       settle_reason: 'tokens',
-      cost_nanos: 750_000,
-      charge_micros: 750,
+      cost_nanos: 1_350_000,
+      charge_micros: 1_350,
     });
+  });
+
+  it('settles a call with a generation id by its lookup, not the estimate', async () => {
+    const gen = uniq('gen-stopped');
+    await scriptGeneration(gen, [{ costUsd: 0.001 }]);
+    const row = await stopped(
+      [{ type: 'billing', generationId: gen }, { type: 'delta', text: 'Hello there' }, aborted],
+      2,
+    );
+    expect(row).toMatchObject({ settle_reason: 'generation', charge_micros: 1_000 });
   });
 
   it('charges the input it reported, at the input price, when the output is unknown', async () => {
@@ -764,8 +894,117 @@ describe('credit calls the user stopped', () => {
   });
 });
 
+describe("credit calls on Anthropic's own stream, whose output count comes only at its end", () => {
+  const HAIKU = 'anthropic/claude-haiku-5.5';
+  /** Anthropic alone, with Haiku at $150 in, $600 out per million tokens. */
+  const anthropicOnly = {
+    ...env,
+    BUILT_IN_PROVIDER: '',
+    BUILT_IN_BACKENDS: 'anthropic',
+    BUILT_IN_ANTHROPIC_API_KEY: 'sk-ant-operator',
+    MODEL_PRICES: JSON.stringify({
+      [HAIKU]: { in: 150_000_000, out: 600_000_000, context: 200_000 },
+    }),
+  } as AppEnv;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Anthropic answers with message_start (12 input tokens and its placeholder
+   * output count of 1), two text deltas, then `end` (raw SSE frames).
+   */
+  function anthropicStream(end: string): void {
+    const frame = (event: string, data: unknown) =>
+      `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const body =
+      frame('message_start', {
+        type: 'message_start',
+        message: { id: 'msg_1', usage: { input_tokens: 12, output_tokens: 1 } },
+      }) +
+      frame('content_block_start', {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'text', text: '' },
+      }) +
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'Hel' },
+      }) +
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'lo' },
+      }) +
+      end;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = new Request(input, init).url;
+      if (url.endsWith('/count_tokens'))
+        return Promise.resolve(Response.json({ input_tokens: 12 }));
+      return Promise.resolve(
+        new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+      );
+    });
+  }
+
+  /** Streams a Haiku call on `anthropicOnly`, stopping reading after `stopAfter` events. */
+  async function call(stopAfter?: number): Promise<{ events: ProviderEvent[]; row: UsageRow }> {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const h = await harness();
+    const registry = meteredRegistry(
+      registryFor(anthropicOnly, h.account),
+      createUsageMeter(anthropicOnly, h.account, (p) => h.deferred.push(p), FAST),
+      () => true,
+      hostedLegs(anthropicOnly),
+    );
+    const events: ProviderEvent[] = [];
+    const req: GenerateRequest = { ...request(tag), model: HAIKU };
+    for await (const event of registry.get(OPENROUTER_PROVIDER_ID)!.stream(req)) {
+      events.push(event);
+      if (stopAfter !== undefined && events.length >= stopAfter) break;
+    }
+    await h.settleBackground();
+    const rows = await h.rows();
+    expect(rows).toHaveLength(1);
+    return { events, row: rows[0]! };
+  }
+
+  it('charges a call the user stopped mid-reply its input and an estimate of its output', async () => {
+    anthropicStream('');
+    const { events, row } = await call(3);
+    expect(events.map((e) => e.type)).toEqual(['usage', 'delta', 'delta']);
+    // 12 × 150 = 1_800 µ$ in, nothing for the placeholder output count, and
+    // 'Hello' as ceil(5 / 3.5) = 2 output tokens × 600 = 1_200 µ$.
+    expect(row).toMatchObject({
+      backend: 'anthropic',
+      status: 'settled',
+      settle_reason: 'tokens',
+      charge_micros: 3_000,
+    });
+  });
+
+  it('charges the hold for a call that failed mid-stream before its final usage', async () => {
+    anthropicStream(
+      `event: error\ndata: ${JSON.stringify({
+        type: 'error',
+        error: { type: 'overloaded_error', message: 'Overloaded' },
+      })}\n\n`,
+    );
+    const { events, row } = await call();
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      error: { code: 'overloaded', upstream: 'stream' },
+    });
+    expect(row).toMatchObject({ backend: 'anthropic', status: 'settled', settle_reason: 'hold' });
+    expect(row.charge_micros).toBe(row.hold_micros);
+  });
+});
+
 describe('reserved replies on credit', () => {
   const target = { treeId: 'tree_1', branchId: 'branch_1', providerId: 'openrouter', model: 'max' };
+  const ON_OPENROUTER = { backend: 'openrouter', backendModel: 'max' } as const;
   const reply = [
     { type: 'billing', costUsd: COST },
     { type: 'done', stopReason: 'stop' },
@@ -782,12 +1021,30 @@ describe('reserved replies on credit', () => {
     });
   }
 
+  it('records the backend of a reply reserved before its call', async () => {
+    const h = await harness();
+    const id = await reserveCreditReply(env, h.account, target, 500_000);
+    expect(await usageRow(env, id)).toMatchObject({
+      model: 'max',
+      backend: 'openrouter',
+      backend_model: 'max',
+    });
+  });
+
   it('lowers a reservation to the call, whatever the balance, and settles that row', async () => {
     const h = await harness();
     const id = await reserveCreditReply(env, h.account, target, 500_000);
     await setAvailable(h.account.billingAccountId, -1_000);
     expect(
-      await repriceReservation(env.DB, id, h.account.billingAccountId, 400_000, 'n1', 7),
+      await repriceReservation(
+        env.DB,
+        id,
+        h.account.billingAccountId,
+        400_000,
+        'n1',
+        7,
+        ON_OPENROUTER,
+      ),
     ).toEqual({ feeBps: 0, markupBps: 0 });
     await h.run(reply, { tag: { ...tag, reservationId: id } });
     const rows = await h.rows();
@@ -809,9 +1066,13 @@ describe('reserved replies on credit', () => {
     const accountId = h.account.billingAccountId;
     const id = await reserveCreditReply(env, h.account, target, 1_000);
     await setAvailable(accountId, 4_000);
-    expect(await repriceReservation(env.DB, id, accountId, 5_001, null, 7)).toBeNull();
+    expect(
+      await repriceReservation(env.DB, id, accountId, 5_001, null, 7, ON_OPENROUTER),
+    ).toBeNull();
     expect((await usageRow(env, id)).hold_micros).toBe(1_000);
-    expect(await repriceReservation(env.DB, id, accountId, 5_000, null, 7)).not.toBeNull();
+    expect(
+      await repriceReservation(env.DB, id, accountId, 5_000, null, 7, ON_OPENROUTER),
+    ).not.toBeNull();
     expect((await usageRow(env, id)).hold_micros).toBe(5_000);
   });
 
@@ -820,9 +1081,13 @@ describe('reserved replies on credit', () => {
     const accountId = h.account.billingAccountId;
     const dispatched = await reserveCreditReply(env, h.account, target, 1_000);
     expect(await markDispatched(env.DB, dispatched)).toBe(true);
-    expect(await repriceReservation(env.DB, dispatched, accountId, 500, null, 7)).toBeNull();
+    expect(
+      await repriceReservation(env.DB, dispatched, accountId, 500, null, 7, ON_OPENROUTER),
+    ).toBeNull();
     const other = await reserveCreditReply(env, h.account, target, 1_000);
-    expect(await repriceReservation(env.DB, other, uniq('acct'), 500, null, 7)).toBeNull();
+    expect(
+      await repriceReservation(env.DB, other, uniq('acct'), 500, null, 7, ON_OPENROUTER),
+    ).toBeNull();
     expect((await usageRow(env, other)).hold_micros).toBe(1_000);
   });
 
@@ -930,6 +1195,390 @@ describe('usage meter web searches', () => {
   });
 });
 
+describe('credit calls on an endpoint whose cost leaves searches out (Anthropic)', () => {
+  const searchOnce: WebSearchRequest = { mode: 'auto', maxUses: 1 };
+  const searchTwice: WebSearchRequest = { mode: 'auto', maxUses: 2 };
+
+  it('charges each billed search at $10 per 1,000 on top of the tokens', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'delta', text: 'grounded' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        { type: 'billing', webSearches: 2 },
+        { type: 'done', stopReason: 'end_turn' },
+      ],
+      { env: PRICED, tag, kind: 'anthropic', webSearch: searchTwice },
+    );
+    // 22_200 µ$ of tokens + 2 × 10_000 µ$.
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      web_searches: 2,
+      cost_nanos: 42_200_000,
+      charge_micros: 42_200,
+    });
+  });
+
+  it('charges no search an errored attempt started but Anthropic did not bill', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        { type: 'billing', webSearches: 0 },
+        { type: 'done', stopReason: 'end_turn' },
+      ],
+      { env: PRICED, tag, kind: 'anthropic', webSearch: searchOnce },
+    );
+    expect((await h.rows())[0]).toMatchObject({ web_searches: 0, charge_micros: 22_200 });
+  });
+
+  it('holds the most searches the request allows, and charges that hold when nothing is known', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'delta', text: 'Hel' },
+        {
+          type: 'error',
+          error: { code: 'network', message: 'lost', retryable: true, upstream: 'stream' },
+        },
+      ],
+      { env: PRICED, kind: 'anthropic', webSearch: searchTwice },
+    );
+    // 60_750 µ$ for 5 in and 100 out, + 2 × 10_000 µ$.
+    expect((await h.rows())[0]).toMatchObject({
+      settle_reason: 'hold',
+      hold_micros: 80_750,
+      charge_micros: 80_750,
+    });
+  });
+
+  it('holds at least what a call charges that ran every search it may, at its full input and cap', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'usage', usage: { inputTokens: 5, outputTokens: 100 } },
+        { type: 'billing', webSearches: 2 },
+        { type: 'done', stopReason: 'end_turn' },
+      ],
+      { env: PRICED, tag, kind: 'anthropic', webSearch: searchTwice },
+    );
+    const row = (await h.rows())[0]!;
+    expect(row).toMatchObject({ settle_reason: 'tokens', hold_micros: 80_750 });
+    expect(row.charge_micros).toBeLessThanOrEqual(row.hold_micros);
+  });
+
+  it("reserves a reply with its search's fee where the built-in provider bills it outside the cost", async () => {
+    const anthropic = (grounding: string) =>
+      ({
+        ...PRICED,
+        GROUNDING: grounding,
+        BUILT_IN_PROVIDER: JSON.stringify({
+          id: 'openrouter',
+          kind: 'anthropic',
+          label: 'T',
+          apiKeySecret: 'MY_ANT_KEY',
+          models: [{ id: 'max', label: 'Max' }],
+          defaultModel: 'max',
+        }),
+      }) as AppEnv;
+    const budget = { maxInputTokens: 1000, maxOutputTokens: 100 };
+    const tokensOnly = await replyHoldMicros(PRICED, 'max', budget);
+    // A reply searches at most once: one $10-per-1,000 fee on top of its tokens.
+    expect(await replyHoldMicros(anthropic('auto'), 'max', budget)).toBe(tokensOnly + 10_000);
+    // No searches while grounding is off.
+    expect(await replyHoldMicros(anthropic('off'), 'max', budget)).toBe(tokensOnly);
+  });
+
+  it('holds and charges no search fee where the reported cost carries it (OpenRouter)', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        { type: 'billing', webSearches: 1 },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { env: PRICED, tag, webSearch: searchOnce },
+    );
+    expect((await h.rows())[0]).toMatchObject({
+      settle_reason: 'tokens',
+      web_searches: 1,
+      hold_micros: 60_750,
+      charge_micros: 22_200,
+    });
+  });
+});
+
+describe('falling back to the next backend', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** An error the upstream answered with before any output (`upstream: 'rejected'`). */
+  function refused(
+    code: ProviderErrorCode,
+    status: number,
+    extra: Partial<ProviderError> = {},
+  ): ProviderEvent {
+    return {
+      type: 'error',
+      error: {
+        code,
+        message: `HTTP ${status}`,
+        status,
+        retryable: true,
+        upstream: 'rejected',
+        ...extra,
+      },
+    };
+  }
+
+  /** Anthropic plays `first`; the call's own provider (OpenRouter) is the next leg. */
+  function anthropicFirst(first: ProviderEvent[]): { legsOf: LegsOf; firstCalls: () => number } {
+    const leg = scriptedProvider(first, undefined, 'anthropic');
+    return {
+      legsOf: (provider, model) => [
+        { backend: anthropicBackend, model: 'claude-max', provider: leg },
+        { backend: openRouterBackend, model, provider },
+      ],
+      firstCalls: () => leg.calls,
+    };
+  }
+
+  const answer: ProviderEvent[] = [
+    { type: 'delta', text: 'Hello' },
+    { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+    { type: 'billing', costUsd: COST },
+    { type: 'done', stopReason: 'stop' },
+  ];
+
+  const logged = (spy: { mock: { calls: unknown[][] } }, event: string) =>
+    spy.mock.calls
+      .map(([line]) =>
+        typeof line === 'string' ? (JSON.parse(line) as Record<string, unknown>) : null,
+      )
+      .filter((l) => l?.['event'] === event);
+
+  it('runs the next backend after a 429 before any output: the client sees only its events, charged once', async () => {
+    const log = vi.spyOn(console, 'log');
+    const warn = vi.spyOn(console, 'warn');
+    const h = await harness();
+    const { legsOf, firstCalls } = anthropicFirst([
+      refused('rate_limit', 429, { retryAfterMs: 45_000 }),
+    ]);
+    const events = await h.run(answer, { tag, legsOf });
+    expect(firstCalls()).toBe(1);
+    expect(events).toEqual(answer);
+    const rows = await h.rows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      backend: 'openrouter',
+      backend_model: 'max',
+      fee_bps: 0,
+      status: 'settled',
+      settle_reason: 'cost',
+      charge_micros: 1234,
+      generation_id: null,
+    });
+    expect(rows[0]!.dispatched_at).not.toBeNull();
+    expect((await getBalance(env.DB, h.account.billingAccountId)).balanceMicros).toBe(
+      1_000_000 - 1234,
+    );
+    expect(logged(warn, 'backend_fallback')).toEqual([
+      {
+        event: 'backend_fallback',
+        usageId: rows[0]!.id,
+        from: 'anthropic',
+        to: 'openrouter',
+        model: 'max',
+        code: 'rate_limit',
+        status: 429,
+        retryAfterMs: 45_000,
+        purpose: 'reply',
+        funding: 'credit',
+      },
+    ]);
+    expect(breakerOpen('anthropic', 'claude-max', Date.now())).toBe(true);
+    expect(logged(log, 'llm_call')).toMatchObject([
+      { backend: 'openrouter', backendModel: 'max', fellBackFrom: ['anthropic'], error: null },
+    ]);
+  });
+
+  it('falls back on an overload, a server error and a connection that failed before it was sent', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const failures: ProviderEvent[] = [
+      refused('overloaded', 529),
+      refused('server', 502),
+      {
+        type: 'error',
+        error: { code: 'network', message: 'reset', retryable: true, upstream: 'not_sent' },
+      },
+    ];
+    for (const failure of failures) {
+      const h = await harness();
+      const events = await h.run(answer, { legsOf: anthropicFirst([failure]).legsOf });
+      expect(events).toEqual(answer);
+      expect((await h.rows())[0]).toMatchObject({ backend: 'openrouter', charge_micros: 1234 });
+    }
+  });
+
+  it('never falls back once the first backend yielded anything: the reply is charged by the usual rules', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const midStream: ProviderEvent = {
+      type: 'error',
+      error: { code: 'overloaded', message: 'Overloaded', retryable: true, upstream: 'stream' },
+    };
+    const h = await harness();
+    const first = [
+      { type: 'delta', text: 'Hel' },
+      { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+      midStream,
+    ] satisfies ProviderEvent[];
+    const events = await h.run(answer, { env: PRICED, legsOf: anthropicFirst(first).legsOf });
+    expect(events).toEqual(first);
+    expect((await h.rows())[0]).toMatchObject({
+      backend: 'anthropic',
+      backend_model: 'claude-max',
+      status: 'settled',
+      settle_reason: 'tokens',
+      charge_micros: 22_200,
+    });
+
+    // Not after a search started or a generation id came either, whatever the error.
+    for (const before of [
+      { type: 'activity', kind: 'web_search' },
+      { type: 'billing', generationId: uniq('gen') },
+    ] satisfies ProviderEvent[]) {
+      const other = await harness();
+      const out = await other.run(answer, {
+        legsOf: anthropicFirst([before, refused('rate_limit', 429)]).legsOf,
+      });
+      expect(out).toEqual([before, refused('rate_limit', 429)]);
+      expect((await other.rows())[0]).toMatchObject({ backend: 'anthropic' });
+    }
+  });
+
+  it('never falls back on a refusal about the call itself', async () => {
+    for (const failure of [
+      refused('invalid_request', 400),
+      refused('context_length', 400),
+      refused('auth', 401),
+      refused('invalid_request', 402),
+      refused('config', 400),
+    ]) {
+      const h = await harness();
+      const { legsOf, firstCalls } = anthropicFirst([failure]);
+      const events = await h.run(answer, { tag, legsOf });
+      expect(firstCalls()).toBe(1);
+      expect(events).toEqual([failure]);
+      expect((await h.rows())[0]).toMatchObject({
+        backend: 'anthropic',
+        status: 'settled',
+        settle_reason: 'released',
+        charge_micros: 0,
+      });
+    }
+    expect(breakerOpen('anthropic', 'claude-max', Date.now())).toBe(false);
+  });
+
+  it("surfaces the last backend's error when every backend refuses, and charges nothing", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const h = await harness();
+    const last = refused('overloaded', 529);
+    const events = await h.run([last], {
+      legsOf: anthropicFirst([refused('rate_limit', 429)]).legsOf,
+    });
+    expect(events).toEqual([last]);
+    expect((await h.rows())[0]).toMatchObject({
+      backend: 'openrouter',
+      status: 'settled',
+      settle_reason: 'released',
+      charge_micros: 0,
+    });
+    expect(breakerOpen('anthropic', 'claude-max', Date.now())).toBe(true);
+    expect(breakerOpen('openrouter', 'max', Date.now())).toBe(true);
+  });
+
+  it('surfaces the error, sending nothing more, when the row cannot be pointed at the next backend', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const h = await harness();
+    const failure = refused('rate_limit', 429);
+    const events = await h.run(answer, {
+      env: envWithFailingDb(env, /SET backend = /),
+      legsOf: anthropicFirst([failure]).legsOf,
+    });
+    expect(events).toEqual([failure]);
+    expect((await h.rows())[0]).toMatchObject({
+      backend: 'anthropic',
+      settle_reason: 'released',
+      charge_micros: 0,
+    });
+  });
+
+  it("points a reserved reply's row at the backend it is sent on, and on to the next one", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const target = {
+      treeId: 'tree_1',
+      branchId: 'branch_1',
+      providerId: 'openrouter',
+      model: 'max',
+    };
+    const h = await harness();
+    const served = await reserveCreditReply(env, h.account, target, 500_000);
+    expect(await usageRow(env, served)).toMatchObject({ backend: 'openrouter' });
+    await h.run(answer, {
+      tag: { ...tag, reservationId: served },
+      legsOf: anthropicFirst(answer).legsOf,
+    });
+    expect(await usageRow(env, served)).toMatchObject({
+      backend: 'anthropic',
+      backend_model: 'claude-max',
+      charge_micros: 1234,
+    });
+
+    const fellBack = await reserveCreditReply(env, h.account, target, 500_000);
+    await h.run(answer, {
+      tag: { ...tag, reservationId: fellBack },
+      legsOf: anthropicFirst([refused('overloaded', 529)]).legsOf,
+    });
+    expect(await h.rows()).toHaveLength(2);
+    expect(await usageRow(env, fellBack)).toMatchObject({
+      backend: 'openrouter',
+      backend_model: 'max',
+      status: 'settled',
+      charge_micros: 1234,
+    });
+  });
+
+  it('looks up only the generation of the backend that served the call', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const h = await harness();
+    const gen = uniq('gen-served');
+    await scriptGeneration(gen, [{ costUsd: 0.002 }]);
+    await h.run(
+      [
+        { type: 'billing', generationId: gen },
+        { type: 'delta', text: 'partial' },
+        { type: 'error', error: { code: 'aborted', message: 'aborted', retryable: false } },
+      ],
+      { legsOf: anthropicFirst([refused('rate_limit', 429)]).legsOf },
+    );
+    await h.settleBackground();
+    expect((await h.rows())[0]).toMatchObject({
+      backend: 'openrouter',
+      generation_id: gen,
+      settle_reason: 'generation',
+      charge_micros: 2000,
+    });
+    expect((await generationCalls(gen)).count).toBe(1);
+  });
+});
+
 describe('the call log', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -970,6 +1619,8 @@ describe('the call log', () => {
         purpose: 'reply',
         providerId: 'openrouter',
         model: 'max',
+        backend: 'openrouter',
+        backendModel: 'max',
         tier: 'max',
         effort: null,
         providerOrder: null,
@@ -984,6 +1635,7 @@ describe('the call log', () => {
         finishReason: 'stop',
         truncated: false,
         error: null,
+        fellBackFrom: [],
       },
     ]);
     // The charge is the reported cost, whatever the cap was.

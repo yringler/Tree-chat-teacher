@@ -12,7 +12,6 @@ import {
   DEFAULT_POWER_MAX_MODEL,
   learnOffer,
   poolProviderConfig,
-  POOL_MODEL_LABEL,
   simpleChatSettings,
   simpleFastModel,
   simpleProviderConfig,
@@ -31,18 +30,15 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
     LEARN_NORMAL_MODEL: '',
     POWER_MAX_MODEL: '',
     BACKGROUND_MODEL: '',
-    POOL_MODEL: '',
     MODEL_PRICES: '',
     LEARN_NORMAL_EFFORT: '',
     LEARN_NORMAL_REPLY_TOKENS: '',
     LEARN_NORMAL_PROVIDER_ORDER: '',
     BACKGROUND_EFFORT: '',
-    POOL_EFFORT: '',
-    POOL_PROVIDER_ORDER: '',
     ...overrides,
   }) as AppEnv;
-/** V4.1 Flash's pinned providers (config.ts `DEFAULT_TIER_REQUESTS`). */
-const PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
+/** Where Normal's Haiku is pinned (config.ts `DEFAULT_TIER_REQUESTS`). */
+const HAIKU_PINNED = ['anthropic'];
 
 describe("the built-in provider's models", () => {
   it('Learn has one model, Normal, with the request settings the model eval picked', () => {
@@ -50,12 +46,12 @@ describe("the built-in provider's models", () => {
     expect(config.defaultModel).toBe(DEFAULT_LEARN_NORMAL_MODEL);
     expect(config.models).toEqual([
       {
-        id: 'deepseek/deepseek-v4.1-flash',
+        id: 'anthropic/claude-haiku-5.5',
         label: 'Normal',
         tier: 'normal',
         effort: 'high',
         maxOutputTokens: 16_384,
-        providerOrder: PINNED,
+        providerOrder: HAIKU_PINNED,
       },
     ]);
     expect(DEFAULT_POWER_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
@@ -188,22 +184,47 @@ describe("the built-in provider's models", () => {
     expect(override?.powerMax).toBe('M');
   });
 
-  it("the pool runs the background model by default: Normal's model, asked the pool's way", async () => {
+  it('says a search costs about 1¢ only when it does on every backend Learn’s model may run on', () => {
+    const offer = (o: Partial<AppEnv>) =>
+      learnOffer(
+        deployed({ BUILT_IN_API_KEY: 'sk-or-op', BUILT_IN_ANTHROPIC_API_KEY: 'sk-ant-op', ...o }),
+      )?.searchAboutOneCent;
+    // Anthropic's own search is 1¢; GROUNDING_ENGINE is OpenRouter's alone.
+    expect(offer({ BUILT_IN_BACKENDS: 'anthropic', GROUNDING_ENGINE: 'parallel' })).toBe(true);
+    expect(offer({ BUILT_IN_BACKENDS: 'anthropic,openrouter', GROUNDING_ENGINE: 'parallel' })).toBe(
+      false,
+    );
+    expect(offer({ BUILT_IN_BACKENDS: 'anthropic,openrouter' })).toBe(true);
+    expect(offer({ BUILT_IN_BACKENDS: 'openrouter', GROUNDING_MAX_RESULTS: '20' })).toBe(false);
+  });
+
+  it('the pool runs Normal, as Normal asks it, and summarises at the background effort', async () => {
     const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool') });
     const pool = await resolvePoolParams(e, null);
-    expect(pool.model).toBe(DEFAULT_BACKGROUND_MODEL);
-    expect(pool).toMatchObject({ effort: 'low', providerOrder: PINNED, summaryEffort: 'low' });
+    expect(pool.model).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    expect(simpleFastModel(e)).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    expect(pool.summaryEffort).toBe('low');
     expect(poolProviderConfig(e, pool).models).toEqual([
-      { id: DEFAULT_BACKGROUND_MODEL, label: 'Normal', effort: 'low', providerOrder: PINNED },
+      {
+        id: DEFAULT_LEARN_NORMAL_MODEL,
+        label: 'Normal',
+        tier: 'normal',
+        effort: 'high',
+        maxOutputTokens: pool.maxOutputTokens,
+        providerOrder: HAIKU_PINNED,
+      },
     ]);
   });
 
-  it('a pool model Learn does not list is labelled Lite, with its own defaults', async () => {
-    const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool'), BACKGROUND_MODEL: 'c/fast' });
+  it('LEARN_NORMAL_MODEL moves the pool with Normal; BACKGROUND_MODEL leaves it alone', async () => {
+    const background = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool'), BACKGROUND_MODEL: 'c/fast' });
+    expect((await resolvePoolParams(background, null)).model).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool'), LEARN_NORMAL_MODEL: 'c/fast' });
     const pool = await resolvePoolParams(e, null);
-    expect(pool).toMatchObject({ model: 'c/fast', effort: null, providerOrder: [] });
-    expect(poolProviderConfig(e, pool).models).toEqual([{ id: 'c/fast', label: POOL_MODEL_LABEL }]);
-    expect(POOL_MODEL_LABEL).toBe('Lite');
+    expect(pool.model).toBe('c/fast');
+    expect(poolProviderConfig(e, pool).models).toEqual([
+      { id: 'c/fast', label: 'Normal', tier: 'normal', maxOutputTokens: pool.maxOutputTokens },
+    ]);
   });
 });
 
@@ -233,13 +254,13 @@ describe('the Max usage factor', () => {
       ),
     });
 
-  it('is set on the Max model from the two prices: about 14 for V4.1 Flash and Sonnet 5.5', async () => {
+  it('is set on the Max model from the two prices: 20 for Haiku 5.5 and Sonnet 5.5', async () => {
     const [info] = await withUsageFactors(deployed(), [
       tiers(DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_POWER_MAX_MODEL),
     ]);
     expect(info!.models).toEqual([
       { id: DEFAULT_LEARN_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
-      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 14 },
+      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 20 },
     ]);
   });
 

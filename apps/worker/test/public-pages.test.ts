@@ -22,7 +22,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { ownKeyProviders } from '../src/availability.js';
-import { appConfig, DEFAULT_BACKGROUND_MODEL } from '../src/config.js';
+import { appConfig, DEFAULT_LEARN_NORMAL_MODEL } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { POOL_IDENTITY_RETENTION_DAYS } from '../src/pool/identity.js';
 import { POOL_SESSION_ESTIMATE_MICROS } from '../src/pool/params.js';
@@ -297,6 +297,16 @@ describe('/pricing', () => {
     ]);
     // Credit pays the list price; the 20% + 50¢ service fee is on top-ups; $10 over 20%: $50 a year.
     expect(notes(html).get('credit')).toContain('with nothing added');
+    expect(notes(html).get('credit')).toContain('exactly what OpenRouter reports the reply cost');
+    expect(notes(html).get('credit')).not.toContain('Anthropic');
+    // A reply Anthropic answers directly reports no cost: its tokens at the same list price.
+    const direct = deployment({
+      BUILT_IN_BACKENDS: 'anthropic,openrouter',
+      BUILT_IN_ANTHROPIC_API_KEY: 'sk-ant-operator',
+    });
+    expect(notes((await get(direct, '/pricing')).html).get('credit')).toContain(
+      'for a reply Anthropic answers directly, its tokens at that same list price',
+    );
     const topUp = notes(html).get('top-up');
     expect(topUp).toMatch(/^Buy \$5 to \$500 of credit at a time/);
     expect(topUp).toContain(
@@ -367,7 +377,7 @@ describe('/pricing', () => {
     ]);
     expect(text(member)).toContain('any OpenRouter model in power mode, Max included');
     // Without a Max of its own, power's credit row names none.
-    const one = (await get(deployment({ POWER_MAX_MODEL: DEFAULT_BACKGROUND_MODEL }), '/pricing'))
+    const one = (await get(deployment({ POWER_MAX_MODEL: DEFAULT_LEARN_NORMAL_MODEL }), '/pricing'))
       .html;
     expect(row(one, 'Any OpenRouter model, on prepaid credit')).toEqual([
       '—',
@@ -548,7 +558,7 @@ describe('/pool', () => {
         `${formatMicros(pool.caps.global.spendMicrosPerDay)} or ${formatBps(pool.caps.global.bpsOfMorningBalance)} of the pool`,
       ),
     });
-    expect(html).toContain(`<code>${DEFAULT_BACKGROUND_MODEL}</code>`);
+    expect(html).toContain(`<code>${DEFAULT_LEARN_NORMAL_MODEL}</code>`);
     expect(text(html)).toContain(`2,048 tokens (roughly ${roughWords(2048)} words)`);
     // The ceiling hold of the pool model's longest reply, from its price.
     expect(text(html)).toMatch(/about (\$\d\.\d\d|\d+(\.\d)?¢)\) and settles the real cost/);

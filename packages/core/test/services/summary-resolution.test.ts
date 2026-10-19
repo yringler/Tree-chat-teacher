@@ -1,7 +1,12 @@
 import { createProviderRegistry } from '@tangent/providers';
-import type { ProviderRegistry, StreamEvent } from '@tangent/shared';
+import type { GenerateRequest, ProviderRegistry, StreamEvent } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
-import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
+import { CLIPPED_TRANSCRIPT_MARKER } from '../../src/context/render.js';
+import {
+  ChatService,
+  DEFAULT_CHAT_SETTINGS,
+  type ChatServiceDeps,
+} from '../../src/services/chat-service.js';
 import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 import { registryOf, ScriptedProvider, send, setup } from './helpers.js';
 
@@ -174,5 +179,76 @@ describe('ChatService summary provider', () => {
     expect(provider.summaryCalls()[0]!.model).toBe('m1');
     expect(provider.chatCalls().at(-1)!.system ?? '').toContain('SUMMARY(');
     expect(last).toMatchObject({ type: 'done', branch: { title: 'Scripted Title' } });
+  });
+});
+
+describe('ChatService summary input on Tangent credit', () => {
+  /** ~2,900 tokens at 3.5 chars a token: three of them overflow a 6,000-token limit. */
+  const LONG = 'x'.repeat(10_000);
+  const CAP = 6000;
+
+  /**
+   * Four long turns on `funding`, then one more under a 6,000-token input
+   * limit, which compacts the first ones. Returns the summary calls `called` got.
+   */
+  async function compactingSend(
+    profile: ChatServiceDeps['profile'],
+    own: ScriptedProvider,
+    funding: 'own-key' | 'credit',
+    called: ScriptedProvider = own,
+  ): Promise<GenerateRequest[]> {
+    let n = 0;
+    const chat = new ChatService({
+      repos: createMemoryRepositories(),
+      providers: registryOf(own),
+      ...(profile ? { profile } : {}),
+      settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
+      newId: () => `id${++n}`,
+    });
+    const { tree } = await chat.createTree({ providerId: 'openrouter', funding });
+    for (const i of [1, 2, 3, 4]) await send(chat, tree.trunkBranchId, `${i} ${LONG}`);
+    await send(chat, tree.trunkBranchId, 'And now?', { maxInputTokens: CAP });
+    return called.summaryCalls();
+  }
+  const promptChars = (c: GenerateRequest) =>
+    (c.system ?? '').length + c.messages.reduce((n, m) => n + m.content.length, 0);
+
+  it("clips a power compaction summary on credit to the server's input cap", async () => {
+    const own = new ScriptedProvider('openrouter');
+    const credit = new ScriptedProvider('openrouter');
+    const summaries = await compactingSend(
+      { kind: 'power', credit: { providers: registryOf(credit), summaryMaxInputTokens: CAP } },
+      own,
+      'credit',
+      credit,
+    );
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]!.messages[0]!.content).toContain(CLIPPED_TRANSCRIPT_MARKER);
+    expect(promptChars(summaries[0]!)).toBeLessThanOrEqual(CAP * 3.5);
+  });
+
+  it('clips a Learn compaction summary on credit to the same cap', async () => {
+    const own = new ScriptedProvider('openrouter');
+    const summaries = await compactingSend(
+      { kind: 'learn', customPrompt: true, summaryMaxInputTokens: CAP },
+      own,
+      'own-key',
+    );
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]!.messages[0]!.content).toContain(CLIPPED_TRANSCRIPT_MARKER);
+    expect(promptChars(summaries[0]!)).toBeLessThanOrEqual(CAP * 3.5);
+  });
+
+  it('sends the whole prefix to a summary on the own key', async () => {
+    const own = new ScriptedProvider('openrouter');
+    const credit = new ScriptedProvider('openrouter');
+    const summaries = await compactingSend(
+      { kind: 'power', credit: { providers: registryOf(credit), summaryMaxInputTokens: CAP } },
+      own,
+      'own-key',
+    );
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]!.messages[0]!.content).not.toContain(CLIPPED_TRANSCRIPT_MARKER);
+    expect(promptChars(summaries[0]!)).toBeGreaterThan(CAP * 3.5);
   });
 });

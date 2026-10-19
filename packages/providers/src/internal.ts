@@ -112,6 +112,35 @@ export function codeForStatus(status: number): ProviderErrorCode {
   return 'unknown';
 }
 
+/**
+ * The longest wait a `retry-after` may ask for. A backend that asks for a
+ * day (or a bad header that reads as one) would otherwise be skipped long
+ * after it recovered; rate limits are per minute, so an hour is plenty.
+ */
+const RETRY_AFTER_MAX_MS = 60 * 60 * 1000;
+
+/** The IMF-fixdate form of an HTTP-date, the one servers send (`Wed, 21 Oct 2015 07:28:00 GMT`). */
+const HTTP_DATE_RE = /^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+/**
+ * A `retry-after` header value in milliseconds from `now`: delta-seconds or
+ * an HTTP-date (one already past is 0), capped at RETRY_AFTER_MAX_MS.
+ * Undefined when absent or malformed; the shape is checked before
+ * `Date.parse`, which would read a stray number like `1.5` as a date.
+ */
+export function parseRetryAfter(value: string | null, now: number): number | undefined {
+  const text = value?.trim();
+  if (!text) return undefined;
+  let ms: number;
+  if (/^\d+$/.test(text)) ms = Number(text) * 1000;
+  else if (HTTP_DATE_RE.test(text)) {
+    const at = Date.parse(text);
+    if (Number.isNaN(at)) return undefined;
+    ms = Math.max(0, at - now);
+  } else return undefined;
+  return Math.min(ms, RETRY_AFTER_MAX_MS);
+}
+
 /** Removes secret values (and anything that looks like an API key) from text. */
 export function redact(text: string, secrets: readonly string[]): string {
   let out = text;
@@ -179,7 +208,10 @@ export async function errorFromResponse(
   if ((code === 'invalid_request' || status === 413) && looksLikeContextLength(raw, info.code)) {
     code = 'context_length';
   }
-  return providerError(code, upstreamMessage(raw, secrets), status);
+  const error = providerError(code, upstreamMessage(raw, secrets), status);
+  const retryAfterMs = parseRetryAfter(res.headers.get('retry-after'), Date.now());
+  if (retryAfterMs !== undefined) error.retryAfterMs = retryAfterMs;
+  return error;
 }
 
 export function networkError(err: unknown, secrets: readonly string[]): ProviderError {

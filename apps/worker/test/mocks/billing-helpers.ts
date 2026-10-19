@@ -136,14 +136,17 @@ export interface UsageRowInput {
   treeId?: string | null;
   dispatchedAt?: string | null;
   heldInputTokens?: number | null;
+  /** `usage_events.backend` (null = none recorded). */
+  backend?: string | null;
 }
 
 export async function insertUsage(env: AppEnv, row: UsageRowInput): Promise<string> {
   const id = uniq('use');
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, tree_id, purpose, provider_id, model, generation_id, status,
-       hold_micros, markup_bps, fee_bps, charge_micros, created_at, dispatched_at, held_input_tokens)
-     VALUES (?, ?, ?, ?, 'openrouter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       hold_micros, markup_bps, fee_bps, charge_micros, created_at, dispatched_at, held_input_tokens,
+       backend)
+     VALUES (?, ?, ?, ?, 'openrouter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -160,6 +163,7 @@ export async function insertUsage(env: AppEnv, row: UsageRowInput): Promise<stri
       row.createdAt ?? new Date().toISOString(),
       row.dispatchedAt ?? null,
       row.heldInputTokens ?? null,
+      row.backend ?? null,
     )
     .run();
   return id;

@@ -14,11 +14,12 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
 import { RECONCILE_RETRY_DELAYS_MS } from '../../src/billing/reconcile.js';
 import { namedSecrets, type ModelPrice } from '../../src/config.js';
-import type { AppEnv } from '../../src/env.js';
+import type { AppEnv, PoolAccount } from '../../src/env.js';
 import { creditPrice } from '../../src/pool/model-prices.js';
+import { resolvePoolParams } from '../../src/pool/params.js';
 import { chargeFromTokensMicros, costFromTokensNanos } from '../../src/pool/pricing.js';
 import { creditRegistryFor, registryFor } from '../../src/registries.js';
-import { devPowerAccount, powerAccount, simpleAccount } from '../mocks/billing-helpers.js';
+import { devPowerAccount, powerAccount, simpleAccount, uniq } from '../mocks/billing-helpers.js';
 import { LIVE_CONTROL } from './bindings.js';
 import type { RequestShape } from './host.js';
 import type { ReportFooter, ReportRow, ScenarioStatus } from './report.js';
@@ -93,6 +94,23 @@ export function builtInProvider(e: AppEnv = env): LlmProvider {
   return registryFor(e, simpleAccount()).get('openrouter')!;
 }
 
+/**
+ * The built-in provider as a generating pool request gets it: the pool model only, with
+ * its effort, pinned providers and `max_price` (simple-mode.ts `poolProviderConfig`).
+ */
+export async function poolProvider(e: AppEnv = env): Promise<LlmProvider> {
+  const userId = uniq('user');
+  const account: PoolAccount = {
+    id: `u_${userId}`,
+    mode: 'simple',
+    userId,
+    billingAccountId: `u_${userId}`,
+    payer: 'pool',
+    pool: await resolvePoolParams(e, null),
+  };
+  return registryFor(e, account, undefined, { generating: true }).get('openrouter')!;
+}
+
 /** The built-in provider as power's Tangent credit gets it: any OpenRouter model. */
 export function creditProvider(e: AppEnv = env): LlmProvider {
   return creditRegistryFor(e, powerAccount())!.get('openrouter')!;
@@ -161,6 +179,17 @@ export function worstUsd(price: ModelPrice, inputTokens: number, maxOutputTokens
   return (2 * chargeFromTokensMicros(price, inputTokens, maxOutputTokens, 0, 0)) / 1e6;
 }
 
+/** Reported over recomputed may exceed 1 by this much (rounding of tiny costs). */
+export const OVER_LIST_TOLERANCE = 1.02;
+export const ABSOLUTE_SLACK_USD = 2e-6;
+
+/** Where Normal's reported over recomputed cost falls (`40-reconcile.live.ts`, credit's second turn). */
+export const NORMAL_RATIO_BAND = {
+  min: 0.95,
+  max: 1.02,
+  why: "Normal's pinning to Anthropic, at the list price",
+} as const;
+
 /** What one web search can add to a call's worst case (OpenRouter's engines bill per result). */
 export const SEARCH_ALLOWANCE_USD = 0.05;
 
@@ -187,6 +216,12 @@ export interface LiveResult {
 
 const RETRYABLE: ReadonlySet<string> = new Set(['rate_limit', 'overloaded', 'server', 'network']);
 const MAX_RETRIES = 2;
+
+/**
+ * The retryable errors `callWithRetry` met in the running scenario, with the wait the
+ * provider asked for (`retryAfterMs`) when it named one: `scenario` adds them to its row.
+ */
+let retryNotes: string[] = [];
 
 async function streamOnce(
   call: LiveCall,
@@ -221,8 +256,13 @@ export async function callWithRetry(call: LiveCall): Promise<LiveResult> {
   for (let attempt = 1; ; attempt++) {
     const result = await streamOnce(call);
     const t = result.summary.terminal;
-    if (t?.type !== 'error' || !RETRYABLE.has(t.error.code) || attempt > MAX_RETRIES)
+    if (t?.type !== 'error' || !RETRYABLE.has(t.error.code))
       return { ...result, attempts: attempt };
+    const wait = t.error.retryAfterMs;
+    retryNotes.push(
+      `attempt ${attempt}: ${t.error.code}${t.error.status ? ` (HTTP ${t.error.status})` : ''}, ${wait === undefined ? 'no retry-after' : `retry-after ${wait} ms`}`,
+    );
+    if (attempt > MAX_RETRIES) return { ...result, attempts: attempt };
     await new Promise((r) => setTimeout(r, 2_000 * attempt));
   }
 }
@@ -337,6 +377,7 @@ export function scenario(
       return;
     }
     let outcome: Outcome;
+    retryNotes = [];
     try {
       outcome = await run();
     } catch (e) {
@@ -346,7 +387,7 @@ export function scenario(
         reportedUsd: null,
         recomputedUsd: null,
         status: 'FAIL',
-        notes: [e instanceof Error ? e.message : String(e)],
+        notes: [e instanceof Error ? e.message : String(e), ...retryNotes],
       });
       throw e;
     }
@@ -365,6 +406,7 @@ export function scenario(
         ...outcome.failures,
         ...outcome.warnings.map((w) => `warn: ${w}`),
         ...(outcome.notes ?? []),
+        ...retryNotes,
       ],
     });
     expect(outcome.failures).toEqual([]);

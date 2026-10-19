@@ -24,8 +24,9 @@ import { defaultRouteFacts } from './billing/default-route.js';
 import { groundingAllowance, groundingPolicy, withSearchOptions } from './billing/grounding.js';
 import { meteredRegistry } from './billing/meter.js';
 import { createUsageMeter } from './billing/personal-meter.js';
-import { appConfig, BUILT_IN_API_KEY_SECRET } from './config.js';
+import { appConfig, BUILT_IN_ANTHROPIC_API_KEY_SECRET, BUILT_IN_API_KEY_SECRET } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
+import { hostedLegs } from './hosted/legs.js';
 import { withModelWindows } from './model-windows.js';
 import { createPoolUsageMeter } from './pool/meter.js';
 import {
@@ -48,6 +49,7 @@ import {
   poolChatSettings,
   poolProviderConfig,
   simpleChatSettings,
+  simpleMaxInputTokens,
   simpleProviderConfig,
   simpleSystemPrompt,
 } from './simple-mode.js';
@@ -66,6 +68,15 @@ export interface ServiceScope {
    */
   generating?: boolean;
 }
+
+/**
+ * The operator's keys behind the built-in provider: withheld from every
+ * registry of the user's own keys, whatever secret a config there names.
+ */
+const OPERATOR_KEY_SECRETS: readonly string[] = [
+  BUILT_IN_API_KEY_SECRET,
+  BUILT_IN_ANTHROPIC_API_KEY_SECRET,
+];
 
 /** The pool's parameters when `scope` generates on the pool, else null. */
 function poolScope(account: AccountContext, scope: ServiceScope) {
@@ -116,11 +127,11 @@ export function registryFor(
       env,
       [ownConfig],
       own ? { [ownConfig.id]: own } : undefined,
-      new Set([BUILT_IN_API_KEY_SECRET, ...apiKeySecrets([ownConfig])]),
+      new Set([...OPERATOR_KEY_SECRETS, ...apiKeySecrets([ownConfig])]),
     );
   }
   const configs = providerConfigs(env);
-  const withheld = new Set([BUILT_IN_API_KEY_SECRET]);
+  const withheld = new Set(OPERATOR_KEY_SECRETS);
   if (!account.operatorKeys) for (const name of apiKeySecrets(configs)) withheld.add(name);
   return windowedRegistry(env, configs, apiKeys, withheld);
 }
@@ -248,7 +259,8 @@ const detach: Defer = (p) => {
 /**
  * Every call through `inner` is metered: its `stream()` records a
  * `usage_events` row (billing/meter.ts) on the user's ledger, or reserves it
- * on the open pool when the account is pool-funded. `inner` is a
+ * on the open pool when the account is pool-funded, and runs on the call's
+ * hosted backends (hosted/legs.ts). `inner` is a
  * registry whose every route is paid on the operator's key: Learn's on credit
  * or the pool, or power's Tangent credit (`creditRegistryFor`); a registry of
  * the user's own keys is never wrapped. The meter is built on the first
@@ -268,7 +280,7 @@ function meteredLazily(
   };
   return {
     get: (providerId) => {
-      metered ??= meteredRegistry(inner, meter(), () => true);
+      metered ??= meteredRegistry(inner, meter(), () => true, hostedLegs(env));
       return metered.get(providerId);
     },
     list: () => inner.list(),
@@ -340,9 +352,9 @@ export function chatService(
   if (account.mode === 'simple') {
     // Learn pays per request: its one registry is on the operator's key exactly when the
     // request pays with credit or the pool, and branch funding is ignored.
+    const operatorPaid = callPayer(account, 'own-key') !== 'own-key';
     if (pooled) providers = poolGeneratingRegistry(env, pooled, defer, registry);
-    else if (callPayer(account, 'own-key') !== 'own-key')
-      providers = meteredLazily(registry, env, account, defer);
+    else if (operatorPaid) providers = meteredLazily(registry, env, account, defer);
     profile = pool
       ? {
           kind: 'pool',
@@ -353,8 +365,13 @@ export function chatService(
           // A client-set anchor quote gets no more room than a message.
           anchorQuoteMaxChars: pool.maxMessageChars,
         }
-      : // The tree's learner instructions only where the learner pays: the pool keeps its locked prompt.
-        { kind: 'learn', customPrompt: account.payer !== 'pool' };
+      : {
+          kind: 'learn',
+          // The tree's learner instructions only where the learner pays: the pool keeps its locked prompt.
+          customPrompt: account.payer !== 'pool',
+          // On credit a summary's input is capped as a reply's is.
+          ...(operatorPaid ? { summaryMaxInputTokens: simpleMaxInputTokens(env) } : {}),
+        };
   } else {
     // Power: own keys unmetered; Tangent credit, every call metered.
     const credit = creditRegistryFor(env, account);
@@ -366,6 +383,8 @@ export function chatService(
             // A new tree's default route starts on credit only when it can pay, so a first
             // send is never a 402 for credit nobody bought.
             defaultRouteFacts: () => defaultRouteFacts(env, account),
+            // The same cap as a reply's input on credit (`serverInputCap`).
+            summaryMaxInputTokens: simpleMaxInputTokens(env),
           },
         }
       : { kind: 'power' };

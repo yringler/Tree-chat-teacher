@@ -17,10 +17,11 @@ import type {
 import { auxOutputTokens, clipUtf16, isLengthStop, replyOutputTokens } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
-import { buildSummaryPrompt, renderPlan } from '../context/render.js';
+import { buildSummaryPrompt, renderPlan, type SummaryInputLimit } from '../context/render.js';
 import { ValidationError } from '../errors.js';
 import { emptyToNull, errorText, type ServiceContext } from '../services/context.js';
 import type { GenerationProfile, PoolProfile } from '../services/profile.js';
+import { estimateTokens as charsEstimate } from '../tokens.js';
 
 /**
  * The most summaries one send generates. Each is a paid call the reply waits
@@ -396,9 +397,11 @@ export class ContextResolver {
   ): AsyncGenerator<string, ContextPlan> {
     const summaries = new Map<string, string>();
     const failed = new Set<string>();
-    const { provider: summaryProvider, model: summaryModel } = this.ctx.routes.summaryTarget(
-      inputs.summaryBranch,
-    );
+    const {
+      provider: summaryProvider,
+      model: summaryModel,
+      maxInputTokens: summaryCap,
+    } = this.ctx.routes.summaryTarget(inputs.summaryBranch);
     const { maxInputTokens } = await this.budgetFor(
       inputs.provider,
       this.ctx.routes.modelOf(inputs.branch),
@@ -470,6 +473,7 @@ export class ContextResolver {
         const summary = await this.generateSummary(
           summaryProvider,
           summaryModel,
+          summaryCap,
           request,
           { treeId: inputs.tree.id, branchId: inputs.branch.id },
           signal,
@@ -498,23 +502,28 @@ export class ContextResolver {
     }
   }
 
+  /**
+   * A summary of `request` on `provider`. On the pool its prompt is clipped to
+   * the model's input budget; on Tangent credit to that budget within `cap`
+   * (`RouteResolver.summaryTarget`), so a long compaction prefix is billed no
+   * more input than a reply. On the user's own key it is sent whole.
+   */
   private async generateSummary(
     provider: LlmProvider,
     model: string,
+    cap: number | undefined,
     request: SummaryRequest,
     target: { treeId: string; branchId: string },
     signal?: AbortSignal,
   ): Promise<{ text: string; cutOff: boolean } | null> {
     const pool = this.pool;
-    const prompt = buildSummaryPrompt(
-      request,
-      pool
-        ? {
-            maxInputTokens: (await this.budgetFor(provider, model)).maxInputTokens,
-            estimateTokens: pool.estimateTokens,
-          }
-        : undefined,
-    );
+    const budget = async () => (await this.budgetFor(provider, model)).maxInputTokens;
+    const limit: SummaryInputLimit | undefined = pool
+      ? { maxInputTokens: await budget(), estimateTokens: pool.estimateTokens }
+      : cap !== undefined
+        ? { maxInputTokens: Math.min(await budget(), cap), estimateTokens: charsEstimate }
+        : undefined;
+    const prompt = buildSummaryPrompt(request, limit);
     if (prompt === null) return null;
     const result = await collectText(
       provider,

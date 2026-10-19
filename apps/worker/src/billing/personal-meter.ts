@@ -9,20 +9,27 @@
 //      row repriced. Either records the input estimate the hold was sized
 //      with, and is stamped dispatched right before the call goes upstream,
 //      so the cron can charge that input if this meter dies. Awaited; no row
-//      (or no stamp), no call.
+//      (or no stamp), no call. The row records the backend the call is sent
+//      on, and follows it when it falls back (billing/meter.ts).
 //   2. Tap `billing` (generation id, reported cost) and `usage` (tokens).
 //   3. At the terminal event, settle by the metered policy (settle-policy.ts):
 //      released at 0 when nothing can have been billed upstream, else the
 //      reported cost; failing that, with a generation id, reconcile in the
 //      background via OpenRouter; else the tokens it used at the list price;
-//      else, when the user stopped it, its estimated input at the input price;
+//      else, when the user stopped it, its input at the input price and the
+//      output it streamed, estimated from its length, at the output price;
 //      else the full hold.
 import type { GenerateRequest, ProviderErrorCode, UsagePurpose } from '@tangent/shared';
 import { DomainError, PaymentRequiredError } from '@tangent/core';
 import type { ModelPrice } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { creditPrice } from '../pool/model-prices.js';
-import { ObservedRun, type UsageMeter, type UsageMeterOptions } from './meter-run.js';
+import {
+  ObservedRun,
+  type MeterLeg,
+  type UsageMeter,
+  type UsageMeterOptions,
+} from './meter-run.js';
 import { meteredSettlement } from './settle-policy.js';
 import {
   creditHoldMicros,
@@ -68,8 +75,21 @@ class PersonalRun extends ObservedRun {
     private readonly price: ModelPrice,
     /** The estimated input tokens its hold was sized with. */
     private readonly heldInputTokens: number,
+    /** Each search's fee where the backend it runs on bills it outside a reported cost. */
+    private searchFeeMicros: number,
+    /** The search fee its hold covers: the dearest of its legs'. */
+    private readonly heldSearchFeeMicros: number,
   ) {
     super(env, usageId, markupBps, feeBps, defer, options, request);
+  }
+
+  protected feeBpsOn(leg: MeterLeg): number | null {
+    // Credit's rates are the same on every backend; only a search fee can differ.
+    return leg.searchFeeMicros <= this.heldSearchFeeMicros ? this.feeBps : null;
+  }
+
+  protected override movedTo(leg: MeterLeg): void {
+    this.searchFeeMicros = leg.searchFeeMicros;
   }
 
   override async dispatch(): Promise<boolean> {
@@ -90,6 +110,10 @@ class PersonalRun extends ObservedRun {
       price: this.price,
       userStopped: this.userStopped,
       heldInputTokens: this.heldInputTokens,
+      streamedChars: this.estimableOutputChars,
+      outputCapTokens: this.request.maxOutputTokens ?? null,
+      webSearches: this.webSearches,
+      searchFeeMicros: this.searchFeeMicros,
     });
     if ((s.reason === 'tokens' || s.reason === 'hold') && this.generationId !== null) {
       // OpenRouter knows the real cost; failing that, the cron settles the row.
@@ -118,7 +142,7 @@ export function createUsageMeter(
 ): UsageMeter {
   return {
     funding: 'credit',
-    async begin({ tag, providerId, model, request, maxOutputTokens }) {
+    async begin({ tag, providerId, model, request, maxOutputTokens, legs }) {
       const price = await creditPrice(env, model).catch((e: unknown) => {
         // The price couldn't be looked up just now (domain errors only; others fail as metering).
         throw e instanceof DomainError ? new CreditRefusedError(e.message, 'server') : e;
@@ -128,7 +152,19 @@ export function createUsageMeter(
       // The hold bounds the output: a request without a cap gets the provider's.
       const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
       const inputTokens = estimatedInputTokens(request);
-      const holdMicros = creditHoldMicros(env, price, inputTokens, upstream.maxOutputTokens, rates);
+      // Sent on the first leg; held for the dearest search fee of any.
+      const { searchFeeMicros, backend, backendModel } = legs[0]!;
+      const sentOn = { backend, backendModel };
+      const holdSearchFeeMicros = Math.max(...legs.map((l) => l.searchFeeMicros));
+      const searchFeesMicros = (request.webSearch?.maxUses ?? 0) * holdSearchFeeMicros;
+      const holdMicros = creditHoldMicros(
+        env,
+        price,
+        inputTokens,
+        upstream.maxOutputTokens,
+        rates,
+        searchFeesMicros,
+      );
       const run = (usageId: string, r: typeof rates) =>
         new PersonalRun(
           env,
@@ -140,6 +176,8 @@ export function createUsageMeter(
           upstream,
           price,
           inputTokens,
+          searchFeeMicros,
+          holdSearchFeeMicros,
         );
       if (tag?.reservationId) {
         const claimed = await repriceReservation(
@@ -149,6 +187,7 @@ export function createUsageMeter(
           holdMicros,
           tag.nodeId,
           inputTokens,
+          sentOn,
         );
         if (claimed) return run(tag.reservationId, claimed);
         // Already used (a reply retried without its web search), or too dear for the balance:
@@ -168,6 +207,7 @@ export function createUsageMeter(
           purpose,
           providerId,
           model,
+          ...sentOn,
           holdMicros,
           heldInputTokens: inputTokens,
           ...rates,

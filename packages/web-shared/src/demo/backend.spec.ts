@@ -525,7 +525,7 @@ describe('power demo backend', () => {
     const [provider] = await api.providers();
     expect(provider!.models).toEqual([
       { id: 'normal', label: 'Normal', tier: 'normal' },
-      { id: 'max', label: 'Max', tier: 'max', usageFactor: 14 },
+      { id: 'max', label: 'Max', tier: 'max', usageFactor: 20 },
     ]);
     const unsupported = { status: 501, code: 'not_implemented' };
     await expect(api.keyStatus()).resolves.toEqual({

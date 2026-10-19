@@ -6,7 +6,6 @@ import {
   type PoolMeResponse,
   type PoolModelInfo,
   type PoolStatusResponse,
-  type ReasoningEffort,
 } from '@tangent/shared';
 import { getBalance } from '../billing/ledger.js';
 import { appConfig } from '../config.js';
@@ -16,53 +15,30 @@ import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../availability.js';
 import { getCached, putCached } from '../share/cache.js';
 import {
-  POOL_MODEL_LABEL,
   SIMPLE_MAX_OUTPUT_TOKENS,
   SIMPLE_RESERVED_OUTPUT_TOKENS,
   simpleProviderConfig,
 } from '../simple-mode.js';
-import {
-  POOL_SESSION_ESTIMATE_MICROS,
-  poolModel,
-  poolPriceProblem,
-  poolRequest,
-} from './params.js';
+import { POOL_SESSION_ESTIMATE_MICROS, poolModel, poolPriceProblem } from './params.js';
 import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './day-usage.js';
 
 /** How long the meter is cached at the edge (`caches.default`) and by browsers. */
 export const POOL_STATUS_MAX_AGE_S = 60;
 
-/** Reasoning efforts from least to most thinking. */
-const EFFORT_RANK: Readonly<Record<ReasoningEffort, number>> = { none: 0, low: 1, high: 2 };
-
 /**
- * The pool model and its label in the simple provider's list (a tier, when
- * the pool runs one), else `POOL_MODEL_LABEL` (a pool model Learn doesn't
- * list is no tier). On a tier's model, how the pool asks it differently
- * (`PoolModelInfo`): its effort (`POOL_EFFORT`) against the tier's, and its
- * reply cap (`POOL_MAX_OUTPUT_TOKENS`) against a reply's on the tier (the
- * tier's cap, within the default for a reasoning or a plain model). By
- * default the pool runs Normal's model at `low` against Normal's `high`,
- * with 8,192 tokens against 16,384.
+ * The pool model, Normal's, with its label in the simple provider's list,
+ * and whether the pool's reply cap (`POOL_MAX_OUTPUT_TOKENS`, which replaces
+ * Normal's on the pool) is below or above a reply's on Normal (Normal's cap,
+ * within the default for a reasoning or a plain model). The pool asks it as
+ * Normal does otherwise.
  */
 export function poolModelInfo(env: AppEnv): PoolModelInfo {
   const id = poolModel(env);
   const listed = simpleProviderConfig(env).models.find((m) => m.id === id);
-  if (!listed) return { id, label: POOL_MODEL_LABEL };
-  const info: PoolModelInfo = { id, label: listed.label };
-  const pool = poolRequest(env, id).effort;
-  const tier = listed.effort ?? null;
-  if (pool !== tier) {
-    info.thinking =
-      pool === null || tier === null
-        ? 'other'
-        : EFFORT_RANK[pool] < EFFORT_RANK[tier]
-          ? 'lighter'
-          : 'more';
-  }
-  const reasoning = listed.reasoning ?? isReasoningModel(id);
+  const info: PoolModelInfo = { id, label: listed?.label ?? id };
+  const reasoning = listed?.reasoning ?? isReasoningModel(id);
   const tierReply = Math.min(
-    listed.maxOutputTokens ?? Infinity,
+    listed?.maxOutputTokens ?? Infinity,
     reasoning ? SIMPLE_MAX_OUTPUT_TOKENS : SIMPLE_RESERVED_OUTPUT_TOKENS,
   );
   const poolReply = appConfig(env).pool.maxOutputTokens;

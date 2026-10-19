@@ -38,8 +38,8 @@ const DIRECTS: readonly Direct[] = [
   {
     adapter: 'anthropic',
     secret: 'ANTHROPIC_API_KEY',
-    model: 'claude-haiku-4-5',
-    listedAs: 'anthropic/claude-haiku-4.5',
+    model: 'claude-haiku-5-5',
+    listedAs: 'anthropic/claude-haiku-5.5',
     unknownModelStatus: 404,
   },
   {

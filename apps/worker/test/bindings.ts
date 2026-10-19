@@ -97,7 +97,7 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   MEMBERSHIP_WAIVER_CODE: '',
   MARKUP_BPS: '1000',
   // The open pool, on. Pool tests isolate themselves with a unique TEST_POOL_ACCOUNT_ID per
-  // test. The pool model is the fake built-in provider's `normal`, priced at 1 µ$ per token
+  // test. The pool model is the fake built-in provider's Normal, `normal`, priced at 1 µ$ per token
   // each way, so every reply hold (up to 2,048 tokens out) is above the fake's reported
   // cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that targets the clamp
   // hits it. Its window is as large as the deployed pool model's, so the reply's ceiling
@@ -108,7 +108,6 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   PERSONAL_CREDIT_ENABLED: 'false',
   // As deployed: tests that simulate purchases turn it on in an env override.
   DEV_PURCHASES_ENABLED: 'false',
-  POOL_MODEL: 'normal',
   // `max` is priced too, low, so a credit call on it holds USAGE_HOLD_MICROS like
   // any cheap model (a model without a price can't run on credit).
   MODEL_PRICES: JSON.stringify({

@@ -82,50 +82,27 @@ export interface PoolVerifyResponse {
 }
 
 /**
- * The pool's model as the apps and pages name it: its label in Learn's
- * config (a tier's, e.g. "Normal", when the pool runs a tier's model; else
- * the pool's own, "Lite"), and, on a tier's model, how the pool asks it
- * differently from that tier. Absent `thinking` and `replies`: the same as
- * the tier (or no tier to compare with).
+ * The pool's model as the apps and pages name it: Normal's model, with its
+ * label in Learn's config ("Normal"), and how the pool's reply cap compares
+ * with a reply's on Normal; absent `replies`, the same. The pool asks the
+ * model as Normal does otherwise.
  */
 export interface PoolModelInfo {
   id: string;
   label: string;
-  /** The pool's reasoning effort against the tier's: lower, higher, or not comparable (one sends none). */
-  thinking?: 'lighter' | 'more' | 'other';
-  /** The pool's reply cap against the tier's. */
+  /** The pool's reply cap against Normal's. */
   replies?: 'shorter' | 'longer';
 }
 
-const THINKING_TEXT: Record<NonNullable<PoolModelInfo['thinking']>, string> = {
-  lighter: 'lighter thinking',
-  more: 'more thinking',
-  other: 'a different thinking setting',
-};
-
 /**
- * How the pool asks a tier's model differently, as phrases ("lighter
- * thinking", "shorter replies"); empty when it asks it the same way. Without
+ * The pool's model in copy: the tier's label ("Normal"), or "Normal's model
+ * with shorter replies" when the pool's reply cap differs. Without
  * `replies`, the reply length is left out (for copy that states the cap).
  */
-export function poolModelDifferences(
-  model: PoolModelInfo,
-  opts: { replies?: boolean } = {},
-): string[] {
-  const parts: string[] = [];
-  if (model.thinking) parts.push(THINKING_TEXT[model.thinking]);
-  if (model.replies && opts.replies !== false) parts.push(`${model.replies} replies`);
-  return parts;
-}
-
-/**
- * The pool's model in copy: the tier's label when the pool asks it the same
- * way ("Normal") or the model is no tier ("Lite"), else "Normal's model with
- * lighter thinking and shorter replies" (`poolModelDifferences`).
- */
 export function poolModelText(model: PoolModelInfo, opts: { replies?: boolean } = {}): string {
-  const parts = poolModelDifferences(model, opts);
-  return parts.length === 0 ? model.label : `${model.label}'s model with ${parts.join(' and ')}`;
+  return model.replies && opts.replies !== false
+    ? `${model.label}'s model with ${model.replies} replies`
+    : model.label;
 }
 
 /**

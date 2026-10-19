@@ -4,11 +4,11 @@ import { DEFAULT_MODEL_PRICES } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
   creditPrice,
-  OPENROUTER_MODELS_URL,
   parseListPrices,
   syncModelPrices,
   usdPerTokenToMicrosPerMTok,
 } from '../src/pool/model-prices.js';
+import { OPENROUTER_MODELS_URL } from '../src/hosted/catalog.js';
 import { modelPrice, storedPrice, withCacheWritePrice } from '../src/pool/price-table.js';
 import { resolvePoolParams } from '../src/pool/params.js';
 import { envWithFailingDb } from './mocks/billing-helpers.js';
@@ -16,8 +16,8 @@ import { ON_DEMAND_MODEL } from './mocks/openrouter.js';
 
 const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
-/** Normal's and the pool's default model, priced like the others (and so tracked). */
-const V41 = 'deepseek/deepseek-v4.1-flash';
+/** Normal's and the background model's default, priced like the others (and so tracked). */
+const HAIKU = 'anthropic/claude-haiku-5.5';
 /** Power's Max: priced (and so tracked) for the Max usage note, not for the pool. */
 const SONNET = 'anthropic/claude-sonnet-5.5';
 /** The fallback candidate: priced (and so tracked) though no default. */
@@ -25,10 +25,10 @@ const MINIMAX = 'minimax/minimax-m3';
 
 /**
  * The price setup without `MODEL_PRICES`, so the built-in placeholders
- * (V4.1 Flash, FLASH, PRO and the rest) are what the sync refreshes; the pool
- * runs on FLASH here.
+ * (Haiku, FLASH, PRO and the rest) are what the sync refreshes; without the
+ * test's built-in provider, the pool runs Normal's Haiku here.
  */
-const env = { ...rawEnv, MODEL_PRICES: '', POOL_MODEL: FLASH } as unknown as AppEnv;
+const env = { ...rawEnv, MODEL_PRICES: '', BUILT_IN_PROVIDER: '' } as unknown as AppEnv;
 
 interface Listed {
   id: string;
@@ -196,7 +196,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [FLASH, PRO],
       unchanged: [],
-      missing: [V41, SONNET, MINIMAX],
+      missing: [HAIKU, SONNET, MINIMAX],
       anomalies: [],
     });
     expect(await storedPrice(env.DB, FLASH)).toEqual({
@@ -317,7 +317,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [],
       unchanged: [],
-      missing: [V41, FLASH, PRO, SONNET, MINIMAX],
+      missing: [HAIKU, FLASH, PRO, SONNET, MINIMAX],
       anomalies: [],
     });
     expect((await storedPrice(env.DB, FLASH))?.outMicrosPerMTok).toBe(2_000_000);
@@ -420,37 +420,6 @@ describe('modelPrice', () => {
     });
   });
 
-  it("keeps V4.1 Flash at its MODEL_PRICES entry: OpenRouter's model-level price is no route's", async () => {
-    // OpenRouter's model-level list price ($0.0356 in, $1.00 out): the cheapest input of any
-    // endpoint with a dearer one's output. As the pool's max_price it admits only fp4 endpoints.
-    const modelLevel = { id: V41, prompt: '0.0000000356', completion: '0.000001' };
-    await sync([modelLevel]);
-    // A drop of less than 10×, so without an entry the sync replaces the placeholder ...
-    expect(await modelPrice(env, V41)).toMatchObject({
-      inMicrosPerMTok: 35_600,
-      outMicrosPerMTok: 1_000_000,
-    });
-    // ... but an entry, as wrangler.jsonc ships, wins over it: the pinned providers' price.
-    const pinned = {
-      ...env,
-      MODEL_PRICES: JSON.stringify({
-        [V41]: { in: 150_000, out: 600_000, context: 1_048_576, cacheRead: 3_000 },
-      }),
-    } as AppEnv;
-    expect(await modelPrice(pinned, V41)).toEqual(DEFAULT_MODEL_PRICES[V41]);
-    // Its daily sync still records the list price, and warns that the entry's output is below it.
-    warn.mockClear();
-    await syncModelPrices(pinned, T1, listing([modelLevel]).fetchImpl);
-    expect((await storedPrice(env.DB, V41))?.outMicrosPerMTok).toBe(1_000_000);
-    expect(
-      warn.mock.calls.some(
-        (c: unknown[]) =>
-          String(c[0]).includes('price_override_below_list') && String(c[0]).includes(V41),
-      ),
-    ).toBe(true);
-    expect(await modelPrice(pinned, V41)).toEqual(DEFAULT_MODEL_PRICES[V41]);
-  });
-
   it('gives explicit-cache (Anthropic) models the cache-write premium unless configured', async () => {
     const SONNET = 'anthropic/claude-sonnet-5.5';
     const priced = {
@@ -483,18 +452,89 @@ describe('modelPrice', () => {
     );
   });
 
-  it("gives a direct Anthropic id (no anthropic/ prefix) no cache-write premium, though Anthropic's own API bills one", () => {
-    // Metered calls run on OpenRouter ids today; a metered config naming `claude-…`
-    // directly would hold and charge its cache writes at the input price.
+  it('keeps a configured long-context tier when the synced base price replaces the entry', async () => {
+    await sync([
+      {
+        id: HAIKU,
+        prompt: '0.00000012',
+        completion: '0.0000006',
+        context: 1_000_000,
+        cacheRead: '0.000000012',
+      },
+    ]);
+    expect(await modelPrice(env, HAIKU)).toEqual({
+      inMicrosPerMTok: 120_000,
+      outMicrosPerMTok: 600_000,
+      contextTokens: 1_000_000,
+      cacheReadMicrosPerMTok: 12_000,
+      cacheWriteMicrosPerMTok: 150_000,
+      // Anthropic's price above 100K input tokens, with its own write premium (⌈500_000 × 1.25⌉).
+      longContext: {
+        aboveInputTokens: 100_000,
+        inMicrosPerMTok: 500_000,
+        outMicrosPerMTok: 2_500_000,
+        cacheReadMicrosPerMTok: 50_000,
+        cacheWriteMicrosPerMTok: 625_000,
+      },
+    });
+  });
+
+  it('reads a long-context tier from MODEL_PRICES, and gives it the write premium on Claude', async () => {
+    const priced = {
+      ...env,
+      MODEL_PRICES: JSON.stringify({
+        [SONNET]: {
+          in: 3_000_000,
+          out: 15_000_000,
+          context: 1_000_000,
+          long: { above: 200_000, in: 6_000_000, out: 22_500_000, cacheRead: 600_000 },
+        },
+        [FLASH]: {
+          in: 100_000,
+          out: 400_000,
+          context: 131_072,
+          long: { above: 64_000, in: 200_000, out: 800_000, cacheWrite: 250_000 },
+        },
+      }),
+    } as AppEnv;
+    expect(await modelPrice(priced, SONNET)).toEqual({
+      inMicrosPerMTok: 3_000_000,
+      outMicrosPerMTok: 15_000_000,
+      contextTokens: 1_000_000,
+      cacheWriteMicrosPerMTok: 3_750_000,
+      longContext: {
+        aboveInputTokens: 200_000,
+        inMicrosPerMTok: 6_000_000,
+        outMicrosPerMTok: 22_500_000,
+        cacheReadMicrosPerMTok: 600_000,
+        cacheWriteMicrosPerMTok: 7_500_000,
+      },
+    });
+    // Not an explicit-cache model: the tier as configured.
+    expect(await modelPrice(priced, FLASH)).toEqual({
+      inMicrosPerMTok: 100_000,
+      outMicrosPerMTok: 400_000,
+      contextTokens: 131_072,
+      longContext: {
+        aboveInputTokens: 64_000,
+        inMicrosPerMTok: 200_000,
+        outMicrosPerMTok: 800_000,
+        cacheWriteMicrosPerMTok: 250_000,
+      },
+    });
+  });
+
+  it("gives a direct Anthropic id (no anthropic/ prefix) the cache-write premium Anthropic's own API bills", () => {
+    // A metered config of kind `anthropic` (BUILT_IN_PROVIDER) names `claude-…` directly.
     const price = {
       inMicrosPerMTok: 2_000_000,
       outMicrosPerMTok: 10_000_000,
       contextTokens: 200_000,
     };
-    expect(withCacheWritePrice('claude-sonnet-5-5', price)).toEqual(price);
-    expect(withCacheWritePrice('anthropic/claude-sonnet-5.5', price)).toMatchObject({
-      cacheWriteMicrosPerMTok: 2_500_000,
-    });
+    for (const id of ['claude-sonnet-5-5', 'claude-haiku-5-5', 'anthropic/claude-sonnet-5.5']) {
+      expect(withCacheWritePrice(id, price)).toMatchObject({ cacheWriteMicrosPerMTok: 2_500_000 });
+    }
+    expect(withCacheWritePrice('deepseek/claude-like', price)).toEqual(price);
   });
 
   it('is the synced cache prices over the fallbacks; an override keeps its own', async () => {
@@ -571,7 +611,9 @@ describe('modelPrice', () => {
 
   it('prices the pool’s holds (resolvePoolParams) at the synced price', async () => {
     await sync([{ id: FLASH, prompt: '0.00000027', completion: '0.0000011' }]);
-    expect((await resolvePoolParams(env, null)).price).toEqual({
+    expect(
+      (await resolvePoolParams({ ...env, LEARN_NORMAL_MODEL: FLASH } as AppEnv, null)).price,
+    ).toEqual({
       inMicrosPerMTok: 270_000,
       outMicrosPerMTok: 1_100_000,
       contextTokens: 131_072,

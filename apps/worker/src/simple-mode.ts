@@ -13,18 +13,19 @@ import {
   type ModelInfo,
   type ModelTier,
   type ProviderConfig,
+  type ReasoningEffort,
 } from '@tangent/shared';
 import {
   appConfig,
   backgroundEffort,
-  BUILT_IN_API_KEY_SECRET,
   DEFAULT_TIER_REQUESTS,
-  namedSecrets,
   withTierDefaults,
   type TierRequestConfig,
 } from './config.js';
 import { groundingPolicy } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
+import { openRouterBackend, withMaxPrice } from './hosted/openrouter.js';
+import { hostedChain } from './hosted/registry.js';
 import type { PoolParams } from './pool/params.js';
 
 export {
@@ -35,8 +36,10 @@ export {
 
 /*
  * The built-in provider: the endpoint `openrouter` (OPENROUTER_PROVIDER_ID in
- * @tangent/shared) on the operator's OpenRouter key, metered per call and
- * paid from the user's prepaid credit or the open pool. Its
+ * @tangent/shared) on the operator's keys, metered per call and paid from
+ * the user's prepaid credit or the open pool; those calls run on hosted
+ * backends (hosted/: OpenRouter, and Anthropic's own API for the Claude
+ * models when configured). Its
  * provider id names only the endpoint; who pays is the funding (the request's
  * payment in Learn, the branch's funding in power), never the id. It is the
  * only provider config in a Learn account's registry, so the generic provider
@@ -51,8 +54,6 @@ export {
  * provider-configs.ts `learnKeyConfig`).
  */
 
-/** What the pool model is called where Learn's config doesn't list it (it is no tier). */
-export const POOL_MODEL_LABEL = 'Lite';
 /**
  * What Learn replies with on the learner's own Anthropic key, whatever a
  * branch stores: the one model that key's config lists, so every other model
@@ -61,7 +62,13 @@ export const POOL_MODEL_LABEL = 'Lite';
  */
 export const LEARN_ANTHROPIC_REPLY_MODEL = 'claude-sonnet-5-5';
 /** Titles and summaries on the learner's own Anthropic key: cheaper, and quick enough. */
-export const LEARN_ANTHROPIC_BACKGROUND_MODEL = 'claude-haiku-4-5';
+export const LEARN_ANTHROPIC_BACKGROUND_MODEL = 'claude-haiku-5-5';
+/**
+ * Their effort: as little thinking as the hosted background calls
+ * (`DEFAULT_BACKGROUND_EFFORT`), where Haiku 5.5 would otherwise think at its
+ * own default, medium.
+ */
+export const LEARN_ANTHROPIC_BACKGROUND_EFFORT: ReasoningEffort = 'low';
 /** Output cap of a reply on a model that doesn't reason. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 /**
@@ -111,13 +118,9 @@ function builtInConfig(env: AppEnv): ProviderConfig {
   }
   return {
     id: OPENROUTER_PROVIDER_ID,
-    kind: 'openai-compatible',
+    ...openRouterBackend.config(),
     label: 'Tangent',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    apiKeySecret: BUILT_IN_API_KEY_SECRET,
     defaultModel: learn.normalModel,
-    // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
-    options: { webSearch: true },
     // Power asks Max as the user sets it, so only Normal carries request settings.
     models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) =>
       m.tier === 'normal'
@@ -125,29 +128,6 @@ function builtInConfig(env: AppEnv): ProviderConfig {
         : m,
     ),
   };
-}
-
-/**
- * The OpenRouter key the built-in provider spends: the secret named by
- * `BUILT_IN_PROVIDER.apiKeySecret` when set, else `BUILT_IN_API_KEY`.
- */
-export function builtInApiKey(env: AppEnv): string | null {
-  let secretName = BUILT_IN_API_KEY_SECRET;
-  const override = appConfig(env).builtIn.provider;
-  if (override) {
-    try {
-      const parsed: unknown = JSON.parse(override);
-      const config: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
-      if (typeof config === 'object' && config !== null) {
-        const name = (config as Record<string, unknown>)['apiKeySecret'];
-        if (typeof name === 'string' && name) secretName = name;
-      }
-    } catch {
-      // Invalid BUILT_IN_PROVIDER fails loudly where the registry is built; keep the default here.
-    }
-  }
-  const value = namedSecrets(env, new Set([secretName]))[secretName];
-  return value?.trim() || null;
 }
 
 /**
@@ -214,27 +194,33 @@ export function builtInPowerConfig(env: AppEnv): ProviderConfig {
 }
 
 /**
- * The background model of the simple provider (summaries, titles, and the
- * pool's default model): BACKGROUND_MODEL, which the default config needn't
- * list (it is no tier, and OpenRouter takes any model id). A BUILT_IN_PROVIDER
- * override is a closed list, so there it is BACKGROUND_MODEL when Learn's
- * models include it, else the override's default.
+ * The background model of the simple provider (summaries and titles):
+ * BACKGROUND_MODEL, which the default config needn't list (it is no tier,
+ * and OpenRouter takes any model id), as `onBuiltIn` resolves it.
  */
 export function simpleFastModel(
   env: AppEnv,
   config: ProviderConfig = simpleProviderConfig(env),
 ): string {
-  const { background, builtIn } = appConfig(env);
-  const wanted = background.model;
-  if (!builtIn.provider) return wanted;
+  return onBuiltIn(env, appConfig(env).background.model, config);
+}
+
+/**
+ * `wanted` on the built-in provider. A BUILT_IN_PROVIDER override is a
+ * closed list, so there it is `wanted` when Learn's models include it, else
+ * the override's default.
+ */
+function onBuiltIn(env: AppEnv, wanted: string, config: ProviderConfig): string {
+  if (!appConfig(env).builtIn.provider) return wanted;
   return config.models.some((m) => m.id === wanted) ? wanted : config.defaultModel;
 }
 
 /**
  * Chat settings for simple accounts: capped input, fixed output reserve,
  * cheap summaries. On the learner's own Anthropic key (`ownKey`) summaries
- * and titles run on LEARN_ANTHROPIC_BACKGROUND_MODEL at the model's own
- * effort, since the background vars describe the built-in provider's model.
+ * and titles run on LEARN_ANTHROPIC_BACKGROUND_MODEL at
+ * LEARN_ANTHROPIC_BACKGROUND_EFFORT, since the background vars describe the
+ * built-in provider's model.
  */
 export function simpleChatSettings(env: AppEnv, ownKey: LearnKeyProvider): ChatSettings {
   const summary =
@@ -242,6 +228,7 @@ export function simpleChatSettings(env: AppEnv, ownKey: LearnKeyProvider): ChatS
       ? {
           summaryProviderId: ANTHROPIC_PROVIDER_ID,
           summaryModel: LEARN_ANTHROPIC_BACKGROUND_MODEL,
+          summaryEffort: LEARN_ANTHROPIC_BACKGROUND_EFFORT,
         }
       : simpleSummaries(env);
   return appChatSettings('learn', {
@@ -274,76 +261,40 @@ export function simpleSystemPrompt(env: AppEnv): string {
 }
 
 /**
- * The built-in provider as the open pool uses it: the simple config
- * (same key, same BUILT_IN_PROVIDER override) with the pool model as its only
- * model, and one call's cost bounded by the pool's caps: the context window
- * is the pool's input cap plus its output cap. On a routing endpoint
- * (OpenRouter, `ProviderTraits.routing`), routing is capped at the price
- * table's price (`provider.max_price`, $/MTok), so an over-priced route fails
- * upstream (released) instead of costing the operator. Other endpoints
- * (OpenAI, Workers AI, local servers) get no `provider` field, which strict
- * APIs reject; there the table must be the endpoint's own price.
- * The pool model carries the pool's own effort and pinned providers
- * (`POOL_EFFORT`, `POOL_PROVIDER_ORDER`), never a tier's, even when a tier
- * runs the same model; pinning merges with `max_price` (openai-compatible.ts).
+ * The built-in provider as the open pool uses it: the simple config (same
+ * key, same BUILT_IN_PROVIDER override) with Normal's listing as its only
+ * model, as Normal asks it (its effort and pinned providers), and one call's
+ * cost bounded by the pool's caps: the context window is the pool's input
+ * cap plus its output cap, which replaces Normal's reply cap. On a routing endpoint (OpenRouter,
+ * `ProviderTraits.routing`), routing is also capped at the price table's
+ * price (`provider.max_price`, $/MTok), so an over-priced route fails
+ * upstream (released) instead of costing the operator; pinning merges with
+ * it (openai-compatible.ts). Other endpoints (OpenAI, Workers AI, local
+ * servers) get no `provider` field, which strict APIs reject; there the
+ * table must be the endpoint's own price.
  */
 export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfig {
   const base = simpleProviderConfig(env);
-  const listed = base.models.find((m) => m.id === pool.model);
+  const listed = base.models.find((m) => m.id === pool.model) ?? {
+    id: pool.model,
+    label: TIER_LABELS.normal,
+  };
   const config: ProviderConfig = {
     ...base,
-    models: [
-      withRequestConfig(
-        { id: pool.model, label: listed?.label ?? POOL_MODEL_LABEL },
-        { effort: pool.effort, providerOrder: pool.providerOrder },
-      ),
-    ],
+    models: [{ ...listed, maxOutputTokens: pool.maxOutputTokens }],
     defaultModel: pool.model,
     openModels: false,
     maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
     maxOutputTokens: pool.maxOutputTokens,
   };
   if (!providerTraits(base).routing || !pool.price) return config;
-  const extraBody = asRecord(base.options?.['extraBody']);
-  // Merged into the operator's own routing (e.g. `data_collection: 'deny'`),
-  // keeping a stricter `max_price` they set.
-  const routing = asRecord(extraBody['provider']);
-  const priorMax = asRecord(routing['max_price']);
-  return {
-    ...config,
-    options: {
-      ...base.options,
-      extraBody: {
-        ...extraBody,
-        provider: {
-          ...routing,
-          max_price: {
-            ...priorMax,
-            prompt: lowerPrice(priorMax['prompt'], pool.price.inMicrosPerMTok / 1_000_000),
-            completion: lowerPrice(priorMax['completion'], pool.price.outMicrosPerMTok / 1_000_000),
-          },
-        },
-      },
-    },
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-/** The operator's price cap when it is a stricter number, else the pool's. */
-function lowerPrice(prior: unknown, pool: number): number {
-  return typeof prior === 'number' && Number.isFinite(prior) && prior >= 0
-    ? Math.min(prior, pool)
-    : pool;
+  return withMaxPrice(config, pool.price);
 }
 
 /**
  * Chat settings of a pool generation: the pool's input and output caps, and
- * summaries and titles on the pool model (so on the pool too).
+ * summaries and titles on the pool model (so on the pool too, whose holds are
+ * priced for that one model) at the background effort, as on credit.
  */
 export function poolChatSettings(pool: PoolParams): ChatSettings {
   return {
@@ -364,10 +315,11 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
  * What Learn offers, as the public pages (landing, pricing) describe it, read
  * from the built-in provider's config: the Max power suggests on credit (null
  * when it lists none), whether its replies can search the web, and whether a
- * search costs about 1¢ (OpenRouter's Exa price covers up to 10 results;
- * other engines, other catalogs and more results cost differently). Null when
- * BUILT_IN_PROVIDER is invalid, so a page falls back to wording that claims
- * none of these.
+ * search costs about 1¢ on every backend Learn's model may run on
+ * (Anthropic's search is 1¢; OpenRouter's Exa price covers up to 10 results,
+ * and other engines, other catalogs and more results cost differently). Null
+ * when BUILT_IN_PROVIDER is invalid, so a page falls back to wording that
+ * claims none of these.
  */
 export interface LearnOffer {
   /** The label of power's Max on Tangent credit; null when the provider lists no Max. */
@@ -385,9 +337,14 @@ export function learnOffer(env: AppEnv): LearnOffer | null {
   }
   const openRouterPrices = providerTraits(config).catalog === 'openrouter';
   const { engine, maxResults } = appConfig(env).grounding;
+  const exaCent = openRouterPrices && engine === 'exa' && maxResults <= 10;
+  // OpenRouter's leg runs on the built-in config; GROUNDING_ENGINE and _MAX_RESULTS are its alone.
+  const aboutOneCent = hostedChain(env, config.defaultModel).every(({ backend }) =>
+    backend === openRouterBackend ? exaCent : backend.config().kind === 'anthropic',
+  );
   return {
     powerMax: tierModel(config.models, 'max')?.label ?? null,
     search: config.options?.['webSearch'] === true,
-    searchAboutOneCent: openRouterPrices && engine === 'exa' && maxResults <= 10,
+    searchAboutOneCent: aboutOneCent,
   };
 }

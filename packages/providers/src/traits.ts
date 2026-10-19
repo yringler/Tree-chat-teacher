@@ -1,4 +1,4 @@
-import type { ProviderConfig } from '@tangent/shared';
+import type { ProviderConfig, ProviderKind } from '@tangent/shared';
 import { isOpenAiBaseUrl, isOpenRouterBaseUrl } from './internal.js';
 import { usesExplicitCacheControl } from './prompt-cache.js';
 
@@ -80,4 +80,17 @@ export function providerTraits(config: ProviderConfig): ProviderTraits {
         : { ...base, ...NONE, webSearch: 'none' };
     }
   }
+}
+
+/** Anthropic's web search fee: $10 per 1,000 searches, billed per search it ran. */
+export const ANTHROPIC_WEB_SEARCH_FEE_MICROS = 10_000;
+
+/**
+ * The fee of one web search that a provider of `kind` bills outside any cost
+ * it reports, which the meter adds to a call's tokens: Anthropic reports no
+ * cost, only the count (`billing.webSearches`). OpenRouter's reported cost
+ * already holds its search fee, so other kinds add nothing.
+ */
+export function unreportedSearchFeeMicros(kind: ProviderKind): number {
+  return kind === 'anthropic' ? ANTHROPIC_WEB_SEARCH_FEE_MICROS : 0;
 }

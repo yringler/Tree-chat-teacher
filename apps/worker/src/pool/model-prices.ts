@@ -30,9 +30,9 @@
 // or looked-up cost already includes them. A cache price that drops to under
 // 1/`MAX_PRICE_DROP_FACTOR` of the stored one is held back like the others.
 import { DomainError } from '@tangent/core';
-import { providerTraits } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { fetchModelsList, onCatalog } from '../hosted/catalog.js';
 import { syncModelWindows } from '../model-windows.js';
 import { simpleProviderConfig } from '../simple-mode.js';
 import { poolModel } from './params.js';
@@ -46,10 +46,8 @@ import {
 } from './price-table.js';
 import { logEvent } from '../log.js';
 
-export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 /** A synced price below 1/this of the stored one is held back as an anomaly. */
 export const MAX_PRICE_DROP_FACTOR = 10;
-const FETCH_TIMEOUT_MS = 15_000;
 /** USD per token × 10¹² = micro-USD per million tokens. */
 const SCALE_DIGITS = 12;
 
@@ -113,21 +111,6 @@ export function parseListPrices(body: unknown): Map<string, ListPrice | null> {
   return prices;
 }
 
-/** `GET /api/v1/models` (public, no key), its body as JSON. Throws on network failure or non-2xx. */
-export async function fetchModelsList(
-  fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init),
-): Promise<unknown> {
-  const res = await fetchImpl(OPENROUTER_MODELS_URL, {
-    headers: { accept: 'application/json' },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    await res.body?.cancel().catch(() => undefined);
-    throw new Error(`OpenRouter models list failed: HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
 /** How long a completed on-demand sync stands before a miss runs another (`creditPrice`). */
 const ON_DEMAND_SYNC_FRESH_MS = 10 * 60_000;
 /** How long a failed one stands: a miss soon after asks OpenRouter again. */
@@ -144,7 +127,7 @@ let onDemandSync: { at: number; ok: Promise<boolean> } | null = null;
 async function syncOnDemand(env: AppEnv): Promise<boolean> {
   let openRouter: boolean;
   try {
-    openRouter = providerTraits(simpleProviderConfig(env)).catalog === 'openrouter';
+    openRouter = onCatalog(simpleProviderConfig(env));
   } catch {
     return true;
   }

@@ -147,8 +147,8 @@ function usageOf(usage: Record<string, unknown>): Partial<ProviderUsage> {
  * search starting (`server_tool_use`) as `activity`, the cited results
  * (`citations_delta`) as `citations`, and
  * `usage.server_tool_use.web_search_requests` as `billing.webSearches`.
- * Anthropic reports no cost, so the search fee (about $0.01) is not in any
- * `billing.costUsd`: enable it on own-key configs, not a metered one.
+ * Anthropic reports no cost, so a metered call adds the search fee to its
+ * tokens for each billed search (`unreportedSearchFeeMicros`).
  */
 export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv): LlmProvider {
   const baseUrl = stripTrailingSlash(config.baseUrl ?? ANTHROPIC_ENDPOINT.url);
@@ -235,7 +235,10 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             const message = data['message'];
             const usage = isRecord(message) ? message['usage'] : undefined;
             if (isRecord(usage)) {
-              const u = usageOf(usage);
+              // Its output_tokens is a placeholder, not a count: only message_delta's is.
+              // Reported here it would make a stream cut short look finished to the
+              // meter, priced as its input plus that placeholder.
+              const { outputTokens: _placeholder, ...u } = usageOf(usage);
               if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
             }
             break;
@@ -277,9 +280,12 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             if (isRecord(usage)) {
               const u = usageOf(usage);
               if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
+              // The billed count. With the tool sent, an absent count is 0 (a search
+              // that errored is not billed), replacing the guess its started block made.
               const stu = usage['server_tool_use'];
               const webSearches = isRecord(stu) ? num(stu['web_search_requests']) : undefined;
               if (webSearches !== undefined) yield { type: 'billing', webSearches };
+              else if (webSearch) yield { type: 'billing', webSearches: 0 };
             }
             break;
           }

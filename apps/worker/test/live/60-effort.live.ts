@@ -146,7 +146,8 @@ describe('reasoning effort', () => {
     'anthropic: low and high',
     'anthropic',
     () =>
-      lowThenHigh(powerProvider('anthropic'), 'claude-haiku-4-5', 'anthropic/claude-haiku-4.5', {
+      // Haiku 4.5 has no effort parameter and rejects one; Haiku 5.5 takes it.
+      lowThenHigh(powerProvider('anthropic'), 'claude-haiku-5-5', 'anthropic/claude-haiku-5.5', {
         ...success,
         costReport: 'none',
       }),

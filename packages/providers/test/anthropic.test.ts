@@ -108,7 +108,7 @@ describe('anthropic provider', () => {
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
       {
         type: 'usage',
-        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        usage: { inputTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0 },
       },
       { type: 'delta', text: 'Why did' },
       { type: 'delta', text: ' the chicken…' },
@@ -251,7 +251,7 @@ describe('anthropic provider', () => {
     expect(await collect(provider.stream(req()))).toEqual([
       {
         type: 'usage',
-        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        usage: { inputTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0 },
       },
       { type: 'delta', text: 'Why did' },
       {
@@ -368,6 +368,35 @@ describe('anthropic provider', () => {
     });
   });
 
+  it.each([
+    [429, 'rate_limit_error', 'rate_limit', '7', 7000],
+    [529, 'overloaded_error', 'overloaded', '12', 12_000],
+  ] as const)(
+    'carries the retry-after of an HTTP %i',
+    async (status, type, code, retryAfter, retryAfterMs) => {
+      const { provider } = setup(() =>
+        jsonResponse(
+          status,
+          { type: 'error', error: { type, message: 'try later' } },
+          { 'retry-after': retryAfter },
+        ),
+      );
+      expect(await collect(provider.stream(req()))).toEqual([
+        {
+          type: 'error',
+          error: {
+            code,
+            status,
+            retryable: true,
+            message: 'try later',
+            upstream: 'rejected',
+            retryAfterMs,
+          },
+        },
+      ]);
+    },
+  );
+
   it('uses a fallback message for non-JSON error bodies and never leaks the key', async () => {
     const { provider } = setup(() => new Response(`bad key ${KEY}`, { status: 401 }));
     const [ev] = await collect(provider.stream(req()));
@@ -460,7 +489,7 @@ describe('anthropic provider', () => {
     expect(events).toEqual([
       {
         type: 'usage',
-        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        usage: { inputTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0 },
       },
       { type: 'delta', text: 'Why did' },
       { type: 'error', error: { code: 'aborted', message: 'Request aborted', retryable: false } },
@@ -600,7 +629,7 @@ describe('anthropic prompt caching', () => {
     const { provider } = setup(() => sseResponse(stream).response);
     const usage = { inputTokens: 4312, cacheReadTokens: 4000, cacheWriteTokens: 300 };
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
-      { type: 'usage', usage: { ...usage, outputTokens: 1 } },
+      { type: 'usage', usage },
       { type: 'usage', usage: { ...usage, outputTokens: 50 } },
       { type: 'done', stopReason: 'end_turn' },
     ]);
@@ -608,9 +637,11 @@ describe('anthropic prompt caching', () => {
 });
 
 describe('anthropic usage', () => {
-  it("reports message_start's input and message_delta's output, each only as sent", async () => {
+  it("reports message_start's input and message_delta's output, never message_start's output", async () => {
     // Anthropic's real shape: the input (and its cache split) at the start, a final
     // message_delta with the output alone; the consumer folds them field by field.
+    // message_start's output_tokens is a placeholder, not a count: reporting it would
+    // let a stream cut short look finished, priced at its input and that placeholder.
     const stream = [
       frame('message_start', {
         type: 'message_start',
@@ -635,7 +666,7 @@ describe('anthropic usage', () => {
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
       {
         type: 'usage',
-        usage: { inputTokens: 1000, outputTokens: 2, cacheReadTokens: 980, cacheWriteTokens: 0 },
+        usage: { inputTokens: 1000, cacheReadTokens: 980, cacheWriteTokens: 0 },
       },
       { type: 'usage', usage: { outputTokens: 75 } },
       { type: 'done', stopReason: 'end_turn' },
@@ -772,6 +803,41 @@ describe('anthropic web search', () => {
     expect(events).toContainEqual({ type: 'delta', text: 'Water boils at 100 °C.' });
     expect(events).toContainEqual({ type: 'billing', webSearches: 1 });
     expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end_turn' });
+  });
+
+  it('reports zero searches when the final usage bills none (an errored search)', async () => {
+    const errored = STREAM.map((f) =>
+      f.includes('server_tool_use') && f.includes('web_search_requests')
+        ? frame('message_delta', {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' },
+            usage: { output_tokens: 40 },
+          })
+        : f,
+    );
+    const m = mockFetch(() => sseResponse(errored).response);
+    const provider = createAnthropicProvider(WS, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
+    const events = await collect(provider.stream(req({ webSearch })));
+    // The search block still started (activity), but nothing was billed: the count replaces it.
+    const activity = events.findIndex((e) => e.type === 'activity');
+    const zero = events.findIndex((e) => e.type === 'billing' && e.webSearches === 0);
+    // The 0 comes with the final usage, after the started block, so it replaces the meter's guess.
+    expect(activity).toBeGreaterThanOrEqual(0);
+    expect(zero).toBeGreaterThan(activity);
+    expect(events.filter((e) => e.type === 'billing')).toHaveLength(1);
+  });
+
+  it('reports no search count on a reply sent without the search tool', async () => {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(WS, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
+    const events = await collect(provider.stream(req()));
+    expect(events.some((e) => e.type === 'billing')).toBe(false);
   });
 
   it('leaves tool_choice on auto when a search is required', async () => {

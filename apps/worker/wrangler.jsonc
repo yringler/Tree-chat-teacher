@@ -149,8 +149,9 @@
     "ANNUAL_FEE_ENABLED": "true",
     "POOL_ENABLED": "true",
     "MAX_USERS": "20",
-    // V4.1 Flash at its pinned providers' price, which wins over the daily sync's list price.
-    "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
+    // Claude models on credit and the pool go to Anthropic first (secret
+    // BUILT_IN_ANTHROPIC_API_KEY), falling back to OpenRouter; every other model runs on OpenRouter.
+    "BUILT_IN_BACKENDS": "anthropic,openrouter",
   },
   // The private sandbox: `--env sandbox` deploys the Worker "tangent-sandbox", with its own
   // database, Durable Objects, secrets and Polar sandbox, behind Cloudflare Access
@@ -235,7 +236,7 @@
         "ANNUAL_FEE_ENABLED": "true",
         "POOL_ENABLED": "true",
         "MAX_USERS": "50",
-        "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
+        "BUILT_IN_BACKENDS": "anthropic,openrouter",
       },
     },
   },

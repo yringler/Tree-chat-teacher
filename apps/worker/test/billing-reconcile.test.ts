@@ -2,7 +2,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reconcileGeneration, reconcilePendingUsage } from '../src/billing/reconcile.js';
 import { markDispatched, settleUsage } from '../src/billing/usage-store.js';
-import { builtInApiKey } from '../src/simple-mode.js';
+import { builtInApiKey } from '../src/hosted/openrouter.js';
 import { CRON_JOBS } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
 import {
@@ -229,6 +229,23 @@ describe('usage reconciliation cron: a call whose meter died without a generatio
     });
   });
 
+  it('charges a sent call no search fee: its meter died before it learned the billed count', async () => {
+    // An Anthropic search's fee is added by the live meter from the stream's final usage;
+    // the row keeps no provider kind or fee, so the cron charges the input alone.
+    const id = await insertUsage(env, {
+      accountId: uniq('acct'),
+      ...stale,
+      dispatchedAt: ago(15 * MIN),
+      heldInputTokens: 1000,
+    });
+    await env.DB.prepare('UPDATE usage_events SET web_searches = 2 WHERE id = ?1').bind(id).run();
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 1, unresolved: 0 });
+    expect(await usageRow(env, id)).toMatchObject({
+      settle_reason: 'tokens',
+      cost_nanos: 150_000_000,
+    });
+  });
+
   it('charges a sent call its hold when its row has no estimate', async () => {
     const id = await insertUsage(env, {
       accountId: uniq('acct'),
@@ -260,6 +277,54 @@ describe('usage reconciliation cron: a call whose meter died without a generatio
       cost_nanos: 10_000_000,
       charge_micros: 10_710,
     });
+  });
+
+  it('never looks up a call on a backend without generations: settles it as one without an id', async () => {
+    // An Anthropic call has no generation to look up; whatever id its row holds, the cron
+    // waits out the meter and charges the input its hold was sized with.
+    const accountId = uniq('acct');
+    const young = uniq('gen-anthropic-young');
+    const old = uniq('gen-anthropic-old');
+    await scriptGeneration(young, [{ costUsd: 0.5 }]);
+    await scriptGeneration(old, [{ costUsd: 0.5 }]);
+    const anthropic = { ...stale, dispatchedAt: ago(15 * MIN), heldInputTokens: 1000 };
+    const waiting = await insertUsage(env, {
+      accountId,
+      ...anthropic,
+      createdAt: ago(5 * MIN),
+      generationId: young,
+      backend: 'anthropic',
+    });
+    const lost = await insertUsage(env, {
+      accountId,
+      ...anthropic,
+      generationId: old,
+      backend: 'anthropic',
+    });
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 1, unresolved: 0 });
+    expect(await usageRow(env, waiting)).toMatchObject({ status: 'pending' });
+    expect(await usageRow(env, lost)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 150_000_000,
+      charge_micros: 160_650,
+    });
+    expect((await generationCalls(young)).count).toBe(0);
+    expect((await generationCalls(old)).count).toBe(0);
+  });
+
+  it('looks up a call on OpenRouter, recorded or from before backends were', async () => {
+    const accountId = uniq('acct');
+    const ids = await Promise.all(
+      ['openrouter', null].map(async (backend) => {
+        const generationId = uniq('gen-or');
+        await scriptGeneration(generationId, [{ costUsd: 0.01 }]);
+        return insertUsage(env, { accountId, ...stale, generationId, backend });
+      }),
+    );
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 2, unresolved: 0 });
+    for (const id of ids)
+      expect(await usageRow(env, id)).toMatchObject({ settle_reason: 'generation' });
   });
 
   it('leaves a row its meter settled after the cron read it, and never releases one sent since', async () => {

@@ -139,8 +139,8 @@ import { LearnFunding } from '../state/learn-funding';
                 <strong>Use the open pool</strong>
                 <span class="muted small">
                   Free to you, within daily limits, on
-                  {{ funding.poolStatus()?.model?.label ?? 'one economical model' }}. Free credit
-                  Tangent provides.
+                  {{ funding.poolStatus()?.model?.label ?? 'Normal' }}. Free credit Tangent
+                  provides.
                 </span>
               </span>
             </label>

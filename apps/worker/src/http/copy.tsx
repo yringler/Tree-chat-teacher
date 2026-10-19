@@ -5,6 +5,7 @@ import { groundingDailyCap, groundingPolicy } from '../billing/grounding.js';
 import { membershipRequired } from '../billing/membership.js';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { usageBackend } from '../hosted/registry.js';
 import { learnOffer } from '../simple-mode.js';
 
 /**
@@ -20,6 +21,8 @@ export interface Offer {
   credit: {
     serviceFee: ServiceFee;
     openRouterFeeBps: number;
+    /** Some replies on credit go to Anthropic directly (`BUILT_IN_BACKENDS`), which reports no cost. */
+    anthropicDirect: boolean;
     minTopUpCents: number;
     maxTopUpCents: number;
   } | null;
@@ -38,14 +41,16 @@ export interface Offer {
 }
 
 export function offerOf(env: AppEnv, sharing: boolean): Offer {
-  const { billing } = appConfig(env);
+  const { billing, learn: normal, power, background } = appConfig(env);
   const learn = learnOffer(env);
+  const onCredit = [normal.normalModel, power.maxModel, background.model];
   return {
     membership: membershipRequired(env) ? { priceCents: billing.membershipPriceCents } : null,
     credit: creditSold(env)
       ? {
           serviceFee: billing.serviceFee,
           openRouterFeeBps: billing.openRouterFeeBps,
+          anthropicDirect: onCredit.some((m) => usageBackend(env, m).backend === 'anthropic'),
           minTopUpCents: MIN_TOP_UP_CENTS,
           maxTopUpCents: MAX_TOP_UP_CENTS,
         }
