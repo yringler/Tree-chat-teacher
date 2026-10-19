@@ -7,7 +7,7 @@ import { appConfig, type ModelPrice } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
-import { hostedBackend } from '../hosted/registry.js';
+import { openRouterBackend } from '../hosted/openrouter.js';
 import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
 import { creditPrice } from '../pool/model-prices.js';
@@ -37,8 +37,8 @@ const CRON_BATCH = 200;
 /** Pools the cron expires reservations for, at most, per run. */
 const CRON_POOL_LIMIT = 10;
 
-/** Where a generation id is looked up: every metered call runs on OpenRouter. */
-const lookupBackend = hostedBackend('openrouter');
+/** Where a generation id is looked up: the one backend with generations. */
+const lookupBackend = openRouterBackend;
 
 function sleep(ms: number): Promise<void> {
   return ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();

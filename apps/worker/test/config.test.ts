@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   androidAppIdVar,
   appConfig,
+  backendsVar,
   boolVar,
   ConfigError,
   DEFAULT_BACKGROUND_MODEL,
@@ -103,6 +104,19 @@ describe('config parsers', () => {
     expect(() => enumVar('E', 'smtp', ['resend', 'log'], 'resend')).toThrow(
       'Invalid E="smtp": expected resend, log',
     );
+  });
+
+  it('backendsVar: backend ids in order, any case; empty is OpenRouter; unknown or repeated ids throw', () => {
+    expect(backendsVar('B', undefined)).toEqual(['openrouter']);
+    expect(backendsVar('B', ' ')).toEqual(['openrouter']);
+    expect(backendsVar('B', 'Anthropic, openrouter')).toEqual(['anthropic', 'openrouter']);
+    expect(backendsVar('B', 'anthropic')).toEqual(['anthropic']);
+    for (const bad of ['bedrock', 'openrouter,anthropic,openrouter', 'anthropic;openrouter'])
+      expect(() => backendsVar('B', bad)).toThrow(ConfigError);
+    expect(() => appConfig(blank({ BUILT_IN_BACKENDS: 'openai' }))).toThrow(
+      'Invalid BUILT_IN_BACKENDS="openai"',
+    );
+    expect(appConfig(blank({ BUILT_IN_BACKENDS: '' })).builtIn.backends).toEqual(['openrouter']);
   });
 
   it('AUTO_TITLE="False" turns titles off, and DEV_ALLOW_NO_AUTH is exact', () => {

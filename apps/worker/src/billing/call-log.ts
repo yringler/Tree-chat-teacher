@@ -1,10 +1,10 @@
 // Every metered call also logs one line at its end (`event: 'llm_call'`, a
 // warning when its output cap cut it off): the model, its tier, the effort
-// asked for, the upstream that served it, the tokens (cached and reasoning
-// shares too), the reported cost and the finish reason, so cache hit rates and
-// how often a tier's cap ends replies can be read from the Worker's logs. The
-// charge never comes from this line: it is the reported (or looked-up) cost
-// (meter-run.ts).
+// asked for, the backend it was sent to and the upstream that served it, the
+// tokens (cached and reasoning shares too), the reported cost and the finish
+// reason, so cache hit rates and how often a tier's cap ends replies can be
+// read from the Worker's logs. The charge never comes from this line: it is
+// the reported (or looked-up) cost, or the tokens at the list price (meter-run.ts).
 import {
   isLengthStop,
   type GenerateRequest,
@@ -12,6 +12,7 @@ import {
   type ProviderEvent,
   type ProviderUsage,
 } from '@tangent/shared';
+import type { HostedLeg } from '../hosted/legs.js';
 import type { UsageMeter } from './meter-run.js';
 import { logEvent } from '../log.js';
 
@@ -27,6 +28,8 @@ export class CallLog {
     private readonly provider: LlmProvider,
     private readonly request: GenerateRequest,
     private readonly funding: UsageMeter['funding'],
+    /** The backend the call was sent to. */
+    private readonly leg: Pick<HostedLeg, 'backend' | 'model'>,
   ) {}
 
   observe(event: ProviderEvent): void {
@@ -54,6 +57,8 @@ export class CallLog {
         purpose: request.usageTag?.purpose ?? 'other',
         providerId: this.provider.id,
         model: request.model,
+        backend: this.leg.backend.id,
+        backendModel: this.leg.model,
         tier: listed?.tier ?? null,
         effort: request.reasoning ?? listed?.effort ?? null,
         providerOrder: listed?.providerOrder ?? null,

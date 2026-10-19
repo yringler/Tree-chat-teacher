@@ -4,6 +4,7 @@
 // tokens, and settles the call's `usage_events` row.
 import type { GenerateRequest, ProviderEvent, ProviderUpstream, UsageTag } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
+import type { UsageBackend } from '../hosted/registry.js';
 import { reconcileGeneration, RECONCILE_RETRY_DELAYS_MS } from './reconcile.js';
 import { setGenerationId, settleUsage, type MeteredPayer, type Settlement } from './usage-store.js';
 import { logEvent } from '../log.js';
@@ -19,9 +20,18 @@ export interface UsageMeter {
     request: GenerateRequest;
     /** The provider's output cap for `model`: the call's when the request sets none. */
     maxOutputTokens: number;
-    /** The fee of each search the provider bills outside a reported cost (0 = none). */
-    searchFeeMicros: number;
+    /**
+     * The backends the call may run on, first choice first: it is sent on the
+     * first, so its row records that one, and its hold covers any of them.
+     */
+    legs: readonly MeterLeg[];
   }): Promise<MeterRun>;
+}
+
+/** What the meter knows of one backend a call may run on. */
+export interface MeterLeg extends UsageBackend {
+  /** The fee of each search it bills outside a reported cost (0 = none). */
+  searchFeeMicros: number;
 }
 
 export interface MeterRun {

@@ -1,10 +1,11 @@
 // The OpenRouter backend: logical ids are its own, it reports each call's
 // cost (search fee included) and can look a generation's cost up afterwards.
-import { fetchOpenRouterGeneration, unreportedSearchFeeMicros } from '@tangent/providers';
+// It serves every model, so a call no other listed backend can serve runs here.
+import { fetchOpenRouterGeneration } from '@tangent/providers';
 import type { ProviderConfig } from '@tangent/shared';
 import { appConfig, BUILT_IN_API_KEY_SECRET, namedSecrets, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
-import type { HostedBackend, HostedEndpoint } from './backend.js';
+import type { GenerationLookup, HostedBackend, HostedEndpoint } from './backend.js';
 
 const ENDPOINT: HostedEndpoint = {
   kind: 'openai-compatible',
@@ -14,15 +15,13 @@ const ENDPOINT: HostedEndpoint = {
   options: { webSearch: true },
 };
 
-export const openRouterBackend: HostedBackend = {
+export const openRouterBackend: HostedBackend & { fetchGeneration: GenerationLookup } = {
   id: 'openrouter',
   config: () => ENDPOINT,
   apiKey: builtInApiKey,
   modelId: (logical) => logical,
   cost: 'reported',
-  lookup: true,
   fetchGeneration: fetchOpenRouterGeneration,
-  searchFeeMicros: unreportedSearchFeeMicros(ENDPOINT.kind),
   // OpenRouter's credit-purchase fee: part of what the open pool's calls truly cost.
   feeBps: (env) => appConfig(env).billing.openRouterFeeBps,
 };

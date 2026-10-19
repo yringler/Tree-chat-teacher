@@ -79,6 +79,8 @@ export const CONFIG_VARS = [
   'GROUNDING_AUTO_DAILY_CAP',
   // The built-in provider and its models
   'BUILT_IN_API_KEY',
+  'BUILT_IN_BACKENDS',
+  'BUILT_IN_ANTHROPIC_API_KEY',
   'BUILT_IN_PROVIDER',
   'BUILT_IN_MAX_INPUT_TOKENS',
   'LEARN_NORMAL_MODEL',
@@ -166,6 +168,7 @@ export const CONFIG_SECRETS: ReadonlySet<ConfigVarName> = new Set<ConfigVarName>
   'OPENROUTER_API_KEY',
   'AI_GATEWAY_TOKEN',
   'BUILT_IN_API_KEY',
+  'BUILT_IN_ANTHROPIC_API_KEY',
   'MEMBERSHIP_WAIVER_CODE',
   'POLAR_ACCESS_TOKEN',
   'POLAR_WEBHOOK_SECRET',
@@ -173,6 +176,12 @@ export const CONFIG_SECRETS: ReadonlySet<ConfigVarName> = new Set<ConfigVarName>
 
 /** The secret behind the built-in provider (its default config's `apiKeySecret`). */
 export const BUILT_IN_API_KEY_SECRET = 'BUILT_IN_API_KEY';
+/** The operator's Anthropic key, which only the built-in provider's Anthropic backend spends. */
+export const BUILT_IN_ANTHROPIC_API_KEY_SECRET = 'BUILT_IN_ANTHROPIC_API_KEY';
+
+/** The hosted backends the built-in provider can run a call on (`BUILT_IN_BACKENDS`, hosted/). */
+export const HOSTED_BACKEND_IDS = ['openrouter', 'anthropic'] as const;
+export type HostedBackendId = (typeof HOSTED_BACKEND_IDS)[number];
 
 // ---- Defaults
 
@@ -591,6 +600,8 @@ export interface AppConfig {
     fake: string | null;
   };
   builtIn: {
+    /** `BUILT_IN_BACKENDS`: the backends a built-in call may run on, first choice first. */
+    backends: readonly HostedBackendId[];
     /** `BUILT_IN_PROVIDER` as JSON text (parsed by simple-mode.ts); null = OpenRouter, Normal and Max. */
     provider: string | null;
     /** Per-call input cap of Learn and of Tangent credit in power. */
@@ -723,6 +734,22 @@ function listVar(raw: string | undefined): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s !== '');
+}
+
+/**
+ * `BUILT_IN_BACKENDS`: comma-separated backend ids (any case), in order, each
+ * at most once; empty is OpenRouter alone.
+ */
+export function backendsVar(name: string, raw: string | undefined): HostedBackendId[] {
+  const ids = listVar(raw).map((s) => s.toLowerCase());
+  if (ids.length === 0) return ['openrouter'];
+  const expected = `a comma-separated list of ${HOSTED_BACKEND_IDS.join(', ')}, each once`;
+  const known = ids.filter((id): id is HostedBackendId =>
+    (HOSTED_BACKEND_IDS as readonly string[]).includes(id),
+  );
+  if (known.length !== ids.length || new Set(known).size !== known.length)
+    throw new ConfigError(name, raw?.trim() ?? '', expected);
+  return known;
 }
 
 /** JSON validated by `schema`; empty gives `fallback`. */
@@ -946,6 +973,7 @@ function parse(env: AppEnv): AppConfig {
       fake: testSeams ? text('FAKE_PAYMENTS') : null,
     },
     builtIn: {
+      backends: backendsVar('BUILT_IN_BACKENDS', v('BUILT_IN_BACKENDS')),
       provider: text('BUILT_IN_PROVIDER'),
       maxInputTokens: int('BUILT_IN_MAX_INPUT_TOKENS', DEFAULT_BUILT_IN_MAX_INPUT_TOKENS, {
         min: 1,

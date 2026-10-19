@@ -15,7 +15,7 @@ import {
   type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
-import { backendsFor, usageBackend, type UsageBackend } from '../hosted/registry.js';
+import { hostedChain, usageBackend, type UsageBackend } from '../hosted/registry.js';
 import { defaultPoolModel } from '../simple-mode.js';
 import { modelPrice, withCacheWritePrice } from './price-table.js';
 import type {
@@ -102,7 +102,7 @@ export function poolRequest(
  * the highest of the backends that can serve it, so a hold covers any of them.
  */
 export function poolFeeBps(env: AppEnv, model: string): number {
-  return Math.max(0, ...backendsFor(env, model).map((b) => b.feeBps(env)));
+  return Math.max(0, ...hostedChain(env, model).map(({ backend }) => backend.feeBps(env)));
 }
 
 /**

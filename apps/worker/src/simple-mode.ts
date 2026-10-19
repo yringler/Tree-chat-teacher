@@ -37,8 +37,10 @@ export {
 
 /*
  * The built-in provider: the endpoint `openrouter` (OPENROUTER_PROVIDER_ID in
- * @tangent/shared) on the operator's OpenRouter key, metered per call and
- * paid from the user's prepaid credit or the open pool. Its
+ * @tangent/shared) on the operator's keys, metered per call and paid from
+ * the user's prepaid credit or the open pool; those calls run on hosted
+ * backends (hosted/: OpenRouter, and Anthropic's own API for the Claude
+ * models when configured). Its
  * provider id names only the endpoint; who pays is the funding (the request's
  * payment in Learn, the branch's funding in power), never the id. It is the
  * only provider config in a Learn account's registry, so the generic provider

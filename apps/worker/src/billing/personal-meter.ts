@@ -21,7 +21,6 @@ import type { GenerateRequest, ProviderErrorCode, UsagePurpose } from '@tangent/
 import { DomainError, PaymentRequiredError } from '@tangent/core';
 import type { ModelPrice } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
-import { usageBackend } from '../hosted/registry.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { ObservedRun, type UsageMeter, type UsageMeterOptions } from './meter-run.js';
 import { meteredSettlement } from './settle-policy.js';
@@ -123,7 +122,7 @@ export function createUsageMeter(
 ): UsageMeter {
   return {
     funding: 'credit',
-    async begin({ tag, providerId, model, request, maxOutputTokens, searchFeeMicros }) {
+    async begin({ tag, providerId, model, request, maxOutputTokens, legs }) {
       const price = await creditPrice(env, model).catch((e: unknown) => {
         // The price couldn't be looked up just now (domain errors only; others fail as metering).
         throw e instanceof DomainError ? new CreditRefusedError(e.message, 'server') : e;
@@ -133,7 +132,10 @@ export function createUsageMeter(
       // The hold bounds the output: a request without a cap gets the provider's.
       const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
       const inputTokens = estimatedInputTokens(request);
-      const searchFeesMicros = (request.webSearch?.maxUses ?? 0) * searchFeeMicros;
+      // Sent on the first leg; held for the dearest search fee of any.
+      const { searchFeeMicros, backend, backendModel } = legs[0]!;
+      const holdSearchFeeMicros = Math.max(...legs.map((l) => l.searchFeeMicros));
+      const searchFeesMicros = (request.webSearch?.maxUses ?? 0) * holdSearchFeeMicros;
       const holdMicros = creditHoldMicros(
         env,
         price,
@@ -182,7 +184,8 @@ export function createUsageMeter(
           purpose,
           providerId,
           model,
-          ...usageBackend(env, model),
+          backend,
+          backendModel,
           holdMicros,
           heldInputTokens: inputTokens,
           ...rates,

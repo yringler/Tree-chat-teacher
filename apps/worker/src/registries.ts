@@ -24,8 +24,9 @@ import { defaultRouteFacts } from './billing/default-route.js';
 import { groundingAllowance, groundingPolicy, withSearchOptions } from './billing/grounding.js';
 import { meteredRegistry } from './billing/meter.js';
 import { createUsageMeter } from './billing/personal-meter.js';
-import { appConfig, BUILT_IN_API_KEY_SECRET } from './config.js';
+import { appConfig, BUILT_IN_ANTHROPIC_API_KEY_SECRET, BUILT_IN_API_KEY_SECRET } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
+import { hostedLegs } from './hosted/legs.js';
 import { withModelWindows } from './model-windows.js';
 import { createPoolUsageMeter } from './pool/meter.js';
 import {
@@ -67,6 +68,15 @@ export interface ServiceScope {
    */
   generating?: boolean;
 }
+
+/**
+ * The operator's keys behind the built-in provider: withheld from every
+ * registry of the user's own keys, whatever secret a config there names.
+ */
+const OPERATOR_KEY_SECRETS: readonly string[] = [
+  BUILT_IN_API_KEY_SECRET,
+  BUILT_IN_ANTHROPIC_API_KEY_SECRET,
+];
 
 /** The pool's parameters when `scope` generates on the pool, else null. */
 function poolScope(account: AccountContext, scope: ServiceScope) {
@@ -117,11 +127,11 @@ export function registryFor(
       env,
       [ownConfig],
       own ? { [ownConfig.id]: own } : undefined,
-      new Set([BUILT_IN_API_KEY_SECRET, ...apiKeySecrets([ownConfig])]),
+      new Set([...OPERATOR_KEY_SECRETS, ...apiKeySecrets([ownConfig])]),
     );
   }
   const configs = providerConfigs(env);
-  const withheld = new Set([BUILT_IN_API_KEY_SECRET]);
+  const withheld = new Set(OPERATOR_KEY_SECRETS);
   if (!account.operatorKeys) for (const name of apiKeySecrets(configs)) withheld.add(name);
   return windowedRegistry(env, configs, apiKeys, withheld);
 }
@@ -249,7 +259,8 @@ const detach: Defer = (p) => {
 /**
  * Every call through `inner` is metered: its `stream()` records a
  * `usage_events` row (billing/meter.ts) on the user's ledger, or reserves it
- * on the open pool when the account is pool-funded. `inner` is a
+ * on the open pool when the account is pool-funded, and runs on the call's
+ * hosted backends (hosted/legs.ts). `inner` is a
  * registry whose every route is paid on the operator's key: Learn's on credit
  * or the pool, or power's Tangent credit (`creditRegistryFor`); a registry of
  * the user's own keys is never wrapped. The meter is built on the first
@@ -269,7 +280,7 @@ function meteredLazily(
   };
   return {
     get: (providerId) => {
-      metered ??= meteredRegistry(inner, meter(), () => true);
+      metered ??= meteredRegistry(inner, meter(), () => true, hostedLegs(env));
       return metered.get(providerId);
     },
     list: () => inner.list(),

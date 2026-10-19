@@ -8,7 +8,7 @@ import { settleUsage } from '../billing/usage-store.js';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
-import { hostedBackend } from '../hosted/registry.js';
+import { openRouterBackend } from '../hosted/openrouter.js';
 import type { PoolExpiryParams } from './pool-bank.js';
 import { meteredSettlement } from '../billing/settle-policy.js';
 import { logEvent } from '../log.js';
@@ -61,8 +61,8 @@ async function lookupOnce(
   generationId: string,
   fetchImpl: typeof fetch | undefined,
 ): Promise<GenerationCost | null> {
-  // Every pool call runs on OpenRouter, the backend that looks generations up.
-  const backend = hostedBackend('openrouter');
+  // The backend that looks generations up.
+  const backend = openRouterBackend;
   const key = backend.apiKey(env);
   if (!key) return null;
   try {

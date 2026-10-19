@@ -1207,6 +1207,8 @@ describe('the call log', () => {
         purpose: 'reply',
         providerId: 'openrouter',
         model: 'max',
+        backend: 'openrouter',
+        backendModel: 'max',
         tier: 'max',
         effort: null,
         providerOrder: null,
