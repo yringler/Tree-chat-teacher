@@ -8,6 +8,7 @@
 //
 // The fallback scenario fakes Anthropic's refusal (an HTTP 529 from a stub of `fetch`,
 // the seam hosted-breaker.test.ts uses) and lets the OpenRouter leg run for real.
+import { CHARS_PER_TOKEN } from '@tangent/core';
 import {
   OPENROUTER_PROVIDER_ID,
   chargeMicros,
@@ -323,7 +324,7 @@ describe('Tangent credit on the hosted backend chain (Anthropic, then OpenRouter
   );
 
   scenario(
-    'chain: a reply the user stops on Anthropic is charged its input alone',
+    'chain: a reply the user stops on Anthropic is charged its input and its streamed output',
     'anthropic',
     async () => {
       resetBreakers();
@@ -344,8 +345,9 @@ describe('Tangent credit on the hosted backend chain (Anthropic, then OpenRouter
       const failures: string[] = [];
       const warnings: string[] = [];
       const deltas = c.events.filter((e) => e.type === 'delta').length;
+      const streamedChars = textOf(c.events).length;
       const notes = [
-        `stopped after ${deltas} text deltas, ${textOf(c.events).length} characters streamed; the call ended with ${ending(c.events)}`,
+        `stopped after ${deltas} text deltas, ${streamedChars} characters streamed; the call ended with ${ending(c.events)}`,
       ];
       if (deltas < STOP_AFTER)
         failures.push(
@@ -360,7 +362,7 @@ describe('Tangent credit on the hosted backend chain (Anthropic, then OpenRouter
       let recomputedUsd: number | null = null;
       if (row) {
         if (row.settle_reason !== 'tokens')
-          failures.push(`the stopped reply settled by ${row.settle_reason}, not its input tokens`);
+          failures.push(`the stopped reply settled by ${row.settle_reason}, not its tokens`);
         if (row.output_tokens === 1)
           failures.push(
             "the stopped reply recorded 1 output token: message_start's placeholder count was charged",
@@ -372,14 +374,15 @@ describe('Tangent credit on the hosted backend chain (Anthropic, then OpenRouter
         const input = row.input_tokens ?? row.held_input_tokens;
         if (input === null) failures.push('the stopped reply has no input count');
         else {
-          const costNanos = costFromTokensNanos(await priceOf(HAIKU), input, 0, {
+          const output = Math.min(Math.ceil(streamedChars / CHARS_PER_TOKEN), 1_500);
+          const costNanos = costFromTokensNanos(await priceOf(HAIKU), input, output, {
             readTokens: 0,
             writeTokens: 0,
           });
           recomputedUsd = costNanos / 1e9;
           if (row.cost_nanos !== costNanos)
             failures.push(
-              `the stopped reply cost ${row.cost_nanos} n$, its ${input} input tokens alone make ${costNanos}`,
+              `the stopped reply cost ${row.cost_nanos} n$, its ${input} input and ${output} estimated output tokens make ${costNanos}`,
             );
         }
         notes.push(

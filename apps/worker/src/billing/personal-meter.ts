@@ -16,7 +16,8 @@
 //      released at 0 when nothing can have been billed upstream, else the
 //      reported cost; failing that, with a generation id, reconcile in the
 //      background via OpenRouter; else the tokens it used at the list price;
-//      else, when the user stopped it, its estimated input at the input price;
+//      else, when the user stopped it, its input at the input price and the
+//      output it streamed, estimated from its length, at the output price;
 //      else the full hold.
 import type { GenerateRequest, ProviderErrorCode, UsagePurpose } from '@tangent/shared';
 import { DomainError, PaymentRequiredError } from '@tangent/core';
@@ -109,6 +110,8 @@ class PersonalRun extends ObservedRun {
       price: this.price,
       userStopped: this.userStopped,
       heldInputTokens: this.heldInputTokens,
+      streamedChars: this.estimableOutputChars,
+      outputCapTokens: this.request.maxOutputTokens ?? null,
       webSearches: this.webSearches,
       searchFeeMicros: this.searchFeeMicros,
     });

@@ -9,7 +9,9 @@
 // pays OpenRouter for work the call's payer was not charged for. The
 // exceptions are a call the user stopped, so stopping a reply never costs its
 // whole output cap, and a credit call whose meter died, which is Tangent's
-// failure, not the user's: each is charged its input at the input price.
+// failure, not the user's: each is charged its input at the input price, and
+// a stopped call also the output it streamed, estimated from its length.
+import { CHARS_PER_TOKEN } from '@tangent/core';
 import { costUsdToNanos, type ProviderUpstream } from '@tangent/shared';
 import type { SettleReason } from './usage-store.js';
 import type { ModelPrice } from '../config.js';
@@ -37,6 +39,13 @@ export interface SettleFacts {
   meterLost?: boolean;
   /** The input tokens the meter sized the hold with (its estimate or bound). */
   heldInputTokens?: number | null;
+  /**
+   * Characters of reply text the call streamed, for a stopped call's output
+   * estimate; null = not estimated (its cost can be looked up instead).
+   */
+  streamedChars?: number | null;
+  /** The call's output cap, which its hold covers and so bounds the estimate. */
+  outputCapTokens?: number | null;
   /** Web searches the call ran (the billed count, else 1 once one started); null = none. */
   webSearches?: number | null;
   /**
@@ -63,8 +72,10 @@ function tokens(n: number | null | undefined): n is number {
  * The settlement of a metered call, in this order: released (never sent, or
  * refused upstream) → reported cost → generation lookup → tokens × price
  * (both counts observed) → for a call the user stopped or whose meter died,
- * its input (reported, else the hold's) at the input price → the full hold. Costs are nano-USD before fees; the
- * settle applies the row's fee and markup, and clamps a pool charge to its hold.
+ * its input (reported, else the hold's) at the input price, plus, when the
+ * user stopped it, its streamed output estimated at `CHARS_PER_TOKEN` → the
+ * full hold. Costs are nano-USD before fees; the settle applies the row's fee
+ * and markup, and clamps a pool charge to its hold.
  */
 export function meteredSettlement(f: SettleFacts): MeteredSettlement {
   if (!f.dispatched) return { reason: 'released', costNanos: 0 };
@@ -91,9 +102,13 @@ export function meteredSettlement(f: SettleFacts): MeteredSettlement {
     const input = tokens(f.inputTokens) ? f.inputTokens : f.heldInputTokens;
     if (tokens(input)) {
       const noCache = { readTokens: 0, writeTokens: 0 };
+      // Thinking never streams as text, so it isn't in the estimate.
+      const estimate =
+        f.userStopped && tokens(f.streamedChars) ? Math.ceil(f.streamedChars / CHARS_PER_TOKEN) : 0;
+      const output = tokens(f.outputCapTokens) ? Math.min(estimate, f.outputCapTokens) : estimate;
       return {
         reason: 'tokens',
-        costNanos: costFromTokensNanos(f.price, input, 0, noCache) + searchNanos,
+        costNanos: costFromTokensNanos(f.price, input, output, noCache) + searchNanos,
       };
     }
   }

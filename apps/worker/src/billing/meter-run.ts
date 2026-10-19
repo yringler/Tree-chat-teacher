@@ -92,6 +92,8 @@ export abstract class ObservedRun implements MeterRun {
   protected upstream: ProviderUpstream | null = null;
   /** Web searches seen (reported count, else 1 once a search started); null = none seen. */
   protected webSearches: number | null = null;
+  /** Characters of reply text streamed (`delta` events). */
+  private streamedChars = 0;
   protected idWrite: Promise<void> = Promise.resolve();
   private finished = false;
   private consumerStopped = false;
@@ -114,13 +116,23 @@ export abstract class ObservedRun implements MeterRun {
     return this.consumerStopped || this.callerSignal.aborted;
   }
 
+  /**
+   * The streamed characters a stopped call's output is estimated from; null
+   * once there is a generation id, whose lookup gives the real cost instead.
+   */
+  protected get estimableOutputChars(): number | null {
+    return this.generationId === null ? this.streamedChars : null;
+  }
+
   dispatch(): Promise<boolean> {
     return Promise.resolve(true);
   }
 
   observe(event: ProviderEvent): void {
     try {
-      if (event.type === 'billing') {
+      if (event.type === 'delta') {
+        this.streamedChars += event.text.length;
+      } else if (event.type === 'billing') {
         if (event.generationId && event.generationId !== this.generationId) {
           this.generationId = event.generationId;
           // Persisted early so the cron can reconcile even if this isolate dies mid-stream.
@@ -181,6 +193,7 @@ export abstract class ObservedRun implements MeterRun {
     this.cacheWriteTokens = null;
     this.upstream = null;
     this.webSearches = null;
+    this.streamedChars = 0;
     this.movedTo(leg);
     return true;
   }

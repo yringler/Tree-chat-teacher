@@ -11,7 +11,8 @@
 //   3. Settle by the metered policy (billing/settle-policy.ts): released at 0 when
 //      nothing can have been billed, else the reported cost, a generation
 //      lookup, tokens × price, for a call the user stopped (not one timed
-//      out) its input bound at the input price, or the full hold. A charge
+//      out) its input bound at the input price and its streamed output
+//      estimated at the output price, or the full hold. A charge
 //      never exceeds the hold; the excess is recorded as overage.
 import type { GenerateRequest } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
@@ -106,6 +107,8 @@ class PoolRun extends ObservedRun {
       price: this.pool.price,
       userStopped: this.userStopped,
       heldInputTokens: this.heldInputTokens,
+      streamedChars: this.estimableOutputChars,
+      outputCapTokens: this.request.maxOutputTokens ?? null,
     });
   }
 

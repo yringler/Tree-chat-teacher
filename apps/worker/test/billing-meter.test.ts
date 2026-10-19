@@ -446,12 +446,12 @@ describe('usage meter', () => {
       ],
       { stopAfter: 1, env: PRICED },
     );
-    // Sent, but no id, cost or tokens when the consumer left: its estimated input, at the input price.
+    // Sent, but no id, cost or tokens when the consumer left: its estimated input, and 'a' as one output token.
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
       settle_reason: 'tokens',
-      cost_nanos: 750_000,
-      charge_micros: 750,
+      cost_nanos: 1_350_000,
+      charge_micros: 1_350,
     });
   });
 
@@ -853,13 +853,24 @@ describe('credit calls the user stopped', () => {
     error: { code: 'aborted', message: 'Request aborted', retryable: false },
   };
 
-  it('charges its estimated input at the input price when nothing was reported', async () => {
+  it('charges its estimated input and streamed output when nothing was reported', async () => {
+    // 5 input tokens × 150 µ$, and 'Hel' as ceil(3 / 3.5) = 1 output token × 600 µ$.
     expect(await stopped([{ type: 'delta', text: 'Hel' }, aborted], 1)).toMatchObject({
       status: 'settled',
       settle_reason: 'tokens',
-      cost_nanos: 750_000,
-      charge_micros: 750,
+      cost_nanos: 1_350_000,
+      charge_micros: 1_350,
     });
+  });
+
+  it('settles a call with a generation id by its lookup, not the estimate', async () => {
+    const gen = uniq('gen-stopped');
+    await scriptGeneration(gen, [{ costUsd: 0.001 }]);
+    const row = await stopped(
+      [{ type: 'billing', generationId: gen }, { type: 'delta', text: 'Hello there' }, aborted],
+      2,
+    );
+    expect(row).toMatchObject({ settle_reason: 'generation', charge_micros: 1_000 });
   });
 
   it('charges the input it reported, at the input price, when the output is unknown', async () => {
@@ -960,16 +971,17 @@ describe("credit calls on Anthropic's own stream, whose output count comes only 
     return { events, row: rows[0]! };
   }
 
-  it('charges a call the user stopped mid-reply its input alone, at the input price', async () => {
+  it('charges a call the user stopped mid-reply its input and an estimate of its output', async () => {
     anthropicStream('');
     const { events, row } = await call(3);
     expect(events.map((e) => e.type)).toEqual(['usage', 'delta', 'delta']);
-    // Its input alone: 12 × 150 = 1_800 µ$, nothing for the placeholder output count.
+    // 12 × 150 = 1_800 µ$ in, nothing for the placeholder output count, and
+    // 'Hello' as ceil(5 / 3.5) = 2 output tokens × 600 = 1_200 µ$.
     expect(row).toMatchObject({
       backend: 'anthropic',
       status: 'settled',
       settle_reason: 'tokens',
-      charge_micros: 1_800,
+      charge_micros: 3_000,
     });
   });
 

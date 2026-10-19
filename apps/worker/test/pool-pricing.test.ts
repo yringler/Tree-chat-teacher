@@ -441,6 +441,57 @@ describe('pool settle policy', () => {
     });
   });
 
+  it("adds a stopped call's streamed output, estimated at 3.5 characters a token", () => {
+    const stopped = { dispatched: true, userStopped: true, heldInputTokens: 1000, price };
+    // 1000 in × 0.1 µ$ + ceil(8 / 3.5) = 3 out × 0.4 µ$ = 100 + 1.2 µ$.
+    expect(meteredSettlement({ ...stopped, streamedChars: 8 })).toEqual({
+      reason: 'tokens',
+      costNanos: 101_200,
+    });
+    // The reported input, and ceil(7 / 3.5) = 2 out: 1 + 0.8 µ$.
+    expect(meteredSettlement({ ...stopped, inputTokens: 10, streamedChars: 7 })).toEqual({
+      reason: 'tokens',
+      costNanos: 1_800,
+    });
+    // Nothing streamed, or no estimate: its input alone.
+    for (const streamedChars of [0, null]) {
+      expect(meteredSettlement({ ...stopped, streamedChars })).toEqual({
+        reason: 'tokens',
+        costNanos: 100_000,
+      });
+    }
+    // A call whose meter died is charged its input alone, whatever streamed.
+    expect(
+      meteredSettlement({ ...stopped, userStopped: false, meterLost: true, streamedChars: 8 }),
+    ).toEqual({ reason: 'tokens', costNanos: 100_000 });
+    // At most the output cap its hold covers.
+    expect(meteredSettlement({ ...stopped, streamedChars: 8, outputCapTokens: 1 })).toEqual({
+      reason: 'tokens',
+      costNanos: 100_400,
+    });
+    // Reported counts win over the estimate.
+    expect(
+      meteredSettlement({ ...stopped, inputTokens: 10, outputTokens: 1, streamedChars: 80 }),
+    ).toEqual({ reason: 'tokens', costNanos: 1_400 });
+  });
+
+  it('prices the estimated output at the long-context rate its input reaches', () => {
+    const tiered: ModelPrice = {
+      ...price,
+      longContext: { aboveInputTokens: 100, inMicrosPerMTok: 200_000, outMicrosPerMTok: 800_000 },
+    };
+    // 1000 in × 0.2 µ$ + ceil(35 / 3.5) = 10 out × 0.8 µ$.
+    expect(
+      meteredSettlement({
+        dispatched: true,
+        userStopped: true,
+        inputTokens: 1000,
+        streamedChars: 35,
+        price: tiered,
+      }),
+    ).toEqual({ reason: 'tokens', costNanos: 208_000 });
+  });
+
   it('adds searches at their fee to a tokens settlement, never to a reported cost', () => {
     const searched = { dispatched: true, webSearches: 2, searchFeeMicros: 10_000, price };
     expect(meteredSettlement({ ...searched, inputTokens: 1000, outputTokens: 500 })).toEqual({
