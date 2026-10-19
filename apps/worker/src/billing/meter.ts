@@ -18,8 +18,8 @@
 // yielded anything: nothing was billed upstream and the client has seen
 // nothing of it, so the payer is charged once, for the leg that answered, and
 // no started reply is cut off. Its row is pointed at the next leg in one
-// conditional statement; a refusal also opens the backend's breaker
-// (hosted/breaker.ts), which keeps later calls off it for a while.
+// conditional statement; a refusal also opens the backend's breaker for the
+// model (hosted/breaker.ts), which puts it last in later calls' chains for a while.
 //
 // Every metered call also logs one line at its end (call-log.ts).
 import type {
@@ -174,7 +174,7 @@ async function* meteredStream(
       // Upstream the model goes by the leg's id; the row, the log and the reply keep the logical one.
       for await (const event of leg.provider.stream({ ...run.request, model: leg.model })) {
         if (event.type === 'error') {
-          tripBreaker(leg.backend.id, event.error);
+          tripBreaker(leg.backend.id, leg.model, event.error, Date.now());
           if (next && !yielded && fallsBack(event.error) && !run.request.signal.aborted) {
             refused = event.error;
             break;

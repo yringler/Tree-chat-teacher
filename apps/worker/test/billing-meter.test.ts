@@ -1390,7 +1390,7 @@ describe('falling back to the next backend', () => {
         funding: 'credit',
       },
     ]);
-    expect(breakerOpen('anthropic')).toBe(true);
+    expect(breakerOpen('anthropic', 'claude-max', Date.now())).toBe(true);
     expect(logged(log, 'llm_call')).toMatchObject([
       { backend: 'openrouter', backendModel: 'max', fellBackFrom: ['anthropic'], error: null },
     ]);
@@ -1470,7 +1470,7 @@ describe('falling back to the next backend', () => {
         charge_micros: 0,
       });
     }
-    expect(breakerOpen('anthropic')).toBe(false);
+    expect(breakerOpen('anthropic', 'claude-max', Date.now())).toBe(false);
   });
 
   it("surfaces the last backend's error when every backend refuses, and charges nothing", async () => {
@@ -1487,8 +1487,8 @@ describe('falling back to the next backend', () => {
       settle_reason: 'released',
       charge_micros: 0,
     });
-    expect(breakerOpen('anthropic')).toBe(true);
-    expect(breakerOpen('openrouter')).toBe(true);
+    expect(breakerOpen('anthropic', 'claude-max', Date.now())).toBe(true);
+    expect(breakerOpen('openrouter', 'max', Date.now())).toBe(true);
   });
 
   it('surfaces the error, sending nothing more, when the row cannot be pointed at the next backend', async () => {

@@ -7,7 +7,7 @@ import {
   type ProviderEvent,
 } from '@tangent/shared';
 import type { AppEnv } from '../src/env.js';
-import { breakerClock, breakerOpen, breakerWindowMs, tripBreaker } from '../src/hosted/breaker.js';
+import { breakerOpen, breakerWindowMs, tripBreaker } from '../src/hosted/breaker.js';
 import { grantCredit } from '../src/billing/ledger.js';
 import { meteredRegistry } from '../src/billing/meter.js';
 import { createUsageMeter } from '../src/billing/personal-meter.js';
@@ -16,6 +16,10 @@ import { registryFor } from '../src/registries.js';
 import { ensureUser, simpleAccount, uniq, usageRows } from './mocks/billing-helpers.js';
 
 const HAIKU = 'anthropic/claude-haiku-5.5';
+const SONNET = 'anthropic/claude-sonnet-5.5';
+/** The models' ids on Anthropic, which keys its breakers. */
+const HAIKU_ANT = 'claude-haiku-5-5';
+const SONNET_ANT = 'claude-sonnet-5-5';
 const SEC = 1_000;
 const MIN = 60 * SEC;
 
@@ -39,14 +43,18 @@ function error(overrides: Partial<ProviderError>): ProviderError {
   };
 }
 
-/** Sets the breaker's clock to `ms`. */
+/** The time the chains and the meter read (`Date.now()`), from the test's start. */
+const start = Date.now();
+
+/** Sets the clock the chains and the meter read to `ms` after the test's start. */
 function at(ms: number): void {
-  vi.spyOn(breakerClock, 'now').mockReturnValue(ms);
+  vi.spyOn(Date, 'now').mockReturnValue(start + ms);
 }
 
-function chain(): string[] {
+/** The backends `logical`'s chain tries now, first choice first. */
+function chain(logical = HAIKU): string[] {
   const outer = registryFor(both, simpleAccount()).get(OPENROUTER_PROVIDER_ID)!;
-  return hostedLegs(both)(outer, HAIKU).map((l) => l.backend.id);
+  return hostedLegs(both)(outer, logical).map((l) => l.backend.id);
 }
 
 afterEach(() => {
@@ -83,47 +91,59 @@ describe('the breaker window of an error', () => {
 describe('the breaker', () => {
   it('opens for the window, logs it, and closes when it passes', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    at(1_000_000);
-    tripBreaker('anthropic', error({ code: 'overloaded', status: 529, retryAfterMs: 90 * SEC }));
-    expect(breakerOpen('anthropic')).toBe(true);
-    expect(breakerOpen('openrouter')).toBe(false);
+    const now = 1_000_000;
+    const overloaded = error({ code: 'overloaded', status: 529, retryAfterMs: 90 * SEC });
+    tripBreaker('anthropic', HAIKU_ANT, overloaded, now);
+    expect(breakerOpen('anthropic', HAIKU_ANT, now)).toBe(true);
+    expect(breakerOpen('openrouter', HAIKU, now)).toBe(false);
     expect(warn.mock.calls.map(([line]) => JSON.parse(String(line)) as unknown)).toEqual([
       {
         event: 'backend_circuit_open',
         backend: 'anthropic',
-        untilMs: 1_000_000 + 90 * SEC,
+        model: HAIKU_ANT,
+        untilMs: now + 90 * SEC,
         reason: 'overloaded',
       },
     ]);
-    at(1_000_000 + 90 * SEC - 1);
-    expect(breakerOpen('anthropic')).toBe(true);
-    at(1_000_000 + 90 * SEC);
-    expect(breakerOpen('anthropic')).toBe(false);
+    expect(breakerOpen('anthropic', HAIKU_ANT, now + 90 * SEC - 1)).toBe(true);
+    expect(breakerOpen('anthropic', HAIKU_ANT, now + 90 * SEC)).toBe(false);
   });
 
   it('never shortens a window already open, and ignores errors about the call', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    at(0);
-    tripBreaker('anthropic', error({ retryAfterMs: 4 * MIN }));
-    tripBreaker('anthropic', error({}));
-    tripBreaker('openrouter', error({ code: 'invalid_request', status: 400 }));
-    at(3 * MIN);
-    expect(breakerOpen('anthropic')).toBe(true);
-    expect(breakerOpen('openrouter')).toBe(false);
+    tripBreaker('anthropic', HAIKU_ANT, error({ retryAfterMs: 4 * MIN }), 0);
+    tripBreaker('anthropic', HAIKU_ANT, error({}), 0);
+    tripBreaker('openrouter', HAIKU, error({ code: 'invalid_request', status: 400 }), 0);
+    expect(breakerOpen('anthropic', HAIKU_ANT, 3 * MIN)).toBe(true);
+    expect(breakerOpen('openrouter', HAIKU, 3 * MIN)).toBe(false);
   });
 
-  it('leaves an open backend out of the chain, and keeps the chain whole when all are open', () => {
+  it('moves an open backend to the end of the chain, keeping every leg as a fallback', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     at(0);
     expect(chain()).toEqual(['anthropic', 'openrouter']);
-    tripBreaker('anthropic', error({}));
-    expect(chain()).toEqual(['openrouter']);
-    tripBreaker('openrouter', error({ code: 'server', status: 502 }));
+    // OpenRouter failing leaves the order as it is: it stays the fallback behind Anthropic.
+    tripBreaker('openrouter', HAIKU, error({ code: 'server', status: 502 }), Date.now());
     expect(chain()).toEqual(['anthropic', 'openrouter']);
-    // Both windows pass: Anthropic is the first choice again.
+    tripBreaker('anthropic', HAIKU_ANT, error({}), Date.now());
+    expect(chain()).toEqual(['anthropic', 'openrouter']);
+    // OpenRouter's window passes first: it leads, Anthropic still behind it.
+    at(10 * SEC);
+    tripBreaker('anthropic', HAIKU_ANT, error({ retryAfterMs: 60 * SEC }), Date.now());
     at(30 * SEC);
+    expect(chain()).toEqual(['openrouter', 'anthropic']);
+    // Both windows pass: Anthropic is the first choice again.
+    at(70 * SEC);
     expect(chain()).toEqual(['anthropic', 'openrouter']);
-    expect(breakerOpen('anthropic')).toBe(false);
+  });
+
+  it("is per model: a rate limit on one model leaves the backend's other models where they are", () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    at(0);
+    tripBreaker('anthropic', SONNET_ANT, error({ retryAfterMs: 60 * SEC }), Date.now());
+    expect(chain(SONNET)).toEqual(['openrouter', 'anthropic']);
+    expect(chain(HAIKU)).toEqual(['anthropic', 'openrouter']);
+    expect(breakerOpen('anthropic', HAIKU_ANT, Date.now())).toBe(false);
   });
 });
 
@@ -194,14 +214,15 @@ describe('a call whose first backend is overloaded', () => {
       return events;
     };
 
-    at(1_000_000);
+    at(0);
     expect((await call()).at(-1)).toMatchObject({ type: 'done' });
     expect(origins).toEqual(['https://api.anthropic.com', 'https://openrouter.ai']);
     const lines = warn.mock.calls.map(([l]) => JSON.parse(String(l)) as Record<string, unknown>);
     expect(lines.find((l) => l['event'] === 'backend_circuit_open')).toEqual({
       event: 'backend_circuit_open',
       backend: 'anthropic',
-      untilMs: 1_000_000 + 90 * SEC,
+      model: HAIKU_ANT,
+      untilMs: start + 90 * SEC,
       reason: 'overloaded',
     });
     expect(lines.find((l) => l['event'] === 'backend_fallback')).toMatchObject({
@@ -214,13 +235,13 @@ describe('a call whose first backend is overloaded', () => {
 
     // While it is open, the next call starts on OpenRouter.
     origins.length = 0;
-    at(1_000_000 + 89 * SEC);
+    at(89 * SEC);
     expect((await call()).at(-1)).toMatchObject({ type: 'done' });
     expect(origins).toEqual(['https://openrouter.ai']);
 
     // Once it expires, Anthropic is tried first again.
     origins.length = 0;
-    at(1_000_000 + 90 * SEC);
+    at(90 * SEC);
     await call();
     expect(origins[0]).toBe('https://api.anthropic.com');
 
@@ -244,7 +265,7 @@ describe('a call whose first backend is overloaded', () => {
     for await (const e of own.get(OPENROUTER_PROVIDER_ID)!.stream(haikuRequest())) events.push(e);
     expect(events).toMatchObject([{ type: 'error', error: { code: 'rate_limit' } }]);
     expect(origins).toEqual(['https://openrouter.ai']);
-    expect(breakerOpen('openrouter')).toBe(false);
-    expect(breakerOpen('anthropic')).toBe(false);
+    expect(breakerOpen('openrouter', HAIKU, Date.now())).toBe(false);
+    expect(breakerOpen('anthropic', HAIKU_ANT, Date.now())).toBe(false);
   });
 });

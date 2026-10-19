@@ -1,11 +1,16 @@
 // The hosted backends' circuit breaker: a backend that just said it is rate
-// limited, overloaded or failing is left out of the chains this isolate builds
-// until its window passes, so later calls start on the next backend instead of
-// paying a refused round trip first, and stay there (the prompt cache is per
-// backend, so flapping back and forth would miss it twice). It is per isolate
-// and best effort: another isolate learns from its own first refusal, which
-// the meter's fallback covers. A window only ever expires; a success on the
-// backend meanwhile doesn't close it, as no call is sent there while it is open.
+// limited, overloaded or failing for a model goes to the end of that model's
+// chains in this isolate until its window passes, so later calls start on the
+// next backend instead of paying a refused round trip first, and stay there
+// (the prompt cache is per backend, so flapping back and forth would miss it
+// twice). It moves the backend rather than dropping it: the call's hold covers
+// every leg, and the backend stays a fallback if the others refuse too. It is
+// keyed by backend and the backend's model id, as a backend's rate limits are
+// per model: a rate limit on Sonnet says nothing about Haiku. It is per
+// isolate and best effort: another isolate learns from its own first refusal,
+// which the meter's fallback covers. A window only ever expires: a call that
+// falls back onto the backend meanwhile and succeeds says little about when
+// its limit lifts.
 import type { ProviderError } from '@tangent/shared';
 import type { HostedBackendId } from './backend.js';
 import { logEvent } from '../log.js';
@@ -26,14 +31,16 @@ export const BREAKER_MAX_MS = 5 * 60_000;
  */
 export const BREAKER_FAILURE_MS = 30_000;
 
-/** The breaker's clock, a seam for tests. */
-export const breakerClock = { now: (): number => Date.now() };
+/** When each backend's breaker for a model closes (ms since the epoch), by `breakerKey`. */
+const openUntil = new Map<string, number>();
 
-const openUntil = new Map<HostedBackendId, number>();
+function breakerKey(backend: HostedBackendId, model: string): string {
+  return `${backend}\n${model}`;
+}
 
 /**
- * How long `error`, from a call on a backend, keeps the backend out of new
- * chains; null when it says nothing about the backend's health. A rate limit
+ * How long `error`, from a call on a backend, puts the backend last in new
+ * chains for the model; null when it says nothing about the backend's health. A rate limit
  * or an overload opens it for its `retry-after`, within BREAKER_MIN_MS and
  * BREAKER_MAX_MS, mid-stream too; a server error or a failed connection only
  * when the upstream refused the call or never got it (`upstream`), as one
@@ -48,34 +55,48 @@ export function breakerWindowMs(error: ProviderError): number | null {
   return null;
 }
 
-/** Opens `backend`'s breaker for `error`'s window (`breakerWindowMs`); never shortens one already open. */
-export function tripBreaker(backend: HostedBackendId, error: ProviderError): void {
+/**
+ * Opens `backend`'s breaker for `model` (the backend's id of it) for
+ * `error`'s window (`breakerWindowMs`) from `now`; never shortens one already open.
+ */
+export function tripBreaker(
+  backend: HostedBackendId,
+  model: string,
+  error: ProviderError,
+  now: number,
+): void {
   const windowMs = breakerWindowMs(error);
   if (windowMs === null) return;
-  const untilMs = breakerClock.now() + windowMs;
-  if ((openUntil.get(backend) ?? 0) >= untilMs) return;
-  openUntil.set(backend, untilMs);
-  logEvent('warn', 'backend_circuit_open', { backend, untilMs, reason: error.code });
+  const key = breakerKey(backend, model);
+  const untilMs = now + windowMs;
+  if ((openUntil.get(key) ?? 0) >= untilMs) return;
+  openUntil.set(key, untilMs);
+  logEvent('warn', 'backend_circuit_open', { backend, model, untilMs, reason: error.code });
 }
 
-/** Whether `backend` is left out of new chains right now. */
-export function breakerOpen(backend: HostedBackendId): boolean {
-  const untilMs = openUntil.get(backend);
+/** Whether `backend`'s breaker for `model` (the backend's id of it) is open at `now`. */
+export function breakerOpen(backend: HostedBackendId, model: string, now: number): boolean {
+  const key = breakerKey(backend, model);
+  const untilMs = openUntil.get(key);
   if (untilMs === undefined) return false;
-  if (untilMs > breakerClock.now()) return true;
-  openUntil.delete(backend);
+  if (untilMs > now) return true;
+  openUntil.delete(key);
   return false;
 }
 
-/** `chain` without the backends whose breaker is open, or all of it when that would leave none. */
-export function withoutOpenBackends<T extends { backend: { id: HostedBackendId } }>(
+/**
+ * `chain` with the legs whose breaker is open at `now` moved to its end:
+ * the closed ones first, then the open ones, each in the chain's order.
+ */
+export function openBackendsLast<T extends { backend: { id: HostedBackendId }; model: string }>(
   chain: readonly T[],
+  now: number,
 ): T[] {
-  const closed = chain.filter(({ backend }) => !breakerOpen(backend.id));
-  return closed.length > 0 ? closed : [...chain];
+  const open = chain.map(({ backend, model }) => breakerOpen(backend.id, model, now));
+  return [...chain.filter((_, i) => !open[i]), ...chain.filter((_, i) => open[i])];
 }
 
-/** Closes every breaker (tests). */
+/** Closes every breaker: the test suites share one isolate. */
 export function resetBreakers(): void {
   openUntil.clear();
 }

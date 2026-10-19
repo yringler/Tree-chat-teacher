@@ -8,14 +8,14 @@
 // the built-in config gives the logical model; OpenRouter's routing fields
 // stay behind. Only metered calls (on the operator's key) get legs: a call on
 // a user's own key runs on the provider it was given and never reaches these keys.
-// A backend whose breaker is open (breaker.ts) is left out while another can
-// serve the call.
+// A backend whose breaker is open for the model (breaker.ts) goes to the end
+// of the chain.
 import { createProviderRegistry } from '@tangent/providers';
 import type { LlmProvider, ModelInfo, ProviderConfig } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
 import { providerEnv } from '../provider-configs.js';
 import type { HostedBackend } from './backend.js';
-import { withoutOpenBackends } from './breaker.js';
+import { openBackendsLast } from './breaker.js';
 import { openRouterBackend } from './openrouter.js';
 import { hostedChain } from './registry.js';
 
@@ -36,14 +36,14 @@ export const singleLeg: LegsOf = (provider, logical) => [
 ];
 
 /**
- * The legs of `env`'s metered built-in calls (`hostedChain`, less the
- * backends whose breaker is open), for one registry's built-in provider:
- * each other backend's provider is built once.
+ * The legs of `env`'s metered built-in calls (`hostedChain`, the backends
+ * whose breaker is open for the model last), for one registry's built-in
+ * provider: each other backend's provider is built once.
  */
 export function hostedLegs(env: AppEnv): LegsOf {
   const built = new Map<string, LlmProvider>();
   return (provider, logical) =>
-    withoutOpenBackends(hostedChain(env, logical)).map(({ backend, model }) => {
+    openBackendsLast(hostedChain(env, logical), Date.now()).map(({ backend, model }) => {
       if (backend === openRouterBackend) return { backend, model, provider };
       const key = `${backend.id}\n${model}`;
       let leg = built.get(key);
