@@ -16,11 +16,11 @@ export const TIER_LABELS: Readonly<Record<ModelTier, string>> = { normal: 'Norma
 
 /**
  * `usageFactor` to assume when a tier's list price is unknown: the factor of
- * the default models' built-in prices (DeepSeek V4.1 Flash at $0.15 / $0.60
- * per MTok against Claude Sonnet 5.5 at $2 / $10, about 14.3), which the
+ * the default models' built-in prices (Claude Haiku 5.5 at $0.10 / $0.50
+ * per MTok against Claude Sonnet 5.5 at $2 / $10, exactly 20), which the
  * Worker's tests check against its price table.
  */
-export const MAX_USAGE_FACTOR_FALLBACK = 14;
+export const MAX_USAGE_FACTOR_FALLBACK = 20;
 
 /** A model's list price, in micro-dollars per million tokens. */
 export interface TokenPrice {

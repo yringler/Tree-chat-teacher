@@ -14,6 +14,7 @@ import {
 const PRO = { inMicrosPerMTok: 955_260, outMicrosPerMTok: 1_910_520 };
 const FLASH = { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 };
 const SONNET = { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 };
+const HAIKU = { inMicrosPerMTok: 100_000, outMicrosPerMTok: 500_000 };
 
 describe('tiers', () => {
   it('names both tiers, Normal first', () => {
@@ -22,7 +23,7 @@ describe('tiers', () => {
   });
 
   it("falls back to the default models' factor", () => {
-    expect(MAX_USAGE_FACTOR_FALLBACK).toBe(usageFactorOf(FLASH, SONNET));
+    expect(MAX_USAGE_FACTOR_FALLBACK).toBe(usageFactorOf(HAIKU, SONNET));
   });
 
   it('usageFactorOf weighs input 10:1 and rounds to a whole number >= 1', () => {

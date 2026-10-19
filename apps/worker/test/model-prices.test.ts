@@ -21,6 +21,7 @@ const V41 = 'deepseek/deepseek-v4.1-flash';
 /** Power's Max: priced (and so tracked) for the Max usage note, not for the pool. */
 const SONNET = 'anthropic/claude-sonnet-5.5';
 /** The fallback candidate: priced (and so tracked) though no default. */
+const HAIKU = 'anthropic/claude-haiku-5.5';
 const MINIMAX = 'minimax/minimax-m3';
 
 /**
@@ -196,7 +197,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [FLASH, PRO],
       unchanged: [],
-      missing: [V41, SONNET, MINIMAX],
+      missing: [HAIKU, SONNET, V41, MINIMAX],
       anomalies: [],
     });
     expect(await storedPrice(env.DB, FLASH)).toEqual({
@@ -317,7 +318,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [],
       unchanged: [],
-      missing: [V41, FLASH, PRO, SONNET, MINIMAX],
+      missing: [HAIKU, SONNET, V41, FLASH, PRO, MINIMAX],
       anomalies: [],
     });
     expect((await storedPrice(env.DB, FLASH))?.outMicrosPerMTok).toBe(2_000_000);

@@ -41,25 +41,21 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
     POOL_PROVIDER_ORDER: '',
     ...overrides,
   }) as AppEnv;
-/** V4.1 Flash's pinned providers (config.ts `DEFAULT_TIER_REQUESTS`). */
-const PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
-
 describe("the built-in provider's models", () => {
-  it('Learn has one model, Normal, with the request settings the model eval picked', () => {
+  it('Learn has one model, Normal, with its default request settings', () => {
     const config = simpleProviderConfig(deployed());
     expect(config.defaultModel).toBe(DEFAULT_LEARN_NORMAL_MODEL);
     expect(config.models).toEqual([
       {
-        id: 'deepseek/deepseek-v4.1-flash',
+        id: 'anthropic/claude-haiku-5.5',
         label: 'Normal',
         tier: 'normal',
         effort: 'high',
         maxOutputTokens: 16_384,
-        providerOrder: PINNED,
       },
     ]);
     expect(DEFAULT_POWER_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
-    // The background model is no tier, but today it is Normal's model, asked differently.
+    // The background model is no tier, but it is Normal's model, asked differently.
     expect(DEFAULT_BACKGROUND_MODEL).toBe(DEFAULT_LEARN_NORMAL_MODEL);
   });
 
@@ -192,9 +188,9 @@ describe("the built-in provider's models", () => {
     const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool') });
     const pool = await resolvePoolParams(e, null);
     expect(pool.model).toBe(DEFAULT_BACKGROUND_MODEL);
-    expect(pool).toMatchObject({ effort: 'low', providerOrder: PINNED, summaryEffort: 'low' });
+    expect(pool).toMatchObject({ effort: 'low', providerOrder: [], summaryEffort: 'low' });
     expect(poolProviderConfig(e, pool).models).toEqual([
-      { id: DEFAULT_BACKGROUND_MODEL, label: 'Normal', effort: 'low', providerOrder: PINNED },
+      { id: DEFAULT_BACKGROUND_MODEL, label: 'Normal', effort: 'low' },
     ]);
   });
 
@@ -233,13 +229,13 @@ describe('the Max usage factor', () => {
       ),
     });
 
-  it('is set on the Max model from the two prices: about 14 for V4.1 Flash and Sonnet 5.5', async () => {
+  it('is set on the Max model from the two prices: 20 for Haiku 5.5 and Sonnet 5.5', async () => {
     const [info] = await withUsageFactors(deployed(), [
       tiers(DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_POWER_MAX_MODEL),
     ]);
     expect(info!.models).toEqual([
       { id: DEFAULT_LEARN_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
-      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 14 },
+      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 20 },
     ]);
   });
 

@@ -23,7 +23,7 @@ import { DOC_STYLE } from './page-styles.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '15 October 2026';
+export const LEGAL_UPDATED = '19 October 2026';
 
 /** A long-form public page (the legal pages, `/pool`), cacheable for five minutes. */
 export function docResponse(

@@ -86,9 +86,6 @@ async function sentBody(
   return body;
 }
 
-/** V4.1 Flash's pinned providers. */
-const PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
-
 describe('tier config vars', () => {
   it('parse empty as unset; the default models fill it in later', () => {
     const c = appConfig(deployed());
@@ -99,12 +96,12 @@ describe('tier config vars', () => {
     // What an empty var means on each default model.
     expect(DEFAULT_TIER_REQUESTS).toEqual({
       normal: {
-        model: 'deepseek/deepseek-v4.1-flash',
-        request: { effort: 'high', maxOutputTokens: 16_384, providerOrder: PINNED },
+        model: 'anthropic/claude-haiku-5.5',
+        request: { effort: 'high', maxOutputTokens: 16_384, providerOrder: [] },
       },
       pool: {
-        model: 'deepseek/deepseek-v4.1-flash',
-        request: { effort: 'low', maxOutputTokens: null, providerOrder: PINNED },
+        model: 'anthropic/claude-haiku-5.5',
+        request: { effort: 'low', maxOutputTokens: null, providerOrder: [] },
       },
     });
   });
@@ -125,7 +122,7 @@ describe('tier config vars', () => {
       summaryEffort: defaults.summaryEffort,
       maxOutputTokens: 8192,
     });
-    expect(pool.model).toBe('deepseek/deepseek-v4.1-flash');
+    expect(pool.model).toBe('anthropic/claude-haiku-5.5');
   });
 
   it("wrangler.jsonc pins V4.1 Flash's price, so the daily sync can't move it", async () => {
@@ -141,7 +138,7 @@ describe('tier config vars', () => {
       contextTokens: 1_048_576,
       cacheReadMicrosPerMTok: 3_000,
     });
-    // Power's Max note as deployed: about 14×.
+    // Power's Max note as deployed: 20×.
     const [info] = await withUsageFactors(live, [
       {
         id: 'openrouter',
@@ -155,7 +152,7 @@ describe('tier config vars', () => {
         keySource: 'server',
       },
     ]);
-    expect(info!.models[1]).toMatchObject({ tier: 'max', usageFactor: 14 });
+    expect(info!.models[1]).toMatchObject({ tier: 'max', usageFactor: 20 });
   });
 
   it('parse efforts, reply caps and provider orders', () => {
@@ -263,14 +260,11 @@ describe("Learn's Normal with request settings", () => {
         tier: 'normal',
         effort: 'high',
         maxOutputTokens: 16_384,
-        providerOrder: PINNED,
       },
     ]);
     const normal = await sentBody(config, { model: DEFAULT_LEARN_NORMAL_MODEL });
-    expect(normal).toMatchObject({
-      reasoning: { effort: 'high' },
-      provider: { order: PINNED, allow_fallbacks: true },
-    });
+    expect(normal).toMatchObject({ reasoning: { effort: 'high' } });
+    expect(normal).not.toHaveProperty('provider');
   });
 
   it("ask another model with its own defaults: the default model's settings stay with it", async () => {
@@ -318,18 +312,14 @@ describe('the open pool with request settings', () => {
     expect(poolChatSettings(pool).summaryEffort).toBe('none');
   });
 
-  it('asks the default pool model at low effort on its pinned providers, within max_price', async () => {
+  it("asks the default pool model at low effort on OpenRouter's routing, within max_price", async () => {
     const e = deployed();
     const pool = await resolvePoolParams(e, null);
-    expect(pool.model).toBe('deepseek/deepseek-v4.1-flash');
+    expect(pool.model).toBe('anthropic/claude-haiku-5.5');
     const body = await sentBody(poolProviderConfig(e, pool), { model: pool.model });
     expect(body['reasoning']).toEqual({ effort: 'low' });
-    // Both pinned providers charge at most $0.15 / $0.60 per MTok, so max_price admits them.
-    expect(body['provider']).toEqual({
-      order: PINNED,
-      allow_fallbacks: true,
-      max_price: { prompt: 0.15, completion: 0.6 },
-    });
+    // Haiku's list price below 100K input tokens, which the pool's input cap stays under.
+    expect(body['provider']).toEqual({ max_price: { prompt: 0.1, completion: 0.5 } });
   });
 
   it('keeps only max_price on another model by default', async () => {

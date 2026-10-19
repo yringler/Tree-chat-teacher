@@ -195,26 +195,19 @@ const TURNSTILE_TEST_SECRETS: readonly string[] = [
  */
 export const POOL_ACCOUNT_ID = 'pool';
 
-// ---- The hosted models: the defaults a live eval of the candidates picked (2026-10-08)
+// ---- The hosted models. Normal, summaries and the pool run Haiku 5.5, which is cheaper than
+// V4.1 Flash, the model a live eval of the candidates picked (2026-10-08); Max is the eval's.
 
 /** Learn's one model, and power's Normal (`LEARN_NORMAL_MODEL`). */
-export const DEFAULT_LEARN_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
+export const DEFAULT_LEARN_NORMAL_MODEL = 'anthropic/claude-haiku-5.5';
 /** Power's Max, the stronger model it suggests (`POWER_MAX_MODEL`). */
 export const DEFAULT_POWER_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
 /**
  * The background model (`BACKGROUND_MODEL`): Learn's summaries and titles,
- * and the open pool's default model. Not a tier, though today it is the same
- * model as Normal, asked differently.
+ * and the open pool's default model. Not a tier, though it is the same model
+ * as Normal, asked differently.
  */
-export const DEFAULT_BACKGROUND_MODEL = 'deepseek/deepseek-v4.1-flash';
-
-/**
- * Where V4.1 Flash is pinned: StreamLake, then DeepInfra, both fp8 and both
- * caching. Not `deepseek` (first-party): OpenRouter drops it for an account
- * that denies paid-data training, and the fallbacks then scatter across
- * about 28 providers, fp4 ones included, and lose the prompt cache.
- */
-const V4_1_FLASH_PROVIDER_ORDER: readonly string[] = ['streamlake/fp8', 'deepinfra/fp8'];
+export const DEFAULT_BACKGROUND_MODEL = 'anthropic/claude-haiku-5.5';
 
 /** How a hosted tier asks its default model when the tier's vars are empty. */
 export interface DefaultTierRequest {
@@ -224,9 +217,10 @@ export interface DefaultTierRequest {
 }
 
 /**
- * The evaluated settings of each hosted tier's default model: what an empty
+ * The settings of each hosted tier's default model: what an empty
  * `*_EFFORT`, `LEARN_*_REPLY_TOKENS` or `*_PROVIDER_ORDER` means while the
- * tier runs that model (`withTierDefaults`). A tier moved to another model
+ * tier runs that model (`withTierDefaults`): Normal at `high` effort, the
+ * pool at `low`, neither pinned to a provider. A tier moved to another model
  * starts from that model's own defaults (no effort sent, the default cap,
  * OpenRouter's routing): an effort or a pinned provider tuned for one model
  * says nothing about another. The pool's reply cap is
@@ -235,22 +229,18 @@ export interface DefaultTierRequest {
 export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal' | 'pool', DefaultTierRequest>> = {
   normal: {
     model: DEFAULT_LEARN_NORMAL_MODEL,
-    request: {
-      effort: 'high',
-      maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
-      providerOrder: V4_1_FLASH_PROVIDER_ORDER,
-    },
+    request: { effort: 'high', maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS, providerOrder: [] },
   },
   pool: {
     model: DEFAULT_BACKGROUND_MODEL,
-    request: { effort: 'low', maxOutputTokens: null, providerOrder: V4_1_FLASH_PROVIDER_ORDER },
+    request: { effort: 'low', maxOutputTokens: null, providerOrder: [] },
   },
 };
 
 /**
  * The effort of summaries and titles on the default background model when
  * `BACKGROUND_EFFORT` is empty. Without one they would run at the effort of
- * the model's listing, which on V4.1 Flash is Normal's `high`.
+ * the model's listing, which is Normal's.
  */
 export const DEFAULT_BACKGROUND_EFFORT: { model: string; effort: ReasoningEffort } = {
   model: DEFAULT_BACKGROUND_MODEL,
@@ -304,7 +294,7 @@ export interface ModelPrice {
 }
 
 /**
- * Placeholder prices of the default pool model, of power's tiers, Normal
+ * Placeholder prices of power's tiers, Normal (also the default pool model)
  * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`;
  * `MAX_USAGE_FACTOR_FALLBACK` is their factor), of the previous defaults and
  * of a fallback candidate: OpenRouter list prices when they were added, or
@@ -314,17 +304,31 @@ export interface ModelPrice {
  * the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  // Normal and the pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache
-  // read $0.003. OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and
-  // as the pool's `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this
-  // entry in `MODEL_PRICES`, where it wins over the daily sync.
+  // Normal and the pool. The price of prompts up to 100K tokens (beyond, $0.50 / $2.50), which is
+  // the price OpenRouter lists; cache reads at 0.1×, writes at 1.25× the input.
+  'anthropic/claude-haiku-5.5': {
+    inMicrosPerMTok: 100_000,
+    outMicrosPerMTok: 500_000,
+    contextTokens: 1_000_000,
+    cacheReadMicrosPerMTok: 10_000,
+    cacheWriteMicrosPerMTok: 125_000,
+  },
+  'anthropic/claude-sonnet-5.5': {
+    inMicrosPerMTok: 2_000_000,
+    outMicrosPerMTok: 10_000_000,
+    contextTokens: 1_000_000,
+  },
+  // The previous Normal and pool models, priced so moving back is a config change. V4.1 Flash at
+  // the price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache read $0.003. OpenRouter's
+  // model-level list price ($0.0356 / $1.00) is no route's price, and as the pool's `max_price` it
+  // would admit only fp4 endpoints, so wrangler.jsonc repeats this entry in `MODEL_PRICES`, where
+  // it wins over the daily sync.
   'deepseek/deepseek-v4.1-flash': {
     inMicrosPerMTok: 150_000,
     outMicrosPerMTok: 600_000,
     contextTokens: 1_048_576,
     cacheReadMicrosPerMTok: 3_000,
   },
-  // The previous pool and Normal models, priced so moving back is a config change.
   'deepseek/deepseek-v4-flash': {
     inMicrosPerMTok: 100_000,
     outMicrosPerMTok: 400_000,
@@ -334,11 +338,6 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
     inMicrosPerMTok: 955_260,
     outMicrosPerMTok: 1_910_520,
     contextTokens: 1_048_576,
-  },
-  'anthropic/claude-sonnet-5.5': {
-    inMicrosPerMTok: 2_000_000,
-    outMicrosPerMTok: 10_000_000,
-    contextTokens: 1_000_000,
   },
   // A fallback candidate, no default: priced so the pool (`POOL_MODEL`) or a
   // tier can be moved to it by config alone, without a code change.

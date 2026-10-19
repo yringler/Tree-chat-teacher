@@ -165,16 +165,16 @@ describe('the terms on share links', () => {
 });
 
 describe('who handles Tangent-paid requests (hostedAi)', () => {
-  it('as shipped: Normal, the pool and summaries on their pinned hosts; power on OpenRouter’s choice', async () => {
+  it('as shipped: Normal, the pool, summaries and power on OpenRouter’s choice', async () => {
     const ai = hostedAi(deployment());
     expect(ai).toMatchObject({ openRouter: true, gateway: false, powerCredit: true });
     expect(DEFAULT_BACKGROUND_MODEL).toBe(DEFAULT_LEARN_NORMAL_MODEL);
     expect(ai?.models).toEqual([
       {
         id: DEFAULT_LEARN_NORMAL_MODEL,
-        maker: 'DeepSeek',
+        maker: 'Anthropic',
         uses: ["Learn's Normal model", 'the open pool', 'summaries and titles of conversations'],
-        hosts: ['StreamLake', 'DeepInfra'],
+        hosts: [],
         fallbacks: true,
       },
     ]);
