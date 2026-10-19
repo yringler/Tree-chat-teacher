@@ -192,6 +192,12 @@ export interface ProviderError {
   /** HTTP status, if the error came from an HTTP response. */
   status?: number;
   retryable: boolean;
+  /**
+   * How long the upstream asked us to wait before calling it again (its
+   * `retry-after` header), so a rate-limited or overloaded backend can be
+   * skipped for that long. Absent when it gave no usable hint.
+   */
+  retryAfterMs?: number;
   /** Set by the HTTP providers (anthropic, openai-compatible); read by the open pool's settlement. */
   upstream?: ProviderUpstream;
 }

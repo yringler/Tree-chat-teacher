@@ -368,6 +368,35 @@ describe('anthropic provider', () => {
     });
   });
 
+  it.each([
+    [429, 'rate_limit_error', 'rate_limit', '7', 7000],
+    [529, 'overloaded_error', 'overloaded', '12', 12_000],
+  ] as const)(
+    'carries the retry-after of an HTTP %i',
+    async (status, type, code, retryAfter, retryAfterMs) => {
+      const { provider } = setup(() =>
+        jsonResponse(
+          status,
+          { type: 'error', error: { type, message: 'try later' } },
+          { 'retry-after': retryAfter },
+        ),
+      );
+      expect(await collect(provider.stream(req()))).toEqual([
+        {
+          type: 'error',
+          error: {
+            code,
+            status,
+            retryable: true,
+            message: 'try later',
+            upstream: 'rejected',
+            retryAfterMs,
+          },
+        },
+      ]);
+    },
+  );
+
   it('uses a fallback message for non-JSON error bodies and never leaks the key', async () => {
     const { provider } = setup(() => new Response(`bad key ${KEY}`, { status: 401 }));
     const [ev] = await collect(provider.stream(req()));

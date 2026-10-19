@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderErrorCode } from '@tangent/shared';
 import {
   codeForStatus,
@@ -6,6 +6,7 @@ import {
   extractErrorInfo,
   looksLikeContextLength,
   networkError,
+  parseRetryAfter,
   redact,
 } from '../src/internal.js';
 import { jsonResponse } from './helpers.js';
@@ -157,6 +158,80 @@ describe('errorFromResponse', () => {
     const error = await read(jsonResponse(400, { error: { message: 'x'.repeat(2000) } }));
     expect(Array.from(error.message)).toHaveLength(500);
     expect(error.message.endsWith('…')).toBe(true);
+  });
+});
+
+describe('parseRetryAfter', () => {
+  const now = Date.UTC(2026, 9, 19, 12, 0, 0);
+
+  it.each([
+    ['delta-seconds', '7', 7000],
+    ['zero', '0', 0],
+    ['padded seconds', ' 30 ', 30_000],
+    ['an HTTP-date 90 s ahead', 'Mon, 19 Oct 2026 12:01:30 GMT', 90_000],
+    ['an HTTP-date in the past', 'Mon, 19 Oct 2026 11:59:00 GMT', 0],
+    ['seconds over the cap', '86400', 3_600_000],
+    ['an HTTP-date over the cap', 'Tue, 20 Oct 2026 12:00:00 GMT', 3_600_000],
+  ])('reads %s', (_name, value, expected) => {
+    expect(parseRetryAfter(value, now)).toBe(expected);
+  });
+
+  it.each([
+    ['no header', null],
+    ['an empty value', ''],
+    ['a negative number', '-5'],
+    ['a fraction', '1.5'],
+    ['words', 'soon'],
+    ['seconds with a unit', '10s'],
+  ])('ignores %s', (_name, value) => {
+    expect(parseRetryAfter(value, now)).toBeUndefined();
+  });
+});
+
+describe('errorFromResponse retry-after', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('carries a 429 retry-after in seconds as retryAfterMs', async () => {
+    const error = await errorFromResponse(
+      jsonResponse(429, { error: { message: 'slow down' } }, { 'retry-after': '7' }),
+      undefined,
+      [],
+    );
+    expect(error).toEqual({
+      code: 'rate_limit',
+      message: 'slow down',
+      status: 429,
+      retryable: true,
+      retryAfterMs: 7000,
+    });
+  });
+
+  it('reads an HTTP-date relative to now', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 9, 19, 12, 0, 0));
+    const error = await errorFromResponse(
+      jsonResponse(
+        503,
+        { error: { message: 'busy' } },
+        { 'retry-after': 'Mon, 19 Oct 2026 12:00:20 GMT' },
+      ),
+      undefined,
+      [],
+    );
+    expect(error.retryAfterMs).toBe(20_000);
+  });
+
+  it('leaves retryAfterMs out for a malformed or missing header', async () => {
+    const malformed = await errorFromResponse(
+      jsonResponse(429, { error: { message: 'x' } }, { 'retry-after': 'later' }),
+      undefined,
+      [],
+    );
+    expect(malformed).not.toHaveProperty('retryAfterMs');
+    const missing = await errorFromResponse(jsonResponse(429, { error: {} }), undefined, []);
+    expect(missing).not.toHaveProperty('retryAfterMs');
   });
 });
 

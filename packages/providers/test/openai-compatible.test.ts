@@ -346,6 +346,17 @@ describe('openai-compatible provider', () => {
     ]);
   });
 
+  it('carries the retry-after of a 429', async () => {
+    const { provider } = setup(OPENAI, () =>
+      jsonResponse(429, { error: { message: 'slow down' } }, { 'retry-after': '7' }),
+    );
+    const [ev] = await collect(provider.stream(req()));
+    expect(ev).toMatchObject({
+      type: 'error',
+      error: { code: 'rate_limit', status: 429, retryAfterMs: 7000 },
+    });
+  });
+
   it('maps context_length_exceeded 400s and redacts echoed keys', async () => {
     const { provider } = setup(OPENAI, () =>
       jsonResponse(400, {
