@@ -663,7 +663,12 @@ export const usageEvents = sqliteTable(
       enum: ['reply', 'summary', 'title', 'review', 'other'],
     }).notNull(),
     providerId: text('provider_id').notNull(),
+    /** The logical model id (its id in OpenRouter's catalog), which prices are keyed by. */
     model: text('model').notNull(),
+    /** The hosted backend the call runs on (hosted/registry.ts); null on the oldest rows. */
+    backend: text('backend'),
+    /** The model id sent to that backend; null on the oldest rows. */
+    backendModel: text('backend_model'),
     /** Upstream (OpenRouter) generation id, once known. */
     generationId: text('generation_id').unique(),
     status: text('status', { enum: ['pending', 'settled', 'unresolved'] }).notNull(),
