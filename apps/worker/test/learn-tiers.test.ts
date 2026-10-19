@@ -192,6 +192,20 @@ describe("the built-in provider's models", () => {
     expect(override?.powerMax).toBe('M');
   });
 
+  it('says a search costs about 1¢ only when it does on every backend Learn’s model may run on', () => {
+    const offer = (o: Partial<AppEnv>) =>
+      learnOffer(
+        deployed({ BUILT_IN_API_KEY: 'sk-or-op', BUILT_IN_ANTHROPIC_API_KEY: 'sk-ant-op', ...o }),
+      )?.searchAboutOneCent;
+    // Anthropic's own search is 1¢; GROUNDING_ENGINE is OpenRouter's alone.
+    expect(offer({ BUILT_IN_BACKENDS: 'anthropic', GROUNDING_ENGINE: 'parallel' })).toBe(true);
+    expect(offer({ BUILT_IN_BACKENDS: 'anthropic,openrouter', GROUNDING_ENGINE: 'parallel' })).toBe(
+      false,
+    );
+    expect(offer({ BUILT_IN_BACKENDS: 'anthropic,openrouter' })).toBe(true);
+    expect(offer({ BUILT_IN_BACKENDS: 'openrouter', GROUNDING_MAX_RESULTS: '20' })).toBe(false);
+  });
+
   it('the pool runs V4.1 Flash by default, while Normal and the background model run Haiku', async () => {
     const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool') });
     const pool = await resolvePoolParams(e, null);

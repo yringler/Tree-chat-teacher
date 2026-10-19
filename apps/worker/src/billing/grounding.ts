@@ -1,6 +1,7 @@
 // Grounding config and the daily cap on automatic web searches, which bounds
 // what the free gate can spend of a user's credit. Searches are billed like any other cost:
-// OpenRouter folds their fee into the generation's reported cost.
+// OpenRouter folds their fee into the generation's reported cost, and the meter
+// adds Anthropic's to a call's tokens (`unreportedSearchFeeMicros`).
 import type { GroundingPolicy } from '@tangent/core';
 import { providerTraits } from '@tangent/providers';
 import type { ProviderConfig, ProviderRoute } from '@tangent/shared';

@@ -21,6 +21,11 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **No web search on the pool.** Its holds are priced from tokens alone (`worstCaseHoldMicros`), so a search fee would be overage. Allowing it means adding the per-search fee to the worst case when a request carries `webSearch`, and to the reply's ceiling reservation in `TreeSession.send`.
 - **`pool_identity_holders` is only ever deleted from.** Nothing reads or writes it otherwise; dropping it (schema, the two deletes in `auth/delete-account.ts`, then the migration) is a contract step for a later release.
 
+## Hosted backends
+
+- **The built-in provider needs `BUILT_IN_API_KEY` even when Anthropic serves every model it uses.** Whether credit and the pool are offered is read from the built-in config's own key (`builtInProviderUsable` in `availability.ts`), which is OpenRouter's. An Anthropic-only deployment would need that check to ask the chain of each offered model instead.
+- **The Anthropic backend serves only the models in its list** (`MODEL_IDS` in `hosted/anthropic.ts`: Haiku 5.5 and Sonnet 5.5). Another Claude model, on credit in power or as a configured tier, runs on OpenRouter until it is added there.
+
 ## Web search
 
 - **No native search on OpenAI.** The Responses API search isn't wired up, so an openai-compatible config that doesn't reach OpenRouter can't set `options.webSearch` (it is refused when `PROVIDERS` is parsed). (Anthropic's own `web_search` tool is wired up for own-key configs.)

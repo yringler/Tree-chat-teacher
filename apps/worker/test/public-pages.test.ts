@@ -297,6 +297,16 @@ describe('/pricing', () => {
     ]);
     // Credit pays the list price; the 20% + 50¢ service fee is on top-ups; $10 over 20%: $50 a year.
     expect(notes(html).get('credit')).toContain('with nothing added');
+    expect(notes(html).get('credit')).toContain('exactly what OpenRouter reports the reply cost');
+    expect(notes(html).get('credit')).not.toContain('Anthropic');
+    // A reply Anthropic answers directly reports no cost: its tokens at the same list price.
+    const direct = deployment({
+      BUILT_IN_BACKENDS: 'anthropic,openrouter',
+      BUILT_IN_ANTHROPIC_API_KEY: 'sk-ant-operator',
+    });
+    expect(notes((await get(direct, '/pricing')).html).get('credit')).toContain(
+      'for a reply Anthropic answers directly, its tokens at that same list price',
+    );
     const topUp = notes(html).get('top-up');
     expect(topUp).toMatch(/^Buy \$5 to \$500 of credit at a time/);
     expect(topUp).toContain(

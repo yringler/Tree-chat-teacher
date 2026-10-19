@@ -26,6 +26,7 @@ import {
 import { groundingPolicy } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
 import { openRouterBackend, withMaxPrice } from './hosted/openrouter.js';
+import { hostedChain } from './hosted/registry.js';
 import type { PoolParams } from './pool/params.js';
 
 export {
@@ -331,10 +332,11 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
  * What Learn offers, as the public pages (landing, pricing) describe it, read
  * from the built-in provider's config: the Max power suggests on credit (null
  * when it lists none), whether its replies can search the web, and whether a
- * search costs about 1¢ (OpenRouter's Exa price covers up to 10 results;
- * other engines, other catalogs and more results cost differently). Null when
- * BUILT_IN_PROVIDER is invalid, so a page falls back to wording that claims
- * none of these.
+ * search costs about 1¢ on every backend Learn's model may run on
+ * (Anthropic's search is 1¢; OpenRouter's Exa price covers up to 10 results,
+ * and other engines, other catalogs and more results cost differently). Null
+ * when BUILT_IN_PROVIDER is invalid, so a page falls back to wording that
+ * claims none of these.
  */
 export interface LearnOffer {
   /** The label of power's Max on Tangent credit; null when the provider lists no Max. */
@@ -352,9 +354,14 @@ export function learnOffer(env: AppEnv): LearnOffer | null {
   }
   const openRouterPrices = providerTraits(config).catalog === 'openrouter';
   const { engine, maxResults } = appConfig(env).grounding;
+  const exaCent = openRouterPrices && engine === 'exa' && maxResults <= 10;
+  // OpenRouter's leg runs on the built-in config; GROUNDING_ENGINE and _MAX_RESULTS are its alone.
+  const aboutOneCent = hostedChain(env, config.defaultModel).every(({ backend }) =>
+    backend === openRouterBackend ? exaCent : backend.config().kind === 'anthropic',
+  );
   return {
     powerMax: tierModel(config.models, 'max')?.label ?? null,
     search: config.options?.['webSearch'] === true,
-    searchAboutOneCent: openRouterPrices && engine === 'exa' && maxResults <= 10,
+    searchAboutOneCent: aboutOneCent,
   };
 }

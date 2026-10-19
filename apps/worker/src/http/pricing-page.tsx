@@ -169,7 +169,10 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, Child>> {
       credit.openRouterFeeBps > 0
         ? `OpenRouter’s ${formatBps(credit.openRouterFeeBps)} fee on the credit Tangent buys from it, and `
         : '';
-    texts.credit = `Credit pays each reply’s OpenRouter list price, exactly what OpenRouter reports the reply cost, with nothing added. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.`;
+    const charged = credit.anthropicDirect
+      ? 'Credit pays each reply’s OpenRouter list price, with nothing added: exactly what OpenRouter reports the reply cost, or, for a reply Anthropic answers directly, its tokens at that same list price plus Anthropic’s 1¢ per web search.'
+      : 'Credit pays each reply’s OpenRouter list price, exactly what OpenRouter reports the reply cost, with nothing added.';
+    texts.credit = `${charged} Summaries and titles made on credit are charged the same way, and your billing page lists every charge.`;
     texts['top-up'] = (
       <>
         Buy {formatCents(credit.minTopUpCents)} to {formatCents(credit.maxTopUpCents)} of credit at

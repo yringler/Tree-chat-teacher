@@ -88,9 +88,12 @@ function HostedAiItem(props: { ai: HostedAi | null }) {
     : !ai || ai.openRouter
       ? 'OpenRouter (USA),'
       : `${ai.endpoint},`;
+  const direct = ai?.anthropic
+    ? ' Some Claude models go to Anthropic (USA) directly instead, as listed below.'
+    : '';
   const intro =
     !ai || ai.openRouter
-      ? `${who} which forwards each request to a company that hosts the model: the company that made it or another hosting company, which may be in the USA, China or elsewhere.`
+      ? `${who} which forwards each request to a company that hosts the model: the company that made it or another hosting company, which may be in the USA, China or elsewhere.${direct}`
       : `${who} which runs the models.`;
   if (!ai || (ai.models.length === 0 && !ai.powerCredit))
     return <li>Tangent credit and the open pool: {intro}</li>;
@@ -102,13 +105,15 @@ function HostedAiItem(props: { ai: HostedAi | null }) {
           <li>
             {capitalize(list(m.uses))}: <code>{m.id}</code>
             {m.maker && ` (made by ${m.maker})`}
-            {ai.openRouter && `, ${hostsText(m)}`}.
+            {m.direct ? ', sent to Anthropic directly' : ai.openRouter && `, ${hostsText(m)}`}.
           </li>
         ))}
         {ai.powerCredit && (
           <li>
             Power mode on Tangent credit: the model you choose
-            {ai.openRouter && ', on a host OpenRouter chooses'}.
+            {ai.openRouter && ', on a host OpenRouter chooses'}
+            {ai.anthropic && ', or at Anthropic directly for the Claude models Tangent sends there'}
+            .
           </li>
         )}
       </ul>

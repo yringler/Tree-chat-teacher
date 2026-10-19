@@ -177,6 +177,7 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
         uses: ["Learn's Normal model", 'summaries and titles of conversations'],
         hosts: ['Anthropic'],
         fallbacks: true,
+        direct: false,
       },
       {
         id: DEFAULT_POOL_MODEL,
@@ -184,8 +185,10 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
         uses: ['the open pool'],
         hosts: ['StreamLake', 'DeepInfra'],
         fallbacks: true,
+        direct: false,
       },
     ]);
+    expect(ai?.anthropic).toBe(false);
     // The policy names each model and host.
     const privacy = await page('/privacy');
     for (const m of ai!.models) {
@@ -193,6 +196,29 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
       for (const host of m.hosts) expect(privacy).toContain(host);
     }
     expect(privacy).toContain('Power mode on Tangent credit');
+  });
+
+  it('names Anthropic as a direct processor of the Claude models it serves, when it is a backend', async () => {
+    const anthropic = {
+      BUILT_IN_BACKENDS: 'anthropic,openrouter',
+      BUILT_IN_ANTHROPIC_API_KEY: 'sk-ant-operator',
+    };
+    const ai = hostedAi(deployment(anthropic));
+    expect(ai?.anthropic).toBe(true);
+    expect(ai?.models.map((m) => [m.id, m.direct, m.hosts])).toEqual([
+      [DEFAULT_LEARN_NORMAL_MODEL, true, []],
+      [DEFAULT_POOL_MODEL, false, ['StreamLake', 'DeepInfra']],
+    ]);
+    const privacy = await page('/privacy', anthropic);
+    expect(privacy).toContain('Some Claude models go to Anthropic (USA) directly instead');
+    expect(privacy).toContain(
+      `<code>${DEFAULT_LEARN_NORMAL_MODEL}</code> (made by Anthropic), sent to Anthropic directly`,
+    );
+    expect(privacy).toContain('or at Anthropic directly for the Claude models Tangent sends there');
+    // Without its key, Anthropic is no backend, and the policy doesn't name it.
+    const keyless = { ...anthropic, BUILT_IN_ANTHROPIC_API_KEY: '' };
+    expect(hostedAi(deployment(keyless))?.anthropic).toBe(false);
+    expect(await page('/privacy', keyless)).not.toContain('Anthropic (USA) directly');
   });
 
   it('follows a changed pinning or pool model', () => {
