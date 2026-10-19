@@ -6,6 +6,7 @@
 import { chargeMicros, type Payer, type UsagePurpose } from '@tangent/shared';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
+import type { HostedBackendId } from '../hosted/backend.js';
 
 /** Who pays for a metered call: never the user's own key, which is never metered. */
 export type MeteredPayer = Exclude<Payer, 'own-key'>;
@@ -43,7 +44,11 @@ export interface PendingUsageRow {
   ipKey?: string | null;
   purpose: UsagePurpose;
   providerId: string;
+  /** The logical model id (prices are keyed by it). */
   model: string;
+  /** The hosted backend the call is sent to and its model id there. */
+  backend: HostedBackendId | null;
+  backendModel: string | null;
   holdMicros: number;
   markupBps: number;
   /** OpenRouter's credit-purchase fee in force when the call started (OPENROUTER_FEE_BPS). */
@@ -71,8 +76,9 @@ export function insertPendingUsageStatement(
     .prepare(
       `INSERT INTO usage_events
          (id, account_id, tree_id, node_id, branch_id, user_id, funding, ip_key, purpose,
-          provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', ?12, ?13, ?14, ?15
+          provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at,
+          backend, backend_model)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', ?12, ?13, ?14, ?15, ?16, ?17
        WHERE ${USER_EXISTS_SQL}`,
     )
     .bind(
@@ -91,6 +97,8 @@ export function insertPendingUsageStatement(
       row.markupBps,
       row.feeBps,
       row.createdAt,
+      row.backend,
+      row.backendModel,
     );
 }
 
@@ -123,8 +131,10 @@ export async function reservePersonalUsage(
     .prepare(
       `INSERT INTO usage_events
          (id, account_id, tree_id, node_id, branch_id, user_id, funding, ip_key, purpose,
-          provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at, held_input_tokens)
-       SELECT ?2, ?1, ?3, ?4, ?5, ?6, '${STORED_FUNDING.credit}', NULL, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13, ?15
+          provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at, held_input_tokens,
+          backend, backend_model)
+       SELECT ?2, ?1, ?3, ?4, ?5, ?6, '${STORED_FUNDING.credit}', NULL, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13, ?15,
+         ?16, ?17
        WHERE ${AVAILABLE_SQL} >= ?10
          AND ${USER_EXISTS_SQL}
          AND (?14 IS NULL OR
@@ -146,6 +156,8 @@ export async function reservePersonalUsage(
       row.createdAt,
       maxPending,
       row.heldInputTokens,
+      row.backend,
+      row.backendModel,
     )
     .run();
   return (result.meta.changes ?? 0) > 0;

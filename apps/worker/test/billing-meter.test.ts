@@ -239,6 +239,22 @@ describe('usage meter', () => {
     expect((await h.rows())[0]!.generation_id).toBe(gen);
   });
 
+  it('records the backend a credit call is sent to and its model there', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'billing', costUsd: COST },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { tag },
+    );
+    expect((await h.rows())[0]).toMatchObject({
+      model: 'max',
+      backend: 'openrouter',
+      backend_model: 'max',
+    });
+  });
+
   it('settles at the list price with a membership too, whatever the service fee', async () => {
     const account = simpleAccount();
     await insertSubscription(env, account.userId!, 'active');
@@ -874,6 +890,16 @@ describe('reserved replies on credit', () => {
       providerRef: null,
     });
   }
+
+  it('records the backend of a reply reserved before its call', async () => {
+    const h = await harness();
+    const id = await reserveCreditReply(env, h.account, target, 500_000);
+    expect(await usageRow(env, id)).toMatchObject({
+      model: 'max',
+      backend: 'openrouter',
+      backend_model: 'max',
+    });
+  });
 
   it('lowers a reservation to the call, whatever the balance, and settles that row', async () => {
     const h = await harness();

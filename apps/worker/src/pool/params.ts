@@ -15,7 +15,7 @@ import {
   type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
-import { backendsFor } from '../hosted/registry.js';
+import { backendsFor, usageBackend, type UsageBackend } from '../hosted/registry.js';
 import { defaultPoolModel } from '../simple-mode.js';
 import { modelPrice, withCacheWritePrice } from './price-table.js';
 import type {
@@ -49,7 +49,7 @@ export const POOL_OVERAGE: PoolOverage = { windowMs: 24 * 60 * 60_000, maxMicros
 /** What one "learning session" is shown as on the pool meter (micro-USD). */
 export const POOL_SESSION_ESTIMATE_MICROS = 20_000;
 
-export interface PoolParams {
+export interface PoolParams extends UsageBackend {
   /** The pool's ledger account id (config.ts `POOL_ACCOUNT_ID`). */
   accountId: string;
   /** The one model pool calls use; every pool hold is priced for it. */
@@ -120,6 +120,7 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   return {
     accountId: pool.accountId,
     model,
+    ...usageBackend(env, model),
     // A price whose reply ceiling no cap admits refuses as `unpriced` (logged), not as the user's cap.
     price: price && reportCeilingProblem(pool, model, price) === null ? price : null,
     systemPrompt: pool.systemPrompt,
@@ -245,6 +246,8 @@ export function poolReserveRequest(
     userId,
     ipKey: pool.ipKey,
     model: pool.model,
+    backend: pool.backend,
+    backendModel: pool.backendModel,
     ...call,
     caps: pool.caps,
     limits: pool.limits,

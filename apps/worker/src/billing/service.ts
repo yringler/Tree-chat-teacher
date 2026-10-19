@@ -27,6 +27,7 @@ import type { ModelPrice } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { creditGrants, usageEvents } from '../db/schema.js';
 import { callPayer, type AccountContext, type AppEnv } from '../env.js';
+import { usageBackend } from '../hosted/registry.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { chargeFromTokensMicros, renderAllowanceBytes, type InputOf } from '../pool/pricing.js';
 import { builtInAvailable, personalCreditReady } from '../availability.js';
@@ -242,6 +243,7 @@ export async function reserveCreditReply(
       purpose: 'reply',
       providerId: target.providerId,
       model: target.model,
+      ...usageBackend(env, target.model),
       holdMicros,
       // Its prompt doesn't exist yet: the meter records its estimate when it reprices the row.
       heldInputTokens: null,

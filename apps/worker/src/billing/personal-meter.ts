@@ -21,6 +21,7 @@ import type { GenerateRequest, ProviderErrorCode, UsagePurpose } from '@tangent/
 import { DomainError, PaymentRequiredError } from '@tangent/core';
 import type { ModelPrice } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
+import { usageBackend } from '../hosted/registry.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { ObservedRun, type UsageMeter, type UsageMeterOptions } from './meter-run.js';
 import { meteredSettlement } from './settle-policy.js';
@@ -181,6 +182,7 @@ export function createUsageMeter(
           purpose,
           providerId,
           model,
+          ...usageBackend(env, model),
           holdMicros,
           heldInputTokens: inputTokens,
           ...rates,

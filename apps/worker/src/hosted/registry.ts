@@ -15,3 +15,19 @@ export function hostedBackend(id: HostedBackendId): HostedBackend {
 export function backendsFor(_env: AppEnv, logical: string): HostedBackend[] {
   return [openRouterBackend].filter((b) => b.modelId(logical) !== null);
 }
+
+/** Where a built-in call on `logical` is sent, as its usage row stores it. */
+export interface UsageBackend {
+  /** `usage_events.backend`: the first backend that can serve it; null when none can. */
+  backend: HostedBackendId | null;
+  /** `usage_events.backend_model`: that backend's id of the model. */
+  backendModel: string | null;
+}
+
+/** The `UsageBackend` of a built-in call on `logical`. */
+export function usageBackend(env: AppEnv, logical: string): UsageBackend {
+  const backend = backendsFor(env, logical)[0];
+  return backend
+    ? { backend: backend.id, backendModel: backend.modelId(logical) }
+    : { backend: null, backendModel: null };
+}

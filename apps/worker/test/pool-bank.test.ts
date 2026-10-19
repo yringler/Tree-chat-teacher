@@ -372,6 +372,13 @@ describe('PoolBank: as shipped (wrangler.jsonc vars)', () => {
       }),
     );
     expect(result).toMatchObject({ ok: true });
+    expect(pool.backend).toBe('openrouter');
+    const [row] = await poolRows(pool.accountId);
+    expect(row).toMatchObject({
+      model: pool.model,
+      backend: 'openrouter',
+      backend_model: pool.model,
+    });
   });
 });
 
