@@ -14,7 +14,7 @@ describe('DEFAULT_SYSTEM_PROMPT', () => {
 
   it('offers a specific diagram after the Markdown rule, and draws one only when asked', () => {
     const markdown =
-      "- Use Markdown sparingly: short lists when they help, code blocks for code. Reply in the user's language.\n";
+      "- Use Markdown sparingly: short lists when they help, code blocks for code. Write Markdown, never HTML tags: a link is [text](url). Reply in the user's language.\n";
     const diagrams = DEFAULT_SYSTEM_PROMPT.slice(
       DEFAULT_SYSTEM_PROMPT.indexOf(markdown) + markdown.length,
     );
@@ -26,6 +26,12 @@ describe('DEFAULT_SYSTEM_PROMPT', () => {
       'a single ```mermaid code block, using flowchart, sequenceDiagram, classDiagram, stateDiagram-v2, erDiagram, pie, gantt, timeline or mindmap.',
     );
     expect(rule).toContain('write a double quote inside a label as #quot;');
+  });
+
+  it('asks for Markdown links, never HTML, which the renderer shows as text', () => {
+    expect(DEFAULT_SYSTEM_PROMPT).toContain(
+      'Write Markdown, never HTML tags: a link is [text](url).',
+    );
   });
 
   it('asks for suggestions tagged [deeper] or [tangent], each opening a tangent', () => {
