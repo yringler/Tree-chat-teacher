@@ -1099,6 +1099,28 @@ describe('credit calls on an endpoint whose cost leaves searches out (Anthropic)
     expect(row.charge_micros).toBeLessThanOrEqual(row.hold_micros);
   });
 
+  it("reserves a reply with its search's fee where the built-in provider bills it outside the cost", async () => {
+    const anthropic = (grounding: string) =>
+      ({
+        ...PRICED,
+        GROUNDING: grounding,
+        BUILT_IN_PROVIDER: JSON.stringify({
+          id: 'openrouter',
+          kind: 'anthropic',
+          label: 'T',
+          apiKeySecret: 'MY_ANT_KEY',
+          models: [{ id: 'max', label: 'Max' }],
+          defaultModel: 'max',
+        }),
+      }) as AppEnv;
+    const budget = { maxInputTokens: 1000, maxOutputTokens: 100 };
+    const tokensOnly = await replyHoldMicros(PRICED, 'max', budget);
+    // A reply searches at most once: one $10-per-1,000 fee on top of its tokens.
+    expect(await replyHoldMicros(anthropic('auto'), 'max', budget)).toBe(tokensOnly + 10_000);
+    // No searches while grounding is off.
+    expect(await replyHoldMicros(anthropic('off'), 'max', budget)).toBe(tokensOnly);
+  });
+
   it('holds and charges no search fee where the reported cost carries it (OpenRouter)', async () => {
     const h = await harness();
     await h.run(

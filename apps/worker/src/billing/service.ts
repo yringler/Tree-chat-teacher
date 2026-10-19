@@ -4,6 +4,7 @@
 // write goes to `AccountContext.billingAccountId`, the same in both modes.
 import {
   CHARS_PER_TOKEN,
+  DEFAULT_GROUNDING_SETTINGS,
   DomainError,
   estimateTokens,
   MESSAGE_OVERHEAD_TOKENS,
@@ -21,6 +22,7 @@ import {
   type PurchaseInfo,
   type UsageListResponse,
 } from '@tangent/shared';
+import { unreportedSearchFeeMicros } from '@tangent/providers';
 import type { ModelPrice } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { creditGrants, usageEvents } from '../db/schema.js';
@@ -35,6 +37,8 @@ import { checkoutReturnUrl } from './return-urls.js';
 import { paymentProvider, paymentsConfigured } from './payments/index.js';
 import { reservePersonalUsage } from './usage-store.js';
 import { appConfig } from '../config.js';
+import { simpleProviderConfig } from '../simple-mode.js';
+import { groundingPolicy } from './grounding.js';
 
 const MAX_USAGE_PAGE = 100;
 
@@ -147,7 +151,9 @@ export async function requireCreditPrice(env: AppEnv, model: string): Promise<Mo
 
 /**
  * The hold of a reply on `model` before its prompt exists: its input budget
- * (`replyInputTokens`) and output cap at the model's price.
+ * (`replyInputTokens`) and output cap at the model's price, plus the fees of
+ * the most searches a reply may run where the built-in provider bills them
+ * outside a reported cost (`replySearchFeesMicros`), as the meter holds them.
  */
 export async function replyHoldMicros(
   env: AppEnv,
@@ -161,6 +167,19 @@ export async function replyHoldMicros(
     replyInputTokens(budget.maxInputTokens),
     budget.maxOutputTokens,
     CREDIT_RATES,
+    replySearchFeesMicros(env),
+  );
+}
+
+/**
+ * The unreported search fees a reply on credit may owe: one fee per search
+ * it may run (`GroundingSettings.maxUses`) where the built-in provider bills
+ * searches outside its reported cost (Anthropic), none while grounding is off.
+ */
+function replySearchFeesMicros(env: AppEnv): number {
+  if (groundingPolicy(env) === 'off') return 0;
+  return (
+    unreportedSearchFeeMicros(simpleProviderConfig(env).kind) * DEFAULT_GROUNDING_SETTINGS.maxUses
   );
 }
 
