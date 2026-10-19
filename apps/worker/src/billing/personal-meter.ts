@@ -68,6 +68,8 @@ class PersonalRun extends ObservedRun {
     private readonly price: ModelPrice,
     /** The estimated input tokens its hold was sized with. */
     private readonly heldInputTokens: number,
+    /** Each search's fee where the provider bills it outside a reported cost. */
+    private readonly searchFeeMicros: number,
   ) {
     super(env, usageId, markupBps, feeBps, defer, options, request);
   }
@@ -90,6 +92,8 @@ class PersonalRun extends ObservedRun {
       price: this.price,
       userStopped: this.userStopped,
       heldInputTokens: this.heldInputTokens,
+      webSearches: this.webSearches,
+      searchFeeMicros: this.searchFeeMicros,
     });
     if ((s.reason === 'tokens' || s.reason === 'hold') && this.generationId !== null) {
       // OpenRouter knows the real cost; failing that, the cron settles the row.
@@ -118,7 +122,7 @@ export function createUsageMeter(
 ): UsageMeter {
   return {
     funding: 'credit',
-    async begin({ tag, providerId, model, request, maxOutputTokens }) {
+    async begin({ tag, providerId, model, request, maxOutputTokens, searchFeeMicros }) {
       const price = await creditPrice(env, model).catch((e: unknown) => {
         // The price couldn't be looked up just now (domain errors only; others fail as metering).
         throw e instanceof DomainError ? new CreditRefusedError(e.message, 'server') : e;
@@ -128,7 +132,15 @@ export function createUsageMeter(
       // The hold bounds the output: a request without a cap gets the provider's.
       const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
       const inputTokens = estimatedInputTokens(request);
-      const holdMicros = creditHoldMicros(env, price, inputTokens, upstream.maxOutputTokens, rates);
+      const searchFeesMicros = (request.webSearch?.maxUses ?? 0) * searchFeeMicros;
+      const holdMicros = creditHoldMicros(
+        env,
+        price,
+        inputTokens,
+        upstream.maxOutputTokens,
+        rates,
+        searchFeesMicros,
+      );
       const run = (usageId: string, r: typeof rates) =>
         new PersonalRun(
           env,
@@ -140,6 +152,7 @@ export function createUsageMeter(
           upstream,
           price,
           inputTokens,
+          searchFeeMicros,
         );
       if (tag?.reservationId) {
         const claimed = await repriceReservation(

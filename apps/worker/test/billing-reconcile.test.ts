@@ -229,6 +229,23 @@ describe('usage reconciliation cron: a call whose meter died without a generatio
     });
   });
 
+  it('charges a sent call no search fee: its meter died before it learned the billed count', async () => {
+    // An Anthropic search's fee is added by the live meter from the stream's final usage;
+    // the row keeps no provider kind or fee, so the cron charges the input alone.
+    const id = await insertUsage(env, {
+      accountId: uniq('acct'),
+      ...stale,
+      dispatchedAt: ago(15 * MIN),
+      heldInputTokens: 1000,
+    });
+    await env.DB.prepare('UPDATE usage_events SET web_searches = 2 WHERE id = ?1').bind(id).run();
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 1, unresolved: 0 });
+    expect(await usageRow(env, id)).toMatchObject({
+      settle_reason: 'tokens',
+      cost_nanos: 150_000_000,
+    });
+  });
+
   it('charges a sent call its hold when its row has no estimate', async () => {
     const id = await insertUsage(env, {
       accountId: uniq('acct'),

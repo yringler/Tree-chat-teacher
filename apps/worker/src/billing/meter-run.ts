@@ -19,6 +19,8 @@ export interface UsageMeter {
     request: GenerateRequest;
     /** The provider's output cap for `model`: the call's when the request sets none. */
     maxOutputTokens: number;
+    /** The fee of each search the provider bills outside a reported cost (0 = none). */
+    searchFeeMicros: number;
   }): Promise<MeterRun>;
 }
 

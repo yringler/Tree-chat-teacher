@@ -820,8 +820,12 @@ describe('anthropic web search', () => {
     });
     const events = await collect(provider.stream(req({ webSearch })));
     // The search block still started (activity), but nothing was billed: the count replaces it.
-    expect(events).toContainEqual({ type: 'activity', kind: 'web_search' });
-    expect(events).toContainEqual({ type: 'billing', webSearches: 0 });
+    const activity = events.findIndex((e) => e.type === 'activity');
+    const zero = events.findIndex((e) => e.type === 'billing' && e.webSearches === 0);
+    // The 0 comes with the final usage, after the started block, so it replaces the meter's guess.
+    expect(activity).toBeGreaterThanOrEqual(0);
+    expect(zero).toBeGreaterThan(activity);
+    expect(events.filter((e) => e.type === 'billing')).toHaveLength(1);
   });
 
   it('reports no search count on a reply sent without the search tool', async () => {

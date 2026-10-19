@@ -352,6 +352,35 @@ describe('pool settle policy', () => {
       costNanos: null,
     });
   });
+
+  it('adds searches at their fee to a tokens settlement, never to a reported cost', () => {
+    const searched = { dispatched: true, webSearches: 2, searchFeeMicros: 10_000, price };
+    expect(meteredSettlement({ ...searched, inputTokens: 1000, outputTokens: 500 })).toEqual({
+      reason: 'tokens',
+      costNanos: 300_000 + 20_000_000,
+    });
+    expect(meteredSettlement({ ...searched, userStopped: true, heldInputTokens: 1000 })).toEqual({
+      reason: 'tokens',
+      costNanos:
+        costFromTokensNanos(price, 1000, 0, { readTokens: 0, writeTokens: 0 }) + 20_000_000,
+    });
+    // OpenRouter's reported cost (or its lookup) already holds the search fee.
+    expect(meteredSettlement({ ...searched, costUsd: 0.001 })).toEqual({
+      reason: 'cost',
+      costNanos: 1_000_000,
+    });
+    expect(meteredSettlement({ ...searched, generationCostUsd: 0.002 })).toEqual({
+      reason: 'generation',
+      costNanos: 2_000_000,
+    });
+    // No fee (an endpoint whose cost reports it) or no search: the tokens alone.
+    expect(
+      meteredSettlement({ ...searched, searchFeeMicros: 0, inputTokens: 1000, outputTokens: 500 }),
+    ).toEqual({ reason: 'tokens', costNanos: 300_000 });
+    expect(
+      meteredSettlement({ ...searched, webSearches: null, inputTokens: 1000, outputTokens: 500 }),
+    ).toEqual({ reason: 'tokens', costNanos: 300_000 });
+  });
 });
 
 describe('pool network keys', () => {

@@ -5,8 +5,10 @@ import {
   type LlmProvider,
   type ProviderEvent,
   type ProviderInfo,
+  type ProviderKind,
   type ProviderRegistry,
   type UsageTag,
+  type WebSearchRequest,
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -42,10 +44,11 @@ const FAST: UsageMeterOptions = { retryDelaysMs: [5, 5, 5, 5], settleRetryDelays
 function scriptedProvider(
   script: ProviderEvent[],
   onEvent?: (index: number) => Promise<void>,
+  kind: ProviderKind = 'fake',
 ): LlmProvider & { calls: number } {
   const provider = {
     id: 'openrouter',
-    kind: 'fake' as const,
+    kind,
     label: 'Tangent',
     calls: 0,
     models: () => [{ id: 'max', label: 'Max', tier: 'max' }],
@@ -90,7 +93,11 @@ function registryOf(provider: LlmProvider): ProviderRegistry {
 
 const onlyBuiltIn = (providerId: string) => providerId === 'openrouter';
 
-function request(tag?: UsageTag, signal = new AbortController().signal): GenerateRequest {
+function request(
+  tag?: UsageTag,
+  signal = new AbortController().signal,
+  webSearch?: WebSearchRequest,
+): GenerateRequest {
   return {
     model: 'max',
     system: null,
@@ -98,6 +105,7 @@ function request(tag?: UsageTag, signal = new AbortController().signal): Generat
     maxOutputTokens: 100,
     signal,
     ...(tag ? { usageTag: tag } : {}),
+    ...(webSearch ? { webSearch } : {}),
   };
 }
 
@@ -106,7 +114,14 @@ interface Harness {
   deferred: Promise<unknown>[];
   run(
     script: ProviderEvent[],
-    opts?: { tag?: UsageTag; env?: AppEnv; options?: UsageMeterOptions; stopAfter?: number },
+    opts?: {
+      tag?: UsageTag;
+      env?: AppEnv;
+      options?: UsageMeterOptions;
+      stopAfter?: number;
+      kind?: ProviderKind;
+      webSearch?: WebSearchRequest;
+    },
   ): Promise<ProviderEvent[]>;
   rows(): Promise<UsageRow[]>;
   settleBackground(): Promise<void>;
@@ -132,9 +147,14 @@ async function harness(account: AccountContext = simpleAccount()): Promise<Harne
         (p) => deferred.push(p),
         opts.options ?? FAST,
       );
-      const registry = meteredRegistry(registryOf(scriptedProvider(script)), meter, onlyBuiltIn);
+      const registry = meteredRegistry(
+        registryOf(scriptedProvider(script, undefined, opts.kind)),
+        meter,
+        onlyBuiltIn,
+      );
       const out: ProviderEvent[] = [];
-      for await (const event of registry.get('openrouter')!.stream(request(opts.tag))) {
+      const req = request(opts.tag, undefined, opts.webSearch);
+      for await (const event of registry.get('openrouter')!.stream(req)) {
         out.push(event);
         if (opts.stopAfter !== undefined && out.length >= opts.stopAfter) break;
       }
@@ -926,6 +946,102 @@ describe('usage meter web searches', () => {
       status: 'settled',
       cost_nanos: 7_500_000,
       web_searches: 1,
+    });
+  });
+});
+
+describe('credit calls on an endpoint whose cost leaves searches out (Anthropic)', () => {
+  const searchOnce: WebSearchRequest = { mode: 'auto', maxUses: 1 };
+  const searchTwice: WebSearchRequest = { mode: 'auto', maxUses: 2 };
+
+  it('charges each billed search at $10 per 1,000 on top of the tokens', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'delta', text: 'grounded' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        { type: 'billing', webSearches: 2 },
+        { type: 'done', stopReason: 'end_turn' },
+      ],
+      { env: PRICED, tag, kind: 'anthropic', webSearch: searchTwice },
+    );
+    // 22_200 µ$ of tokens + 2 × 10_000 µ$.
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      web_searches: 2,
+      cost_nanos: 42_200_000,
+      charge_micros: 42_200,
+    });
+  });
+
+  it('charges no search an errored attempt started but Anthropic did not bill', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        { type: 'billing', webSearches: 0 },
+        { type: 'done', stopReason: 'end_turn' },
+      ],
+      { env: PRICED, tag, kind: 'anthropic', webSearch: searchOnce },
+    );
+    expect((await h.rows())[0]).toMatchObject({ web_searches: 0, charge_micros: 22_200 });
+  });
+
+  it('holds the most searches the request allows, and charges that hold when nothing is known', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'delta', text: 'Hel' },
+        {
+          type: 'error',
+          error: { code: 'network', message: 'lost', retryable: true, upstream: 'stream' },
+        },
+      ],
+      { env: PRICED, kind: 'anthropic', webSearch: searchTwice },
+    );
+    // 60_750 µ$ for 5 in and 100 out, + 2 × 10_000 µ$.
+    expect((await h.rows())[0]).toMatchObject({
+      settle_reason: 'hold',
+      hold_micros: 80_750,
+      charge_micros: 80_750,
+    });
+  });
+
+  it('holds at least what a call charges that ran every search it may, at its full input and cap', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'usage', usage: { inputTokens: 5, outputTokens: 100 } },
+        { type: 'billing', webSearches: 2 },
+        { type: 'done', stopReason: 'end_turn' },
+      ],
+      { env: PRICED, tag, kind: 'anthropic', webSearch: searchTwice },
+    );
+    const row = (await h.rows())[0]!;
+    expect(row).toMatchObject({ settle_reason: 'tokens', hold_micros: 80_750 });
+    expect(row.charge_micros).toBeLessThanOrEqual(row.hold_micros);
+  });
+
+  it('holds and charges no search fee where the reported cost carries it (OpenRouter)', async () => {
+    const h = await harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } },
+        { type: 'billing', webSearches: 1 },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { env: PRICED, tag, webSearch: searchOnce },
+    );
+    expect((await h.rows())[0]).toMatchObject({
+      settle_reason: 'tokens',
+      web_searches: 1,
+      hold_micros: 60_750,
+      charge_micros: 22_200,
     });
   });
 });

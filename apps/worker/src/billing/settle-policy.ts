@@ -37,6 +37,13 @@ export interface SettleFacts {
   meterLost?: boolean;
   /** The input tokens the meter sized the hold with (its estimate or bound). */
   heldInputTokens?: number | null;
+  /** Web searches the call ran (the billed count, else 1 once one started); null = none. */
+  webSearches?: number | null;
+  /**
+   * Each search's fee where the provider bills it outside a reported cost
+   * (`unreportedSearchFeeMicros`), added to a tokens settlement; 0 elsewhere.
+   */
+  searchFeeMicros?: number;
 }
 
 export type MeteredSettlement =
@@ -66,23 +73,35 @@ export function meteredSettlement(f: SettleFacts): MeteredSettlement {
   if (usd(f.costUsd)) return { reason: 'cost', costNanos: costUsdToNanos(f.costUsd) };
   if (usd(f.generationCostUsd))
     return { reason: 'generation', costNanos: costUsdToNanos(f.generationCostUsd) };
+  // A reported cost holds any search fee; priced tokens don't, so its searches are added.
+  const searchNanos = searchFeeNanos(f);
   // Both counts: providers report them together at the end, so one alone means a
   // stream cut short whose output is unknown.
   if (f.price && tokens(f.inputTokens) && tokens(f.outputTokens)) {
     return {
       reason: 'tokens',
-      costNanos: costFromTokensNanos(f.price, f.inputTokens, f.outputTokens, {
-        readTokens: f.cacheReadTokens ?? null,
-        writeTokens: f.cacheWriteTokens ?? null,
-      }),
+      costNanos:
+        costFromTokensNanos(f.price, f.inputTokens, f.outputTokens, {
+          readTokens: f.cacheReadTokens ?? null,
+          writeTokens: f.cacheWriteTokens ?? null,
+        }) + searchNanos,
     };
   }
   if ((f.userStopped || f.meterLost) && f.price) {
     const input = tokens(f.inputTokens) ? f.inputTokens : f.heldInputTokens;
     if (tokens(input)) {
       const noCache = { readTokens: 0, writeTokens: 0 };
-      return { reason: 'tokens', costNanos: costFromTokensNanos(f.price, input, 0, noCache) };
+      return {
+        reason: 'tokens',
+        costNanos: costFromTokensNanos(f.price, input, 0, noCache) + searchNanos,
+      };
     }
   }
   return { reason: 'hold', costNanos: null };
+}
+
+/** The fees of the searches the call ran, where its provider bills them outside a reported cost. */
+function searchFeeNanos(f: SettleFacts): number {
+  const searches = tokens(f.webSearches) ? Math.floor(f.webSearches) : 0;
+  return searches * (f.searchFeeMicros ?? 0) * 1000;
 }

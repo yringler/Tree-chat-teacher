@@ -82,8 +82,10 @@ export function replyInputTokens(maxInputTokens: number): number {
 /**
  * What a credit call on a model at `price` holds: its worst case,
  * `inputTokens` at the most an input token can cost plus `maxOutputTokens`
- * out at `rates`, rounded up; never below
- * `USAGE_HOLD_MICROS`. Web searches are not priced in: the floor covers one.
+ * out at `rates`, rounded up, plus `searchFeesMicros`: the fees of the most
+ * searches it may run where its provider bills them outside a reported cost
+ * (Anthropic). Never below `USAGE_HOLD_MICROS`, which covers one search
+ * where a reported cost holds its fee (OpenRouter).
  */
 export function creditHoldMicros(
   env: AppEnv,
@@ -91,6 +93,7 @@ export function creditHoldMicros(
   inputTokens: number,
   maxOutputTokens: number,
   rates: { markupBps: number; feeBps: number },
+  searchFeesMicros = 0,
 ): number {
   const worst = chargeFromTokensMicros(
     price,
@@ -99,7 +102,7 @@ export function creditHoldMicros(
     rates.feeBps,
     rates.markupBps,
   );
-  return Math.max(USAGE_HOLD_MICROS, worst);
+  return Math.max(USAGE_HOLD_MICROS, worst + searchFeesMicros);
 }
 
 /**

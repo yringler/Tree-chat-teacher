@@ -188,6 +188,8 @@ export async function reconcilePendingUsage(
         }
       } else if (age > CRON_NO_ID_AGE_MS) {
         const dispatched = row.dispatched_at !== null;
+        // No search fee: a provider that bills searches outside its cost (Anthropic) reports
+        // the count with its final usage, which a meter that died never saw.
         const s = meteredSettlement({
           dispatched,
           inputTokens: row.input_tokens,

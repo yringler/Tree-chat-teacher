@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ProviderConfig, ProviderKind } from '@tangent/shared';
-import { providerTraits } from '../src/traits.js';
+import { billsCacheWritePremium } from '../src/prompt-cache.js';
+import {
+  ANTHROPIC_WEB_SEARCH_FEE_MICROS,
+  providerTraits,
+  unreportedSearchFeeMicros,
+} from '../src/traits.js';
 
 function config(kind: ProviderKind, baseUrl?: string): ProviderConfig {
   return {
@@ -73,5 +78,28 @@ describe('providerTraits', () => {
   it('marks every Anthropic model and no fake one', () => {
     expect(providerTraits(config('anthropic')).explicitCacheMarkers('claude-model-a')).toBe(true);
     expect(providerTraits(config('fake')).explicitCacheMarkers('anthropic/model-a')).toBe(false);
+  });
+});
+
+describe('billsCacheWritePremium', () => {
+  it.each([
+    ['claude-haiku-5-5', true],
+    ['claude-sonnet-5-5', true],
+    ['anthropic/claude-sonnet-5.5', true],
+    ['~anthropic/claude-sonnet-latest', true],
+    ['deepseek/deepseek-v4.1-flash', false],
+    ['openai/gpt-5', false],
+    ['deepseek/claude-like', false],
+  ])('%s → %s', (model, expected) => {
+    expect(billsCacheWritePremium(model)).toBe(expected);
+  });
+});
+
+describe('unreportedSearchFeeMicros', () => {
+  it("is Anthropic's $10 per 1,000 searches, and nothing where a reported cost holds the fee", () => {
+    expect(unreportedSearchFeeMicros('anthropic')).toBe(ANTHROPIC_WEB_SEARCH_FEE_MICROS);
+    expect(ANTHROPIC_WEB_SEARCH_FEE_MICROS).toBe(10_000);
+    expect(unreportedSearchFeeMicros('openai-compatible')).toBe(0);
+    expect(unreportedSearchFeeMicros('fake')).toBe(0);
   });
 });

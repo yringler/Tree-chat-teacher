@@ -18,7 +18,7 @@ import type {
   ProviderEvent,
   ProviderRegistry,
 } from '@tangent/shared';
-import { decorateProvider } from '@tangent/providers';
+import { decorateProvider, unreportedSearchFeeMicros } from '@tangent/providers';
 import { PoolRefusedError, PoolRequestTooLargeError } from '../pool/meter.js';
 import { CallLog } from './call-log.js';
 import type { MeterRun, UsageMeter } from './meter-run.js';
@@ -38,6 +38,7 @@ async function* meteredStream(
       model: request.model,
       request,
       maxOutputTokens: provider.capabilities(request.model).maxOutputTokens,
+      searchFeeMicros: unreportedSearchFeeMicros(provider.kind),
     });
   } catch (e) {
     // No row, no upstream call: the provider contract is "never throw", so fail as an event.
