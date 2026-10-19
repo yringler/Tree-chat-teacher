@@ -52,7 +52,7 @@ Selling Tangent credit adds `BUILT_IN_API_KEY` and Polar (`POLAR_*`); the member
 - `PROVIDERS`: var; default anthropic, openai and openrouter; optional. JSON array of power mode's own-key provider configs ([Providers](#providers)). The default openrouter lists Learn's two tier models first and takes any model id.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`: secrets; local dev only. Server keys the default provider configs name; only the local dev bypass uses them, since every signed-in user brings their own. Leave them unset in production.
 - `AI_GATEWAY_TOKEN`: secret; optional. For an authenticated AI Gateway ([AI Gateway](#ai-gateway)).
-- `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL`: vars; default empty (the branch's own model); optional. A cheaper model for power's summaries and titles, e.g. `anthropic` + `claude-haiku-4-5`. A user without a key for that provider gets them on the branch's own route and model instead, so on a Tangent credit branch they are billed to credit at that model's price.
+- `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL`: vars; default empty (the branch's own model); optional. A cheaper model for power's summaries and titles, e.g. `anthropic` + `claude-haiku-5-5`. A user without a key for that provider gets them on the branch's own route and model instead, so on a Tangent credit branch they are billed to credit at that model's price.
 - `AUTO_TITLE`: var; default `true`. `false` turns automatic branch and tree titles off in power mode.
 
 ## Web search
@@ -150,7 +150,7 @@ Each provider instance in `PROVIDERS` has `id`, `kind` (`anthropic` | `openai-co
     "defaultModel": "claude-opus-5-5",
     "models": [
       { "id": "claude-opus-5-5", "label": "Claude Opus 5.5" },
-      { "id": "claude-haiku-4-5", "label": "Claude Haiku 4.5" }
+      { "id": "claude-haiku-5-5", "label": "Claude Haiku 5.5" }
     ]
   },
   {

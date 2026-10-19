@@ -13,6 +13,7 @@ import {
   type ModelInfo,
   type ModelTier,
   type ProviderConfig,
+  type ReasoningEffort,
 } from '@tangent/shared';
 import {
   appConfig,
@@ -63,7 +64,13 @@ export const POOL_MODEL_LABEL = 'Lite';
  */
 export const LEARN_ANTHROPIC_REPLY_MODEL = 'claude-sonnet-5-5';
 /** Titles and summaries on the learner's own Anthropic key: cheaper, and quick enough. */
-export const LEARN_ANTHROPIC_BACKGROUND_MODEL = 'claude-haiku-4-5';
+export const LEARN_ANTHROPIC_BACKGROUND_MODEL = 'claude-haiku-5-5';
+/**
+ * Their effort: as little thinking as the hosted background calls
+ * (`DEFAULT_BACKGROUND_EFFORT`), where Haiku 5.5 would otherwise think at its
+ * own default, medium.
+ */
+export const LEARN_ANTHROPIC_BACKGROUND_EFFORT: ReasoningEffort = 'low';
 /** Output cap of a reply on a model that doesn't reason. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 /**
@@ -251,8 +258,9 @@ function onBuiltIn(env: AppEnv, wanted: string, config: ProviderConfig): string 
 /**
  * Chat settings for simple accounts: capped input, fixed output reserve,
  * cheap summaries. On the learner's own Anthropic key (`ownKey`) summaries
- * and titles run on LEARN_ANTHROPIC_BACKGROUND_MODEL at the model's own
- * effort, since the background vars describe the built-in provider's model.
+ * and titles run on LEARN_ANTHROPIC_BACKGROUND_MODEL at
+ * LEARN_ANTHROPIC_BACKGROUND_EFFORT, since the background vars describe the
+ * built-in provider's model.
  */
 export function simpleChatSettings(env: AppEnv, ownKey: LearnKeyProvider): ChatSettings {
   const summary =
@@ -260,6 +268,7 @@ export function simpleChatSettings(env: AppEnv, ownKey: LearnKeyProvider): ChatS
       ? {
           summaryProviderId: ANTHROPIC_PROVIDER_ID,
           summaryModel: LEARN_ANTHROPIC_BACKGROUND_MODEL,
+          summaryEffort: LEARN_ANTHROPIC_BACKGROUND_EFFORT,
         }
       : simpleSummaries(env);
   return appChatSettings('learn', {
