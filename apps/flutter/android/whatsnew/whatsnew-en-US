@@ -1,5 +1,6 @@
 Long thread? Tap the down arrow to jump to the end, or the title or the tangent's name to go back to its start.
 Delete a message of yours from the trash beside it; what came after it in that thread goes with it.
-"Keep going" suggestions are now "Dig deeper", and open a tangent like every other suggestion, so you can try more than one.
+"Keep going" is now "Dig deeper" and opens a tangent, so you can try more than one.
+Replies on Tangent credit now use Claude Haiku.
 Pay for replies with your own Anthropic API key: pick it under How replies are paid for. Replies use Claude Sonnet.
 Sign in with Google, from your phone.
