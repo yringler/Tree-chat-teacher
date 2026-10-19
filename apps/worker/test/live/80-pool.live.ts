@@ -125,7 +125,8 @@ describe('the open pool, end to end', () => {
         continue;
       }
       const settled = meteredSettlement({ dispatched: true, costUsd: lookup.cost.costUsd });
-      if (settled.costNanos !== row.cost_nanos)
+      // The stream's cost and the generation endpoint's can round a nano-dollar apart.
+      if (Math.abs((settled.costNanos ?? 0) - (row.cost_nanos ?? 0)) > 1)
         failures.push(
           `${label}: settled at ${row.cost_nanos} n$, the generation's cost is ${costUsdToNanos(lookup.cost.costUsd)}`,
         );
