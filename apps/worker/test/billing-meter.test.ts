@@ -1,4 +1,5 @@
 import {
+  OPENROUTER_PROVIDER_ID,
   chargeMicros,
   costUsdToNanos,
   type GenerateRequest,
@@ -27,9 +28,10 @@ import {
 import { markDispatched, repriceReservation } from '../src/billing/usage-store.js';
 import { anthropicBackend } from '../src/hosted/anthropic.js';
 import { breakerOpen } from '../src/hosted/breaker.js';
-import type { LegsOf } from '../src/hosted/legs.js';
+import { hostedLegs, type LegsOf } from '../src/hosted/legs.js';
 import { openRouterBackend } from '../src/hosted/openrouter.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
+import { registryFor } from '../src/registries.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
   ensureUser,
@@ -878,6 +880,113 @@ describe('credit calls the user stopped', () => {
     const h = await harness();
     await h.run([{ type: 'delta', text: 'Hel' }, aborted], { env: PRICED });
     expect((await h.rows())[0]).toMatchObject({ settle_reason: 'hold', charge_micros: 60_750 });
+  });
+});
+
+describe("credit calls on Anthropic's own stream, whose output count comes only at its end", () => {
+  const HAIKU = 'anthropic/claude-haiku-5.5';
+  /** Anthropic alone, with Haiku at $150 in, $600 out per million tokens. */
+  const anthropicOnly = {
+    ...env,
+    BUILT_IN_PROVIDER: '',
+    BUILT_IN_BACKENDS: 'anthropic',
+    BUILT_IN_ANTHROPIC_API_KEY: 'sk-ant-operator',
+    MODEL_PRICES: JSON.stringify({
+      [HAIKU]: { in: 150_000_000, out: 600_000_000, context: 200_000 },
+    }),
+  } as AppEnv;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Anthropic answers with message_start (12 input tokens and its placeholder
+   * output count of 1), two text deltas, then `end` (raw SSE frames).
+   */
+  function anthropicStream(end: string): void {
+    const frame = (event: string, data: unknown) =>
+      `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const body =
+      frame('message_start', {
+        type: 'message_start',
+        message: { id: 'msg_1', usage: { input_tokens: 12, output_tokens: 1 } },
+      }) +
+      frame('content_block_start', {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'text', text: '' },
+      }) +
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'Hel' },
+      }) +
+      frame('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'lo' },
+      }) +
+      end;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = new Request(input, init).url;
+      if (url.endsWith('/count_tokens'))
+        return Promise.resolve(Response.json({ input_tokens: 12 }));
+      return Promise.resolve(
+        new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+      );
+    });
+  }
+
+  /** Streams a Haiku call on `anthropicOnly`, stopping reading after `stopAfter` events. */
+  async function call(stopAfter?: number): Promise<{ events: ProviderEvent[]; row: UsageRow }> {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const h = await harness();
+    const registry = meteredRegistry(
+      registryFor(anthropicOnly, h.account),
+      createUsageMeter(anthropicOnly, h.account, (p) => h.deferred.push(p), FAST),
+      () => true,
+      hostedLegs(anthropicOnly),
+    );
+    const events: ProviderEvent[] = [];
+    const req: GenerateRequest = { ...request(tag), model: HAIKU };
+    for await (const event of registry.get(OPENROUTER_PROVIDER_ID)!.stream(req)) {
+      events.push(event);
+      if (stopAfter !== undefined && events.length >= stopAfter) break;
+    }
+    await h.settleBackground();
+    const rows = await h.rows();
+    expect(rows).toHaveLength(1);
+    return { events, row: rows[0]! };
+  }
+
+  it('charges a call the user stopped mid-reply its input alone, at the input price', async () => {
+    anthropicStream('');
+    const { events, row } = await call(3);
+    expect(events.map((e) => e.type)).toEqual(['usage', 'delta', 'delta']);
+    // Its input alone: 12 × 150 = 1_800 µ$, nothing for the placeholder output count.
+    expect(row).toMatchObject({
+      backend: 'anthropic',
+      status: 'settled',
+      settle_reason: 'tokens',
+      charge_micros: 1_800,
+    });
+  });
+
+  it('charges the hold for a call that failed mid-stream before its final usage', async () => {
+    anthropicStream(
+      `event: error\ndata: ${JSON.stringify({
+        type: 'error',
+        error: { type: 'overloaded_error', message: 'Overloaded' },
+      })}\n\n`,
+    );
+    const { events, row } = await call();
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      error: { code: 'overloaded', upstream: 'stream' },
+    });
+    expect(row).toMatchObject({ backend: 'anthropic', status: 'settled', settle_reason: 'hold' });
+    expect(row.charge_micros).toBe(row.hold_micros);
   });
 });
 

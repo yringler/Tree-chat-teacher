@@ -235,7 +235,10 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             const message = data['message'];
             const usage = isRecord(message) ? message['usage'] : undefined;
             if (isRecord(usage)) {
-              const u = usageOf(usage);
+              // Its output_tokens is a placeholder, not a count: only message_delta's is.
+              // Reported here it would make a stream cut short look finished to the
+              // meter, priced as its input plus that placeholder.
+              const { outputTokens: _placeholder, ...u } = usageOf(usage);
               if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
             }
             break;

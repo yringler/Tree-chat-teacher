@@ -108,7 +108,7 @@ describe('anthropic provider', () => {
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
       {
         type: 'usage',
-        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        usage: { inputTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0 },
       },
       { type: 'delta', text: 'Why did' },
       { type: 'delta', text: ' the chicken…' },
@@ -251,7 +251,7 @@ describe('anthropic provider', () => {
     expect(await collect(provider.stream(req()))).toEqual([
       {
         type: 'usage',
-        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        usage: { inputTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0 },
       },
       { type: 'delta', text: 'Why did' },
       {
@@ -489,7 +489,7 @@ describe('anthropic provider', () => {
     expect(events).toEqual([
       {
         type: 'usage',
-        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        usage: { inputTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0 },
       },
       { type: 'delta', text: 'Why did' },
       { type: 'error', error: { code: 'aborted', message: 'Request aborted', retryable: false } },
@@ -629,7 +629,7 @@ describe('anthropic prompt caching', () => {
     const { provider } = setup(() => sseResponse(stream).response);
     const usage = { inputTokens: 4312, cacheReadTokens: 4000, cacheWriteTokens: 300 };
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
-      { type: 'usage', usage: { ...usage, outputTokens: 1 } },
+      { type: 'usage', usage },
       { type: 'usage', usage: { ...usage, outputTokens: 50 } },
       { type: 'done', stopReason: 'end_turn' },
     ]);
@@ -637,9 +637,11 @@ describe('anthropic prompt caching', () => {
 });
 
 describe('anthropic usage', () => {
-  it("reports message_start's input and message_delta's output, each only as sent", async () => {
+  it("reports message_start's input and message_delta's output, never message_start's output", async () => {
     // Anthropic's real shape: the input (and its cache split) at the start, a final
     // message_delta with the output alone; the consumer folds them field by field.
+    // message_start's output_tokens is a placeholder, not a count: reporting it would
+    // let a stream cut short look finished, priced at its input and that placeholder.
     const stream = [
       frame('message_start', {
         type: 'message_start',
@@ -664,7 +666,7 @@ describe('anthropic usage', () => {
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
       {
         type: 'usage',
-        usage: { inputTokens: 1000, outputTokens: 2, cacheReadTokens: 980, cacheWriteTokens: 0 },
+        usage: { inputTokens: 1000, cacheReadTokens: 980, cacheWriteTokens: 0 },
       },
       { type: 'usage', usage: { outputTokens: 75 } },
       { type: 'done', stopReason: 'end_turn' },
