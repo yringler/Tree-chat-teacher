@@ -6,12 +6,14 @@
 import type { ContractExpectation } from '@tangent/providers/contract';
 import type { LlmProvider } from '@tangent/shared';
 import { describe } from 'vitest';
+import { DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_POOL_MODEL } from '../../src/config.js';
 import {
   builtInProvider,
   callWithRetry,
   creditProvider,
   lookUpGeneration,
   outcomeOf,
+  poolProvider,
   priceOf,
   recompute,
   scenario,
@@ -24,20 +26,25 @@ const ABSOLUTE_SLACK_USD = 2e-6;
 
 interface ReconcileCase {
   model: string;
-  provider: () => LlmProvider;
+  provider: () => LlmProvider | Promise<LlmProvider>;
   /** Where reported/recomputed is expected to fall, and why. */
   ratio: { min: number; max: number; why: string };
 }
 
 const CASES: readonly ReconcileCase[] = [
   {
-    model: 'deepseek/deepseek-v4.1-flash',
-    provider: () => builtInProvider(),
+    model: DEFAULT_POOL_MODEL,
+    provider: () => poolProvider(),
     ratio: {
       min: 0.95,
       max: 1.02,
-      why: 'pinned to StreamLake, whose price is the MODEL_PRICES entry',
+      why: "the pool's pinning to StreamLake, whose price is the MODEL_PRICES entry",
     },
+  },
+  {
+    model: DEFAULT_LEARN_NORMAL_MODEL,
+    provider: () => builtInProvider(),
+    ratio: { min: 0.95, max: 1.02, why: "Normal's pinning to Anthropic, at the list price" },
   },
   {
     model: 'google/gemini-3.1-flash-lite',
@@ -62,7 +69,7 @@ describe('cost reconciliation', () => {
     scenario(`reported against recomputed: ${c.model}`, 'openrouter', async () => {
       const price = await priceOf(c.model);
       const { summary } = await callWithRetry({
-        provider: c.provider(),
+        provider: await c.provider(),
         request: {
           model: c.model,
           system: 'You are a concise tutor.',

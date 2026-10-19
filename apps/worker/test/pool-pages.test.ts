@@ -6,7 +6,7 @@ import type { PoolMeResponse, PoolModelInfo, PoolStatusResponse } from '@tangent
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
-import { appConfig, DEFAULT_BACKGROUND_MODEL, DEFAULT_POWER_MAX_MODEL } from '../src/config.js';
+import { appConfig, DEFAULT_POOL_MODEL, DEFAULT_POWER_MAX_MODEL } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { POOL_SESSION_ESTIMATE_MICROS } from '../src/pool/params.js';
 import { poolModelInfo, poolStatus } from '../src/pool/status.js';
@@ -139,35 +139,46 @@ describe('GET /api/pool/me', () => {
 });
 
 describe('poolModelInfo', () => {
-  /** The pool's model as shipped, with `overrides`: Normal's model, asked by the pool's settings. */
+  /** The pool's model as shipped, with `overrides`. */
   const info = (overrides: Partial<AppEnv>) => poolModelInfo(shippedEnv(env, overrides));
-  const normal = { id: DEFAULT_BACKGROUND_MODEL, label: 'Normal' };
+  /** Normal on the pool's model at `high`, so the pool's settings compare against a tier's. */
+  const onNormal = (overrides: Partial<AppEnv> = {}): Partial<AppEnv> => ({
+    LEARN_NORMAL_MODEL: DEFAULT_POOL_MODEL,
+    LEARN_NORMAL_EFFORT: 'high',
+    ...overrides,
+  });
+  const normal = { id: DEFAULT_POOL_MODEL, label: 'Normal' };
 
   it.each<[string, Partial<AppEnv>, PoolModelInfo]>([
+    ['as shipped: a model Learn does not list', {}, { id: DEFAULT_POOL_MODEL, label: 'Lite' }],
     [
-      'as shipped: less thinking, shorter replies',
-      {},
+      "on Normal's model: less thinking, shorter replies",
+      onNormal(),
       { ...normal, thinking: 'lighter', replies: 'shorter' },
     ],
-    ['asked like Normal', { POOL_EFFORT: 'high', POOL_MAX_OUTPUT_TOKENS: '16384' }, normal],
+    [
+      'asked like Normal',
+      onNormal({ POOL_EFFORT: 'high', POOL_MAX_OUTPUT_TOKENS: '16384' }),
+      normal,
+    ],
     [
       'longer replies',
-      { POOL_EFFORT: 'high', POOL_MAX_OUTPUT_TOKENS: '32000' },
+      onNormal({ POOL_EFFORT: 'high', POOL_MAX_OUTPUT_TOKENS: '32000' }),
       { ...normal, replies: 'longer' },
     ],
     [
       'no thinking',
-      { POOL_EFFORT: 'none' },
+      onNormal({ POOL_EFFORT: 'none' }),
       { ...normal, thinking: 'lighter', replies: 'shorter' },
     ],
     [
       'more thinking than the tier',
-      { LEARN_NORMAL_EFFORT: 'low', POOL_EFFORT: 'high' },
+      onNormal({ LEARN_NORMAL_EFFORT: 'low', POOL_EFFORT: 'high' }),
       { ...normal, thinking: 'more', replies: 'shorter' },
     ],
     [
-      'a model that is no tier',
-      { BACKGROUND_MODEL: 'deepseek/deepseek-v4-flash' },
+      'another model that is no tier',
+      { POOL_MODEL: 'deepseek/deepseek-v4-flash' },
       { id: 'deepseek/deepseek-v4-flash', label: 'Lite' },
     ],
     [

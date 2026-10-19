@@ -209,11 +209,11 @@ describe('createLoremProvider', () => {
     expect(p.capabilities(p.defaultModel()).titles).toBe(true);
   });
 
-  it('prices Max at about 14× Normal, like the default tiers', () => {
+  it('prices Max at about 20× Normal, like the default tiers', () => {
     const factor = usageFactorOf(
       DEMO_MODEL_PRICES[DEMO_NORMAL_MODEL]!,
       DEMO_MODEL_PRICES[DEMO_MAX_MODEL]!,
     );
-    expect(factor).toBe(14);
+    expect(factor).toBe(20);
   });
 });

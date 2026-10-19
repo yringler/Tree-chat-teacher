@@ -7,6 +7,7 @@
 import { chargeMicros, costUsdToNanos, type StreamEvent } from '@tangent/shared';
 import { describe } from 'vitest';
 import { getBalance } from '../../src/billing/ledger.js';
+import { DEFAULT_POOL_MODEL } from '../../src/config.js';
 import type { AppEnv, PoolAccount } from '../../src/env.js';
 import { replyCeilingMicros, resolvePoolParams, type PoolParams } from '../../src/pool/params.js';
 import { meteredSettlement } from '../../src/billing/settle-policy.js';
@@ -84,6 +85,9 @@ describe('the open pool, end to end', () => {
     const notes: string[] = [];
     if (events.at(-1)?.type !== 'done')
       failures.push(`the reply ended with ${events.at(-1)?.type}`);
+    // As deployed, the free pool runs its own model, not the paid tiers'.
+    if (params.model !== DEFAULT_POOL_MODEL)
+      failures.push(`the pool runs ${params.model}, not ${DEFAULT_POOL_MODEL}`);
 
     for (const shape of sent) {
       if (shape.model !== params.model)

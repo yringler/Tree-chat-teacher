@@ -195,18 +195,29 @@ const TURNSTILE_TEST_SECRETS: readonly string[] = [
  */
 export const POOL_ACCOUNT_ID = 'pool';
 
-// ---- The hosted models: the defaults a live eval of the candidates picked (2026-10-08)
+// ---- The hosted models: the owner's pick for paid paths, a live eval's for the pool
 
 /** Learn's one model, and power's Normal (`LEARN_NORMAL_MODEL`). */
-export const DEFAULT_LEARN_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
+export const DEFAULT_LEARN_NORMAL_MODEL = 'anthropic/claude-haiku-5.5';
 /** Power's Max, the stronger model it suggests (`POWER_MAX_MODEL`). */
 export const DEFAULT_POWER_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
 /**
- * The background model (`BACKGROUND_MODEL`): Learn's summaries and titles,
- * and the open pool's default model. Not a tier, though today it is the same
- * model as Normal, asked differently.
+ * The background model (`BACKGROUND_MODEL`): Learn's summaries and titles.
+ * Not a tier, though today it is the same model as Normal, asked differently.
  */
-export const DEFAULT_BACKGROUND_MODEL = 'deepseek/deepseek-v4.1-flash';
+export const DEFAULT_BACKGROUND_MODEL = 'anthropic/claude-haiku-5.5';
+/**
+ * The open pool's model (`POOL_MODEL`): the pool is free to the learner and
+ * capped, so it runs a cheaper model than the paid paths.
+ */
+export const DEFAULT_POOL_MODEL = 'deepseek/deepseek-v4.1-flash';
+
+/**
+ * Where Haiku is pinned: Anthropic's own endpoint, so one provider keeps the
+ * prompt cache warm; fallbacks stay allowed (openai-compatible.ts
+ * `pinnedRouting`), so an outage there doesn't fail the reply.
+ */
+const HAIKU_PROVIDER_ORDER: readonly string[] = ['anthropic'];
 
 /**
  * Where V4.1 Flash is pinned: StreamLake, then DeepInfra, both fp8 and both
@@ -238,11 +249,11 @@ export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal' | 'pool', DefaultTi
     request: {
       effort: 'high',
       maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
-      providerOrder: V4_1_FLASH_PROVIDER_ORDER,
+      providerOrder: HAIKU_PROVIDER_ORDER,
     },
   },
   pool: {
-    model: DEFAULT_BACKGROUND_MODEL,
+    model: DEFAULT_POOL_MODEL,
     request: { effort: 'low', maxOutputTokens: null, providerOrder: V4_1_FLASH_PROVIDER_ORDER },
   },
 };
@@ -250,7 +261,7 @@ export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal' | 'pool', DefaultTi
 /**
  * The effort of summaries and titles on the default background model when
  * `BACKGROUND_EFFORT` is empty. Without one they would run at the effort of
- * the model's listing, which on V4.1 Flash is Normal's `high`.
+ * the model's listing, which on Haiku is Normal's `high`.
  */
 export const DEFAULT_BACKGROUND_EFFORT: { model: string; effort: ReasoningEffort } = {
   model: DEFAULT_BACKGROUND_MODEL,
@@ -306,25 +317,35 @@ export interface ModelPrice {
 /**
  * Placeholder prices of the default pool model, of power's tiers, Normal
  * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`;
- * `MAX_USAGE_FACTOR_FALLBACK` is their factor), of the previous defaults and
- * of a fallback candidate: OpenRouter list prices when they were added, or
- * (V4.1 Flash) the price of its pinned providers. The daily price sync
- * (pool/model-prices.ts) replaces them with OpenRouter's current list prices;
- * `MODEL_PRICES` overrides or extends them, and an override also wins over
- * the synced price.
+ * `MAX_USAGE_FACTOR_FALLBACK` is their factor), of the models a tier can
+ * move back to and of a fallback candidate: OpenRouter list prices when they
+ * were added, or (V4.1 Flash) the price of its pinned providers. The daily
+ * price sync (pool/model-prices.ts) replaces them with OpenRouter's current
+ * list prices; `MODEL_PRICES` overrides or extends them, and an override also
+ * wins over the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  // Normal and the pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache
-  // read $0.003. OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and
-  // as the pool's `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this
-  // entry in `MODEL_PRICES`, where it wins over the daily sync.
+  // Normal and the background model: Anthropic's price, $0.10 / $0.50, cache read $0.01 (the
+  // write premium is added for Claude ids, pool/price-table.ts `withCacheWritePrice`).
+  // Anthropic charges $0.50 / $2.50 for a prompt over 100K tokens; the flat price holds because
+  // one call's input is capped at BUILT_IN_MAX_INPUT_TOKENS (60K by default).
+  'anthropic/claude-haiku-5.5': {
+    inMicrosPerMTok: 100_000,
+    outMicrosPerMTok: 500_000,
+    contextTokens: 1_000_000,
+    cacheReadMicrosPerMTok: 10_000,
+  },
+  // The pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache read $0.003.
+  // OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and as the pool's
+  // `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this entry in
+  // `MODEL_PRICES`, where it wins over the daily sync.
   'deepseek/deepseek-v4.1-flash': {
     inMicrosPerMTok: 150_000,
     outMicrosPerMTok: 600_000,
     contextTokens: 1_048_576,
     cacheReadMicrosPerMTok: 3_000,
   },
-  // The previous pool and Normal models, priced so moving back is a config change.
+  // Other DeepSeek models, priced so a tier or the pool can move to one by config alone.
   'deepseek/deepseek-v4-flash': {
     inMicrosPerMTok: 100_000,
     outMicrosPerMTok: 400_000,
@@ -406,7 +427,7 @@ export interface TierRequestConfig {
 export interface PoolConfig {
   /** `POOL_ACCOUNT_ID`; in the tests, `TEST_POOL_ACCOUNT_ID`. */
   accountId: string;
-  /** `POOL_MODEL`; null = the built-in provider's background model, resolved by the caller. */
+  /** `POOL_MODEL`; null = `DEFAULT_POOL_MODEL`, resolved by the caller (pool/params.ts `poolModel`). */
   model: string | null;
   /** `POOL_EFFORT` (null = the model's default). */
   effort: ReasoningEffort | null;

@@ -15,7 +15,7 @@ import {
   type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
-import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
+import { defaultPoolModel } from '../simple-mode.js';
 import { modelPrice, withCacheWritePrice } from './price-table.js';
 import type {
   PoolAdmitRequest,
@@ -72,9 +72,9 @@ export interface PoolParams {
   ipKey: string | null;
 }
 
-/** The pool model: `POOL_MODEL`, else Learn's background model (`simpleFastModel`, BACKGROUND_MODEL). */
+/** The pool model: `POOL_MODEL`, else `DEFAULT_POOL_MODEL` (`defaultPoolModel`). */
 export function poolModel(env: AppEnv): string {
-  return appConfig(env).pool.model ?? simpleFastModel(env, simpleProviderConfig(env));
+  return appConfig(env).pool.model ?? defaultPoolModel(env);
 }
 
 /**

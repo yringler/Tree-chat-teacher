@@ -6,7 +6,9 @@ import {
   appConfig,
   boolVar,
   ConfigError,
+  DEFAULT_BACKGROUND_MODEL,
   DEFAULT_MODEL_PRICES,
+  DEFAULT_POOL_MODEL,
   enumVar,
   intVar,
   POOL_ACCOUNT_ID,
@@ -352,11 +354,24 @@ describe('resolvePoolParams', () => {
     }
   });
 
-  it("defaults the model to Learn's background model; an unpriced model has no price", async () => {
+  it('defaults the model to DEFAULT_POOL_MODEL, never BACKGROUND_MODEL; an unpriced model has no price', async () => {
     const noModel = { ...env, POOL_MODEL: '' } as AppEnv;
-    // BACKGROUND_MODEL when the fake config lists it, else that config's default.
-    expect(poolModel({ ...noModel, BACKGROUND_MODEL: 'normal' } as AppEnv)).toBe('normal');
+    // A BUILT_IN_PROVIDER override is a closed list: the fake config doesn't list
+    // DEFAULT_POOL_MODEL, so its default, whatever the background model.
     expect(poolModel(noModel)).toBe('max');
+    expect(poolModel({ ...noModel, BACKGROUND_MODEL: 'normal' } as AppEnv)).toBe('max');
+    // As deployed (the OpenRouter config): V4.1 Flash, while summaries and titles run Haiku.
+    const deployed = blank({ BUILT_IN_PROVIDER: '', BACKGROUND_MODEL: '' });
+    expect(appConfig(deployed).background.model).toBe(DEFAULT_BACKGROUND_MODEL);
+    expect(poolModel(deployed)).toBe(DEFAULT_POOL_MODEL);
+    // Its ceiling hold fits the default daily caps, so the pool is priced, not refused as unpriced.
+    expect(poolConfigProblem(deployed)).toBeNull();
+    const params = await resolvePoolParams(deployed, null);
+    expect(params.model).toBe(DEFAULT_POOL_MODEL);
+    expect(params.price).not.toBeNull();
+    const ceiling = replyCeilingMicros(params, params.price!);
+    expect(ceiling).toBeLessThanOrEqual(params.caps.user.spendMicrosPerDay);
+    expect(ceiling).toBeLessThanOrEqual(params.caps.ip.spendMicrosPerDay);
     expect(
       (await resolvePoolParams({ ...env, POOL_MODEL: 'vendor/unpriced' } as AppEnv, null)).price,
     ).toBeNull();

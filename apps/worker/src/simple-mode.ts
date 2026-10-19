@@ -18,6 +18,7 @@ import {
   appConfig,
   backgroundEffort,
   BUILT_IN_API_KEY_SECRET,
+  DEFAULT_POOL_MODEL,
   DEFAULT_TIER_REQUESTS,
   namedSecrets,
   withTierDefaults,
@@ -30,6 +31,7 @@ import type { PoolParams } from './pool/params.js';
 export {
   DEFAULT_BACKGROUND_MODEL,
   DEFAULT_LEARN_NORMAL_MODEL,
+  DEFAULT_POOL_MODEL,
   DEFAULT_POWER_MAX_MODEL,
 } from './config.js';
 
@@ -214,19 +216,35 @@ export function builtInPowerConfig(env: AppEnv): ProviderConfig {
 }
 
 /**
- * The background model of the simple provider (summaries, titles, and the
- * pool's default model): BACKGROUND_MODEL, which the default config needn't
- * list (it is no tier, and OpenRouter takes any model id). A BUILT_IN_PROVIDER
- * override is a closed list, so there it is BACKGROUND_MODEL when Learn's
- * models include it, else the override's default.
+ * The background model of the simple provider (summaries and titles):
+ * BACKGROUND_MODEL, which the default config needn't list (it is no tier,
+ * and OpenRouter takes any model id), as `onBuiltIn` resolves it.
  */
 export function simpleFastModel(
   env: AppEnv,
   config: ProviderConfig = simpleProviderConfig(env),
 ): string {
-  const { background, builtIn } = appConfig(env);
-  const wanted = background.model;
-  if (!builtIn.provider) return wanted;
+  return onBuiltIn(env, appConfig(env).background.model, config);
+}
+
+/**
+ * The pool's model when `POOL_MODEL` is empty: `DEFAULT_POOL_MODEL`, as
+ * `onBuiltIn` resolves it.
+ */
+export function defaultPoolModel(
+  env: AppEnv,
+  config: ProviderConfig = simpleProviderConfig(env),
+): string {
+  return onBuiltIn(env, DEFAULT_POOL_MODEL, config);
+}
+
+/**
+ * `wanted` on the built-in provider. A BUILT_IN_PROVIDER override is a
+ * closed list, so there it is `wanted` when Learn's models include it, else
+ * the override's default.
+ */
+function onBuiltIn(env: AppEnv, wanted: string, config: ProviderConfig): string {
+  if (!appConfig(env).builtIn.provider) return wanted;
   return config.models.some((m) => m.id === wanted) ? wanted : config.defaultModel;
 }
 

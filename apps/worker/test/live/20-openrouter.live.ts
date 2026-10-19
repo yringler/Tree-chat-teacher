@@ -1,6 +1,7 @@
 // OpenRouter through the built-in provider exactly as Learn on credit asks it (Normal's
 // model, effort and pinned providers, the operator's key): the stream contract on a
 // plain reply, a reply cut off at its cap, refusals, an abort, and the prompt cache.
+import { usesExplicitCacheControl } from '@tangent/providers';
 import type { ContractExpectation } from '@tangent/providers/contract';
 import type { ChatMessage } from '@tangent/shared';
 import { describe } from 'vitest';
@@ -160,7 +161,8 @@ describe('openrouter (built-in provider)', () => {
 
   scenario('the prompt cache: a second identical call reads it', 'openrouter', async () => {
     const price = await priceOf(model);
-    const system = cachePrefix(3000);
+    // Above every default model's minimum cacheable prefix (Haiku's included).
+    const system = cachePrefix(5000);
     const run = () =>
       callWithRetry({
         provider,
@@ -171,7 +173,7 @@ describe('openrouter (built-in provider)', () => {
           maxOutputTokens: 1024,
           reasoning: 'low',
         },
-        worstUsd: worstUsd(price, 3500, 1024),
+        worstUsd: worstUsd(price, 6000, 1024),
       });
     const expectation: ContractExpectation = { outcome: 'success', costReport: 'openrouter' };
     const first = outcomeOf(model, (await run()).summary, expectation);
@@ -179,7 +181,11 @@ describe('openrouter (built-in provider)', () => {
     return {
       ...second,
       failures: [...first.failures, ...second.failures],
-      warnings: [...first.warnings, ...second.warnings, ...cacheWarnings(first, second, false)],
+      warnings: [
+        ...first.warnings,
+        ...second.warnings,
+        ...cacheWarnings(first, second, usesExplicitCacheControl(model)),
+      ],
       recomputedUsd: recompute(price, second.summary!.usage),
     };
   });

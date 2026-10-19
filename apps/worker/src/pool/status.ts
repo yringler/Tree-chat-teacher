@@ -42,8 +42,8 @@ const EFFORT_RANK: Readonly<Record<ReasoningEffort, number>> = { none: 0, low: 1
  * (`PoolModelInfo`): its effort (`POOL_EFFORT`) against the tier's, and its
  * reply cap (`POOL_MAX_OUTPUT_TOKENS`) against a reply's on the tier (the
  * tier's cap, within the default for a reasoning or a plain model). By
- * default the pool runs Normal's model at `low` against Normal's `high`,
- * with 8,192 tokens against 16,384.
+ * default the pool runs a model Learn doesn't list (`DEFAULT_POOL_MODEL`),
+ * so it is labelled Lite.
  */
 export function poolModelInfo(env: AppEnv): PoolModelInfo {
   const id = poolModel(env);

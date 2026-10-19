@@ -16,7 +16,9 @@ import { ON_DEMAND_MODEL } from './mocks/openrouter.js';
 
 const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
-/** Normal's and the pool's default model, priced like the others (and so tracked). */
+/** Normal's and the background model's default, priced like the others (and so tracked). */
+const HAIKU = 'anthropic/claude-haiku-5.5';
+/** The pool's default model, priced like the others (and so tracked). */
 const V41 = 'deepseek/deepseek-v4.1-flash';
 /** Power's Max: priced (and so tracked) for the Max usage note, not for the pool. */
 const SONNET = 'anthropic/claude-sonnet-5.5';
@@ -25,7 +27,7 @@ const MINIMAX = 'minimax/minimax-m3';
 
 /**
  * The price setup without `MODEL_PRICES`, so the built-in placeholders
- * (V4.1 Flash, FLASH, PRO and the rest) are what the sync refreshes; the pool
+ * (Haiku, V4.1 Flash, FLASH, PRO and the rest) are what the sync refreshes; the pool
  * runs on FLASH here.
  */
 const env = { ...rawEnv, MODEL_PRICES: '', POOL_MODEL: FLASH } as unknown as AppEnv;
@@ -196,7 +198,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [FLASH, PRO],
       unchanged: [],
-      missing: [V41, SONNET, MINIMAX],
+      missing: [HAIKU, V41, SONNET, MINIMAX],
       anomalies: [],
     });
     expect(await storedPrice(env.DB, FLASH)).toEqual({
@@ -317,7 +319,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [],
       unchanged: [],
-      missing: [V41, FLASH, PRO, SONNET, MINIMAX],
+      missing: [HAIKU, V41, FLASH, PRO, SONNET, MINIMAX],
       anomalies: [],
     });
     expect((await storedPrice(env.DB, FLASH))?.outMicrosPerMTok).toBe(2_000_000);

@@ -14,11 +14,12 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
 import { RECONCILE_RETRY_DELAYS_MS } from '../../src/billing/reconcile.js';
 import { namedSecrets, type ModelPrice } from '../../src/config.js';
-import type { AppEnv } from '../../src/env.js';
+import type { AppEnv, PoolAccount } from '../../src/env.js';
 import { creditPrice } from '../../src/pool/model-prices.js';
+import { resolvePoolParams } from '../../src/pool/params.js';
 import { chargeFromTokensMicros, costFromTokensNanos } from '../../src/pool/pricing.js';
 import { creditRegistryFor, registryFor } from '../../src/registries.js';
-import { devPowerAccount, powerAccount, simpleAccount } from '../mocks/billing-helpers.js';
+import { devPowerAccount, powerAccount, simpleAccount, uniq } from '../mocks/billing-helpers.js';
 import { LIVE_CONTROL } from './bindings.js';
 import type { RequestShape } from './host.js';
 import type { ReportFooter, ReportRow, ScenarioStatus } from './report.js';
@@ -91,6 +92,23 @@ export const BAD_KEYS = {
 /** The built-in provider as Learn on credit gets it: the operator's key, Normal's settings. */
 export function builtInProvider(e: AppEnv = env): LlmProvider {
   return registryFor(e, simpleAccount()).get('openrouter')!;
+}
+
+/**
+ * The built-in provider as a generating pool request gets it: the pool model only, with
+ * its effort, pinned providers and `max_price` (simple-mode.ts `poolProviderConfig`).
+ */
+export async function poolProvider(e: AppEnv = env): Promise<LlmProvider> {
+  const userId = uniq('user');
+  const account: PoolAccount = {
+    id: `u_${userId}`,
+    mode: 'simple',
+    userId,
+    billingAccountId: `u_${userId}`,
+    payer: 'pool',
+    pool: await resolvePoolParams(e, null),
+  };
+  return registryFor(e, account, undefined, { generating: true }).get('openrouter')!;
 }
 
 /** The built-in provider as power's Tangent credit gets it: any OpenRouter model. */

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_BACKGROUND_MODEL,
   DEFAULT_LEARN_NORMAL_MODEL,
+  DEFAULT_POOL_MODEL,
   DEFAULT_POWER_MAX_MODEL,
 } from '../src/config.js';
 import type { AppBindings, AppEnv } from '../src/env.js';
@@ -172,8 +173,15 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
     expect(ai?.models).toEqual([
       {
         id: DEFAULT_LEARN_NORMAL_MODEL,
+        maker: 'Anthropic',
+        uses: ["Learn's Normal model", 'summaries and titles of conversations'],
+        hosts: ['Anthropic'],
+        fallbacks: true,
+      },
+      {
+        id: DEFAULT_POOL_MODEL,
         maker: 'DeepSeek',
-        uses: ["Learn's Normal model", 'the open pool', 'summaries and titles of conversations'],
+        uses: ['the open pool'],
         hosts: ['StreamLake', 'DeepInfra'],
         fallbacks: true,
       },
@@ -190,7 +198,7 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
   it('follows a changed pinning or pool model', () => {
     const ai = hostedAi(
       deployment({
-        LEARN_NORMAL_PROVIDER_ORDER: 'deepinfra/fp8',
+        LEARN_NORMAL_PROVIDER_ORDER: 'amazon-bedrock',
         POOL_PROVIDER_ORDER: '',
         POOL_MODEL: DEFAULT_POWER_MAX_MODEL,
         // Caps that admit a Max reply's ceiling hold, or the pool is off.
@@ -202,7 +210,7 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
       [
         DEFAULT_LEARN_NORMAL_MODEL,
         ["Learn's Normal model", 'summaries and titles of conversations'],
-        ['DeepInfra'],
+        ['Amazon Bedrock'],
       ],
       [DEFAULT_POWER_MAX_MODEL, ['the open pool'], []],
     ]);
@@ -213,7 +221,7 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
     const ai = hostedAi(deployment(noPayments));
     expect(ai?.powerCredit).toBe(false);
     expect(ai?.models.map((m) => [m.id, m.uses])).toEqual([
-      [DEFAULT_BACKGROUND_MODEL, ['the open pool']],
+      [DEFAULT_POOL_MODEL, ['the open pool']],
     ]);
     expect(await page('/privacy', noPayments)).not.toContain('Power mode on Tangent credit');
   });

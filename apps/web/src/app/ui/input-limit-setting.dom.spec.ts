@@ -17,14 +17,14 @@ const OWN_KEY: InputBudgetResponse = {
   price: { inputUsdPerMTok: 2, cacheReadUsdPerMTok: 0.2, basis: 'list' },
 };
 const CREDIT: InputBudgetResponse = {
-  model: 'deepseek/deepseek-v4.1-flash',
+  model: 'anthropic/claude-haiku-5.5',
   funding: 'credit',
   contextTokens: 60_000 + 16_384,
   maxOutputTokens: 16_384,
   reasoning: true,
   serverMaxInputTokens: 60_000,
-  // Credit charges the list price, $0.15 a million.
-  price: { inputUsdPerMTok: 0.15, cacheReadUsdPerMTok: null, basis: 'credit' },
+  // Credit charges the list price, $0.10 a million.
+  price: { inputUsdPerMTok: 0.1, cacheReadUsdPerMTok: null, basis: 'credit' },
 };
 
 describe('inputLimitNotes', () => {
@@ -68,12 +68,12 @@ describe('inputLimitNotes', () => {
     expect(inputLimitNotes(CREDIT, { maxInputTokens: 200_000, maxOutputTokens: null })).toEqual({
       size: '60,000 tokens ≈ 45,000 words ≈ 160 paperback pages, about the length of a short novel.',
       route:
-        'On Tangent credit, a message sends at most 60,000 tokens (on deepseek/deepseek-v4.1-flash); ' +
+        'On Tangent credit, a message sends at most 60,000 tokens (on anthropic/claude-haiku-5.5); ' +
         'a limit of yours can only lower that. Your limit is above that, so 60,000 applies.',
       cost:
-        'A message that sends all 60,000 tokens costs about $0.0090 in input on Tangent credit, ' +
-        "which charges deepseek/deepseek-v4.1-flash's OpenRouter list price " +
-        '($0.15 per million tokens).',
+        'A message that sends all 60,000 tokens costs about $0.0060 in input on Tangent credit, ' +
+        "which charges anthropic/claude-haiku-5.5's OpenRouter list price " +
+        '($0.10 per million tokens).',
     });
     expect(
       inputLimitNotes(CREDIT, { maxInputTokens: 16_000, maxOutputTokens: null }).route,

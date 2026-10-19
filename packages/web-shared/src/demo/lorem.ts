@@ -83,11 +83,11 @@ export const DEMO_MODELS: readonly ModelInfo[] = [
 
 /**
  * Pretend list prices (micro-dollars per million tokens): the default tiers'
- * real prices (V4.1 Flash and Sonnet 5.5), so the demo's Max note says what
- * the app's does, about 14× Normal.
+ * real prices (Haiku 5.5 and Sonnet 5.5), so the demo's Max note says what
+ * the app's does, about 20× Normal.
  */
 export const DEMO_MODEL_PRICES: Readonly<Record<string, TokenPrice>> = {
-  [DEMO_NORMAL_MODEL]: { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 },
+  [DEMO_NORMAL_MODEL]: { inMicrosPerMTok: 100_000, outMicrosPerMTok: 500_000 },
   [DEMO_MAX_MODEL]: { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 },
 };
 

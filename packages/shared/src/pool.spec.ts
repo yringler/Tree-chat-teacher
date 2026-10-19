@@ -79,7 +79,7 @@ describe('pool copy', () => {
 });
 
 describe('poolModelText', () => {
-  const normal = { id: 'deepseek/deepseek-v4.1-flash', label: 'Normal' };
+  const normal = { id: 'anthropic/claude-haiku-5.5', label: 'Normal' };
 
   it("is the label when the pool asks the tier's model the same way, or runs a model of its own", () => {
     expect(poolModelText(normal)).toBe('Normal');

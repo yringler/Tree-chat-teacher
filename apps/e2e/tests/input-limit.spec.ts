@@ -189,8 +189,8 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
 
   await reviewDialog.getByRole('button', { name: 'Close' }).first().click();
 
-  // On Tangent credit the cost is what credit charges: OpenRouter's list price (V4.1 Flash
-  // is priced at $0.15 a million; a model the server has no price for, like the tiers here,
+  // On Tangent credit the cost is what credit charges: OpenRouter's list price (Haiku 5.5
+  // is priced at $0.10 a million; a model the server has no price for, like the tiers here,
   // shows none).
   const onCredit = await request.post('/api/trees', {
     headers,
@@ -198,17 +198,17 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
       title: 'On credit',
       providerId: 'openrouter',
       funding: 'credit',
-      model: 'deepseek/deepseek-v4.1-flash',
+      model: 'anthropic/claude-haiku-5.5',
     },
   });
   expect(onCredit.status(), await onCredit.text()).toBe(201);
   await page.goto(`/t/${((await onCredit.json()) as TreeDetail).tree.id}`);
   ({ section } = await openSettings(page));
   await expect(section.locator('.input-limit-route')).toHaveText(
-    'On Tangent credit, a message sends at most 60,000 tokens (on deepseek/deepseek-v4.1-flash); ' +
+    'On Tangent credit, a message sends at most 60,000 tokens (on anthropic/claude-haiku-5.5); ' +
       'a limit of yours can only lower that.',
   );
   await expect(section.locator('.input-limit-cost')).toHaveText(
-    /^A message that sends all 3,000 tokens costs about \$0\.\d+ in input on Tangent credit, which charges deepseek\/deepseek-v4\.1-flash's OpenRouter list price \(\$0\.15 per million tokens\)/,
+    /^A message that sends all 3,000 tokens costs about \$0\.\d+ in input on Tangent credit, which charges anthropic\/claude-haiku-5\.5's OpenRouter list price \(\$0\.10 per million tokens\)/,
   );
 });

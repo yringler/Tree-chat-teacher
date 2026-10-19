@@ -303,7 +303,7 @@ describe("Learn on the learner's own Anthropic key", () => {
     const chat = chatService(e, account, { apiKeys: { anthropic: 'sk-ant-goodUSER' } });
     const tree = makeTree();
     for (const [providerId, model] of [
-      ['openrouter', 'deepseek/deepseek-v4.1-flash'],
+      ['openrouter', 'anthropic/claude-haiku-5.5'],
       ['anthropic', 'claude-opus-5-5'],
       ['anthropic', LEARN_ANTHROPIC_BACKGROUND_MODEL],
     ] as const)

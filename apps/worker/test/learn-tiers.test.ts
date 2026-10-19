@@ -9,6 +9,7 @@ import {
   builtInPowerConfig,
   DEFAULT_BACKGROUND_MODEL,
   DEFAULT_LEARN_NORMAL_MODEL,
+  DEFAULT_POOL_MODEL,
   DEFAULT_POWER_MAX_MODEL,
   learnOffer,
   poolProviderConfig,
@@ -41,8 +42,9 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
     POOL_PROVIDER_ORDER: '',
     ...overrides,
   }) as AppEnv;
-/** V4.1 Flash's pinned providers (config.ts `DEFAULT_TIER_REQUESTS`). */
-const PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
+/** Where Normal's Haiku and the pool's V4.1 Flash are pinned (config.ts `DEFAULT_TIER_REQUESTS`). */
+const HAIKU_PINNED = ['anthropic'];
+const FLASH_PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
 
 describe("the built-in provider's models", () => {
   it('Learn has one model, Normal, with the request settings the model eval picked', () => {
@@ -50,17 +52,19 @@ describe("the built-in provider's models", () => {
     expect(config.defaultModel).toBe(DEFAULT_LEARN_NORMAL_MODEL);
     expect(config.models).toEqual([
       {
-        id: 'deepseek/deepseek-v4.1-flash',
+        id: 'anthropic/claude-haiku-5.5',
         label: 'Normal',
         tier: 'normal',
         effort: 'high',
         maxOutputTokens: 16_384,
-        providerOrder: PINNED,
+        providerOrder: HAIKU_PINNED,
       },
     ]);
     expect(DEFAULT_POWER_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
     // The background model is no tier, but today it is Normal's model, asked differently.
     expect(DEFAULT_BACKGROUND_MODEL).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    // The free pool stays on the cheaper model.
+    expect(DEFAULT_POOL_MODEL).toBe('deepseek/deepseek-v4.1-flash');
   });
 
   it('LEARN_NORMAL_MODEL and POWER_MAX_MODEL choose them; power has one model when they are the same', () => {
@@ -188,22 +192,46 @@ describe("the built-in provider's models", () => {
     expect(override?.powerMax).toBe('M');
   });
 
-  it("the pool runs the background model by default: Normal's model, asked the pool's way", async () => {
+  it('the pool runs V4.1 Flash by default, while Normal and the background model run Haiku', async () => {
     const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool') });
     const pool = await resolvePoolParams(e, null);
-    expect(pool.model).toBe(DEFAULT_BACKGROUND_MODEL);
-    expect(pool).toMatchObject({ effort: 'low', providerOrder: PINNED, summaryEffort: 'low' });
+    expect(pool.model).toBe(DEFAULT_POOL_MODEL);
+    expect(pool.model).not.toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    expect(simpleFastModel(e)).toBe(DEFAULT_LEARN_NORMAL_MODEL);
+    // Its summaries take the pool listing's effort (null = the listing's `low`).
+    expect(pool).toMatchObject({ effort: 'low', providerOrder: FLASH_PINNED, summaryEffort: null });
+    // Learn doesn't list it, so it is labelled Lite.
     expect(poolProviderConfig(e, pool).models).toEqual([
-      { id: DEFAULT_BACKGROUND_MODEL, label: 'Normal', effort: 'low', providerOrder: PINNED },
+      {
+        id: DEFAULT_POOL_MODEL,
+        label: POOL_MODEL_LABEL,
+        effort: 'low',
+        providerOrder: FLASH_PINNED,
+      },
     ]);
+    expect(POOL_MODEL_LABEL).toBe('Lite');
   });
 
-  it('a pool model Learn does not list is labelled Lite, with its own defaults', async () => {
-    const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool'), BACKGROUND_MODEL: 'c/fast' });
+  it('BACKGROUND_MODEL leaves the pool alone; POOL_MODEL moves it, with its own defaults', async () => {
+    const background = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool'), BACKGROUND_MODEL: 'c/fast' });
+    expect((await resolvePoolParams(background, null)).model).toBe(DEFAULT_POOL_MODEL);
+    const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool'), POOL_MODEL: 'c/fast' });
     const pool = await resolvePoolParams(e, null);
     expect(pool).toMatchObject({ model: 'c/fast', effort: null, providerOrder: [] });
     expect(poolProviderConfig(e, pool).models).toEqual([{ id: 'c/fast', label: POOL_MODEL_LABEL }]);
-    expect(POOL_MODEL_LABEL).toBe('Lite');
+  });
+
+  it("a pool on Normal's model is labelled Normal, asked the pool's way", async () => {
+    const e = deployed({
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
+      POOL_MODEL: DEFAULT_LEARN_NORMAL_MODEL,
+    });
+    const pool = await resolvePoolParams(e, null);
+    // The pool's defaults belong to its default model, so Haiku there gets none.
+    expect(pool).toMatchObject({ effort: null, providerOrder: [] });
+    expect(poolProviderConfig(e, pool).models).toEqual([
+      { id: DEFAULT_LEARN_NORMAL_MODEL, label: 'Normal' },
+    ]);
   });
 });
 
@@ -233,13 +261,13 @@ describe('the Max usage factor', () => {
       ),
     });
 
-  it('is set on the Max model from the two prices: about 14 for V4.1 Flash and Sonnet 5.5', async () => {
+  it('is set on the Max model from the two prices: 20 for Haiku 5.5 and Sonnet 5.5', async () => {
     const [info] = await withUsageFactors(deployed(), [
       tiers(DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_POWER_MAX_MODEL),
     ]);
     expect(info!.models).toEqual([
       { id: DEFAULT_LEARN_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
-      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 14 },
+      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 20 },
     ]);
   });
 

@@ -22,7 +22,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { ownKeyProviders } from '../src/availability.js';
-import { appConfig, DEFAULT_BACKGROUND_MODEL } from '../src/config.js';
+import { appConfig, DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_POOL_MODEL } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { POOL_IDENTITY_RETENTION_DAYS } from '../src/pool/identity.js';
 import { POOL_SESSION_ESTIMATE_MICROS } from '../src/pool/params.js';
@@ -367,7 +367,7 @@ describe('/pricing', () => {
     ]);
     expect(text(member)).toContain('any OpenRouter model in power mode, Max included');
     // Without a Max of its own, power's credit row names none.
-    const one = (await get(deployment({ POWER_MAX_MODEL: DEFAULT_BACKGROUND_MODEL }), '/pricing'))
+    const one = (await get(deployment({ POWER_MAX_MODEL: DEFAULT_LEARN_NORMAL_MODEL }), '/pricing'))
       .html;
     expect(row(one, 'Any OpenRouter model, on prepaid credit')).toEqual([
       '—',
@@ -548,7 +548,7 @@ describe('/pool', () => {
         `${formatMicros(pool.caps.global.spendMicrosPerDay)} or ${formatBps(pool.caps.global.bpsOfMorningBalance)} of the pool`,
       ),
     });
-    expect(html).toContain(`<code>${DEFAULT_BACKGROUND_MODEL}</code>`);
+    expect(html).toContain(`<code>${DEFAULT_POOL_MODEL}</code>`);
     expect(text(html)).toContain(`2,048 tokens (roughly ${roughWords(2048)} words)`);
     // The ceiling hold of the pool model's longest reply, from its price.
     expect(text(html)).toMatch(/about (\$\d\.\d\d|\d+(\.\d)?¢)\) and settles the real cost/);
