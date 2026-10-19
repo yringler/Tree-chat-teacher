@@ -7,9 +7,9 @@
 // or without a setting, so one credit call costs at most what Learn's does.
 // Learn ignores the settings: its own caps apply (simple-mode.ts).
 import type { ChatService, GenerationLimits } from '@tangent/core';
-import { providerTraits } from '@tangent/providers';
 import type { BranchFunding, ContextLimitsQuery, InputBudgetResponse } from '@tangent/shared';
 import type { AccountContext, AppEnv } from './env.js';
+import { onCatalog } from './hosted/catalog.js';
 import { modelPrice } from './pool/price-table.js';
 import { providerConfigs } from './provider-configs.js';
 import { simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
@@ -102,7 +102,7 @@ function ownKeyOnOpenRouter(env: AppEnv, account: AccountContext, providerId: st
   try {
     const configs = account.mode === 'simple' ? [simpleProviderConfig(env)] : providerConfigs(env);
     const config = configs.find((c) => c.id === providerId);
-    return !!config && providerTraits(config).catalog === 'openrouter';
+    return !!config && onCatalog(config);
   } catch {
     return false;
   }

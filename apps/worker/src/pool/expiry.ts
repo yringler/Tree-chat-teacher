@@ -3,12 +3,12 @@
 // than its TTL belongs to a request that crashed or was evicted; settling it
 // only raises the pool's available balance, so this takes no lock and never
 // blocks a reservation.
-import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
+import type { GenerationCost } from '@tangent/providers';
 import { settleUsage } from '../billing/usage-store.js';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
-import { builtInApiKey } from '../simple-mode.js';
+import { hostedBackend } from '../hosted/registry.js';
 import type { PoolExpiryParams } from './pool-bank.js';
 import { meteredSettlement } from '../billing/settle-policy.js';
 import { logEvent } from '../log.js';
@@ -61,10 +61,12 @@ async function lookupOnce(
   generationId: string,
   fetchImpl: typeof fetch | undefined,
 ): Promise<GenerationCost | null> {
-  const key = builtInApiKey(env);
+  // Every pool call runs on OpenRouter, the backend that looks generations up.
+  const backend = hostedBackend('openrouter');
+  const key = backend.apiKey(env);
   if (!key) return null;
   try {
-    return await fetchOpenRouterGeneration(generationId, key, timedFetch(fetchImpl));
+    return await backend.fetchGeneration(generationId, key, timedFetch(fetchImpl));
   } catch (e) {
     logEvent('warn', 'generation_lookup_failed', { generationId, source: 'pool_expiry', error: e });
     return null;

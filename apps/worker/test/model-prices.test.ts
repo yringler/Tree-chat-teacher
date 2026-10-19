@@ -4,11 +4,11 @@ import { DEFAULT_MODEL_PRICES } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
   creditPrice,
-  OPENROUTER_MODELS_URL,
   parseListPrices,
   syncModelPrices,
   usdPerTokenToMicrosPerMTok,
 } from '../src/pool/model-prices.js';
+import { OPENROUTER_MODELS_URL } from '../src/hosted/catalog.js';
 import { modelPrice, storedPrice, withCacheWritePrice } from '../src/pool/price-table.js';
 import { resolvePoolParams } from '../src/pool/params.js';
 import { envWithFailingDb } from './mocks/billing-helpers.js';

@@ -18,15 +18,14 @@ import {
 import {
   appConfig,
   backgroundEffort,
-  BUILT_IN_API_KEY_SECRET,
   DEFAULT_POOL_MODEL,
   DEFAULT_TIER_REQUESTS,
-  namedSecrets,
   withTierDefaults,
   type TierRequestConfig,
 } from './config.js';
 import { groundingPolicy } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
+import { openRouterBackend, withMaxPrice } from './hosted/openrouter.js';
 import type { PoolParams } from './pool/params.js';
 
 export {
@@ -120,13 +119,9 @@ function builtInConfig(env: AppEnv): ProviderConfig {
   }
   return {
     id: OPENROUTER_PROVIDER_ID,
-    kind: 'openai-compatible',
+    ...openRouterBackend.config(),
     label: 'Tangent',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    apiKeySecret: BUILT_IN_API_KEY_SECRET,
     defaultModel: learn.normalModel,
-    // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
-    options: { webSearch: true },
     // Power asks Max as the user sets it, so only Normal carries request settings.
     models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) =>
       m.tier === 'normal'
@@ -134,29 +129,6 @@ function builtInConfig(env: AppEnv): ProviderConfig {
         : m,
     ),
   };
-}
-
-/**
- * The OpenRouter key the built-in provider spends: the secret named by
- * `BUILT_IN_PROVIDER.apiKeySecret` when set, else `BUILT_IN_API_KEY`.
- */
-export function builtInApiKey(env: AppEnv): string | null {
-  let secretName = BUILT_IN_API_KEY_SECRET;
-  const override = appConfig(env).builtIn.provider;
-  if (override) {
-    try {
-      const parsed: unknown = JSON.parse(override);
-      const config: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
-      if (typeof config === 'object' && config !== null) {
-        const name = (config as Record<string, unknown>)['apiKeySecret'];
-        if (typeof name === 'string' && name) secretName = name;
-      }
-    } catch {
-      // Invalid BUILT_IN_PROVIDER fails loudly where the registry is built; keep the default here.
-    }
-  }
-  const value = namedSecrets(env, new Set([secretName]))[secretName];
-  return value?.trim() || null;
 }
 
 /**
@@ -331,41 +303,7 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
     maxOutputTokens: pool.maxOutputTokens,
   };
   if (!providerTraits(base).routing || !pool.price) return config;
-  const extraBody = asRecord(base.options?.['extraBody']);
-  // Merged into the operator's own routing (e.g. `data_collection: 'deny'`),
-  // keeping a stricter `max_price` they set.
-  const routing = asRecord(extraBody['provider']);
-  const priorMax = asRecord(routing['max_price']);
-  return {
-    ...config,
-    options: {
-      ...base.options,
-      extraBody: {
-        ...extraBody,
-        provider: {
-          ...routing,
-          max_price: {
-            ...priorMax,
-            prompt: lowerPrice(priorMax['prompt'], pool.price.inMicrosPerMTok / 1_000_000),
-            completion: lowerPrice(priorMax['completion'], pool.price.outMicrosPerMTok / 1_000_000),
-          },
-        },
-      },
-    },
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-/** The operator's price cap when it is a stricter number, else the pool's. */
-function lowerPrice(prior: unknown, pool: number): number {
-  return typeof prior === 'number' && Number.isFinite(prior) && prior >= 0
-    ? Math.min(prior, pool)
-    : pool;
+  return withMaxPrice(config, pool.price);
 }
 
 /**

@@ -13,7 +13,7 @@ import { membershipRequired } from '../billing/membership.js';
 import { appConfig, type PoolDailyCaps, type PoolGlobalCap } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { modelPrice } from '../pool/price-table.js';
-import { POOL_SESSION_ESTIMATE_MICROS, poolModel } from '../pool/params.js';
+import { POOL_SESSION_ESTIMATE_MICROS, poolFeeBps, poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { poolModelInfo } from '../pool/status.js';
 import { joinList } from './copy.js';
@@ -53,7 +53,8 @@ export interface PoolPageFacts {
 export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
   const config = appConfig(env);
   const pool = config.pool;
-  const price = await modelPrice(env, poolModel(env));
+  const model = poolModel(env);
+  const price = await modelPrice(env, model);
   return {
     enabled: config.flags.poolEnabled,
     model: poolModelInfo(env),
@@ -66,12 +67,7 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
     ceilingHoldMicros: price
-      ? ceilingHoldMicros(
-          price,
-          pool.maxInputTokens,
-          pool.maxOutputTokens,
-          config.billing.openRouterFeeBps,
-        )
+      ? ceilingHoldMicros(price, pool.maxInputTokens, pool.maxOutputTokens, poolFeeBps(env, model))
       : null,
   };
 }

@@ -2,7 +2,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reconcileGeneration, reconcilePendingUsage } from '../src/billing/reconcile.js';
 import { markDispatched, settleUsage } from '../src/billing/usage-store.js';
-import { builtInApiKey } from '../src/simple-mode.js';
+import { builtInApiKey } from '../src/hosted/openrouter.js';
 import { CRON_JOBS } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
 import {

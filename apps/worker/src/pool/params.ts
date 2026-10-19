@@ -15,6 +15,7 @@ import {
   type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { backendsFor } from '../hosted/registry.js';
 import { defaultPoolModel } from '../simple-mode.js';
 import { modelPrice, withCacheWritePrice } from './price-table.js';
 import type {
@@ -97,6 +98,14 @@ export function poolRequest(
 }
 
 /**
+ * The fee `model`'s pool price is grossed up by when its entry sets none:
+ * the highest of the backends that can serve it, so a hold covers any of them.
+ */
+export function poolFeeBps(env: AppEnv, model: string): number {
+  return Math.max(0, ...backendsFor(env, model).map((b) => b.feeBps(env)));
+}
+
+/**
  * Resolves the pool parameters of a request from `env` (the price: `modelPrice`).
  * The caps are the same for every caller: nothing here depends on who asks
  * but their network (`ipKey`).
@@ -107,9 +116,7 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const model = poolModel(env);
   const entry = await modelPrice(env, model);
   const request = poolRequest(env, model);
-  const price = entry
-    ? { ...entry, feeBps: entry.feeBps ?? config.billing.openRouterFeeBps }
-    : null;
+  const price = entry ? { ...entry, feeBps: entry.feeBps ?? poolFeeBps(env, model) } : null;
   return {
     accountId: pool.accountId,
     model,
@@ -193,7 +200,7 @@ export function poolConfigProblem(env: AppEnv): string | null {
   const price = withCacheWritePrice(model, entry);
   return reportCeilingProblem(config.pool, model, {
     ...price,
-    feeBps: price.feeBps ?? config.billing.openRouterFeeBps,
+    feeBps: price.feeBps ?? poolFeeBps(env, model),
   });
 }
 
@@ -211,7 +218,7 @@ export async function poolPriceProblem(env: AppEnv): Promise<string | null> {
   if (!entry) return null;
   return reportCeilingProblem(config.pool, model, {
     ...entry,
-    feeBps: entry.feeBps ?? config.billing.openRouterFeeBps,
+    feeBps: entry.feeBps ?? poolFeeBps(env, model),
   });
 }
 
