@@ -2,7 +2,7 @@
 // model-prices.ts) and the price a model is held at (`modelPrice`, see
 // model-prices.ts for which price that is): a leaf, so the pool's parameters
 // and the model windows read prices without importing the sync.
-import { EXPLICIT_CACHE_WRITE_MULTIPLIER, usesExplicitCacheControl } from '@tangent/providers';
+import { billsCacheWritePremium, EXPLICIT_CACHE_WRITE_MULTIPLIER } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { modelPrices } from '../db/schema.js';
@@ -81,12 +81,12 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
 
 /**
  * `price` with a cache-write price: its own, else, for a model whose requests
- * carry explicit cache breakpoints (Anthropic's), the input price × 1.25
+ * carry explicit cache breakpoints (Claude, by either id), the input price × 1.25
  * (rounded up), so holds and token-priced charges cover the write premium.
  * Other models write at the input price (or free), so they need none.
  */
 export function withCacheWritePrice(model: string, price: ModelPrice): ModelPrice {
-  if (price.cacheWriteMicrosPerMTok !== undefined || !usesExplicitCacheControl(model)) return price;
+  if (price.cacheWriteMicrosPerMTok !== undefined || !billsCacheWritePremium(model)) return price;
   return {
     ...price,
     cacheWriteMicrosPerMTok: Math.ceil(price.inMicrosPerMTok * EXPLICIT_CACHE_WRITE_MULTIPLIER),

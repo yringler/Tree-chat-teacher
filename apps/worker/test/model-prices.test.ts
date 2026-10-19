@@ -483,18 +483,17 @@ describe('modelPrice', () => {
     );
   });
 
-  it("gives a direct Anthropic id (no anthropic/ prefix) no cache-write premium, though Anthropic's own API bills one", () => {
-    // Metered calls run on OpenRouter ids today; a metered config naming `claude-…`
-    // directly would hold and charge its cache writes at the input price.
+  it("gives a direct Anthropic id (no anthropic/ prefix) the cache-write premium Anthropic's own API bills", () => {
+    // A metered config of kind `anthropic` (BUILT_IN_PROVIDER) names `claude-…` directly.
     const price = {
       inMicrosPerMTok: 2_000_000,
       outMicrosPerMTok: 10_000_000,
       contextTokens: 200_000,
     };
-    expect(withCacheWritePrice('claude-sonnet-5-5', price)).toEqual(price);
-    expect(withCacheWritePrice('anthropic/claude-sonnet-5.5', price)).toMatchObject({
-      cacheWriteMicrosPerMTok: 2_500_000,
-    });
+    for (const id of ['claude-sonnet-5-5', 'claude-haiku-5-5', 'anthropic/claude-sonnet-5.5']) {
+      expect(withCacheWritePrice(id, price)).toMatchObject({ cacheWriteMicrosPerMTok: 2_500_000 });
+    }
+    expect(withCacheWritePrice('deepseek/claude-like', price)).toEqual(price);
   });
 
   it('is the synced cache prices over the fallbacks; an override keeps its own', async () => {

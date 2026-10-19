@@ -39,6 +39,15 @@ export function usesExplicitCacheControl(model: string): boolean {
   return /^~?anthropic\//i.test(model.trim());
 }
 
+/**
+ * Whether cache writes on `model` cost `EXPLICIT_CACHE_WRITE_MULTIPLIER` × the
+ * input price: a Claude model, by its OpenRouter id or by Anthropic's own
+ * (`claude-…`).
+ */
+export function billsCacheWritePremium(model: string): boolean {
+  return usesExplicitCacheControl(model) || /^claude-/i.test(model.trim());
+}
+
 /** `options.promptCache`: true or false when set to a boolean, else undefined (automatic). */
 export function promptCacheOption(
   options: Record<string, unknown> | undefined,
