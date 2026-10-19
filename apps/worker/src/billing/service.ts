@@ -27,7 +27,8 @@ import type { ModelPrice } from '../config.js';
 import type { SqlRow } from '../db/rows.js';
 import type { creditGrants, usageEvents } from '../db/schema.js';
 import { callPayer, type AccountContext, type AppEnv } from '../env.js';
-import { usageBackend } from '../hosted/registry.js';
+import { openRouterBackend } from '../hosted/openrouter.js';
+import { hostedChain, usageBackend } from '../hosted/registry.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { chargeFromTokensMicros, renderAllowanceBytes, type InputOf } from '../pool/pricing.js';
 import { builtInAvailable, personalCreditReady } from '../availability.js';
@@ -168,20 +169,25 @@ export async function replyHoldMicros(
     replyInputTokens(budget.maxInputTokens),
     budget.maxOutputTokens,
     CREDIT_RATES,
-    replySearchFeesMicros(env),
+    replySearchFeesMicros(env, model),
   );
 }
 
 /**
  * The unreported search fees a reply on credit may owe: one fee per search
- * it may run (`GroundingSettings.maxUses`) where the built-in provider bills
- * searches outside its reported cost (Anthropic), none while grounding is off.
+ * it may run (`GroundingSettings.maxUses`) where a backend it may run on
+ * bills searches outside a reported cost (Anthropic), none while grounding
+ * is off.
  */
-function replySearchFeesMicros(env: AppEnv): number {
+function replySearchFeesMicros(env: AppEnv, model: string): number {
   if (groundingPolicy(env) === 'off') return 0;
-  return (
-    unreportedSearchFeeMicros(simpleProviderConfig(env).kind) * DEFAULT_GROUNDING_SETTINGS.maxUses
+  // OpenRouter's leg runs on the built-in config (a BUILT_IN_PROVIDER override's kind, say);
+  // another backend's on its own endpoint.
+  const builtInKind = simpleProviderConfig(env).kind;
+  const fees = hostedChain(env, model).map(({ backend }) =>
+    unreportedSearchFeeMicros(backend === openRouterBackend ? builtInKind : backend.config().kind),
   );
+  return Math.max(...fees) * DEFAULT_GROUNDING_SETTINGS.maxUses;
 }
 
 /**

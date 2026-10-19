@@ -9,6 +9,7 @@ import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
 import { openRouterBackend } from '../hosted/openrouter.js';
+import { LOOKUP_ROW_SQL } from '../hosted/registry.js';
 import type { PoolExpiryParams } from './pool-bank.js';
 import { meteredSettlement } from '../billing/settle-policy.js';
 import { logEvent } from '../log.js';
@@ -61,7 +62,7 @@ async function lookupOnce(
   generationId: string,
   fetchImpl: typeof fetch | undefined,
 ): Promise<GenerationCost | null> {
-  // The backend that looks generations up.
+  // The backend that looks generations up; rows on others carry no id here (`LOOKUP_ROW_SQL`).
   const backend = openRouterBackend;
   const key = backend.apiKey(env);
   if (!key) return null;
@@ -84,7 +85,8 @@ async function isPending(env: AppEnv, usageId: string): Promise<boolean> {
 
 /**
  * Settles up to `batch` pending reservations of `poolId` older than the TTL,
- * in parallel: never dispatched → released at 0; a generation id → one lookup
+ * in parallel: never dispatched → released at 0; a generation id on a
+ * backend with lookups (`LOOKUP_ROW_SQL`) → one lookup
  * (its cost, or the full hold once past `giveUpMs`, else left for later);
  * dispatched without one → the full hold. A release only applies while the
  * row is still undispatched (checked in the UPDATE itself). Rows that need no lookup go first,
@@ -101,8 +103,10 @@ export async function expirePoolReservations(
   const giveUpCut = new Date(nowMs - options.giveUpMs).toISOString();
   const batch = Math.max(1, Math.floor(options.batch));
   const { results } = await env.DB.prepare(
-    `SELECT id, generation_id, dispatched_at, fee_bps, created_at,
-            (generation_id IS NOT NULL AND dispatched_at IS NOT NULL AND created_at >= ?3) AS lookup_only
+    `SELECT id, CASE WHEN ${LOOKUP_ROW_SQL} THEN generation_id END AS generation_id,
+            dispatched_at, fee_bps, created_at,
+            (generation_id IS NOT NULL AND ${LOOKUP_ROW_SQL} AND dispatched_at IS NOT NULL
+             AND created_at >= ?3) AS lookup_only
      FROM usage_events
      WHERE account_id = ?1 AND status = 'pending' AND funding = 'pool' AND created_at < ?2
      ORDER BY lookup_only, created_at LIMIT ?4`,

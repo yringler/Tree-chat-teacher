@@ -34,6 +34,6 @@ export const anthropicBackend: HostedBackend = {
   modelId: (logical) => MODEL_IDS[logical] ?? null,
   cost: 'tokens',
   fetchGeneration: null,
-  // No purchase fee on top of Anthropic's list price.
+  // The pool pays Anthropic its list price, with no purchase fee on top.
   feeBps: () => 0,
 };

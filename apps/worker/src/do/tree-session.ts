@@ -294,7 +294,7 @@ export class TreeSession extends DurableObject<AppEnv> {
         nodeId: null,
         providerId: OPENROUTER_PROVIDER_ID,
         holdMicros: replyCeilingMicros(pool, pool.price),
-        feeBps: pool.price.feeBps,
+        feeBps: pool.feeBps,
       }),
     );
     if (!result.ok) throw new PoolBlockedError(poolBlockDetails(result));

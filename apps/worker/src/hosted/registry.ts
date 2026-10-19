@@ -4,7 +4,7 @@
 // backend can serve runs there. A `BUILT_IN_PROVIDER` override replaces
 // OpenRouter's endpoint and is then the only backend: every call runs on it,
 // with OpenRouter's facts (a fake stands in for OpenRouter in the tests).
-import { appConfig } from '../config.js';
+import { HOSTED_BACKEND_IDS, appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { anthropicBackend } from './anthropic.js';
 import type { HostedBackend, HostedBackendId } from './backend.js';
@@ -19,6 +19,17 @@ const BACKENDS: Record<HostedBackendId, HostedBackend> = {
 export function hostedBackend(id: HostedBackendId): HostedBackend {
   return BACKENDS[id];
 }
+
+/**
+ * SQL: a `usage_events` row whose generation id can be looked up, by its
+ * `backend`: a backend with a lookup, or none recorded (rows from before
+ * backends were). Other rows settle as calls without a generation id.
+ */
+export const LOOKUP_ROW_SQL = `(backend IS NULL OR backend IN (${HOSTED_BACKEND_IDS.filter(
+  (id) => BACKENDS[id].fetchGeneration !== null,
+)
+  .map((id) => `'${id}'`)
+  .join(', ')}))`;
 
 /** One backend a built-in call can run on, and its id of the call's logical model. */
 export interface HostedRoute {

@@ -67,7 +67,12 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
     ceilingHoldMicros: price
-      ? ceilingHoldMicros(price, pool.maxInputTokens, pool.maxOutputTokens, poolFeeBps(env, model))
+      ? ceilingHoldMicros(
+          { ...price, feeBps: poolFeeBps(env, model, price) },
+          pool.maxInputTokens,
+          pool.maxOutputTokens,
+          0,
+        )
       : null,
   };
 }

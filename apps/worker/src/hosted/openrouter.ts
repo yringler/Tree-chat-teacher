@@ -23,7 +23,7 @@ export const openRouterBackend: HostedBackend & { fetchGeneration: GenerationLoo
   cost: 'reported',
   fetchGeneration: fetchOpenRouterGeneration,
   // OpenRouter's credit-purchase fee: part of what the open pool's calls truly cost.
-  feeBps: (env) => appConfig(env).billing.openRouterFeeBps,
+  feeBps: (env, price) => price.feeBps ?? appConfig(env).billing.openRouterFeeBps,
 };
 
 /**

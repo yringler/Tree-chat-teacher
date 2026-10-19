@@ -1,6 +1,6 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OPENROUTER_PROVIDER_ID, type GenerateRequest } from '@tangent/shared';
+import { chargeMicros, OPENROUTER_PROVIDER_ID, type GenerateRequest } from '@tangent/shared';
 import { grantCredit } from '../src/billing/ledger.js';
 import { meteredRegistry } from '../src/billing/meter.js';
 import { createUsageMeter } from '../src/billing/personal-meter.js';
@@ -9,7 +9,9 @@ import { anthropicBackend } from '../src/hosted/anthropic.js';
 import { hostedLegs, legConfig } from '../src/hosted/legs.js';
 import { openRouterBackend } from '../src/hosted/openrouter.js';
 import { hostedBackend, hostedChain, usageBackend } from '../src/hosted/registry.js';
+import { creditPrice } from '../src/pool/model-prices.js';
 import { poolFeeBps, resolvePoolParams } from '../src/pool/params.js';
+import { costFromTokensNanos } from '../src/pool/pricing.js';
 import { registryFor } from '../src/registries.js';
 import { poolProviderConfig, simpleProviderConfig } from '../src/simple-mode.js';
 import { createProviderRegistry } from '@tangent/providers';
@@ -59,10 +61,11 @@ describe('the OpenRouter backend', () => {
     expect(openRouterBackend.fetchGeneration).not.toBeNull();
   });
 
-  it('charges the pool OpenRouter’s credit-purchase fee', () => {
+  it('charges the pool OpenRouter’s credit-purchase fee, unless the price entry sets one', () => {
     const e = { ...env, OPENROUTER_FEE_BPS: '550' } as AppEnv;
-    expect(openRouterBackend.feeBps(e)).toBe(550);
-    expect(poolFeeBps(e, 'any/model')).toBe(550);
+    expect(openRouterBackend.feeBps(e, {})).toBe(550);
+    expect(openRouterBackend.feeBps(e, { feeBps: 300 })).toBe(300);
+    expect(poolFeeBps(e, 'any/model', {})).toBe(550);
   });
 
   it('is the endpoint of the built-in provider', () => {
@@ -93,7 +96,7 @@ describe('the Anthropic backend', () => {
   it('is charged by tokens, has no generations to look up and no pool fee', () => {
     expect(anthropicBackend.cost).toBe('tokens');
     expect(anthropicBackend.fetchGeneration).toBeNull();
-    expect(anthropicBackend.feeBps(both)).toBe(0);
+    expect(anthropicBackend.feeBps(both, { feeBps: 300 })).toBe(0);
   });
 
   it('spends BUILT_IN_ANTHROPIC_API_KEY, never ANTHROPIC_API_KEY', () => {
@@ -306,6 +309,50 @@ describe('the legs of a built-in call', () => {
     expect(sent[0]!.body).toMatchObject({ model: FLASH });
     const [row] = await usageRows(both, account.billingAccountId);
     expect(row).toMatchObject({ model: FLASH, backend: 'openrouter', backend_model: FLASH });
+  });
+});
+
+describe('a credit call on the Anthropic backend', () => {
+  it('records the backend, keeps the logical model, and settles by tokens at its price with cache and search fees', async () => {
+    const sent = upstream(ANTHROPIC_REPLY);
+    const account = await fundedLearner(both);
+    const deferred: Promise<unknown>[] = [];
+    const registry = meteredRegistry(
+      registryFor(both, account),
+      createUsageMeter(both, account, (p) => deferred.push(p)),
+      () => true,
+      hostedLegs(both),
+    );
+    const events = [];
+    for await (const e of registry.get(OPENROUTER_PROVIDER_ID)!.stream(replyRequest(HAIKU)))
+      events.push(e);
+    await Promise.allSettled(deferred);
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    expect(sent.map((s) => s.url)).toEqual(['https://api.anthropic.com/v1/messages']);
+
+    const price = (await creditPrice(both, HAIKU))!;
+    // Claude's cache writes cost more than its input: the premium is in the price.
+    expect(price.cacheWriteMicrosPerMTok).toBeGreaterThan(price.inMicrosPerMTok);
+    const costNanos =
+      costFromTokensNanos(price, 7_000, 300, { readTokens: 4_000, writeTokens: 2_000 }) +
+      2 * 10_000 * 1000;
+    const [row] = await usageRows(both, account.billingAccountId);
+    expect(row).toMatchObject({
+      status: 'settled',
+      provider_id: OPENROUTER_PROVIDER_ID,
+      model: HAIKU,
+      backend: 'anthropic',
+      backend_model: 'claude-haiku-5-5',
+      settle_reason: 'tokens',
+      generation_id: null,
+      input_tokens: 7_000,
+      output_tokens: 300,
+      web_searches: 2,
+      cost_nanos: costNanos,
+      charge_micros: chargeMicros(costNanos, 0, 0),
+    });
+    // Held for both searches at Anthropic's fee, above the tokens' own worst case.
+    expect(row!.hold_micros).toBeGreaterThan(20_000);
   });
 });
 

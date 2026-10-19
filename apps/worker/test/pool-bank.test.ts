@@ -36,8 +36,11 @@ import {
 } from '../src/pool/params.js';
 import type { PoolBank, PoolReserveRequest, PoolReserveResult } from '../src/pool/pool-bank.js';
 import { simpleProviderConfig } from '../src/simple-mode.js';
+import { anthropicBackend } from '../src/hosted/anthropic.js';
+import { openRouterBackend } from '../src/hosted/openrouter.js';
 import {
   ensureUser,
+  generationCalls,
   newUser,
   scriptGeneration,
   uniq,
@@ -738,6 +741,54 @@ describe('Pool meter', () => {
     });
   });
 
+  it('sends a call on the Anthropic backend there by its id, and charges it no fee', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 100_000);
+    // Anthropic first: charged its fee (none), held at the dearest of the chain's (OpenRouter's).
+    const p = params(poolId, { backend: 'anthropic', backendModel: 'claude-normal', feeBps: 0 });
+    expect(p.price!.feeBps).toBe(550);
+    const asked: string[] = [];
+    const leg: LlmProvider = {
+      ...providerOf(async function* (req) {
+        asked.push(req.model);
+        yield { type: 'usage', usage: { inputTokens: 100, outputTokens: 200 } };
+        yield { type: 'done', stopReason: 'stop' };
+      }),
+      kind: 'anthropic',
+    };
+    const outer = providerOf(async function* (req) {
+      asked.push(`outer:${req.model}`);
+      yield { type: 'done', stopReason: 'stop' };
+    });
+    const deferred: Promise<unknown>[] = [];
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
+    const registry = meteredRegistry(
+      registryOf(outer),
+      meter,
+      () => true,
+      (provider, model) => [
+        { backend: anthropicBackend, model: 'claude-normal', provider: leg },
+        { backend: openRouterBackend, model, provider },
+      ],
+    );
+    const events = await drain(registry.get('openrouter')!.stream(genRequest(tag())));
+    await settleAll(deferred);
+    expect(events.at(-1)?.type).toBe('done');
+    expect(asked).toEqual(['claude-normal']);
+    const [row] = await poolRows(poolId);
+    expect(row).toMatchObject({
+      model: 'normal',
+      backend: 'anthropic',
+      backend_model: 'claude-normal',
+      fee_bps: 0,
+      hold_micros: Math.ceil(2070 * 1.055),
+      settle_reason: 'tokens',
+      // 300 tokens at 1 µ$ each, no fee.
+      charge_micros: 300,
+    });
+  });
+
   it('never lets a second call claim, or release, a reservation another call has dispatched', async () => {
     quiet();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -1070,6 +1121,26 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       settle_reason: 'released',
     });
     expect(await available(poolId)).toBe(100_000 - 3_000 - 2_000 - 3_000);
+  });
+
+  it('never looks up an expired call on a backend without generations: it is charged its hold', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 100_000);
+    const stub = poolBank(env, poolId);
+    const sent = await reserved(poolId, { backend: 'anthropic', backendModel: 'claude-normal' });
+    await markDispatched(env.DB, sent);
+    const gen = uniq('gen-anthropic');
+    await setGenerationId(env.DB, sent, gen);
+    await scriptGeneration(gen, [{ costUsd: 0.002 }]);
+    const result = await expire(stub, Date.now() + TTL + 1_000);
+    expect(result).toEqual({ released: 0, charged: 1, deferred: 0, more: false });
+    expect(await usageRow(env, sent)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'hold',
+      charge_micros: 3_000,
+    });
+    expect((await generationCalls(gen)).count).toBe(0);
   });
 
   it('charges an expired call its cost with the row’s fee, and no markup', async () => {

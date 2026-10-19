@@ -54,8 +54,13 @@ export interface PoolParams extends UsageBackend {
   accountId: string;
   /** The one model pool calls use; every pool hold is priced for it. */
   model: string;
-  /** Its price entry with `feeBps` filled in; null = not priced, so the pool refuses (`unpriced`). */
+  /**
+   * Its price entry with `feeBps` filled in, the fee its holds are grossed up
+   * by (`poolFeeBps`); null = not priced, so the pool refuses (`unpriced`).
+   */
   price: (ModelPrice & { feeBps: number }) | null;
+  /** The fee its calls are charged: the first backend's (`backend`), which they are sent to. */
+  feeBps: number;
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
@@ -98,11 +103,12 @@ export function poolRequest(
 }
 
 /**
- * The fee `model`'s pool price is grossed up by when its entry sets none:
- * the highest of the backends that can serve it, so a hold covers any of them.
+ * The fee a pool hold on `model` is grossed up by: the highest of the
+ * backends its calls may run on (`hostedChain`), so a hold covers any of
+ * them. `price.feeBps` is OpenRouter's fee for the model (`HostedBackend.feeBps`).
  */
-export function poolFeeBps(env: AppEnv, model: string): number {
-  return Math.max(0, ...hostedChain(env, model).map(({ backend }) => backend.feeBps(env)));
+export function poolFeeBps(env: AppEnv, model: string, price: Pick<ModelPrice, 'feeBps'>): number {
+  return Math.max(0, ...hostedChain(env, model).map(({ backend }) => backend.feeBps(env, price)));
 }
 
 /**
@@ -116,11 +122,13 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const model = poolModel(env);
   const entry = await modelPrice(env, model);
   const request = poolRequest(env, model);
-  const price = entry ? { ...entry, feeBps: entry.feeBps ?? poolFeeBps(env, model) } : null;
+  const price = entry ? { ...entry, feeBps: poolFeeBps(env, model, entry) } : null;
+  const [first] = hostedChain(env, model);
   return {
     accountId: pool.accountId,
     model,
     ...usageBackend(env, model),
+    feeBps: first!.backend.feeBps(env, entry ?? {}),
     // A price whose reply ceiling no cap admits refuses as `unpriced` (logged), not as the user's cap.
     price: price && reportCeilingProblem(pool, model, price) === null ? price : null,
     systemPrompt: pool.systemPrompt,
@@ -201,7 +209,7 @@ export function poolConfigProblem(env: AppEnv): string | null {
   const price = withCacheWritePrice(model, entry);
   return reportCeilingProblem(config.pool, model, {
     ...price,
-    feeBps: price.feeBps ?? poolFeeBps(env, model),
+    feeBps: poolFeeBps(env, model, price),
   });
 }
 
@@ -219,7 +227,7 @@ export async function poolPriceProblem(env: AppEnv): Promise<string | null> {
   if (!entry) return null;
   return reportCeilingProblem(config.pool, model, {
     ...entry,
-    feeBps: entry.feeBps ?? poolFeeBps(env, model),
+    feeBps: poolFeeBps(env, model, entry),
   });
 }
 

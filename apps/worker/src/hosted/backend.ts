@@ -7,7 +7,7 @@
 // kind (`unreportedSearchFeeMicros`), so it has no field of its own here.
 import type { GenerationCost } from '@tangent/providers';
 import type { ProviderConfig } from '@tangent/shared';
-import type { HostedBackendId } from '../config.js';
+import type { HostedBackendId, ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
 
 export type { HostedBackendId } from '../config.js';
@@ -37,6 +37,6 @@ export interface HostedBackend {
   readonly cost: 'reported' | 'tokens';
   /** How a call's cost is looked up afterwards by its generation id; null where it can't be. */
   readonly fetchGeneration: GenerationLookup | null;
-  /** The fee the pool grosses a price up by on this backend, unless the price entry sets its own. */
-  feeBps(env: AppEnv): number;
+  /** The fee the pool grosses a call's price up by on this backend (`price` may set OpenRouter's). */
+  feeBps(env: AppEnv, price: Pick<ModelPrice, 'feeBps'>): number;
 }

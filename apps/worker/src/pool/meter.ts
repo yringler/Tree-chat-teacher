@@ -159,7 +159,8 @@ export function createPoolUsageMeter(
       }
       const holdMicros = worstCaseHoldMicros(price, request, maxOutput, price.feeBps);
       let usageId: string;
-      let feeBps = price.feeBps;
+      // Held at the dearest backend's fee, charged at the fee of the one it is sent to.
+      let feeBps = pool.feeBps;
       if (tag?.reservationId) {
         // The reply was reserved at its ceiling before the prompt existed: shrink, never re-reserve.
         const shrunk = await shrinkHold(env.DB, tag.reservationId, pool.accountId, holdMicros);

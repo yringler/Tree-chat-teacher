@@ -279,6 +279,54 @@ describe('usage reconciliation cron: a call whose meter died without a generatio
     });
   });
 
+  it('never looks up a call on a backend without generations: settles it as one without an id', async () => {
+    // An Anthropic call has no generation to look up; whatever id its row holds, the cron
+    // waits out the meter and charges the input its hold was sized with.
+    const accountId = uniq('acct');
+    const young = uniq('gen-anthropic-young');
+    const old = uniq('gen-anthropic-old');
+    await scriptGeneration(young, [{ costUsd: 0.5 }]);
+    await scriptGeneration(old, [{ costUsd: 0.5 }]);
+    const anthropic = { ...stale, dispatchedAt: ago(15 * MIN), heldInputTokens: 1000 };
+    const waiting = await insertUsage(env, {
+      accountId,
+      ...anthropic,
+      createdAt: ago(5 * MIN),
+      generationId: young,
+      backend: 'anthropic',
+    });
+    const lost = await insertUsage(env, {
+      accountId,
+      ...anthropic,
+      generationId: old,
+      backend: 'anthropic',
+    });
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 1, unresolved: 0 });
+    expect(await usageRow(env, waiting)).toMatchObject({ status: 'pending' });
+    expect(await usageRow(env, lost)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 150_000_000,
+      charge_micros: 160_650,
+    });
+    expect((await generationCalls(young)).count).toBe(0);
+    expect((await generationCalls(old)).count).toBe(0);
+  });
+
+  it('looks up a call on OpenRouter, recorded or from before backends were', async () => {
+    const accountId = uniq('acct');
+    const ids = await Promise.all(
+      ['openrouter', null].map(async (backend) => {
+        const generationId = uniq('gen-or');
+        await scriptGeneration(generationId, [{ costUsd: 0.01 }]);
+        return insertUsage(env, { accountId, ...stale, generationId, backend });
+      }),
+    );
+    expect(await reconcilePendingUsage(PRICED, NOW)).toEqual({ settled: 2, unresolved: 0 });
+    for (const id of ids)
+      expect(await usageRow(env, id)).toMatchObject({ settle_reason: 'generation' });
+  });
+
   it('leaves a row its meter settled after the cron read it, and never releases one sent since', async () => {
     const accountId = uniq('acct');
     const settledByMeter = await insertUsage(env, {
