@@ -2,7 +2,7 @@
 
 A suite that spends a little real money (a few cents a run) to check that the providers still behave as Tangent assumes, and that Tangent's own money code charges correctly against them: the stream contract of each adapter, OpenRouter's reported costs against the price table, web search fees, prompt caching, reasoning effort, the credit and open-pool meters and their settlement, and one Learn reply per funding through the whole Worker. Run it about once a month, and after a change to a provider adapter, the meter or the price table.
 
-It lives in `apps/worker/test/live/` and runs in workerd like the Worker suite, with production's provider and price vars (`wrangler.jsonc`): the harness sets only switches such as the dev sign-in bypass, the fake payment provider and the pool and credit being on (`test/live/bindings.ts`; the preflight fails if it sets any var that chooses a model or a price). It is never part of `pnpm test`.
+It lives in `apps/worker/test/live/` and runs in workerd like the Worker suite, with production's provider and price vars (`wrangler.jsonc`): the harness sets only switches such as the dev sign-in bypass, the fake payment provider and the pool and credit being on (`test/live/bindings.ts`; the preflight fails if it sets any var that chooses a model or a price). The one exception is the credit scenarios on Anthropic's own API, which put the built-in provider on Anthropic (`BUILT_IN_PROVIDER`, `claude-haiku-5-5` with web search) and price that model (`MODEL_PRICES`: $0.10 / $0.50, cache read $0.01) in their own copy of the env, so the native search fee can be checked through the real meter. It is never part of `pnpm test`.
 
 ## Running it
 
@@ -14,7 +14,7 @@ TANGENT_LIVE=1 TANGENT_LIVE_OPENROUTER_KEY=sk-or-v1-… pnpm test:live
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TANGENT_LIVE`                     | Must be `1`: the suite refuses to start otherwise.                                                                                                                                                             |
 | `TANGENT_LIVE_OPENROUTER_KEY`      | Required. Reaches the Worker as `BUILT_IN_API_KEY` and `OPENROUTER_API_KEY`.                                                                                                                                   |
-| `TANGENT_LIVE_ANTHROPIC_KEY`       | Optional; without it the Anthropic scenarios are SKIPPED (the wrong-key refusal still runs). Reaches the Worker as `ANTHROPIC_API_KEY`.                                                                        |
+| `TANGENT_LIVE_ANTHROPIC_KEY`       | Optional; without it the Anthropic scenarios, direct and on credit, are SKIPPED (the wrong-key refusal still runs). Reaches the Worker as `ANTHROPIC_API_KEY`.                                                 |
 | `TANGENT_LIVE_OPENAI_KEY`          | Optional, as above, for OpenAI (`OPENAI_API_KEY`).                                                                                                                                                             |
 | `TANGENT_LIVE_BUDGET_USD`          | The most the run may spend (default `1.00`, at most 20). Each call reserves its worst case first and a call that would pass the budget is not sent; a reported cost then replaces the worst case.              |
 | `TANGENT_LIVE_ALLOW_UNLIMITED_KEY` | `1` lets the run use an OpenRouter key without a credit limit. By default the preflight refuses one, and a key whose remaining limit is under the budget.                                                      |
@@ -35,6 +35,8 @@ Use a key of its own for the suite, with a credit limit of a few dollars (openro
 - **FAIL**: an assumption the code relies on broke (a field moved, a cost over the price table, a row not settled at its reported cost, a key accepted that should be refused). Read the note; it says what was expected.
 - **WARN**: a soft check (a cache miss, effort not changing the thinking, a ratio outside its band, a late generation). Worth a look; not a breach.
 - A **SKIPPED** row names the missing key.
+- A note `attempt N: rate_limit (HTTP 429), retry-after … ms` is a retryable error the harness retried, with the wait the provider asked for when it named one.
+- The credit rows on Anthropic's own API are priced from their tokens plus $0.01 per search Anthropic counted; Anthropic reports no cost, so compare their charges with what the Anthropic Console's usage page billed for the run, by hand.
 
 Bands and pins in the scenarios (the per-model cost ratio in `40-reconcile.live.ts`, the search fee in `30-search.live.ts`, the Gemini that refuses an effort of `none` in `60-effort.live.ts`) were set from a run; when one fails because the provider changed, update it in the same change that adapts the code, and say so.
 

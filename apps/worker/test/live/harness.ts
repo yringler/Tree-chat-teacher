@@ -179,6 +179,17 @@ export function worstUsd(price: ModelPrice, inputTokens: number, maxOutputTokens
   return (2 * chargeFromTokensMicros(price, inputTokens, maxOutputTokens, 0, 0)) / 1e6;
 }
 
+/** Reported over recomputed may exceed 1 by this much (rounding of tiny costs). */
+export const OVER_LIST_TOLERANCE = 1.02;
+export const ABSOLUTE_SLACK_USD = 2e-6;
+
+/** Where Normal's reported over recomputed cost falls (`40-reconcile.live.ts`, credit's second turn). */
+export const NORMAL_RATIO_BAND = {
+  min: 0.95,
+  max: 1.02,
+  why: "Normal's pinning to Anthropic, at the list price",
+} as const;
+
 /** What one web search can add to a call's worst case (OpenRouter's engines bill per result). */
 export const SEARCH_ALLOWANCE_USD = 0.05;
 
@@ -205,6 +216,12 @@ export interface LiveResult {
 
 const RETRYABLE: ReadonlySet<string> = new Set(['rate_limit', 'overloaded', 'server', 'network']);
 const MAX_RETRIES = 2;
+
+/**
+ * The retryable errors `callWithRetry` met in the running scenario, with the wait the
+ * provider asked for (`retryAfterMs`) when it named one: `scenario` adds them to its row.
+ */
+let retryNotes: string[] = [];
 
 async function streamOnce(
   call: LiveCall,
@@ -239,8 +256,13 @@ export async function callWithRetry(call: LiveCall): Promise<LiveResult> {
   for (let attempt = 1; ; attempt++) {
     const result = await streamOnce(call);
     const t = result.summary.terminal;
-    if (t?.type !== 'error' || !RETRYABLE.has(t.error.code) || attempt > MAX_RETRIES)
+    if (t?.type !== 'error' || !RETRYABLE.has(t.error.code))
       return { ...result, attempts: attempt };
+    const wait = t.error.retryAfterMs;
+    retryNotes.push(
+      `attempt ${attempt}: ${t.error.code}${t.error.status ? ` (HTTP ${t.error.status})` : ''}, ${wait === undefined ? 'no retry-after' : `retry-after ${wait} ms`}`,
+    );
+    if (attempt > MAX_RETRIES) return { ...result, attempts: attempt };
     await new Promise((r) => setTimeout(r, 2_000 * attempt));
   }
 }
@@ -355,6 +377,7 @@ export function scenario(
       return;
     }
     let outcome: Outcome;
+    retryNotes = [];
     try {
       outcome = await run();
     } catch (e) {
@@ -364,7 +387,7 @@ export function scenario(
         reportedUsd: null,
         recomputedUsd: null,
         status: 'FAIL',
-        notes: [e instanceof Error ? e.message : String(e)],
+        notes: [e instanceof Error ? e.message : String(e), ...retryNotes],
       });
       throw e;
     }
@@ -383,6 +406,7 @@ export function scenario(
         ...outcome.failures,
         ...outcome.warnings.map((w) => `warn: ${w}`),
         ...(outcome.notes ?? []),
+        ...retryNotes,
       ],
     });
     expect(outcome.failures).toEqual([]);

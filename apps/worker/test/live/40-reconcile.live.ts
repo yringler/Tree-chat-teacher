@@ -8,21 +8,20 @@ import type { LlmProvider } from '@tangent/shared';
 import { describe } from 'vitest';
 import { DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_POOL_MODEL } from '../../src/config.js';
 import {
+  ABSOLUTE_SLACK_USD,
   builtInProvider,
   callWithRetry,
   creditProvider,
   lookUpGeneration,
+  NORMAL_RATIO_BAND,
   outcomeOf,
+  OVER_LIST_TOLERANCE,
   poolProvider,
   priceOf,
   recompute,
   scenario,
   worstUsd,
 } from './harness.js';
-
-/** Reported over recomputed may exceed 1 by this much (rounding of tiny costs). */
-const OVER_LIST_TOLERANCE = 1.02;
-const ABSOLUTE_SLACK_USD = 2e-6;
 
 interface ReconcileCase {
   model: string;
@@ -44,7 +43,7 @@ const CASES: readonly ReconcileCase[] = [
   {
     model: DEFAULT_LEARN_NORMAL_MODEL,
     provider: () => builtInProvider(),
-    ratio: { min: 0.95, max: 1.02, why: "Normal's pinning to Anthropic, at the list price" },
+    ratio: NORMAL_RATIO_BAND,
   },
   {
     model: 'google/gemini-3.1-flash-lite',

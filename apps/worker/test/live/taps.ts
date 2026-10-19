@@ -10,6 +10,7 @@ import type {
   ProviderRegistry,
 } from '@tangent/shared';
 import { estimatedInputTokens } from '../../src/billing/service.js';
+import type { ModelPrice } from '../../src/config.js';
 import { priceOf, reserveBudget, SEARCH_ALLOWANCE_USD, settleBudget, worstUsd } from './harness.js';
 
 /** One provider call as the inner provider (under the meter) made it. */
@@ -22,19 +23,21 @@ export interface Tap {
 /**
  * `inner` with every call budgeted and recorded in `taps`: the provider under the meter,
  * so a tap holds exactly the events the meter saw. `onEvent` sees each event as it
- * passes (an abort test aborts there).
+ * passes (an abort test aborts there); `price` budgets a call (the run's price table,
+ * unless a scenario prices the model in an env of its own).
  */
 export function tappedRegistry(
   inner: ProviderRegistry,
   taps: Tap[],
   onEvent: (event: ProviderEvent, request: GenerateRequest) => void = () => undefined,
+  price: (model: string) => Promise<ModelPrice> = priceOf,
 ): ProviderRegistry {
   return {
     get(id) {
       const provider = inner.get(id);
       if (!provider) return provider;
       return decorateProvider(provider, {
-        stream: (request) => tapped(provider, request, taps, onEvent),
+        stream: (request) => tapped(provider, request, taps, onEvent, price),
       });
     },
     list: () => inner.list(),
@@ -47,11 +50,11 @@ async function* tapped(
   request: GenerateRequest,
   taps: Tap[],
   onEvent: (event: ProviderEvent, request: GenerateRequest) => void,
+  priceFor: (model: string) => Promise<ModelPrice>,
 ): AsyncGenerator<ProviderEvent> {
-  const price = await priceOf(request.model);
   const maxOutput = request.maxOutputTokens ?? provider.capabilities(request.model).maxOutputTokens;
   const worst =
-    worstUsd(price, estimatedInputTokens(request), maxOutput) +
+    worstUsd(await priceFor(request.model), estimatedInputTokens(request), maxOutput) +
     (request.webSearch ? SEARCH_ALLOWANCE_USD : 0);
   const ticket = await reserveBudget(worst);
   const events: ProviderEvent[] = [];
