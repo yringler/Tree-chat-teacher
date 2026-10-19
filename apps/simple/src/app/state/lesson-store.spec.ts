@@ -154,7 +154,7 @@ const POOL_STATUS: PoolStatusResponse = {
   enabled: true,
   availableMicros: 0,
   sessionsRemaining: 0,
-  model: { id: 'lite-model', label: 'Lite' },
+  model: { id: 'normal-model', label: 'Normal' },
 };
 
 function setup() {

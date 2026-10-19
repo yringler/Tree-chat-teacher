@@ -107,7 +107,7 @@ export const DEMO_POOL_STATUS: PoolStatusResponse = {
   enabled: false,
   availableMicros: 0,
   sessionsRemaining: 0,
-  model: { id: 'lorem', label: 'Lite' },
+  model: { id: 'lorem', label: 'Normal' },
 };
 const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
   available: false,

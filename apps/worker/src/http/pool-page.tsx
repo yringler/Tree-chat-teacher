@@ -3,7 +3,6 @@ import {
   formatMicros,
   POOL_EMPTY_TEXT,
   POOL_FUNDING_TEXT,
-  poolModelDifferences,
   type PoolModelInfo,
   roughWords,
 } from '@tangent/shared';
@@ -32,7 +31,7 @@ import { legalInfo, type LegalInfo } from './legal-info.js';
 /** Everything the page states, resolved from the config (one place, for the tests too). */
 export interface PoolPageFacts {
   enabled: boolean;
-  /** The pool's model and how it is asked against the tier that runs it (`poolModelInfo`). */
+  /** The pool's model, Normal's (`poolModelInfo`). */
   model: PoolModelInfo;
   sessionEstimateMicros: number;
   maxOutputTokens: number;
@@ -85,8 +84,6 @@ function smallMoney(micros: number): string {
 
 function PoolPage(props: { info: LegalInfo; facts: PoolPageFacts }) {
   const { info, facts: f } = props;
-  // The reply cap is stated next to it, so only the thinking is named here.
-  const asked = poolModelDifferences(f.model, { replies: false });
   // What Tangent sells here, if anything.
   const sold = joinList(
     [f.membershipOffered && 'memberships', f.creditSold && 'credit'].filter(
@@ -102,7 +99,7 @@ function PoolPage(props: { info: LegalInfo; facts: PoolPageFacts }) {
       <div class="summary">
         <p>
           <strong>The short version.</strong> {POOL_FUNDING_TEXT} Any signed-in learner can use it
-          in Tangent Learn, on one economical model, within daily limits.
+          in Tangent Learn, on {f.model.label}, the same model as paid replies, within daily limits.
         </p>
       </div>
       <h2>Why it exists</h2>
@@ -147,13 +144,12 @@ function PoolPage(props: { info: LegalInfo; facts: PoolPageFacts }) {
 
       <h2>Which model pool learners get</h2>
       <p>
-        Every reply on the pool uses{' '}
-        {asked.length === 0 ? f.model.label : `${f.model.label}'s model`} (<code>{f.model.id}</code>
-        ){asked.length > 0 && ` with ${asked.join(' and ')}`}, a fixed teaching prompt, replies of
-        at most {f.maxOutputTokens.toLocaleString('en-US')} tokens (roughly{' '}
-        {roughWords(f.maxOutputTokens)} words) and a capped amount of earlier conversation. You
-        can't choose another model or prompt on the pool: that keeps it a learning tool and keeps
-        each reply cheap. Reviews and web search aren't available on the pool either.
+        Every reply on the pool uses {f.model.label} (<code>{f.model.id}</code>), Learn's own model,
+        asked the same way as for paid replies, with a fixed teaching prompt, replies of at most{' '}
+        {f.maxOutputTokens.toLocaleString('en-US')} tokens (roughly {roughWords(f.maxOutputTokens)}{' '}
+        words) and a capped amount of earlier conversation. You can't choose another model or prompt
+        on the pool: that keeps it a learning tool and keeps what each reply can cost bounded.
+        Reviews and web search aren't available on the pool either.
       </p>
 
       <h2>Why there are limits</h2>

@@ -74,7 +74,7 @@ describe('How replies are paid for', () => {
     );
     // Tangent provides the pool's credit; nobody sells it.
     expect(radio(POOL).closest('label')?.textContent).toMatch(
-      /Free to you, within daily limits, on\s+Lite\.\s+Free credit\s+Tangent provides\./,
+      /Free to you, within daily limits, on\s+Normal\.\s+Free credit\s+Tangent provides\./,
     );
     expect(screen.getByText(/\$1\.20 available/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Add credit' }).getAttribute('href')).toBe('/billing');

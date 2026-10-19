@@ -13,12 +13,12 @@ import { AccountStore } from './state/account-store';
 import { LearnFunding } from './state/learn-funding';
 import { PaymentChoice } from './state/payment-choice';
 
-/** The open pool, on, with ten sessions' worth of credit on Lite. */
+/** The open pool, on, with ten sessions' worth of credit, on Normal. */
 export const POOL_ON: PoolStatusResponse = {
   enabled: true,
   availableMicros: 2_000_000,
   sessionsRemaining: 10,
-  model: { id: 'lite', label: 'Lite' },
+  model: { id: 'normal', label: 'Normal' },
 };
 
 /** A membership the learner needs and hasn't (the fee is on). */

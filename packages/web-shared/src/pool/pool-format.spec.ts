@@ -14,7 +14,7 @@ const STATUS: PoolStatusResponse = {
   enabled: true,
   availableMicros: 2_468_000,
   sessionsRemaining: 123,
-  model: { id: 'm', label: 'Lite' },
+  model: { id: 'm', label: 'Normal' },
 };
 
 describe('the pool meter', () => {

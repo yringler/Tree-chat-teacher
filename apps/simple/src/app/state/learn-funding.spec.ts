@@ -87,7 +87,7 @@ const POOL: PoolStatusResponse = {
   enabled: true,
   availableMicros: 2_400_000,
   sessionsRemaining: 120,
-  model: { id: 'lite', label: 'Lite' },
+  model: { id: 'normal', label: 'Normal' },
 };
 
 const POOL_ME: PoolMeResponse = {

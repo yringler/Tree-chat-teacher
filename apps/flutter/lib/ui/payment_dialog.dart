@@ -166,7 +166,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
             title: const Text('Use the open pool'),
             subtitle: Text(
               'Free to you, within daily limits, on '
-              '${session.pool?.modelLabel ?? 'one economical model'}. Free '
+              '${session.pool?.modelLabel ?? 'Normal'}. Free '
               'credit Tangent provides.',
             ),
           ),

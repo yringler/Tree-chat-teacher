@@ -13,7 +13,7 @@ const ON: PoolStatusResponse = {
   enabled: true,
   availableMicros: 2_000_000,
   sessionsRemaining: 10,
-  model: { id: 'lite', label: 'Lite' },
+  model: { id: 'normal', label: 'Normal' },
 };
 
 function api(status: PoolStatusResponse | Error) {
@@ -35,7 +35,7 @@ describe('PoolSection', () => {
     expect(meter.textContent).toContain('left');
     expect(meter.textContent).toContain('$2.00 in the pool');
     expect(section.textContent).toContain(POOL_FUNDING_TEXT);
-    expect(section.textContent).toContain('Any signed-in learner can use it on Lite');
+    expect(section.textContent).toContain('Any signed-in learner can use it on Normal');
     const how = within(section).getByRole('link', { name: /How the pool works/ });
     expect([how.getAttribute('href'), how.getAttribute('target')]).toEqual(['/pool', '_blank']);
     expect(within(section).queryAllByRole('button')).toEqual([]);
