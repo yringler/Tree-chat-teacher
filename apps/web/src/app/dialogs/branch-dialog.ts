@@ -29,6 +29,17 @@ import { ReplyFields, routeSearches, searchSummary } from '../ui/reply-fields';
 
 let uid = 0;
 
+/** What the dialog's fields hold. */
+interface BranchFields {
+  message: string;
+  quote: string;
+  mode: ContextMode;
+  route: string;
+  modelId: string;
+  grounding: GroundingMode;
+  isPrivate: boolean;
+}
+
 /**
  * "Tangent from here": a tangent off any message, made with its first
  * message (typed here, starting from what the message box held when its
@@ -43,7 +54,7 @@ let uid = 0;
   imports: [Modal, ModePicker, ReplyFields],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Tangent from here" (closed)="close()">
+    <app-modal heading="Tangent from here" [dirty]="dirty" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); create()" (keydown)="onKey($event)">
         @if (source(); as n) {
           <div class="excerpt">
@@ -172,6 +183,26 @@ export class BranchDialog implements OnInit {
   protected readonly saving = signal(false);
   /** Replies' fields are open (Change), not folded into their line. */
   protected readonly changing = signal(false);
+  private readonly fields = computed<BranchFields>(() => ({
+    message: this.message(),
+    quote: this.quote(),
+    mode: this.mode(),
+    route: this.route(),
+    modelId: this.modelId(),
+    grounding: this.grounding(),
+    isPrivate: this.isPrivate(),
+  }));
+  /** The fields as the dialog opened: a starting message the box held is still the box's. */
+  private readonly opened = signal<BranchFields | null>(null);
+  /** Edits that closing would lose. */
+  protected readonly dirty = computed(() => {
+    const was = this.opened();
+    const now = this.fields();
+    return (
+      !!was &&
+      (Object.keys(now) as (keyof BranchFields)[]).some((field) => now[field] !== was[field])
+    );
+  });
 
   /**
    * The replies are the open thread's (the route the bar under the message
@@ -212,6 +243,7 @@ export class BranchDialog implements OnInit {
     this.route.set(start.providerId ? routeKey(start) : '');
     this.modelId.set(start.model);
     this.grounding.set(this.parent()?.grounding ?? DEFAULT_GROUNDING_MODE);
+    this.opened.set(this.fields());
   }
 
   protected close(): void {

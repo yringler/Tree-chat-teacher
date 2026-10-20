@@ -54,7 +54,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
   imports: [Icon, Modal, ModePicker, ReplyFields],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Tangent settings" (closed)="close()">
+    <app-modal heading="Tangent settings" [dirty]="dirty" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); save()">
         <div class="field">
           <label class="field-label" [for]="id + '-title'">Title</label>
@@ -124,7 +124,7 @@ export class BranchSettings implements OnInit {
    * changed from this, not from the live branch: a reply finishing meanwhile
    * may have retitled it.
    */
-  private opened: Branch | null = null;
+  private readonly opened = signal<Branch | null>(null);
   protected readonly id = `bs${++uid}`;
 
   protected readonly title = signal('');
@@ -149,9 +149,29 @@ export class BranchSettings implements OnInit {
     }
   });
 
+  /** What Save sends: the fields the user changed. */
+  private readonly changes = computed<UpdateBranchRequest>(() => {
+    const b = this.opened();
+    if (!b) return {};
+    const req = replyChanges(b, {
+      route: this.route(),
+      modelId: this.modelId(),
+      grounding: this.grounding(),
+    });
+    const title = this.title().trim();
+    if (title && title !== b.title) req.title = title;
+    if (this.mode() !== b.contextMode) req.contextMode = this.mode();
+    const quote = this.quote().trim() || null;
+    if (quote !== b.anchorQuote) req.anchorQuote = quote;
+    if (this.isPrivate() !== b.isPrivate) req.isPrivate = this.isPrivate();
+    return req;
+  });
+  /** Edits that closing would lose. */
+  protected readonly dirty = computed(() => Object.keys(this.changes()).length > 0);
+
   ngOnInit(): void {
     const b = this.branch();
-    this.opened = b;
+    this.opened.set(b);
     this.title.set(b.title);
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
@@ -171,19 +191,9 @@ export class BranchSettings implements OnInit {
   }
 
   protected async save(): Promise<void> {
-    const b = this.opened;
+    const b = this.opened();
     if (!b) return;
-    const req: UpdateBranchRequest = replyChanges(b, {
-      route: this.route(),
-      modelId: this.modelId(),
-      grounding: this.grounding(),
-    });
-    const title = this.title().trim();
-    if (title && title !== b.title) req.title = title;
-    if (this.mode() !== b.contextMode) req.contextMode = this.mode();
-    const quote = this.quote().trim() || null;
-    if (quote !== b.anchorQuote) req.anchorQuote = quote;
-    if (this.isPrivate() !== b.isPrivate) req.isPrivate = this.isPrivate();
+    const req = this.changes();
     if (Object.keys(req).length === 0) {
       this.close();
       return;

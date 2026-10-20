@@ -928,6 +928,60 @@ app-android-app-banner {
   overflow-y: auto;
 }
 
+/*
+ * A dialog's Save and Cancel, its form's last row, stay in view at the foot
+ * of a body taller than the screen (a phone's sheet too), over a fade into
+ * what scrolls beneath them. The fade fits the form's gap, so a dialog that
+ * doesn't scroll looks the same. The row takes over the body's bottom
+ * padding (20px), to keep its distance from the edge while it sticks, and
+ * sticks that much lower, since a sticky box keeps within the padding.
+ */
+.modal-body > .form > .form-actions:last-child {
+  position: sticky;
+  bottom: -20px;
+  z-index: 1;
+  margin-bottom: -20px;
+  padding-bottom: 20px;
+  background: var(--bg-elev);
+}
+
+.modal-body > .form > .form-actions:last-child::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: 14px;
+  background: linear-gradient(to top, var(--bg-elev), transparent);
+  pointer-events: none;
+}
+
+/* "Discard your changes?" (Modal's `dirty`), over the dialog it would close. */
+.modal-ask {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  border-radius: inherit;
+  background: rgb(0 0 0 / 0.3);
+}
+
+.modal-ask-card {
+  width: min(320px, 100%);
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+
+.modal-ask-card p {
+  margin: 0 0 14px;
+  font-weight: 600;
+}
+
 @media (max-width: 560px) {
   .modal-host {
     padding: 0;

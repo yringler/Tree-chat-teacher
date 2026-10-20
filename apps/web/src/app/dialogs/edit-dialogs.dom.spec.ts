@@ -12,7 +12,8 @@ import {
 } from '@tangent/web-shared/testing';
 import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { Keyboard } from '../core/keyboard';
 import { type AppSettings, SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -59,6 +60,9 @@ const tree: Tree = detail().tree;
 
 /** A chip or button's text, its whitespace collapsed. */
 const text = (el: HTMLElement) => el.textContent?.replace(/\s+/g, ' ').trim();
+
+/** "Discard your changes?", asked before unsaved edits are lost. */
+const discardQuestion = () => screen.queryByRole('alertdialog', { name: 'Discard your changes?' });
 
 /**
  * `type` rendered with `inputs`, on tree t1 open at branch `side` (or
@@ -212,6 +216,49 @@ describe('Tangent settings', () => {
     });
   });
 
+  it('a backdrop tap closes it, but asks first while it holds an edit; Cancel discards without asking', async () => {
+    const d = await open(DialogHost);
+    const backdrop = () => d.host.querySelector<HTMLElement>('.backdrop')!;
+    d.dialogs.open({ kind: 'branch-settings' });
+    await d.fixture.whenStable();
+    await d.user.click(backdrop());
+    expect(d.dialogs.isOpen('branch-settings')).toBe(false);
+
+    d.dialogs.open({ kind: 'branch-settings' });
+    await d.fixture.whenStable();
+    await d.user.click(screen.getByRole('checkbox', { name: 'Private' }));
+    await d.user.click(backdrop());
+    expect(discardQuestion()).not.toBeNull();
+    expect(d.dialogs.isOpen('branch-settings')).toBe(true);
+    await d.user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'Private' }).checked).toBe(true);
+    await d.user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(discardQuestion()).toBeNull();
+    expect(d.dialogs.isOpen('branch-settings')).toBe(false);
+    expect(d.api.updateBranch).not.toHaveBeenCalled();
+  });
+
+  it('Escape, through the app’s keyboard, closes it with no edits and asks first with one', async () => {
+    const d = await open(DialogHost);
+    const keyboard = TestBed.inject(Keyboard);
+    const onKey = (e: KeyboardEvent) => keyboard.handle(e);
+    document.addEventListener('keydown', onKey);
+    onTestFinished(() => document.removeEventListener('keydown', onKey));
+    d.dialogs.open({ kind: 'branch-settings' });
+    await d.fixture.whenStable();
+    await d.user.keyboard('{Escape}');
+    expect(d.dialogs.isOpen('branch-settings')).toBe(false);
+
+    d.dialogs.open({ kind: 'branch-settings' });
+    await d.fixture.whenStable();
+    await d.user.type(screen.getByRole('textbox', { name: 'Title' }), '!');
+    await d.user.keyboard('{Escape}');
+    expect(discardQuestion()).not.toBeNull();
+    expect(d.dialogs.isOpen('branch-settings')).toBe(true);
+    await d.user.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(d.dialogs.isOpen('branch-settings')).toBe(false);
+  });
+
   it('opens only inside a tangent: the main thread’s are in Conversation settings', async () => {
     const d = await open(DialogHost, {}, undefined, null);
     d.dialogs.open({ kind: 'branch-settings' });
@@ -311,6 +358,37 @@ describe('Conversation settings', () => {
     expect(d.api.updateBranch).toHaveBeenLastCalledWith('trunk', { isPrivate: false });
     expect(d.api.updateTree).toHaveBeenLastCalledWith('t1', { systemPrompt: 'Be brief.' });
     expect(d.dialogs.isOpen('tree-settings')).toBe(false);
+  });
+
+  it('asks before a backdrop tap discards an edit, and stops asking once the edit is taken back', async () => {
+    const d = await open(DialogHost);
+    const backdrop = () => d.host.querySelector<HTMLElement>('.backdrop')!;
+    d.dialogs.open({ kind: 'tree-settings' });
+    await d.fixture.whenStable();
+    const prompt = screen.getByRole('textbox', { name: /^System prompt/ });
+    await d.user.type(prompt, 'Be brief.');
+    await d.user.click(backdrop());
+    expect(discardQuestion()).not.toBeNull();
+    await d.user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await d.user.clear(prompt);
+    await d.user.click(backdrop());
+    expect(discardQuestion()).toBeNull();
+    expect(d.dialogs.isOpen('tree-settings')).toBe(false);
+  });
+
+  it('after a save that failed halfway, what is left unsaved still asks before it is discarded', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const d = await open(DialogHost, {}, undefined, null);
+    d.api.updateTree.mockRejectedValueOnce(new ApiError(503, 'network', 'Offline'));
+    d.dialogs.open({ kind: 'tree-settings' });
+    await d.fixture.whenStable();
+    await d.user.type(screen.getByRole('textbox', { name: /^System prompt/ }), 'Be brief.');
+    await d.user.click(screen.getByRole('checkbox', { name: 'Private' }));
+    await d.user.click(screen.getByRole('button', { name: 'Save' }));
+    await d.fixture.whenStable();
+    expect(d.api.updateBranch).toHaveBeenCalledExactlyOnceWith('trunk', { isPrivate: true });
+    await d.user.click(d.host.querySelector<HTMLElement>('.backdrop')!);
+    expect(discardQuestion()).not.toBeNull();
   });
 
   it('opened from the route chip, opens at the main thread’s replies', async () => {

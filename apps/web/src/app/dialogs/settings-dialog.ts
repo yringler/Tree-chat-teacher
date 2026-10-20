@@ -23,7 +23,7 @@ import {
   TIERS,
 } from '@tangent/shared';
 import { type AppSettings, type ModelChoice, SettingsStore } from '../state/settings-store';
-import { TierStore } from '../state/tier-store';
+import { sameChoice, TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { type SettingsSection, UiStore } from '../state/ui-store';
 import { ApiClient, errorMessage, Modal, ToastStore } from '@tangent/web-shared';
@@ -57,7 +57,13 @@ interface TierRow {
   imports: [Modal, ModelPicker, OutputCapSetting, InputLimitSetting],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Settings" [focusHeading]="true" [openAt]="openAt()" (closed)="close()">
+    <app-modal
+      heading="Settings"
+      [focusHeading]="true"
+      [openAt]="openAt()"
+      [dirty]="dirty"
+      (closed)="close()"
+    >
       <p class="muted small settings-intro">Defaults for every conversation in power.</p>
       <form class="form" (submit)="$event.preventDefault(); save()">
         <fieldset class="settings-group" #tiers>
@@ -298,6 +304,27 @@ export class SettingsDialog implements OnInit {
     return text.trim() === '' || text.trim() === this.defaultPrompt().trim() ? null : text;
   });
   protected readonly usesBuiltIn = computed(() => this.promptToSave() === null);
+  /**
+   * Edits that closing would lose: a tier or a limit other than the saved
+   * one (or typed so that Save can't take it yet), the prompt's box changed.
+   */
+  protected readonly dirty = computed(() => {
+    const saved = this.settings.settings();
+    const tierEdited = TIERS.some((tier) => {
+      const held = this.heldPicks()[tier];
+      const was = saved.tiers[tier];
+      return held && was ? !sameChoice(held, was) : held !== was;
+    });
+    return (
+      tierEdited ||
+      this.outputCap() !== saved.maxOutputTokens ||
+      this.outputCapInvalid() ||
+      this.inputLimit() !== saved.maxInputTokens ||
+      this.inputOverflow() !== saved.inputOverflow ||
+      this.inputLimitInvalid() ||
+      (this.promptLoaded() && this.systemPrompt() !== (this.savedPrompt() ?? ''))
+    );
+  });
 
   ngOnInit(): void {
     this.outputCap.set(this.settings.settings().maxOutputTokens);

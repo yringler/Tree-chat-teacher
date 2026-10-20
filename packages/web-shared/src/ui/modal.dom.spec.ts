@@ -2,17 +2,21 @@ import { Component, signal } from '@angular/core';
 import { screen } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { dispatchShortcut } from '../core/shortcuts';
 import { render } from '../testing';
 import { Modal } from './modal';
 
 /**
  * A dialog the way the apps write one: a Modal around a form, shown while
- * `open`; `autofocus` marks its field, `focusHeading` sets the Modal's, and
+ * `open`; `autofocus` marks its field, `focusHeading` sets the Modal's,
  * `openAt` opens it at its "Replies" section (which takes the focus) or its
- * "Limit" section (which doesn't, and starts with a text field).
+ * "Limit" section (which doesn't, and starts with a text field), and `dirty`
+ * says it holds unsaved edits. "Keys" opens over it. Escape closes the
+ * top-most, from the document's keydown, as in the apps.
  */
 @Component({
   imports: [Modal],
+  host: { '(document:keydown)': 'onKey($event)' },
   template: `
     <button type="button" (click)="open.set(true)">Open settings</button>
     @if (open()) {
@@ -20,6 +24,7 @@ import { Modal } from './modal';
         heading="Settings"
         [focusHeading]="focusHeading()"
         [openAt]="openAt() === 'replies' ? replies : openAt() === 'limit' ? limit : null"
+        [dirty]="dirty"
         (closed)="closed(); open.set(false)"
       >
         <button type="button" disabled>Disabled first</button>
@@ -37,23 +42,47 @@ import { Modal } from './modal';
         <button type="button">Save</button>
       </app-modal>
     }
+    @if (keys()) {
+      <app-modal heading="Keys" (closed)="keys.set(false)">
+        <input aria-label="Key" />
+      </app-modal>
+    }
   `,
 })
 class Host {
   readonly open = signal(false);
+  readonly keys = signal(false);
   readonly autofocus = signal(false);
   readonly focusHeading = signal(false);
   readonly openAt = signal<'replies' | 'limit' | null>(null);
+  readonly dirty = signal(false);
   readonly closed = vi.fn();
+
+  onKey(e: KeyboardEvent): void {
+    dispatchShortcut(e, {
+      closeTop: () => {
+        const top = [this.keys, this.open].find((s) => s());
+        top?.set(false);
+        return !!top;
+      },
+      dialogOpen: () => this.open() || this.keys(),
+    });
+  }
 }
 
 async function opened(
-  set: { autofocus?: boolean; focusHeading?: boolean; openAt?: 'replies' | 'limit' } = {},
+  set: {
+    autofocus?: boolean;
+    focusHeading?: boolean;
+    openAt?: 'replies' | 'limit';
+    dirty?: boolean;
+  } = {},
 ) {
   const r = await render(Host);
   r.component.autofocus.set(set.autofocus ?? false);
   r.component.focusHeading.set(set.focusHeading ?? false);
   r.component.openAt.set(set.openAt ?? null);
+  r.component.dirty.set(set.dirty ?? false);
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Open settings' }));
   await r.fixture.whenStable();
@@ -138,5 +167,109 @@ describe('Modal', () => {
     const m = await opened();
     await m.user.click(m.host.querySelector<HTMLElement>('.backdrop')!);
     expect(m.component.closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape closes it at once while nothing is unsaved', async () => {
+    const m = await opened();
+    await m.user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  describe('with unsaved edits (dirty)', () => {
+    const ask = () => screen.queryByRole('alertdialog', { name: 'Discard your changes?' });
+    const keepEditing = () => screen.getByRole('button', { name: 'Keep editing' });
+    /** The focus leaves for the page's body. */
+    const blur = () => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      expect(document.activeElement).toBe(document.body);
+    };
+
+    it('Escape asks before discarding them; Keep editing, the default, returns the focus where it was', async () => {
+      const m = await opened({ dirty: true });
+      const name = screen.getByLabelText('Name');
+      await m.user.click(name);
+      await m.user.keyboard('{Escape}');
+      expect(ask()).not.toBeNull();
+      screen.getByRole('dialog', { name: 'Settings' });
+      await vi.waitFor(() => expect(document.activeElement).toBe(keepEditing()));
+      // While it asks, the dialog behind it can't be used.
+      expect(m.host.querySelector('.modal-body')?.hasAttribute('inert')).toBe(true);
+
+      await m.user.click(keepEditing());
+      expect(ask()).toBeNull();
+      expect(m.host.querySelector('.modal-body')?.hasAttribute('inert')).toBe(false);
+      await vi.waitFor(() => expect(document.activeElement).toBe(name));
+      expect(m.component.closed).not.toHaveBeenCalled();
+    });
+
+    it('Escape on the question keeps editing', async () => {
+      const m = await opened({ dirty: true });
+      const name = screen.getByLabelText('Name');
+      await m.user.click(name);
+      await m.user.keyboard('{Escape}');
+      await vi.waitFor(() => expect(document.activeElement).toBe(keepEditing()));
+      await m.user.keyboard('{Escape}');
+      expect(ask()).toBeNull();
+      screen.getByRole('dialog', { name: 'Settings' });
+      await vi.waitFor(() => expect(document.activeElement).toBe(name));
+    });
+
+    it('a backdrop tap asks too, Keep editing returns the focus the tap took, and Discard closes it', async () => {
+      const m = await opened({ dirty: true });
+      const name = screen.getByLabelText('Name');
+      await m.user.click(name);
+      const backdrop = m.host.querySelector<HTMLElement>('.backdrop')!;
+      await m.user.click(backdrop);
+      expect(ask()).not.toBeNull();
+      expect(m.component.closed).not.toHaveBeenCalled();
+      await m.user.click(keepEditing());
+      await vi.waitFor(() => expect(document.activeElement).toBe(name));
+
+      await m.user.click(backdrop);
+      await m.user.click(screen.getByRole('button', { name: 'Discard' }));
+      expect(m.component.closed).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('asks when the focus has left the dialog too, as when the button it was on goes away', async () => {
+      const m = await opened({ dirty: true });
+      await m.user.click(screen.getByLabelText('Name'));
+      blur();
+      await m.user.keyboard('{Escape}');
+      expect(ask()).not.toBeNull();
+      screen.getByRole('dialog', { name: 'Settings' });
+    });
+
+    it('only the top-most dialog asks: Escape closes one without edits above it first', async () => {
+      const m = await opened({ dirty: true });
+      m.component.keys.set(true);
+      await m.fixture.whenStable();
+      blur();
+      await m.user.keyboard('{Escape}');
+      expect(ask()).toBeNull();
+      expect(screen.getAllByRole('dialog')).toHaveLength(1);
+      screen.getByRole('dialog', { name: 'Settings' });
+      await m.user.keyboard('{Escape}');
+      expect(ask()).not.toBeNull();
+    });
+
+    it('counts an edit made a moment before Escape, before the page has caught up with it', async () => {
+      const m = await opened();
+      await m.user.click(screen.getByLabelText('Name'));
+      m.component.dirty.set(true);
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      await m.fixture.whenStable();
+      expect(ask()).not.toBeNull();
+      screen.getByRole('dialog', { name: 'Settings' });
+    });
+
+    it('Close is an explicit discard: it closes without asking', async () => {
+      const m = await opened({ dirty: true });
+      await m.user.click(screen.getByRole('button', { name: 'Close' }));
+      expect(ask()).toBeNull();
+      expect(m.component.closed).toHaveBeenCalledTimes(1);
+    });
   });
 });

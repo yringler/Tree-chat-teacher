@@ -284,4 +284,33 @@ describe('Settings', () => {
     expect(s.settings.settings().maxOutputTokens).toBe(8192);
     expect(s.dialogs.isOpen('settings')).toBe(false);
   });
+
+  it('a backdrop tap asks before it discards an edit (a tier, a limit, the prompt), and closes once each is taken back', async () => {
+    const s = await opened(async () => SAVED, { providers: [OWN, CREDIT] });
+    const backdrop = s.host.querySelector<HTMLElement>('.backdrop')!;
+    const ask = () => screen.queryByRole('alertdialog', { name: 'Discard your changes?' });
+    const normal = within(screen.getByRole('group', { name: 'Normal' }));
+    const limit = within(screen.getByRole('group', { name: 'Reply limit' }));
+    const edits: [() => Promise<void>, () => Promise<void>][] = [
+      [
+        () => s.user.click(normal.getByRole('radio', { name: 'Choose a model' })),
+        () => s.user.click(normal.getByRole('radio', { name: 'Suggested' })),
+      ],
+      [
+        () => s.user.click(limit.getByRole('radio', { name: '8k' })),
+        () => s.user.click(limit.getByRole('radio', { name: /^Auto/ })),
+      ],
+      [() => s.user.type(s.prompt, 'Be brief.'), () => s.user.clear(s.prompt)],
+    ];
+    for (const [edit, takeBack] of edits) {
+      await edit();
+      await s.user.click(backdrop);
+      expect(ask()).not.toBeNull();
+      await s.user.click(screen.getByRole('button', { name: 'Keep editing' }));
+      await takeBack();
+    }
+    await s.user.click(backdrop);
+    expect(ask()).toBeNull();
+    expect(s.dialogs.isOpen('settings')).toBe(false);
+  });
 });

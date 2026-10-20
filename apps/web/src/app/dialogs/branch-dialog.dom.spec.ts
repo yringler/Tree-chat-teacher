@@ -315,4 +315,28 @@ describe('Tangent from here (power)', () => {
     expect(d.ui.dialogs.get('branch')).toBeNull();
     expect(d.store.startBranch).not.toHaveBeenCalled();
   });
+
+  it('a backdrop tap closes it at once while it holds what it opened with: the box keeps its own message', async () => {
+    const d = await open({ message: 'Why does it bend?' });
+    await d.user.click(d.host.querySelector<HTMLElement>('.backdrop')!);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(d.ui.dialogs.get('branch')).toBeNull();
+  });
+
+  it('asks before a backdrop tap discards an edit: the quote taken off, a starting message typed', async () => {
+    const d = await open();
+    const backdrop = d.host.querySelector<HTMLElement>('.backdrop')!;
+    const ask = () => screen.queryByRole('alertdialog', { name: 'Discard your changes?' });
+    await d.user.click(screen.getByRole('button', { name: 'Remove quote' }));
+    await d.user.click(backdrop);
+    expect(ask()).not.toBeNull();
+    await d.user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await d.user.type(field(/Starting message/), 'Why?');
+    await d.user.click(backdrop);
+    expect(ask()).not.toBeNull();
+    expect(d.ui.dialogs.get('branch')).not.toBeNull();
+    await d.user.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(d.ui.dialogs.get('branch')).toBeNull();
+    expect(d.store.startBranch).not.toHaveBeenCalled();
+  });
 });

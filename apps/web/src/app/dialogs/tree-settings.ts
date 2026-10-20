@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   input,
   type OnInit,
@@ -20,6 +21,9 @@ import { Icon, Modal } from '@tangent/web-shared';
 import { ReplyFields, replyChanges, replyFieldsOf } from '../ui/reply-fields';
 
 let uid = 0;
+
+/** A request that sends something. */
+const changed = (req: object) => Object.keys(req).length > 0;
 
 /**
  * Asks before a whole conversation is deleted. Shared by the settings dialog
@@ -45,6 +49,7 @@ export function confirmDeleteTree(title: string): boolean {
     <app-modal
       heading="Conversation settings"
       [openAt]="section() === 'replies' ? replies : null"
+      [dirty]="dirty"
       (closed)="close()"
     >
       <form class="form" (submit)="$event.preventDefault(); save()">
@@ -118,7 +123,7 @@ export class TreeSettings implements OnInit {
    * saved. Saving sends what the user changed from these, not from the live
    * ones: the first reply may have titled the tree meanwhile.
    */
-  private opened: { tree: Tree; trunk: Branch } | null = null;
+  private readonly opened = signal<{ tree: Tree; trunk: Branch } | null>(null);
   protected readonly id = `ts${++uid}`;
 
   protected readonly title = signal('');
@@ -130,10 +135,37 @@ export class TreeSettings implements OnInit {
   protected readonly isPrivate = signal(false);
   protected readonly saving = signal(false);
 
+  /** What Save sends: the conversation's fields and the main thread's that the user changed. */
+  private readonly changes = computed<{
+    treeReq: UpdateTreeRequest;
+    trunkReq: UpdateBranchRequest;
+  }>(() => {
+    const opened = this.opened();
+    if (!opened) return { treeReq: {}, trunkReq: {} };
+    const { tree: t, trunk } = opened;
+    const treeReq: UpdateTreeRequest = {};
+    const title = this.title().trim();
+    if (title && title !== t.title) treeReq.title = title;
+    const sp = this.systemPrompt().trim() ? this.systemPrompt() : null;
+    if (sp !== t.systemPrompt) treeReq.systemPrompt = sp;
+    const trunkReq = replyChanges(trunk, {
+      route: this.route(),
+      modelId: this.modelId(),
+      grounding: this.grounding(),
+    });
+    if (this.isPrivate() !== trunk.isPrivate) trunkReq.isPrivate = this.isPrivate();
+    return { treeReq, trunkReq };
+  });
+  /** Edits that closing would lose. */
+  protected readonly dirty = computed(() => {
+    const { treeReq, trunkReq } = this.changes();
+    return changed(treeReq) || changed(trunkReq);
+  });
+
   ngOnInit(): void {
     const t = this.tree();
     const trunk = this.trunk();
-    this.opened = { tree: t, trunk };
+    this.opened.set({ tree: t, trunk });
     this.title.set(t.title);
     this.systemPrompt.set(t.systemPrompt ?? '');
     const replies = replyFieldsOf(trunk);
@@ -157,27 +189,16 @@ export class TreeSettings implements OnInit {
    * is sent too.
    */
   protected async save(): Promise<void> {
-    const opened = this.opened;
+    const opened = this.opened();
     if (!opened) return;
     const { tree: t, trunk } = opened;
-    const treeReq: UpdateTreeRequest = {};
-    const title = this.title().trim();
-    if (title && title !== t.title) treeReq.title = title;
-    const sp = this.systemPrompt().trim() ? this.systemPrompt() : null;
-    if (sp !== t.systemPrompt) treeReq.systemPrompt = sp;
-    const trunkReq: UpdateBranchRequest = replyChanges(trunk, {
-      route: this.route(),
-      modelId: this.modelId(),
-      grounding: this.grounding(),
-    });
-    if (this.isPrivate() !== trunk.isPrivate) trunkReq.isPrivate = this.isPrivate();
-    const changed = (req: object) => Object.keys(req).length > 0;
+    const { treeReq, trunkReq } = this.changes();
     this.saving.set(true);
     let ok = true;
     if (changed(trunkReq)) {
       ok = await this.store.updateBranch(trunk.id, trunkReq);
       if (ok) {
-        this.opened = { ...opened, trunk: this.store.index()?.branches.get(trunk.id) ?? trunk };
+        this.opened.set({ ...opened, trunk: this.store.index()?.branches.get(trunk.id) ?? trunk });
       }
     }
     if (ok && changed(treeReq)) ok = await this.store.updateTree(t.id, treeReq);
