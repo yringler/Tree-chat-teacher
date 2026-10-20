@@ -86,7 +86,7 @@ describe('input limit', () => {
     expect(dropped.plan.compaction).toBeNull();
     expect(dropped.plan.truncation).not.toBeNull();
 
-    // The reply length reserves its room out of the window here too.
+    // The reply limit reserves its room out of the window here too.
     const roomy = await s.chat.planContext(s.branchId, null, {
       resolveSummaries: false,
       limits: { maxOutputTokens: 1000 },

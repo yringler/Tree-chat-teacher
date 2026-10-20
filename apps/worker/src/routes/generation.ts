@@ -148,7 +148,7 @@ export function generationRoutes(): Hono<AppBindings> {
       keys,
     });
     chat = chatOf(c, keys, true);
-    // Power's reply length and input limit, clamped like a send's on the reviewer's
+    // Power's reply limit and input limit, clamped like a send's on the reviewer's
     // route (it is the one that reads the conversation): Tangent credit's input cap
     // applies with or without a setting; Learn takes none (input-limit.ts).
     const prepared = await chat.prepareReview(
@@ -190,7 +190,7 @@ export function generationRoutes(): Hono<AppBindings> {
       content: req.content,
     });
     chat = chatOf(c, keys, true);
-    // Power's reply length and input limit, clamped like a send's on the candidate's
+    // Power's reply limit and input limit, clamped like a send's on the candidate's
     // route; Learn takes none (input-limit.ts).
     const prepared = await chat.prepareCandidate(
       branch.id,

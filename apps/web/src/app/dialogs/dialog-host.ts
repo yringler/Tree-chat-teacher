@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { threadTitle } from '../state/thread-title';
 import { TreeStore } from '../state/tree-store';
 import { HELP_TITLE } from '@tangent/shared';
 import { KeysDialog, Modal, TangentHelp } from '@tangent/web-shared';
@@ -41,13 +42,22 @@ import { TreeSettings } from './tree-settings';
           <app-branch-dialog [state]="d" />
         }
         @case ('branch-settings') {
+          <!-- Only a tangent has its own; the main thread's are the conversation's. -->
           @if (store.index() && store.selectedBranch(); as branch) {
-            <app-branch-settings [branch]="branch" />
+            @if (branch.parentBranchId) {
+              <app-branch-settings [branch]="branch" />
+            }
           }
         }
         @case ('tree-settings') {
-          @if (store.index() && store.detail(); as detail) {
-            <app-tree-settings [tree]="detail.tree" />
+          @if (store.index(); as index) {
+            @if (store.detail(); as detail) {
+              <app-tree-settings
+                [tree]="detail.tree"
+                [trunk]="index.trunk"
+                [section]="d.section ?? null"
+              />
+            }
           }
         }
         @case ('share') {
@@ -71,7 +81,7 @@ import { TreeSettings } from './tree-settings';
           }
         }
         @case ('settings') {
-          <app-settings-dialog />
+          <app-settings-dialog [section]="d.section ?? null" />
         }
         @case ('account') {
           <app-account-dialog />
@@ -85,7 +95,11 @@ import { TreeSettings } from './tree-settings';
           </app-modal>
         }
         @case ('keys') {
-          <app-keys-dialog [initialProvider]="d.provider" (closed)="ui.dialogs.close('keys')" />
+          <app-keys-dialog
+            [initialProvider]="d.provider"
+            [titleOf]="titleOf"
+            (closed)="ui.dialogs.close('keys')"
+          />
         }
       }
     }
@@ -95,6 +109,7 @@ export class DialogHost {
   protected readonly ui = inject(UiStore);
   protected readonly store = inject(TreeStore);
   protected readonly helpTitle = HELP_TITLE;
+  protected readonly titleOf = threadTitle;
 
   /** The help's "Keyboard shortcuts": the shortcuts take its place, one dialog deep. */
   protected shortcutsFromHelp(): void {

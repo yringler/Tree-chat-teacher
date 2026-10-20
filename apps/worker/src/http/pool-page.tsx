@@ -1,6 +1,7 @@
 import {
   formatBps,
   formatMicros,
+  joinList,
   POOL_EMPTY_TEXT,
   POOL_FUNDING_TEXT,
   type PoolModelInfo,
@@ -15,7 +16,6 @@ import { modelPrice } from '../pool/price-table.js';
 import { POOL_SESSION_ESTIMATE_MICROS, poolFeeBps, poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { poolModelInfo } from '../pool/status.js';
-import { joinList } from './copy.js';
 import { docResponse } from './legal.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
 

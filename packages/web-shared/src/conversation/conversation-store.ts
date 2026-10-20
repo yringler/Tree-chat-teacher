@@ -323,9 +323,12 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     return null;
   }
 
-  /** What the app adds to every message it sends (e.g. power's reply length). */
-  protected sendExtras(): Partial<SendMessageRequest> {
-    return {};
+  /**
+   * What the app adds to every message it sends (e.g. power's reply limit),
+   * once it knows it: a send waits for it, and fails if it can't be had.
+   */
+  protected sendExtras(): Promise<Partial<SendMessageRequest>> {
+    return Promise.resolve({});
   }
 
   /** A send into `branchId` starts: what waited for that branch to send again goes. */
@@ -881,8 +884,12 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     try {
       const outcome = await runStream(
         {
-          open: (signal) =>
-            this.api.sendMessage(branchId, { content, ...options, ...this.sendExtras() }, signal),
+          open: async (signal) =>
+            this.api.sendMessage(
+              branchId,
+              { content, ...options, ...(await this.sendExtras()) },
+              signal,
+            ),
           reconnect: (id, signal) => this.api.streamNode(id, signal),
         },
         (event) => {

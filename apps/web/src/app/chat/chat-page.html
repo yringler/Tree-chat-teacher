@@ -92,18 +92,17 @@
           (jump)="thread.toEnd()"
         />
         @if (selection.value(); as q) {
-          <!-- Floats above the composer, over the end of the messages. -->
+          <!-- Floats above the composer, over the end of the messages. A read-only thread has no
+               message box to put the words on: Tangent from here instead. -->
           <div class="selection-float">
             <app-selection-ask
-              [label]="selectionLocked() ? 'Tangent from this selection…' : 'Ask about this'"
+              [label]="store.readOnly() ? 'Tangent from this selection…' : 'Ask about this'"
               [title]="
-                selectionLocked()
+                store.readOnly()
                   ? 'Tangent from here, quoting the selection (pick a route you can use)'
                   : 'Go on a tangent quoting the selection, keeping the conversation so far'
               "
-              [moreLabel]="selectionLocked() ? null : 'More: Tangent from here with this quote…'"
               (ask)="askAbout(q)"
-              (more)="moreAbout(q)"
             />
           </div>
         }
@@ -120,20 +119,30 @@
         } @else {
           <app-composer
             sendLabel="Send message"
-            [sendTitle]="sendTitle()"
             stopLabel="Stop generating"
             [placeholder]="placeholder()"
             [initial]="initialDraft()"
             [disabled]="store.busy()"
             [busy]="store.streamingNode() !== null"
             [canCompare]="canCompare()"
-            (send)="send($event)"
+            [actions]="actions()"
+            [target]="box.target()"
+            [nameTarget]="box.plan().nameTarget || thread.farFromEnd()"
+            (send)="box.send($event)"
+            (act)="act($event)"
+            (openOptions)="tangentWithOptions($event.text)"
             (stop)="stop()"
             (compare)="compare($event)"
+            (showTarget)="box.showTarget()"
           >
-            <!-- The words the message asks about; dropping them leaves the focus in the box. -->
-            @if (quote(); as q) {
-              <app-composer-quote composerLead [quote]="q.quote" (dropped)="dropQuote()" />
+            <!-- What the message asks about (words, or a whole message); dropping it leaves the focus in the box. -->
+            @if (box.lead(); as q) {
+              <app-composer-quote
+                composerLead
+                [quote]="q.quote"
+                [excerpt]="box.excerptOf(q.nodeId)"
+                (dropped)="box.dropLead()"
+              />
             }
           </app-composer>
           <!-- The branch's provider, payer and model: changeable before any send. -->

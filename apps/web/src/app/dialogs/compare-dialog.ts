@@ -127,7 +127,7 @@ export class CompareDialog implements OnInit {
           providerId: choice.providerId,
           funding: choice.funding ?? 'own-key',
           model: choice.model,
-          // The reply length and input limit, as a send carries them.
+          // The reply limit and input limit, as a send carries them.
           ...limits,
         },
       });

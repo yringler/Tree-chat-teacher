@@ -48,3 +48,9 @@ export function plainText(markdown: string, options: { max?: number } = {}): str
     .trim();
   return options.max === undefined ? text : clip(text, options.max);
 }
+
+/** `A`, `A or B`, `A, B or C` (or `and`), as prose names a list. */
+export function joinList(items: readonly string[], word: 'and' | 'or'): string {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
+}

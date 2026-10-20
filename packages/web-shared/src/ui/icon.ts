@@ -1,6 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-/** Stroke icons (24×24 viewBox, currentColor). Decorative: pair with a text label or aria-label. */
+/**
+ * Stroke icons (24×24 viewBox, currentColor). Decorative: pair with a text
+ * label or aria-label. Each is named for what it draws, not for a meaning;
+ * what the gear, sliders, caret (`chevronDown`) and pencil (`edit`) mean is
+ * one rule in docs/DECISIONS.md.
+ */
 const PATHS = {
   menu: 'M4 6h16M4 12h16M4 18h16',
   plus: 'M12 5v14M5 12h14',
@@ -19,7 +24,7 @@ const PATHS = {
   next: 'M5 12h14M12 5l7 7-7 7',
   keyboard: 'M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
-  settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6',
+  sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6',
   share: 'M4 12v8h16v-8M12 3v13M7 8l5-5 5 5',
   download: 'M12 3v12M7 10l5 5 5-5M4 21h16',
   upload: 'M12 21V9M7 14l5-5 5 5M4 3h16',
@@ -36,7 +41,8 @@ const PATHS = {
   search: 'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5L20 20',
   link: 'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7',
   compare: 'M3 4h7v16H3zM14 4h7v16h-7z',
-  gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1',
+  // A toothed ring around a hole: Lucide's `settings` (ISC licence), so it reads as a cog, not a sun.
+  gear: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
 } as const;
 
 export type IconName = keyof typeof PATHS;

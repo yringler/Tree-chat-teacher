@@ -83,7 +83,7 @@ import { laneTitle } from './titles';
           aria-label="Lane settings"
           (click)="settings($event)"
         >
-          <app-icon name="settings" [size]="15" />
+          <app-icon name="sliders" [size]="15" />
         </button>
         @if (parentId) {
           <button

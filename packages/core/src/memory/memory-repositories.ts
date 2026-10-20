@@ -9,7 +9,12 @@ import type {
 } from '@tangent/shared';
 import { ConflictError, NotFoundError } from '../errors.js';
 import { pairKey } from '../links.js';
-import type { AccountSettings, Repositories, ShareWithTree } from '../repository.js';
+import {
+  EMPTY_ACCOUNT_SETTINGS,
+  type AccountSettings,
+  type Repositories,
+  type ShareWithTree,
+} from '../repository.js';
 
 /** Byte order, as SQLite compares text: the D1 adapter's tie-breaks on ids. */
 function byBytes(a: string, b: string): number {
@@ -305,7 +310,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
       },
       async updateSettings(accountId, patch) {
         const next: AccountSettings = {
-          ...(state.settings.get(accountId) ?? { systemPrompt: null, walkthroughDoneAt: null }),
+          ...(state.settings.get(accountId) ?? EMPTY_ACCOUNT_SETTINGS),
           ...patch,
         };
         state.settings.set(accountId, next);

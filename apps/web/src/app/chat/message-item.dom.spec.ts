@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CONTINUE_MESSAGE, type ChatNode, type TreeDetail } from '@tangent/shared';
-import { ToastStore } from '@tangent/web-shared';
+import { ComposerController, ToastStore } from '@tangent/web-shared';
 import {
   branch,
   detail,
@@ -48,13 +48,13 @@ const LAPSED = membership({ status: 'inactive', subscriptionStatus: 'canceled' }
 const CREDIT = provider({ funding: 'credit', acceptsUserKey: false, keySource: 'server' });
 
 /**
- * Message `nodeId` of `d`, as power renders it. `lapsed`: the user's
- * membership ended, so the own-key trunk is read-only; `credit`: Tangent
- * credit can still generate.
+ * Message `nodeId` of `d`, as power renders it, with `branchId` open (the
+ * trunk by default). `lapsed`: the user's membership ended, so the own-key
+ * trunk is read-only; `credit`: Tangent credit can still generate.
  */
 async function message(
   nodeId: string,
-  opts: { d?: TreeDetail; lapsed?: boolean; credit?: boolean } = {},
+  opts: { d?: TreeDetail; lapsed?: boolean; credit?: boolean; branchId?: string } = {},
 ) {
   const d = opts.d ?? tree();
   const r = await render(MessageItem, {
@@ -67,7 +67,7 @@ async function message(
         builtInCredit: opts.credit,
         billing: opts.credit ? ({ availableMicros: 1_000_000, enabled: true } as never) : undefined,
       });
-      openTree(store, d);
+      openTree(store, d, opts.branchId ?? null);
     },
     inputs: { node: d.nodes.find((n) => n.id === nodeId) },
   });
@@ -99,10 +99,37 @@ describe('MessageItem: a finished reply', () => {
     expect(screen.queryByRole('button', { name: 'Delete message' })).toBeNull();
   });
 
-  it('Tangent ↳ opens the tangent dialog on it', async () => {
+  it('Tangent ↳ puts it on the message box, and says so', async () => {
     const m = await message('a1');
+    const tangent = button('Tangent ↳');
+    expect(tangent.title).toBe('Tangent from here: put this message on the message box (b)');
+    expect(tangent.hasAttribute('aria-haspopup')).toBe(false);
+    await m.user.click(tangent);
+    expect(TestBed.inject(ComposerController).lead()).toEqual({ nodeId: 'a1', quote: null });
+    expect(m.ui.dialogs.list()).toEqual([]);
+  });
+
+  it('Tangent ↳ with words of it selected puts those words on the message box', async () => {
+    const m = await message('a1');
+    const text = screen.getByText('Light is a wave.').firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 11);
+    range.setEnd(text, 15);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
     await m.user.click(button('Tangent ↳'));
+    expect(TestBed.inject(ComposerController).lead()).toEqual({ nodeId: 'a1', quote: 'wave' });
+    expect(window.getSelection()!.isCollapsed).toBe(true);
+  });
+
+  it('on a read-only thread, which has no message box, Tangent ↳ opens Tangent from here, and says so', async () => {
+    const m = await message('a1', { lapsed: true, credit: true });
+    const tangent = button('Tangent ↳');
+    expect(tangent.title).toBe('Tangent from here: set up a tangent from this message (b)');
+    expect(tangent.getAttribute('aria-haspopup')).toBe('dialog');
+    await m.user.click(tangent);
     expect(m.ui.dialogs.get('branch')).toEqual({ kind: 'branch', fromNodeId: 'a1', quote: null });
+    expect(TestBed.inject(ComposerController).lead()).toBeNull();
   });
 
   it('Copy copies the reply without its tangents, and says so', async () => {
@@ -142,11 +169,10 @@ describe('MessageItem: a finished reply', () => {
     button('Tangent ↳');
   });
 
-  it('with nothing left to generate on, offers no new branch, review or question; links stay', async () => {
+  it('with nothing left to generate on, offers no new branch or review; links stay', async () => {
     await message('a1', { lapsed: true });
     expect(names()).not.toContain('Tangent ↳');
     expect(names()).not.toContain('Review');
-    expect(screen.queryByRole('textbox', { name: /Ask your own/ })).toBeNull();
     button('Link…');
     button('Copy message');
   });
@@ -164,8 +190,8 @@ describe('TangentNav: Dig deeper and Suggested tangents', () => {
     const side = within(group('Suggested tangents'));
     side.getByRole('button', { name: start('Interference') });
     side.getByRole('button', { name: 'Start a tangent: Photons' });
-    // "Ask your own" comes after the suggestions.
-    screen.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
+    // A question of the user's own goes in the message box, not in a field here.
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 
   it('Dig deeper shows on an older reply too, and opens a tangent', async () => {
@@ -193,18 +219,6 @@ describe('TangentNav: Dig deeper and Suggested tangents', () => {
       within(group('Suggested tangents')).getByRole('button', { name: start('Interference') }),
     );
     expect(follow).toHaveBeenCalledWith('a1', 'Interference');
-  });
-
-  it('asks your own question in a new tangent, emptying the field once asked', async () => {
-    const m = await message('a1');
-    const askFrom = vi.spyOn(m.store, 'askFrom').mockResolvedValue(branch('new'));
-    const field = screen.getByRole<HTMLTextAreaElement>('textbox', {
-      name: 'Ask your own question in a new tangent',
-    });
-    await m.user.type(field, 'Why does it bend?');
-    await m.user.click(button('Ask'));
-    expect(askFrom).toHaveBeenCalledWith('a1', 'Why does it bend?');
-    await vi.waitFor(() => expect(field.value).toBe(''));
   });
 
   it('on a thread the membership locks, suggestions fold and say why; one followed still opens', async () => {
@@ -236,9 +250,35 @@ describe('TangentNav: Dig deeper and Suggested tangents', () => {
       name: /^Open tangent: Photons/,
     });
     expect(photons.disabled).toBe(false);
-    expect(
-      screen.getByRole<HTMLTextAreaElement>('textbox', { name: /Ask your own/ }).disabled,
-    ).toBe(true);
+  });
+
+  it('from a tangent that can reply, a locked thread’s reply above offers its suggestions', async () => {
+    // The main thread on the lapsed own key; the open tangent, off a later reply, on Tangent credit.
+    const d = tree(
+      {},
+      {
+        nodes: [
+          node('u2', { role: 'user', parentId: 'a1', seq: 2, content: 'And then?' }),
+          node('a2', { parentId: 'u2', seq: 3, content: 'Then it spreads.' }),
+        ],
+        branches: [
+          branch('side', {
+            parentBranchId: 'trunk',
+            branchPointNodeId: 'a2',
+            title: 'Spreading',
+            funding: 'credit',
+          }),
+        ],
+      },
+    );
+    const m = await message('a1', { d, lapsed: true, credit: true, branchId: 'side' });
+    const diffraction = within(group('Dig deeper')).getByRole<HTMLButtonElement>('button', {
+      name: start('Diffraction'),
+    });
+    expect(diffraction.disabled).toBe(false);
+    const follow = vi.spyOn(m.store, 'followTangent').mockResolvedValue(null);
+    await m.user.click(diffraction);
+    expect(follow).toHaveBeenCalledWith('a1', 'Diffraction');
   });
 
   it('a reply still being written offers no suggestions yet', async () => {
@@ -352,13 +392,18 @@ describe('MessageStatus: a reply that is not whole', () => {
     m.store.sending.set(new Set(['trunk']));
     await m.fixture.whenStable();
     const alert = screen.getByRole('alert');
-    expect(within(alert).queryByRole('button')).toBeNull();
+    expect(within(alert).queryByRole('button', { name: 'Continue' })).toBeNull();
     expect(alert.textContent).toContain('ask the model to continue');
+    // And where the limit is raised: Settings, opened there.
+    await m.user.click(within(alert).getByRole('button', { name: 'Settings → Reply limit' }));
+    expect(m.ui.dialogs.list()).toEqual([{ kind: 'settings', section: 'output-cap' }]);
   });
 
   it('a locked branch offers no Continue', async () => {
     await message('a1', { d: tree(cutOff), lapsed: true, credit: true });
-    expect(within(screen.getByRole('alert')).queryByRole('button')).toBeNull();
+    expect(
+      within(screen.getByRole('alert')).queryByRole('button', { name: 'Continue' }),
+    ).toBeNull();
   });
 
   it('failed: says so with the error; stopped: says only that', async () => {

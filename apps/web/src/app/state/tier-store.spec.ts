@@ -8,7 +8,7 @@ import {
   type ProviderInfo,
   type UpdateBranchRequest,
 } from '@tangent/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type AppSettings, SettingsStore } from './settings-store';
 import { TierStore, tierOptions } from './tier-store';
 import { TreeStore } from './tree-store';
@@ -93,6 +93,7 @@ function setup(
       ...DEFAULT_SETTINGS,
       tiers: opts.tiers ?? DEFAULT_SETTINGS.tiers,
     }),
+    loaded: signal(true),
   };
   const injector = Injector.create({
     providers: [
@@ -192,6 +193,17 @@ describe('TierStore choice', () => {
     expect(s.tiers.choice('max', branch())?.model).toBe(SONNET);
   });
 
+  it('resolves nothing until the settings have loaded, so no suggestion shows first', () => {
+    const s = setup();
+    s.settings.loaded.set(false);
+    expect(s.tiers.choice('normal', branch())).toBeNull();
+    expect(s.tiers.available(branch())).toBe(false);
+    expect(s.tiers.starting()).toBeNull();
+    s.settings.loaded.set(true);
+    expect(s.tiers.choice('normal', branch())).not.toBeNull();
+    expect(s.tiers.starting()).not.toBeNull();
+  });
+
   it('is null when no route lists the tier', () => {
     const s = setup({ providers: [anthropic], defaultRoute: 'anthropic' });
     expect(s.tiers.choice('max', branch())).toBeNull();
@@ -256,7 +268,17 @@ describe('TierStore tierOfBranch, available and usageFactor', () => {
   });
 });
 
+/** The screen's pointer hovers (a mouse) or doesn't (a touch screen). */
+function stubHover(hovers: boolean): void {
+  vi.stubGlobal('matchMedia', (q: string) => ({
+    matches: q === '(hover: hover)' ? hovers : !hovers,
+  }));
+}
+
 describe('TierStore switchTier', () => {
+  beforeEach(() => stubHover(true));
+  afterEach(() => vi.unstubAllGlobals());
+
   it('moves the branch onto the tier, says so and focuses the composer', async () => {
     const s = setup();
     vi.mocked(s.composer.focus).mockClear();
@@ -268,6 +290,15 @@ describe('TierStore switchTier', () => {
     });
     expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max');
     expect(s.composer.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the focus alone on a touch screen, so no keyboard pops up', async () => {
+    stubHover(false);
+    const s = setup();
+    vi.mocked(s.composer.focus).mockClear();
+    await expect(s.tiers.switchTier('b1', 'max')).resolves.toBe(true);
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max');
+    expect(s.composer.focus).not.toHaveBeenCalled();
   });
 
   it('sends the own key as such, and does nothing for an unknown branch', async () => {

@@ -34,7 +34,7 @@ const REASONS: Record<InclusionReason, string> = {
           @for (id of shownSources(); track id) {
             <button
               type="button"
-              class="link-btn seg-source"
+              class="link-btn"
               (click)="focusNode.emit(id)"
               [attr.title]="'Go to this message'"
             >

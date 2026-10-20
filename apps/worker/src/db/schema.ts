@@ -39,6 +39,28 @@ export const accountSettings = sqliteTable('account_settings', {
   systemPrompt: text('system_prompt'),
   /** When the account finished or skipped the first-run tangent walkthrough; null = not yet. */
   walkthroughDoneAt: text('walkthrough_done_at'),
+  /**
+   * Power's Normal and Max and its default reviewer: each a provider, who
+   * pays (`own-key` | `credit`) and a model, written together; null = the
+   * suggested model (the thread's provider's default for the reviewer).
+   * Plain text, not enums: reads validate every value and drop one that no
+   * longer does.
+   */
+  tierNormalProviderId: text('tier_normal_provider_id'),
+  tierNormalFunding: text('tier_normal_funding'),
+  tierNormalModel: text('tier_normal_model'),
+  tierMaxProviderId: text('tier_max_provider_id'),
+  tierMaxFunding: text('tier_max_funding'),
+  tierMaxModel: text('tier_max_model'),
+  reviewerProviderId: text('reviewer_provider_id'),
+  reviewerFunding: text('reviewer_funding'),
+  reviewerModel: text('reviewer_model'),
+  /** Power's reply limit in tokens; null = Auto, the model's default. */
+  maxOutputTokens: integer('max_output_tokens'),
+  /** Power's input limit in tokens; null = no limit of the user's. */
+  maxInputTokens: integer('max_input_tokens'),
+  /** What a conversation over the input limit loses (`compact` | `truncate`); null = `compact`. */
+  inputOverflow: text('input_overflow'),
   updatedAt: text('updated_at').notNull(),
 });
 

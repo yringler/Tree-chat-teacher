@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clip, clipUtf16, plainText } from './text.js';
+import { clip, clipUtf16, joinList, plainText } from './text.js';
 
 describe('clip', () => {
   it('keeps text within the limit and cuts longer text to the limit, ellipsis included', () => {
@@ -53,5 +53,16 @@ describe('plainText', () => {
   it('clips to `max` with an ellipsis', () => {
     expect(plainText('**word** '.repeat(50), { max: 11 })).toBe('word word…');
     expect(plainText('short', { max: 12 })).toBe('short');
+  });
+});
+
+describe('joinList', () => {
+  it('names one, two or more items as prose does, without a serial comma', () => {
+    expect(joinList([], 'and')).toBe('');
+    expect(joinList(['OpenRouter'], 'and')).toBe('OpenRouter');
+    expect(joinList(['OpenRouter', 'Anthropic'], 'or')).toBe('OpenRouter or Anthropic');
+    expect(joinList(['OpenRouter', 'Tangent credit', 'Anthropic'], 'and')).toBe(
+      'OpenRouter, Tangent credit and Anthropic',
+    );
   });
 });

@@ -67,7 +67,7 @@ const noLinks: LinksByNode = new Map();
  * Keyboard: the search box is a combobox; ↑/↓ move through the results
  * (skipping headings), Enter picks, Escape cancels. In the note, Enter links
  * (Shift+Enter: new line). The search box has `autofocus`, which Modal
- * focuses on open.
+ * focuses on open where a pointer hovers.
  *
  * Styles (base.css) theme through custom properties on the host:
  * `--picker-accent`, `--picker-active-bg`, `--picker-list-height`.

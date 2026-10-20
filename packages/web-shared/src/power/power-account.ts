@@ -94,6 +94,14 @@ export class PowerAccountStore {
   );
 
   /**
+   * Tangent credit can pay for a reply now (`creditCanPay`: a balance read
+   * and above zero), so a new conversation may start on it.
+   */
+  readonly creditCanPay = computed(() =>
+    creditCanPay(this.me()?.builtInCredit ?? false, this.billing()),
+  );
+
+  /**
    * How Learn would reply to a read-only conversation without a membership
    * (`learnWay`): the open pool while it is on, else Tangent credit while it
    * carries on; null when neither, and the read-only notice then leaves Learn out.
@@ -135,7 +143,8 @@ export class PowerAccountStore {
   );
 
   /**
-   * The route a new conversation starts on, and the fallback of a new branch
+   * The route a new conversation starts on (in power, unless the user chose
+   * a Normal in Settings that can reply), and the fallback of a new branch
    * off one that can't generate (`startingRoute`): `pickDefaultRoute`, the
    * server's rule for a new tree. A provider with a key first; else Tangent credit while the
    * balance can pay; else the user's own OpenRouter (the first send asks for
@@ -152,7 +161,7 @@ export class PowerAccountStore {
     const builtInCredit = this.me()?.builtInCredit ?? false;
     if (builtInCredit && !this.billingRead()) return null;
     return pickDefaultRoute(this.providers(), {
-      creditCanPay: creditCanPay(builtInCredit, this.billing()),
+      creditCanPay: this.creditCanPay(),
       creditBuyable: creditBuyable(builtInCredit, this.billing()),
       ownKeyLocked: this.lockedFundings().has('own-key'),
     });

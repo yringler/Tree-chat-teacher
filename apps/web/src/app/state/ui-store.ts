@@ -7,14 +7,15 @@ export interface BranchDialogState {
   /** Text the user had selected inside the source message, if any. */
   quote: string | null;
   /**
-   * The first message, already written ("Ask your own" under a reply, via its
-   * gear): the dialog sends it and asks for no starting message of its own.
+   * What the message box held (Tangent ↳'s caret): the starting message
+   * starts as it, and the box lets it go once the tangent is made.
    */
   message?: string;
-  /** The route the tangent starts on (a reviewer's model), instead of the parent's. */
+  /**
+   * The route the tangent starts on (a reviewer's model), instead of the
+   * open thread's (`TreeStore.tangentRoute`).
+   */
   route?: { providerId: string; funding: BranchFunding; model: string };
-  /** Called once the branch exists (e.g. to clear the field the message came from). */
-  onCreated?: () => void;
 }
 
 /** "Link…" on a message: the dialog that picks the other end. */
@@ -43,9 +44,17 @@ export interface LinkReturn {
 }
 
 /**
- * A dialog of the power app, with what it was opened with. `keys`: Keys &
- * credit, `provider` preselecting the provider to enter a key for; `help`:
- * How tangents work; `review`:
+ * The parts of Settings a control elsewhere opens it at: `tiers`, the models
+ * of Normal and Max (the bar under the message box); `output-cap`, the reply
+ * limit (a reply cut off at it).
+ */
+export type SettingsSection = 'tiers' | 'output-cap';
+
+/**
+ * A dialog of the power app, with what it was opened with. `tree-settings`
+ * and `settings`: Conversation settings and Settings, `section` the part to
+ * open at; `keys`: Keys & credit, `provider` preselecting the provider to
+ * enter a key for; `help`: How tangents work; `review`:
  * the review of one assistant message; `compare`: Normal and Max answer
  * `content` at the leaf of `branchId`, and the user keeps one (the message
  * stays in the composer until a pick commits).
@@ -53,12 +62,12 @@ export interface LinkReturn {
 export type Dialog =
   | ({ kind: 'branch' } & BranchDialogState)
   | { kind: 'branch-settings' }
-  | { kind: 'tree-settings' }
+  | { kind: 'tree-settings'; section?: 'replies' }
   | { kind: 'share' }
   | { kind: 'shortcuts' }
   | { kind: 'help' }
   | { kind: 'keys'; provider: string | null }
-  | { kind: 'settings' }
+  | { kind: 'settings'; section?: SettingsSection }
   | { kind: 'account' }
   | { kind: 'review'; nodeId: string }
   | { kind: 'compare'; branchId: string; content: string }

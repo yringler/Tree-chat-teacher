@@ -9,9 +9,6 @@ import {
 } from '@angular/core';
 import {
   DEFAULT_GROUNDING_MODE,
-  GROUNDING_MODES,
-  parseRouteKey,
-  routeKey,
   type Branch,
   type ContextMode,
   type GroundingMode,
@@ -20,8 +17,10 @@ import {
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { deleteBranchQuestion, Icon, Modal, ToastStore } from '@tangent/web-shared';
-import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
+import { ReplyFields, replyChanges, replyFieldsOf } from '../ui/reply-fields';
+
+let uid = 0;
 
 /**
  * Asks, then deletes a branch with every branch below it. Shared by the
@@ -44,92 +43,68 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
   return store.deleteBranch(branchId);
 }
 
-/** Edit the selected branch: title, mode, anchor quote, privacy, provider/model; delete it. */
+/**
+ * Edit the open tangent, in groups: its title; Context (the quote and the
+ * mode); Replies (who pays, the model, web search), which new tangents start
+ * with while it is open; Private. Delete it. The main thread's are in Conversation
+ * settings.
+ */
 @Component({
   selector: 'app-branch-settings',
-  imports: [Icon, Modal, ModePicker, ModelPicker],
+  imports: [Icon, Modal, ModePicker, ReplyFields],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal
-      [heading]="branch().parentBranchId ? 'Tangent settings' : 'Main thread settings'"
-      (closed)="close()"
-    >
+    <app-modal heading="Tangent settings" [dirty]="dirty" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); save()">
-        <label class="field">
-          <span class="field-label">Title</span>
+        <div class="field">
+          <label class="field-label" [for]="id + '-title'">Title</label>
           <input
             type="text"
             maxlength="200"
             required
+            [id]="id + '-title'"
+            [attr.aria-describedby]="titleHelp() ? id + '-title-help' : null"
             [value]="title()"
             (input)="title.set(t.value)"
             #t
           />
-          @if (branch().titleSource !== 'user') {
-            <span class="muted small"
-              >{{
-                branch().titleSource === 'auto' ? 'Generated automatically.' : 'Default title.'
-              }}
-              Editing it keeps your title.</span
-            >
+          @if (titleHelp(); as help) {
+            <span class="muted small" [id]="id + '-title-help'">{{ help }}</span>
           }
-        </label>
+        </div>
 
-        @if (branch().parentBranchId) {
-          <app-mode-picker [(mode)]="mode" />
+        <app-mode-picker [(mode)]="mode">
           <label class="field">
-            <span class="field-label">Anchor quote</span>
+            <span class="field-label">Quote</span>
             <textarea rows="3" [value]="quote()" (input)="quote.set(q.value)" #q></textarea>
           </label>
-        } @else {
-          <p class="muted small">This is the trunk: it has no parent context, mode or anchor.</p>
-        }
+        </app-mode-picker>
 
-        @if (route()) {
-          <app-model-picker [(route)]="route" [(modelId)]="modelId" />
-        }
+        <fieldset class="settings-section">
+          <legend>Replies</legend>
+          <p class="muted small">New tangents start with these while this tangent is open.</p>
+          <app-reply-fields [(route)]="route" [(modelId)]="modelId" [(grounding)]="grounding" />
+        </fieldset>
 
-        @if (canSearch()) {
-          <label class="field">
-            <span class="field-label">Check facts with web search</span>
-            <select #g [value]="grounding()" (change)="grounding.set(asGrounding(g.value))">
-              <option value="auto" [selected]="grounding() === 'auto'">
-                When a reply likely needs it (deep tangents, specific facts)
-              </option>
-              <option value="always" [selected]="grounding() === 'always'">
-                Offer it on every reply
-              </option>
-              <option value="off" [selected]="grounding() === 'off'">
-                Off (Check sources still works)
-              </option>
-            </select>
-            <span class="muted small">
-              The model decides whether to search, at most once per reply. A search costs about
-              $0.007 at OpenRouter, or $0.01 plus the results as input tokens at Anthropic. New
-              tangents inherit this setting.
-            </span>
+        <div class="field">
+          <label class="check">
+            <input
+              type="checkbox"
+              [attr.aria-describedby]="id + '-private'"
+              [checked]="isPrivate()"
+              (change)="isPrivate.set(!isPrivate())"
+            />
+            Private
           </label>
-        } @else {
-          <div class="field">
-            <span class="field-label">Check facts with web search</span>
-            <span class="muted small">
-              This provider can't search the web. Pick an OpenRouter or Anthropic model to check
-              facts; the setting is kept for when you do.
-            </span>
-          </div>
-        }
-
-        <label class="check">
-          <input type="checkbox" [checked]="isPrivate()" (change)="isPrivate.set(!isPrivate())" />
-          Private (excluded from shares and exports, with everything below it)
-        </label>
+          <span class="muted small indent" [id]="id + '-private'"
+            >Left out of shares and exports, with every tangent under it.</span
+          >
+        </div>
 
         <div class="form-actions">
-          @if (branch().parentBranchId) {
-            <button type="button" class="btn btn-danger btn-left" (click)="remove()">
-              <app-icon name="trash" /> Delete tangent
-            </button>
-          }
+          <button type="button" class="btn btn-danger-ghost btn-left" (click)="remove()">
+            <app-icon name="trash" /> Delete tangent
+          </button>
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
             {{ saving() ? 'Saving…' : 'Save' }}
@@ -149,7 +124,8 @@ export class BranchSettings implements OnInit {
    * changed from this, not from the live branch: a reply finishing meanwhile
    * may have retitled it.
    */
-  private opened: Branch | null = null;
+  private readonly opened = signal<Branch | null>(null);
+  protected readonly id = `bs${++uid}`;
 
   protected readonly title = signal('');
   protected readonly mode = signal<ContextMode>('path');
@@ -158,33 +134,52 @@ export class BranchSettings implements OnInit {
   /** Provider and funding, as a `routeKey`. */
   protected readonly route = signal('');
   protected readonly modelId = signal('');
-  protected readonly saving = signal(false);
   protected readonly grounding = signal<GroundingMode>(DEFAULT_GROUNDING_MODE);
-  protected readonly canSearch = computed(() => {
-    const { providerId, funding } = parseRouteKey(this.route());
-    return this.store.account
-      .providers()
-      .some(
-        (p) => p.id === providerId && (p.funding ?? 'own-key') === funding && p.webSearch === true,
-      );
+  protected readonly saving = signal(false);
+
+  /** How the title comes about, until the user names it: from the first reply. */
+  protected readonly titleHelp = computed(() => {
+    switch (this.branch().titleSource) {
+      case 'default':
+        return 'Named after its first reply unless you rename it.';
+      case 'auto':
+        return 'Named after its first reply.';
+      case 'user':
+        return null;
+    }
   });
 
-  protected asGrounding(value: string): GroundingMode {
-    return (GROUNDING_MODES as readonly string[]).includes(value)
-      ? (value as GroundingMode)
-      : DEFAULT_GROUNDING_MODE;
-  }
+  /** What Save sends: the fields the user changed. */
+  private readonly changes = computed<UpdateBranchRequest>(() => {
+    const b = this.opened();
+    if (!b) return {};
+    const req = replyChanges(b, {
+      route: this.route(),
+      modelId: this.modelId(),
+      grounding: this.grounding(),
+    });
+    const title = this.title().trim();
+    if (title && title !== b.title) req.title = title;
+    if (this.mode() !== b.contextMode) req.contextMode = this.mode();
+    const quote = this.quote().trim() || null;
+    if (quote !== b.anchorQuote) req.anchorQuote = quote;
+    if (this.isPrivate() !== b.isPrivate) req.isPrivate = this.isPrivate();
+    return req;
+  });
+  /** Edits that closing would lose. */
+  protected readonly dirty = computed(() => Object.keys(this.changes()).length > 0);
 
   ngOnInit(): void {
     const b = this.branch();
-    this.opened = b;
+    this.opened.set(b);
     this.title.set(b.title);
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
     this.isPrivate.set(b.isPrivate);
-    this.route.set(routeKey(b));
-    this.modelId.set(b.model);
-    this.grounding.set(b.grounding ?? DEFAULT_GROUNDING_MODE);
+    const replies = replyFieldsOf(b);
+    this.route.set(replies.route);
+    this.modelId.set(replies.modelId);
+    this.grounding.set(replies.grounding);
   }
 
   protected close(): void {
@@ -196,27 +191,9 @@ export class BranchSettings implements OnInit {
   }
 
   protected async save(): Promise<void> {
-    const b = this.opened;
+    const b = this.opened();
     if (!b) return;
-    const req: UpdateBranchRequest = {};
-    const title = this.title().trim();
-    if (title && title !== b.title) req.title = title;
-    if (b.parentBranchId) {
-      if (this.mode() !== b.contextMode) req.contextMode = this.mode();
-      const quote = this.quote().trim() || null;
-      if (quote !== b.anchorQuote) req.anchorQuote = quote;
-    }
-    if (this.isPrivate() !== b.isPrivate) req.isPrivate = this.isPrivate();
-    if (this.grounding() !== (b.grounding ?? DEFAULT_GROUNDING_MODE)) {
-      req.grounding = this.grounding();
-    }
-    const model = this.modelId().trim();
-    if (this.route() !== routeKey(b) || model !== b.model) {
-      const { providerId, funding } = parseRouteKey(this.route());
-      req.providerId = providerId;
-      req.funding = funding;
-      req.model = model;
-    }
+    const req = this.changes();
     if (Object.keys(req).length === 0) {
       this.close();
       return;
@@ -225,7 +202,7 @@ export class BranchSettings implements OnInit {
     const ok = await this.store.updateBranch(b.id, req);
     this.saving.set(false);
     if (ok) {
-      this.toast.notify(b.parentBranchId ? 'Tangent updated' : 'Main thread updated');
+      this.toast.notify('Tangent updated');
       this.close();
     }
   }

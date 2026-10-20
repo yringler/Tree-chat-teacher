@@ -6,17 +6,17 @@ import {
   ElementRef,
   inject,
   type OnDestroy,
-  signal,
   viewChild,
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import { clip, REPLY_ACTION, type MembershipInfo } from '@tangent/shared';
+import { clip, COMPOSER_PLACEHOLDERS, type MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
   Composer,
   ComposerController,
   ComposerQuote,
+  ComposerTarget,
   endpointTitle,
   Icon,
   JumpToEnd,
@@ -24,6 +24,7 @@ import {
   ReadOnlyComposer,
   selectedMessageQuote,
   SelectionAsk,
+  sendActions,
   TextSizeStore,
   ThreadScroll,
   type MessageQuote,
@@ -36,6 +37,9 @@ import { ModeBadge } from '../ui/mode-badge';
 import { ChatHeader } from './chat-header';
 import { MessageItem } from './message-item';
 import { RouteBar } from './route-bar';
+
+/** What Tangent ↳'s caret opens: Tangent from here, set up before the tangent starts. */
+const TANGENT_OPTIONS = 'Tangent with options: context, model, quote…';
 
 /** `/t/:treeId[/b/:branchId]`: linear view of the selected branch path. */
 @Component({
@@ -73,56 +77,34 @@ export class ChatPage implements OnDestroy {
   /**
    * Text selected in a finished message: offers "Ask about this" (the words
    * on the composer, asked about in a `path` tangent made when the message
-   * is sent) and, by its gear, the full "Branch from here" dialog with the
-   * quote filled in.
+   * is sent; Tangent ↳'s caret there sets that tangent up first).
    */
   protected readonly selection = new PendingQuote(() => this.quoteToAsk());
-  /** Words "Ask about this" put on the composer: the next message asks about them in a new tangent. */
-  protected readonly quote = signal<MessageQuote | null>(null);
   /** Where the conversation is scrolled. */
   protected readonly thread = new ThreadScroll({
     store: this.store,
     scroller: () => this.scroller()?.nativeElement,
     moved: () => {
       this.selection.clear();
-      this.quote.set(null);
+      this.composer.drop();
     },
   });
 
+  /** Where the message box sends, by the rule Learn's follows too (`ComposerTarget`). */
+  protected readonly box = new ComposerTarget({ store: this.store, thread: this.thread });
+
   /**
-   * The composer continues the open branch; asking about something new is a
-   * branch ("Ask your own question…" under the reply, "Ask about this" on a
-   * selection), so the box says what it does rather than inviting every question.
+   * Tangent ↳ and Next ➜ in place of Send, once there is a reply to go on a
+   * tangent from; Tangent ↳'s caret opens Tangent from here.
    */
+  protected readonly actions = computed(() =>
+    sendActions(this.box.plan().actions, { tangent: TANGENT_OPTIONS }),
+  );
+
   protected readonly placeholder = computed(() => {
-    const b = this.store.selectedBranch();
-    if (!b) return 'Message…';
-    if (this.store.path().length === 0) return 'Start the conversation…';
-    if (this.quote()) return 'Ask about this…';
-    // A new branch without messages: the next one starts it.
-    if (this.store.emptyBranch()) return 'Ask your question…';
-    return 'Continue this thread…';
-  });
-
-  /**
-   * Send's hint once there is a thread: sending is its next step (power
-   * starts tangents from a message's Tangent ↳ instead).
-   */
-  protected readonly sendTitle = computed(() => {
-    const b = this.store.selectedBranch();
-    if (!b || this.store.path().length === 0) return null;
-    if (this.quote()) return 'Ask in a new tangent about the quoted words';
-    const hint = b.parentBranchId ? REPLY_ACTION.hintInTangent : REPLY_ACTION.hint;
-    return `${REPLY_ACTION.label}: ${hint}`;
-  });
-
-  /**
-   * The selection's message is on a route that needs the membership: only
-   * the dialog can pick another one.
-   */
-  protected readonly selectionLocked = computed(() => {
-    const q = this.selection.value();
-    return !!q && this.store.nodeLocked(q.nodeId);
+    if (!this.store.selectedBranch()) return 'Message…';
+    const place = this.box.plan().place;
+    return place === 'start' ? 'Start the conversation…' : COMPOSER_PLACEHOLDERS[place];
   });
 
   /** A message of the open branch that couldn't be sent: the composer takes it back. */
@@ -133,10 +115,11 @@ export class ChatPage implements OnDestroy {
 
   /**
    * Compare is offered: Normal and Max are two models the open branch can
-   * use, it is idle, and the message continues it (not a quote's new tangent).
+   * use, it is idle, and the message continues it (not a lead's new tangent).
    */
   protected readonly canCompare = computed(
-    () => !this.store.busy() && !this.quote() && this.tiers.available(this.store.selectedBranch()),
+    () =>
+      !this.store.busy() && !this.box.lead() && this.tiers.available(this.store.selectedBranch()),
   );
 
   /** Pick mode, with what the message being linked from says (for the banner). */
@@ -175,28 +158,16 @@ export class ChatPage implements OnDestroy {
     this.selection.destroy();
   }
 
-  /** "Ask about this": the selection on the composer, focused; the tangent is made when it is sent. */
+  /**
+   * "Ask about this": the selection on the message box, focused, as a
+   * message's Tangent ↳ and `b` put it (`TreeStore.aimComposer`, which opens
+   * Tangent from here on a read-only thread); the tangent is made when the
+   * box's message is sent.
+   */
   protected askAbout(q: MessageQuote): void {
-    if (this.selectionLocked()) {
-      this.moreAbout(q);
-      return;
-    }
     this.selection.clear();
     window.getSelection()?.removeAllRanges();
-    this.quote.set(q);
-    this.composer.focus();
-  }
-
-  protected dropQuote(): void {
-    this.quote.set(null);
-    this.composer.focus();
-  }
-
-  /** The gear: "Branch from here" with the quote filled in (mode, model, starting message…). */
-  protected moreAbout(q: MessageQuote): void {
-    this.selection.clear();
-    window.getSelection()?.removeAllRanges();
-    this.ui.dialogs.open({ kind: 'branch', fromNodeId: q.nodeId, quote: q.quote });
+    this.store.aimComposer(q);
   }
 
   /** The quote under the selection, when it lies in one finished message and branches can be made. */
@@ -212,23 +183,27 @@ export class ChatPage implements OnDestroy {
     this.ui.dialogs.open({ kind: 'link', fromNodeId });
   }
 
-  protected send(content: string): void {
-    const q = this.quote();
-    if (q) {
-      void this.askQuoted(q, content);
-      return;
-    }
-    const id = this.store.selectedBranchId();
-    if (!id) return;
-    this.thread.pin();
-    if (this.store.focusedNodeId()) this.store.focus(null);
-    void this.store.send(id, content);
+  /** Tangent ↳ or Next ➜ pressed (or Enter / Ctrl+Enter) with the composer's text. */
+  protected act({ id, text }: { id: string; text: string }): void {
+    if (id === 'tangent') void this.box.goOnTangent(text);
+    else this.box.send(text);
   }
 
-  /** The message starts a `path` tangent about the quoted words; they stay on the composer if it can't be made. */
-  private async askQuoted(q: MessageQuote, content: string): Promise<void> {
-    this.thread.pin();
-    if (await this.store.askFrom(q.nodeId, content, q.quote)) this.quote.set(null);
+  /**
+   * Tangent ↳'s caret (or Ctrl/Cmd+Shift+Enter): Tangent from here, from the
+   * composer's target, with the lead's quote and what is typed as its
+   * starting message. The box lets the text go once the dialog has made
+   * the tangent, edited there or not; cancelling leaves the box as it was.
+   */
+  protected tangentWithOptions(text: string): void {
+    const from = this.box.plan().target;
+    if (!from) return;
+    this.ui.dialogs.open({
+      kind: 'branch',
+      fromNodeId: from,
+      quote: this.box.lead()?.quote ?? null,
+      message: text,
+    });
   }
 
   /** Compare: Normal and Max answer the message in a dialog; the text stays until one is kept. */

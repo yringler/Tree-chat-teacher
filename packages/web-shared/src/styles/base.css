@@ -218,8 +218,10 @@ hr {
 /*
  * The composer's actions in place of Send (ui/composer.ts): equal widths, the
  * primary one filled (`.btn-primary`) and the others outlined in the
- * accent, so each reads as a real choice. On a narrow screen they take a row
- * of their own under the text.
+ * accent, so each reads as a real choice. An action with options has a caret
+ * joined to its right, filled or outlined with it, wide enough for a finger
+ * on a touch screen. On a narrow screen they take a row of their own under
+ * the text.
  */
 .composer-actions {
   display: flex;
@@ -231,9 +233,42 @@ hr {
   min-width: 7.5em;
 }
 
-.composer-action:not(.is-primary) {
+.composer-action:not(.is-primary),
+.composer-caret:not(.is-primary) {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.composer-action:has(+ .composer-caret) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.composer-caret {
+  flex: none;
+  /* Across the gap, onto the button's border, so the two share one edge. */
+  margin-left: -7px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.composer-caret.is-primary {
+  border-left-color: color-mix(in srgb, var(--accent-fg) 40%, var(--accent));
+}
+
+/* The two halves overlap by a pixel: the focused one lies on top, so its ring shows whole. */
+.composer-action:focus-visible,
+.composer-caret:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+@media (pointer: coarse) {
+  .composer-caret {
+    min-width: 44px;
+  }
 }
 
 @media (max-width: 559px) {
@@ -278,7 +313,7 @@ hr {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg);
-  color: var(--text-muted);
+  color: var(--fg-muted);
   font-size: 0.85rem;
 }
 
@@ -298,6 +333,35 @@ hr {
 .composer-quote .icon-btn {
   width: 26px;
   height: 26px;
+}
+
+/* The reply a tangent from the box starts at, named in the same place, quieter than a quote. */
+.composer-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.composer-target:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.composer-target-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Power / Learn switch (ui/mode-switch.ts) */
@@ -405,18 +469,19 @@ hr {
   color: var(--accent);
 }
 
+/* An action that reads as a link in its sentence: the text's own font and size, underlined. */
 .link-btn {
   border: 0;
   background: none;
   padding: 0 2px;
   color: var(--accent);
   cursor: pointer;
-  font-family: var(--mono);
-  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .link-btn:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 /* Badges */
@@ -539,6 +604,13 @@ hr {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* Phones: fields side by side clip what they hold (a model id), so a row of fields stacks. */
+@media (max-width: 559px) {
+  .field-row:has(> .field) {
+    flex-direction: column;
+  }
 }
 
 input[type='text'],
@@ -733,7 +805,8 @@ app-android-app-banner {
   color: var(--accent);
 }
 
-.model-chip-id {
+.model-chip-id,
+.model-chip-route {
   color: var(--fg-muted);
 }
 
@@ -841,9 +914,80 @@ app-android-app-banner {
   padding: 14px 16px 8px 20px;
 }
 
+/*
+ * The heading, or the section a dialog opens at (Modal's openAt), takes the
+ * focus on open, but neither is a control: no ring.
+ */
+.modal-head h2:focus-visible,
+.modal-body fieldset:focus-visible {
+  box-shadow: none;
+}
+
 .modal-body {
   padding: 4px 20px 20px;
   overflow-y: auto;
+}
+
+/*
+ * A dialog's Save and Cancel, its form's last row, stay in view at the foot
+ * of a body taller than the screen (a phone's sheet too), over a fade into
+ * what scrolls beneath them. The fade fits the form's gap, so a dialog that
+ * doesn't scroll looks the same. The row takes over the body's bottom
+ * padding (20px), to keep its distance from the edge while it sticks, and
+ * sticks that much lower, since a sticky box keeps within the padding.
+ */
+.modal-body > .form > .form-actions:last-child {
+  position: sticky;
+  bottom: -20px;
+  z-index: 1;
+  margin-bottom: -20px;
+  padding-bottom: 20px;
+  background: var(--bg-elev);
+}
+
+.modal-body > .form > .form-actions:last-child::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: 14px;
+  background: linear-gradient(to top, var(--bg-elev), transparent);
+  pointer-events: none;
+}
+
+/*
+ * A control the focus scrolls into view stops above that row and its fade
+ * (34px button, 20px padding, 14px fade), so it never lies hidden under Save.
+ */
+.modal-body:has(> .form > .form-actions:last-child) {
+  scroll-padding-bottom: 72px;
+}
+
+/* "Discard your changes?" (Modal's `dirty`), over the dialog it would close. */
+.modal-ask {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  border-radius: inherit;
+  background: rgb(0 0 0 / 0.3);
+}
+
+.modal-ask-card {
+  width: min(320px, 100%);
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+
+.modal-ask-card p {
+  margin: 0 0 14px;
+  font-weight: 600;
 }
 
 @media (max-width: 560px) {
@@ -903,6 +1047,13 @@ app-android-app-banner {
   background: var(--bg-elev);
   color: var(--fg);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+/* The pressed option's shadow would hide the focus ring, the only sign of where the arrow keys left the focus. */
+.segment.is-on:focus-visible {
+  box-shadow:
+    var(--focus),
+    0 1px 2px rgb(0 0 0 / 0.12);
 }
 
 .segment:disabled {
@@ -1495,6 +1646,35 @@ app-android-app-banner {
   height: 28px;
 }
 
+/* Ask's caret (TangentAsk `options`), joined to its right as on the composer's actions. */
+.tangent-ask-actions .btn:has(+ .tangent-ask-caret) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.tangent-ask-caret {
+  /* Across the gap, so the two meet; the caret's left edge is the line between them. */
+  margin-left: -4px;
+  padding-left: 6px;
+  padding-right: 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left-color: color-mix(in srgb, var(--accent-fg) 40%, var(--accent));
+}
+
+@media (pointer: coarse) {
+  .tangent-ask-caret {
+    min-width: 44px;
+  }
+}
+
+/* The two halves overlap: the focused one lies on top, so its ring shows whole. */
+.tangent-ask-actions .btn:has(+ .tangent-ask-caret):focus-visible,
+.tangent-ask-caret:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
 /* The newest reply's item (TangentAsk `latest`): the natural place to ask next. */
 .tangent-ask.is-latest:not(.is-disabled),
 .tangent-ask.is-latest:not(.is-disabled):hover {
@@ -1519,16 +1699,22 @@ app-android-app-banner {
   border-radius: 999px;
 }
 
-.selection-ask-main:has(+ .selection-ask-more) {
+.selection-ask-main:has(+ .selection-ask-caret) {
   border-radius: 999px 0 0 999px;
 }
 
-.selection-ask-more {
+/* Filled like the button it joins, as on the composer's actions; its left edge is the line between them. */
+.selection-ask-caret {
   padding: 6px 12px 6px 9px;
-  border-left: 0;
-  border-color: var(--accent);
+  border-left-color: color-mix(in srgb, var(--accent-fg) 40%, var(--accent));
   border-radius: 0 999px 999px 0;
-  color: var(--accent);
+}
+
+/* The two halves meet: the focused one lies on top, so its ring shows whole. */
+.selection-ask-main:focus-visible,
+.selection-ask-caret:focus-visible {
+  position: relative;
+  z-index: 1;
 }
 
 /* Text size ("Aa": ui/text-size-menu.ts), a popover under its button */
@@ -1998,7 +2184,6 @@ app-node-picker {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: inherit;
   font-size: 0.9rem;
 }
 
@@ -2206,8 +2391,6 @@ app-node-picker {
   display: inline-block;
   cursor: pointer;
   list-style: none;
-  font-family: inherit;
-  font-size: inherit;
 }
 
 .membership-code > summary::-webkit-details-marker {

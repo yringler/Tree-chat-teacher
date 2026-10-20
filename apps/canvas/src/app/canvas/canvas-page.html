@@ -158,9 +158,11 @@
             ? 'Tangent from here, quoting the selection (pick a route you can use)'
             : 'A new lane quoting the selection, with the conversation so far: ask there'
         "
-        [moreLabel]="selectionLocked() ? null : 'More: Tangent from here with this quote…'"
+        [options]="
+          selectionLocked() ? null : 'Ask about this with options: context, model, variants…'
+        "
         (ask)="askAbout(q)"
-        (more)="moreAbout(q)"
+        (openOptions)="moreAbout(q)"
       />
     </div>
   } @else if (quote(); as q) {
@@ -176,13 +178,13 @@
         <app-tangent-ask
           label="Your question about the quoted words, asked in a new lane"
           placeholder="Ask about this…"
-          settingsLabel="More: Tangent from here with this quote…"
+          options="Ask with options: context, model, variants…"
           [expandable]="true"
           [focusOnOpen]="true"
           [busy]="asking()"
           [(text)]="askText"
           (ask)="askQuoted(q, $event)"
-          (settings)="moreAboutQuoted(q, $event)"
+          (openOptions)="moreAboutQuoted(q, $event)"
         />
       </div>
     </div>

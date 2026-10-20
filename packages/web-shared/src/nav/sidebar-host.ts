@@ -27,7 +27,7 @@ export interface SidebarWords {
 export abstract class SidebarHost {
   abstract readonly store: ConversationStore;
   abstract readonly words: SidebarWords;
-  /** Branches can be renamed in place (double-click or the pencil). */
+  /** Tangents can be renamed in place (double-click or the pencil); the main thread can't. */
   abstract readonly canRename: boolean;
   abstract treeTitle(title: string): string;
   abstract branchTitle(item: OutlineItem): string;

@@ -4,6 +4,7 @@ import {
   formatMicros,
   formatServiceFee,
   HELP_TITLE,
+  joinList,
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
   POOL_MOTTO,
@@ -18,7 +19,7 @@ import type { AppBindings, AppEnv } from '../env.js';
 import { logEvent } from '../log.js';
 import { cachedPoolStatus } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
-import { joinList, offerOf, PoolSteps, type Offer } from './copy.js';
+import { offerOf, PoolSteps, type Offer } from './copy.js';
 import { LandingDemo } from './landing-demo.js';
 import { pageResponse } from './layout.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';

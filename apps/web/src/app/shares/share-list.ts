@@ -1,5 +1,6 @@
 import type { TreeIndex } from '@tangent/core';
 import type { ShareSummary } from '@tangent/shared';
+import { threadTitle } from '../state/thread-title';
 
 export const SCOPE_LABEL: Record<ShareSummary['scope'], string> = {
   tree: 'Whole conversation',
@@ -24,5 +25,6 @@ export function sharesOfTree(shares: readonly ShareSummary[], treeId: string): S
 export function shareBranchTitle(share: ShareSummary, index: TreeIndex | null): string | null {
   if (share.scope === 'tree' || !share.targetNodeId || !index) return null;
   const node = index.nodes.get(share.targetNodeId);
-  return (node && index.branches.get(node.branchId)?.title) || null;
+  const branch = node && index.branches.get(node.branchId);
+  return branch ? threadTitle(branch) : null;
 }

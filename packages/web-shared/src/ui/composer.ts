@@ -13,6 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import type { ComposerLead, ComposerSend } from '@tangent/shared';
 import { Icon, type IconName } from './icon';
 
 /** What the controller can ask of one message box. */
@@ -31,12 +32,19 @@ export interface ComposerBox {
  * The app's message boxes (`Composer`), asked directly: take focus, take
  * text handed over from elsewhere, let a sent message go. A focus request
  * for a branch whose box isn't on the page yet (a lane just created) waits
- * for that box.
+ * for that box. It also holds what the page's one box is aimed at (`lead`).
  */
 @Injectable({ providedIn: 'root' })
 export class ComposerController {
   private readonly boxes = new Set<ComposerBox>();
   private pendingFocus: string | null = null;
+  private readonly aimed = signal<ComposerLead | null>(null);
+  /**
+   * What the page's one box is aimed at: a message, or words quoted from
+   * it, that its next message asks about on a tangent made when it is sent.
+   * The page drops it once the tangent is made or the view moves elsewhere.
+   */
+  readonly lead = this.aimed.asReadonly();
 
   /** A box on the page; the returned function takes it off. */
   attach(box: ComposerBox): () => void {
@@ -56,6 +64,31 @@ export class ComposerController {
     const box = this.find(branchId) ?? (branchId === null ? undefined : this.single());
     this.pendingFocus = box ? null : branchId;
     box?.focus();
+  }
+
+  /** Aims the box at `lead` and focuses it; what is typed stays. */
+  aim(lead: ComposerLead): void {
+    this.aimed.set(lead);
+    this.focus();
+  }
+
+  /** Takes the lead off the box; what is typed stays. */
+  drop(): void {
+    this.aimed.set(null);
+  }
+
+  /**
+   * The calling page holds the lead (call it in the page's injection
+   * context): it goes when the page does, and once `has` no longer finds its
+   * message (deleted, or another conversation open), since the box can't
+   * ask about a message that isn't there.
+   */
+  holdLead(has: (nodeId: string) => boolean): void {
+    effect(() => {
+      const lead = this.aimed();
+      if (lead && !has(lead.nodeId)) untracked(() => this.drop());
+    });
+    inject(DestroyRef).onDestroy(() => this.drop());
   }
 
   /** Appends `text` to the current box's draft and focuses it (e.g. a review's corrections). */
@@ -124,36 +157,101 @@ export function refocusesWhenEnabled(o: {
 }
 
 /** Focusing pops up the on-screen keyboard on touch devices, so only pointers that hover autofocus. */
-function hovers(): boolean {
+export function pointerHovers(): boolean {
   return matchMedia('(hover: hover)').matches;
 }
 
 /**
- * A way to send what is typed, offered in place of Send (Learn's Tangent ↳
- * and Next ➜). Its button carries `data-action="<id>"`, which the
- * walkthrough points at.
+ * The keydown in a multi-line box that sends rather than starts a new line:
+ * Enter without Shift, outside an IME composition; on a touch screen
+ * (`touch`, no pointer hovers) only with Ctrl or Cmd, since a phone's
+ * keyboard has no Shift+Enter, so its plain Enter is the new line and the
+ * box's labelled button sends.
  */
-export interface ComposerAction {
-  id: string;
-  label: string;
-  /** None where the label carries its own glyph (the arrows of Tangent ↳ and Next ➜). */
-  icon?: IconName;
-  /** What the action is for: the button's tooltip and accessible description. */
-  title: string;
-  /** Filled; the others are outlined. */
-  primary: boolean;
+export function enterSends(e: KeyboardEvent, touch: boolean): boolean {
+  return e.key === 'Enter' && !e.shiftKey && !e.isComposing && (e.ctrlKey || e.metaKey || !touch);
+}
+
+/** The keydown that opens an action's options: Ctrl or Cmd+Shift+Enter, outside an IME composition. */
+function opensOptions(e: KeyboardEvent): boolean {
+  return e.key === 'Enter' && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.isComposing;
 }
 
 /**
- * Message box of every app. Enter sends, Shift+Enter inserts a newline;
+ * A way to send what is typed, offered in place of Send (Tangent ↳ and
+ * Next ➜). Its button carries `data-action="<id>"`, which the walkthrough
+ * points at.
+ */
+export interface ComposerAction {
+  id: string;
+  /** A trailing glyph (the arrows of Tangent ↳ and Next ➜) shows but isn't read out. */
+  label: string;
+  /** None where the label carries its own glyph. */
+  icon?: IconName;
+  /**
+   * What the action is for: the button's tooltip and accessible description,
+   * to which the box adds the key that fires it where Enter sends.
+   */
+  title: string;
+  /** Filled, and fired by Enter; the other is outlined, and fired by Ctrl or Cmd+Enter. */
+  primary: boolean;
+  /**
+   * What its options are, as the tooltip of a caret joined to its button,
+   * named "<label> with options…": the caret, or Ctrl or Cmd+Shift+Enter in
+   * the box, asks the host to open them (`openOptions`). None: no caret.
+   */
+  options?: string;
+}
+
+/**
+ * A label's words and its trailing glyph ("Tangent ↳": "Tangent" and "↳"),
+ * so a screen reader says the words and leaves the arrow to the eye.
+ */
+export function labelParts(label: string): { name: string; glyph: string } {
+  const m = /^(.+?)\s+(\p{S}+)$/u.exec(label);
+  return m?.[1] && m[2] ? { name: m[1], glyph: m[2] } : { name: label, glyph: '' };
+}
+
+/**
+ * The composer rule's ways to send (`composerPlan`) as the box's buttons;
+ * `options` gives an action a caret for the host's options (power's Tangent
+ * from here), as that caret's tooltip.
+ */
+export function sendActions(
+  sends: readonly ComposerSend[],
+  options: Partial<Record<ComposerSend['id'], string>> = {},
+): ComposerAction[] {
+  return sends.map((s) => {
+    const action = { id: s.id, label: s.label, title: s.hint, primary: s.primary };
+    const caret = options[s.id];
+    return caret ? { ...action, options: caret } : action;
+  });
+}
+
+/**
+ * Message box of every app. Enter sends, Shift+Enter inserts a newline; on
+ * a touch screen (no hover) a plain Enter inserts a newline too and only the
+ * buttons send: a phone's keyboard has no Shift+Enter, and a send there is
+ * then a tap on a button that says where the message goes.
  * Stop replaces Send while a reply streams; with `canCompare`, Compare beside
  * Send (or the actions) asks Normal and Max (the host opens its dialog). With
- * `actions`, their buttons replace Send and emit `act`: Enter fires the first,
- * Ctrl or Cmd+Enter the second (the first when there is only one). The text
+ * `actions`, their buttons replace Send, in the order given, and emit `act`:
+ * Enter fires the one marked `primary`, Ctrl or Cmd+Enter the other (the
+ * primary when there is only one), so the keys follow the fill, and each
+ * tooltip names its key where Enter sends (not on a touch screen). An
+ * action with `options` has a caret joined to its button that emits
+ * `openOptions`, as Ctrl or Cmd+Shift+Enter does; it works with nothing
+ * typed, since the host's options take the message themselves. The text
  * stays until the message is in the tree (`ComposerController.sent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed. An element marked `composerLead`
  * goes in the box before the text (the words a message asks about, say).
+ * With `target`, the open box can name the reply a tangent from it starts
+ * at, in the same place: whether it does (`nameTarget`) is decided as the
+ * box opens and kept while it stays open, so the box doesn't change height
+ * under the user's typing. Losing the target (to a lead, which names
+ * itself) ends the naming until the box next opens, so taking a lead off
+ * leaves the place empty rather than naming something else.
  *
  * `is-open` on the form marks it focused, for styles that change its size
  * then. A press elsewhere takes the focus on pointerdown, but the box keeps
@@ -169,17 +267,32 @@ export interface ComposerAction {
       #form
       class="composer"
       [class.is-open]="open()"
-      (focusin)="open.set(true)"
+      (focusin)="onFocusIn($event, form)"
       (focusout)="onFocusOut($event, form)"
       (submit)="$event.preventDefault(); submit()"
     >
+      @if (open() && namesTarget() && target(); as from) {
+        <!-- Mousedown is cancelled, so the focus (and a phone's keyboard) stays in the box. -->
+        <span class="composer-lead">
+          <button
+            type="button"
+            class="composer-target"
+            title="Show the reply Tangent ↳ starts from"
+            (mousedown)="$event.preventDefault()"
+            (click)="showTarget.emit()"
+          >
+            <span aria-hidden="true">↳</span>
+            <span class="composer-target-text">from “{{ from }}”</span>
+          </button>
+        </span>
+      }
       <ng-content select="[composerLead]" />
       <label class="sr-only" [attr.for]="inputId()">{{ label() }}</label>
       <textarea
         #box
         [id]="inputId()"
         rows="1"
-        enterkeyhint="send"
+        [attr.enterkeyhint]="touch ? 'enter' : 'send'"
         [placeholder]="placeholder()"
         [value]="text()"
         [disabled]="disabled()"
@@ -212,6 +325,7 @@ export interface ComposerAction {
         @if (actions().length) {
           <div class="composer-actions">
             @for (a of actions(); track a.id) {
+              @let label = labelParts(a.label);
               <button
                 type="button"
                 class="btn composer-action"
@@ -219,16 +333,35 @@ export interface ComposerAction {
                 [class.btn-primary]="a.primary"
                 [class.btn-sm]="compact()"
                 [attr.data-action]="a.id"
-                [title]="a.title"
-                [attr.aria-description]="a.title"
+                [title]="titleOf(a)"
+                [attr.aria-description]="titleOf(a)"
                 [disabled]="disabled() || !text().trim()"
                 (click)="fire(a)"
               >
                 @if (a.icon) {
                   <app-icon [name]="a.icon" [size]="iconSize()" />
                 }
-                {{ a.label }}
+                <span
+                  >{{ label.name }} <span aria-hidden="true">{{ label.glyph }}</span></span
+                >
               </button>
+              @if (a.options; as options) {
+                <button
+                  type="button"
+                  class="btn composer-caret"
+                  [class.is-primary]="a.primary"
+                  [class.btn-primary]="a.primary"
+                  [class.btn-sm]="compact()"
+                  aria-haspopup="dialog"
+                  [attr.aria-label]="label.name + ' with options…'"
+                  [title]="optionsTitle(options)"
+                  [attr.aria-description]="optionsTitle(options)"
+                  [disabled]="disabled()"
+                  (click)="openWith(a)"
+                >
+                  <app-icon name="chevronDown" [size]="iconSize()" />
+                </button>
+              }
             }
           </div>
         } @else {
@@ -238,8 +371,6 @@ export interface ComposerAction {
             [class.btn-sm]="compact()"
             [disabled]="disabled() || !text().trim()"
             [attr.aria-label]="sendLabel()"
-            [attr.title]="sendTitle()"
-            [attr.aria-description]="sendTitle()"
           >
             <app-icon name="send" [size]="iconSize()" />
             @if (!compact()) {
@@ -258,8 +389,6 @@ export class Composer {
   readonly label = input('Message');
   readonly inputId = input('composer-input');
   readonly sendLabel = input('Send');
-  /** What sending does, as Send's tooltip and description (none by default). */
-  readonly sendTitle = input<string | null>(null);
   readonly stopLabel = input('Stop the reply');
   /** The branch this box writes in, where a page has one box per branch (the canvas's lanes). */
   readonly branchId = input<string | null>(null);
@@ -287,20 +416,33 @@ export class Composer {
   readonly canCompare = input(false);
   /** Buttons in place of Send, each sending the text its own way (`act`). */
   readonly actions = input<readonly ComposerAction[]>([]);
+  /** The opening words of the reply a tangent from the box starts at, for the box to name. */
+  readonly target = input<string | null>(null);
+  /** The box names `target` if this holds as it opens: the reply may not be the one in view. */
+  readonly nameTarget = input(false);
   readonly send = output<string>();
   /** An action fired with the trimmed text: like Send, the text stays until the message is in the tree. */
   readonly act = output<{ id: string; text: string }>();
+  /** An action's options asked for, with the trimmed text (maybe none): the host opens them. */
+  readonly openOptions = output<{ id: string; text: string }>();
   readonly stop = output();
   /** Compare the message: like Send, the text stays until the picked answer is in the tree. */
   readonly compare = output<string>();
   /** Every edit, for hosts that read the draft themselves. */
   readonly draft = output<string>();
+  /** The named target was clicked: the host shows that reply. */
+  readonly showTarget = output();
 
   protected readonly text = signal('');
   /** Focused, or a press that took the focus away hasn't ended yet (`is-open`). */
   protected readonly open = signal(false);
+  /** `nameTarget` as the box last opened. */
+  protected readonly namesTarget = signal(false);
   /** A pointer is down somewhere on the page. */
   private pressing = false;
+  /** No pointer hovers: a plain Enter is a newline, and the keyboard's key says so. */
+  protected readonly touch = !pointerHovers();
+  protected readonly labelParts = labelParts;
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
 
   constructor() {
@@ -321,7 +463,7 @@ export class Composer {
       (fn) => destroyRef.onDestroy(fn),
     );
     afterNextRender(() => {
-      if (this.autofocus() && hovers()) this.box().nativeElement.focus();
+      if (this.autofocus() && pointerHovers()) this.box().nativeElement.focus();
     });
     // Captured, so a handler that stops the event can't hide the press.
     const press = (down: boolean) => () => (this.pressing = down);
@@ -340,6 +482,10 @@ export class Composer {
       if (!initial || untracked(this.text)) return;
       this.setText(initial);
     });
+    // No target to name: nothing is named until the box next opens.
+    effect(() => {
+      if (this.target() === null) untracked(() => this.namesTarget.set(false));
+    });
     // Re-focus when the composer is enabled again after a reply.
     effect(() => {
       if (
@@ -347,12 +493,19 @@ export class Composer {
           disabled: this.disabled(),
           branchId: untracked(this.branchId),
           nothingFocused: document.activeElement === document.body,
-          hovers: hovers(),
+          hovers: pointerHovers(),
         })
       ) {
         queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true }));
       }
     });
+  }
+
+  /** Opens; coming from outside the box, it decides now whether to name the target. */
+  protected onFocusIn(e: FocusEvent, form: HTMLFormElement): void {
+    if (!(e.relatedTarget instanceof Node && form.contains(e.relatedTarget)))
+      this.namesTarget.set(this.nameTarget() && this.target() !== null);
+    this.open.set(true);
   }
 
   /** Closes once the focus has left the form and any press that moved it has ended (and clicked). */
@@ -386,19 +539,40 @@ export class Composer {
   }
 
   protected onKey(e: KeyboardEvent): void {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    const withOptions = opensOptions(e) ? this.actions().find((a) => a.options) : undefined;
+    if (withOptions) {
+      e.preventDefault();
+      this.openWith(withOptions);
+    } else if (enterSends(e, this.touch)) {
       e.preventDefault();
       const actions = this.actions();
-      const action = e.ctrlKey || e.metaKey ? (actions[1] ?? actions[0]) : actions[0];
+      const primary = actions.find((a) => a.primary) ?? actions[0];
+      const other = actions.find((a) => a !== primary) ?? primary;
+      const action = e.ctrlKey || e.metaKey ? other : primary;
       if (action) this.fire(action);
       else this.submit();
     }
+  }
+
+  /** An action's tooltip, with its key where Enter sends: the box decides both, so they agree. */
+  protected titleOf(a: ComposerAction): string {
+    return this.touch ? a.title : `${a.title} (${a.primary ? 'Enter' : 'Ctrl+Enter'})`;
+  }
+
+  /** The caret's tooltip, with its key where Enter sends. */
+  protected optionsTitle(options: string): string {
+    return this.touch ? options : `${options} (Ctrl+Shift+Enter)`;
   }
 
   protected fire(action: ComposerAction): void {
     const content = this.text().trim();
     if (!content || this.disabled() || this.busy()) return;
     this.act.emit({ id: action.id, text: content });
+  }
+
+  protected openWith(action: ComposerAction): void {
+    if (this.disabled() || this.busy()) return;
+    this.openOptions.emit({ id: action.id, text: this.text().trim() });
   }
 
   /** Kept until the message is in the tree (`ComposerController.sent`). */

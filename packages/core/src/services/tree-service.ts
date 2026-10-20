@@ -1,6 +1,7 @@
 import {
   DEFAULT_BRANCH_TITLE_PREFIX,
   DEFAULT_GROUNDING_MODE,
+  DEFAULT_INPUT_OVERFLOW,
   DEFAULT_TREE_TITLE,
   MAX_LINKS_PER_TREE,
   REPLY_INTERRUPTED_ERROR,
@@ -13,7 +14,11 @@ import {
   updateSettingsRequestSchema,
   updateTreeRequestSchema,
   clip,
+  inputOverflowSchema,
   plainText,
+  requestedInputTokens,
+  requestedOutputTokens,
+  settingsModelChoiceSchema,
   type Branch,
   type ChatNode,
   type CreateBranchRequest,
@@ -33,7 +38,12 @@ import {
 } from '@tangent/shared';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import { pairKey } from '../links.js';
-import type { AccountSettings, Repositories, TreePatch } from '../repository.js';
+import {
+  EMPTY_ACCOUNT_SETTINGS,
+  type AccountSettings,
+  type Repositories,
+  type TreePatch,
+} from '../repository.js';
 import { descendantBranches, indexTree } from '../tree.js';
 import { emptyToNull, type ServiceContext } from './context.js';
 
@@ -142,16 +152,21 @@ export class TreeService {
 
   // ------------------------------------------------------------- settings
 
-  /** The account's settings, with the built-in default prompt a client can show ("Use default"). */
+  /**
+   * The account's settings, with the built-in default prompt a client can
+   * start from. A stored value that no longer validates (a bound or a payer
+   * since changed) reads as its default, so it never breaks the app.
+   */
   async getSettings(): Promise<SettingsResponse> {
     const saved = await this.ctx.repos.settings.getSettings(this.ctx.accountId);
-    return this.settingsResponse(saved ?? { systemPrompt: null, walkthroughDoneAt: null });
+    return this.settingsResponse(saved ?? EMPTY_ACCOUNT_SETTINGS);
   }
 
   /**
-   * Saves the fields the request names and keeps the rest: the default
-   * system prompt (a blank one means the built-in default, null) and whether
-   * the first-run walkthrough is done (stamped with the current time).
+   * Saves the fields the request names and keeps the rest, in one write:
+   * the default system prompt (a blank one means the built-in default,
+   * null), whether the first-run walkthrough is done (stamped with the
+   * current time), and power's models and limits (null = the default).
    */
   async updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
     const req = updateSettingsRequestSchema.parse(request);
@@ -160,6 +175,12 @@ export class TreeService {
     if (req.systemPrompt !== undefined) patch.systemPrompt = emptyToNull(req.systemPrompt);
     if (req.walkthroughDone !== undefined)
       patch.walkthroughDoneAt = req.walkthroughDone ? now : null;
+    if (req.tiers?.normal !== undefined) patch.tierNormal = req.tiers.normal;
+    if (req.tiers?.max !== undefined) patch.tierMax = req.tiers.max;
+    if (req.reviewer !== undefined) patch.reviewer = req.reviewer;
+    if (req.maxOutputTokens !== undefined) patch.maxOutputTokens = req.maxOutputTokens;
+    if (req.maxInputTokens !== undefined) patch.maxInputTokens = req.maxInputTokens;
+    if (req.inputOverflow !== undefined) patch.inputOverflow = req.inputOverflow;
     const saved = await this.ctx.repos.settings.updateSettings(this.ctx.accountId, patch, now);
     return this.settingsResponse(saved);
   }
@@ -169,6 +190,15 @@ export class TreeService {
       systemPrompt: settings.systemPrompt,
       defaultSystemPrompt: this.ctx.defaultSystemPrompt ?? '',
       walkthroughDoneAt: settings.walkthroughDoneAt,
+      tiers: {
+        normal: validOrNull(settingsModelChoiceSchema, settings.tierNormal),
+        max: validOrNull(settingsModelChoiceSchema, settings.tierMax),
+      },
+      reviewer: validOrNull(settingsModelChoiceSchema, settings.reviewer),
+      maxOutputTokens: validOrNull(requestedOutputTokens, settings.maxOutputTokens),
+      maxInputTokens: validOrNull(requestedInputTokens, settings.maxInputTokens),
+      inputOverflow:
+        validOrNull(inputOverflowSchema, settings.inputOverflow) ?? DEFAULT_INPUT_OVERFLOW,
     };
   }
 
@@ -434,4 +464,13 @@ function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string 
   if (!source) return 'New tangent';
   const clipped = clip(source.split(' ').slice(0, 6).join(' '), 48);
   return anchorQuote ? clipped : `${DEFAULT_BRANCH_TITLE_PREFIX}${clipped}`;
+}
+
+/** `value` when `schema` accepts it, else null. */
+function validOrNull<T>(
+  schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } },
+  value: unknown,
+): T | null {
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }

@@ -192,10 +192,10 @@ test('a member saves an Anthropic key in the dialog, and replies run on it, name
   );
   expect(sends).toEqual(['anthropic']);
 
-  const pay = page.getByRole('radiogroup', { name: 'Pay for replies with' });
-  await expect(pay.getByRole('radio')).toHaveText(['My credit', 'Open pool', 'Anthropic key']);
-  await expect(pay.getByRole('radio', { name: 'Anthropic key' })).toHaveAttribute(
-    'aria-checked',
+  const pay = page.getByRole('toolbar', { name: 'Pay for replies with' });
+  await expect(pay.getByRole('button')).toHaveText(['My credit', 'Open pool', 'Anthropic key']);
+  await expect(pay.getByRole('button', { name: 'Anthropic key' })).toHaveAttribute(
+    'aria-pressed',
     'true',
   );
 });

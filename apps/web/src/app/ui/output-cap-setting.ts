@@ -43,25 +43,26 @@ export function effectiveOutputCap(
 }
 
 /**
- * "Reply length": the output cap power sends with each message. Auto (null)
- * is the server's default for the model, larger for reasoning models, whose
- * hidden thinking counts against the cap; a preset or a custom number
- * replaces it. Bound with `[(value)]` and `[(invalid)]` (a custom number out
- * of range: `value` keeps the last valid one); the dialog saves it.
+ * "Reply limit": the output cap power sends with each message, a hard stop.
+ * Auto (null) is the server's default for the model, larger for reasoning
+ * models, whose hidden thinking counts against the cap; a preset or a custom
+ * number replaces it. Bound with `[(value)]` and `[(invalid)]` (a custom
+ * number out of range: `value` keeps the last valid one); the dialog saves
+ * it.
  */
 @Component({
   selector: 'app-output-cap-setting',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <fieldset class="settings-section">
-      <legend>Reply length</legend>
+      <legend>Reply limit</legend>
       <p class="muted small">
-        The most tokens a reply may use. Models that reason before answering spend part of it on
-        thinking you don't see, so a low limit can cut a reply short, or leave it empty. You pay
-        only for what a reply uses. Each model's own limit still applies (on Tangent credit,
-        {{ creditMax }}).
+        A hard stop: a reply that reaches it is cut off. Models that reason spend part of it on
+        hidden thinking, so a low limit can leave a reply empty, and that thinking is still paid
+        for. You pay only for what a reply uses. Each model's own limit still applies (on Tangent
+        credit, {{ creditMax }}), whatever you choose here.
       </p>
-      <div class="radio-group output-cap-options" role="radiogroup" aria-label="Reply length">
+      <div class="radio-group output-cap-options" role="radiogroup" aria-label="Reply limit">
         <label class="radio">
           <input type="radio" [name]="name" [checked]="choice() === 'auto'" (change)="pickAuto()" />
           <span>
@@ -110,6 +111,13 @@ export function effectiveOutputCap(
       @if (hint(); as h) {
         <p class="small output-cap-hint">{{ h }}</p>
       }
+      <details class="more-details">
+        <summary>More about reply limits</summary>
+        <p>
+          It counts tokens, about ¾ of a word each. A reply cut off at it keeps what it wrote, and
+          Continue asks the model for the rest.
+        </p>
+      </details>
     </fieldset>
   `,
   styles: `
@@ -122,7 +130,8 @@ export function effectiveOutputCap(
       max-width: 220px;
       margin-top: 6px;
     }
-    .output-cap-hint {
+    .output-cap-hint,
+    .more-details {
       margin: 6px 0 0;
     }
   `,

@@ -5,7 +5,7 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
  * Power's input limit (Settings → Input limit), against the real Worker: on
  * the user's own key (the offline fake provider, a 200,000-token window), the
  * setting shows the model's default and the chosen limit in words and pages
- * as it is edited, is kept in the browser, rides along with every send and
+ * as it is edited, is kept with the account, rides along with every send and
  * with the Context panel's preview, Compare's candidates and reviews, and its
  * over-limit choice decides whether the oldest messages are summarized or
  * dropped.
@@ -93,7 +93,9 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toHaveCount(0);
 
-  // Kept in this browser across a reload.
+  // Kept with the account: what another device reads, and what the page shows after a reload.
+  const kept = await request.get('/api/settings', { headers });
+  expect(await kept.json()).toMatchObject({ maxInputTokens: 3000, inputOverflow: 'truncate' });
   await page.reload();
   ({ dialog, section } = await openSettings(page));
   await expect(
@@ -122,18 +124,23 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
 
   // A send carries the limit, and only the newest messages reach the model.
   const composer = page.getByRole('textbox', { name: 'Message' });
+  // Next ➜: the message goes on in the thread (after a reply the box offers it beside Tangent ↳).
+  const next = page.locator('.composer-dock').getByRole('button', { name: 'Next', exact: true });
   await composer.fill('And what next?');
   const asked = page.waitForRequest(
     (r) => r.method() === 'POST' && r.url().endsWith(`/api/branches/${t.trunkBranchId}/messages`),
   );
-  await page.getByRole('button', { name: 'Send message' }).click();
+  await next.click();
   expect((await asked).postDataJSON()).toEqual({
     content: 'And what next?',
     maxInputTokens: 3000,
     inputOverflow: 'truncate',
   });
   // Without the limit it would be 7 messages (three exchanges and the new question).
-  const reply = page.getByText(/Fake reply \(fake-1\) to \d+ message\(s\): "And what next\?"/);
+  // In the thread: the box can name the same reply ("↳ from …") while the end is out of view.
+  const reply = page
+    .locator('.messages')
+    .getByText(/Fake reply \(fake-1\) to \d+ message\(s\): "And what next\?"/);
   await expect(reply).toBeVisible();
   const count = Number(/to (\d+) message/.exec((await reply.textContent()) ?? '')?.[1]);
   expect(count).toBeGreaterThan(0);
@@ -153,7 +160,7 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
   const again = page.waitForRequest(
     (r) => r.method() === 'POST' && r.url().endsWith(`/api/branches/${t.trunkBranchId}/messages`),
   );
-  await page.getByRole('button', { name: 'Send message' }).click();
+  await next.click();
   expect((await again).postDataJSON()).toEqual({ content: 'One more?', maxInputTokens: 3000 });
   await expect(
     page.getByText(/Fake reply \(fake-1\) to \d+ message\(s\): "One more\?"/),

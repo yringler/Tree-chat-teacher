@@ -69,4 +69,57 @@ void main() {
     expect(formatMicros(-4000), r'$0.00');
     expect(formatMicros(1234567890000), r'$1,234,567.89');
   });
+
+  // The cases of packages/shared/src/text.spec.ts.
+  group('clip', () {
+    test('keeps text within the limit and cuts longer text to the limit, '
+        'ellipsis included', () {
+      expect(clip('short', 5), 'short');
+      expect(clip('a longer text', 8), 'a longe…');
+      expect(clip('x' * 50, 10).runes, hasLength(10));
+    });
+
+    test('never splits a surrogate pair, and counts one as one character', () {
+      expect(clip('ab😀cd', 4), 'ab😀…');
+      expect(clip('😀😀😀', 3), '😀😀😀');
+      expect(clip('😀😀😀😀', 3), '😀😀…');
+    });
+
+    test('drops the space the cut leaves before the ellipsis', () {
+      expect(clip('word word word', 6), 'word…');
+    });
+  });
+
+  group('plainText', () {
+    test('drops Markdown markup, keeps a code block’s text and collapses '
+        'whitespace', () {
+      expect(
+        plainText(
+          "Good question! Let's start with **a confident kitten**.\n\n"
+          '## Habits\n\n'
+          '- **Listening**: an `owl` hums\n'
+          '1. _second_ item\n'
+          '> quoted [link](https://x.test) ![alt](i.png) <https://a.test/b>\n'
+          '> ## Quoted heading\n\n'
+          '```js\ncode();\n```\n'
+          '~~gone~~ about ~5 end',
+        ),
+        "Good question! Let's start with a confident kitten. Habits "
+        'Listening: an owl hums second item quoted link alt https://a.test/b '
+        'Quoted heading code(); gone about ~5 end',
+      );
+    });
+
+    test('keeps underscores inside identifiers', () {
+      expect(
+        plainText('use snake_case names, _not_ emphasis'),
+        'use snake_case names, not emphasis',
+      );
+    });
+
+    test('clips to `max` with an ellipsis', () {
+      expect(plainText('**word** ' * 50, max: 11), 'word word…');
+      expect(plainText('short', max: 12), 'short');
+    });
+  });
 }

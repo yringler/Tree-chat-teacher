@@ -8,6 +8,7 @@ import {
   newId,
   replayEvents,
   systemClock,
+  type AccountSettings,
   type BeginSendResult,
   type Clock,
   type GenerationLimits,
@@ -155,7 +156,7 @@ interface Held {
 }
 
 /** The shape of a mirrored session; a session saved in another shape is discarded. */
-const SAVED_VERSION = 4;
+const SAVED_VERSION = 5;
 
 interface Saved {
   version: typeof SAVED_VERSION;
@@ -166,10 +167,8 @@ interface Saved {
   summaries: SummaryRecord[];
   balanceMicros: number;
   usage: UsageEntry[];
-  /** The account's saved default system prompt (Settings). */
-  systemPrompt: string | null;
-  /** When the visitor finished or skipped the first-run walkthrough; null = not yet. */
-  walkthroughDoneAt: string | null;
+  /** The account's settings (power's Settings, the walkthrough flag); null = never saved. */
+  settings: AccountSettings | null;
 }
 
 const encoder = new TextEncoder();
@@ -406,7 +405,7 @@ export class DemoBackend {
       } satisfies PoolMeResponse),
     poolVerify: 'unsupported',
 
-    // Account settings (the default system prompt, the walkthrough flag), kept with the session
+    // Account settings (power's Settings, the walkthrough flag), kept with the session
     settings: async () => json(await this.chat.getSettings()),
     updateSettings: async ({ body }) =>
       this.saved(json(await this.chat.updateSettings(R.updateSettings.body.parse(body ?? {})))),
@@ -564,7 +563,7 @@ export class DemoBackend {
   }
 
   /**
-   * Power's reply length and input limit, as the Worker passes them on the
+   * Power's reply limit and input limit, as the Worker passes them on the
    * own key (apps/worker input-limit.ts); Learn ignores them.
    */
   private powerLimits(requested: GenerationLimits): GenerationLimits {
@@ -875,8 +874,7 @@ export class DemoBackend {
       summaries: [...this.state.summaries.values()],
       balanceMicros: this.balanceMicros,
       usage: this.usage,
-      systemPrompt: this.state.settings.get(DEMO_ACCOUNT_ID)?.systemPrompt ?? null,
-      walkthroughDoneAt: this.state.settings.get(DEMO_ACCOUNT_ID)?.walkthroughDoneAt ?? null,
+      settings: this.state.settings.get(DEMO_ACCOUNT_ID) ?? null,
     };
     try {
       this.storage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -911,12 +909,7 @@ export class DemoBackend {
     for (const s of saved.summaries) {
       this.state.summaries.set(`${s.anchorNodeId}|${s.sourceHash}|${s.model}`, s);
     }
-    if (saved.systemPrompt !== null || saved.walkthroughDoneAt !== null) {
-      this.state.settings.set(DEMO_ACCOUNT_ID, {
-        systemPrompt: saved.systemPrompt,
-        walkthroughDoneAt: saved.walkthroughDoneAt,
-      });
-    }
+    if (saved.settings) this.state.settings.set(DEMO_ACCOUNT_ID, saved.settings);
     this.balanceMicros = saved.balanceMicros;
     this.usage = saved.usage.map((e) =>
       e.status === 'pending' ? { ...e, status: 'unresolved' } : e,

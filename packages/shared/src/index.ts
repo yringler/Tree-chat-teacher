@@ -4,6 +4,7 @@ export * from './provider.js';
 export * from './route.js';
 export * from './default-route.js';
 export * from './learn-payer.js';
+export * from './composer-plan.js';
 export * from './share.js';
 export * from './api.js';
 export * from './api-routes.js';

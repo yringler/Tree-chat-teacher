@@ -32,6 +32,7 @@ export {
   type PathEntry,
   type SendOptions,
 } from './conversation/conversation-store';
+export { ComposerTarget } from './conversation/composer-target';
 export { confirmDeleteMessage } from './conversation/delete-message';
 export { ThreadEnds, ThreadScroll, type ThreadScrollOptions } from './conversation/thread-scroll';
 export {
@@ -108,7 +109,14 @@ export {
 export { AndroidAppBanner, AndroidAppNotice } from './ui/android-app-banner';
 export { BetaBanner } from './ui/beta-banner';
 export { Compare, type CompareCandidate } from './ui/compare';
-export { Composer, ComposerController, type ComposerAction } from './ui/composer';
+export {
+  Composer,
+  ComposerController,
+  enterSends,
+  pointerHovers,
+  sendActions,
+  type ComposerAction,
+} from './ui/composer';
 export { ComposerQuote } from './ui/composer-quote';
 export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
@@ -117,7 +125,13 @@ export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
 export { Overlays } from './ui/overlays';
-export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';
+export {
+  modelChips,
+  ModelSuggestions,
+  suggestionText,
+  type ModelChip,
+  type SuggestionText,
+} from './ui/model-suggestions';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { RelatedLinks, type LinkNoteEdit } from './ui/related-links';
 export { NodePicker, type LinkPick } from './ui/node-picker';

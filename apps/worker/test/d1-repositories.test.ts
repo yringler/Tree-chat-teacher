@@ -1,4 +1,4 @@
-import { ConflictError } from '@tangent/core';
+import { ConflictError, EMPTY_ACCOUNT_SETTINGS } from '@tangent/core';
 import {
   REPLY_CANCELLED_ERROR,
   REPLY_CUT_OFF_ERROR,
@@ -308,24 +308,43 @@ describe('shares', () => {
 });
 
 describe('account settings', () => {
+  const none = EMPTY_ACCOUNT_SETTINGS;
+
   it('has none until the first save, then upserts per account', async () => {
     const a = uid('acct');
     const b = uid('acct');
     expect(await repos.settings.getSettings(a)).toBeNull();
-    const first = { systemPrompt: 'First', walkthroughDoneAt: null };
+    const first = { ...none, systemPrompt: 'First' };
     await repos.settings.updateSettings(a, first, '2026-01-01T00:00:00.000Z');
     expect(await repos.settings.getSettings(a)).toEqual(first);
     const long = {
+      ...none,
       systemPrompt: 'x'.repeat(20_000),
       walkthroughDoneAt: '2026-01-02T00:00:00.000Z',
     };
     await repos.settings.updateSettings(a, long, '2026-01-02T00:00:00.000Z');
     expect(await repos.settings.getSettings(a)).toEqual(long);
-    const cleared = { systemPrompt: null, walkthroughDoneAt: null };
-    await repos.settings.updateSettings(a, cleared, '2026-01-03T00:00:00.000Z');
-    expect(await repos.settings.getSettings(a)).toEqual(cleared);
+    await repos.settings.updateSettings(a, none, '2026-01-03T00:00:00.000Z');
+    expect(await repos.settings.getSettings(a)).toEqual(none);
     expect(await count('account_settings', 'account_id', a)).toBe(1);
     expect(await repos.settings.getSettings(b)).toBeNull();
+  });
+
+  it('writes a model as its three columns, and reads a partial one as none', async () => {
+    const a = uid('acct');
+    const t = '2026-01-02T00:00:00.000Z';
+    const reviewer = { providerId: 'openrouter', funding: 'credit', model: 'a/b' };
+    await repos.settings.updateSettings(a, { reviewer }, t);
+    const row = await env.DB.prepare(
+      'SELECT reviewer_provider_id AS p, reviewer_funding AS f, reviewer_model AS m FROM account_settings WHERE account_id = ?1',
+    )
+      .bind(a)
+      .first();
+    expect(row).toEqual({ p: 'openrouter', f: 'credit', m: 'a/b' });
+    await env.DB.prepare('UPDATE account_settings SET reviewer_model = NULL WHERE account_id = ?1')
+      .bind(a)
+      .run();
+    expect((await repos.settings.getSettings(a))?.reviewer).toBeNull();
   });
 });
 

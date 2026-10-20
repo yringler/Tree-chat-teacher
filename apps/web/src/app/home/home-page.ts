@@ -14,7 +14,6 @@ import { Composer, Icon, readOnlyText, Segmented, SidebarToggle } from '@tangent
 import {
   maxUsageNote,
   parseRouteKey,
-  providerRouteKey,
   routeKey,
   TIERS,
   type ModelTier,
@@ -176,10 +175,10 @@ export class HomePage {
 
   constructor() {
     effect(() => {
-      const p = this.store.account.defaultProvider();
-      if (p && this.route() === '') {
-        this.route.set(providerRouteKey(p));
-        this.modelId.set(p.defaultModel);
+      const start = this.tiers.starting();
+      if (start && this.route() === '') {
+        this.route.set(routeKey(start));
+        this.modelId.set(start.model);
       }
     });
   }

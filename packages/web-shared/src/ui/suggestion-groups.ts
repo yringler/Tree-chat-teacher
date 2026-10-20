@@ -32,8 +32,8 @@ let uid = 0;
  * (`open`): "Dig deeper" (further into the reply's topic), then "Suggested
  * tangents" (further out). Once the message has a tangent of the user's,
  * both fold behind one button, so the footer changes only when a tangent is
- * started or deleted. Projected content (power and Canvas: "Ask your own")
- * ends the suggestions when `withAsk` is set, and never folds.
+ * started or deleted. Projected content (Canvas: "Ask your own") ends the
+ * suggestions when `withAsk` is set, and never folds.
  *
  * It keeps one suggestion opening at a time; the app does the opening. `locked`: the message's
  * thread can't generate (its funding needs the membership the user lacks),

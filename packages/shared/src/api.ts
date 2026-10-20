@@ -14,10 +14,11 @@ import type {
   Tree,
 } from './domain.js';
 import { NODE_ERROR_KINDS } from './domain.js';
-import type { ProviderInfo } from './provider.js';
+import type { ModelTier, ProviderInfo } from './provider.js';
 import { MAX_REQUESTED_OUTPUT_TOKENS, MIN_REQUESTED_OUTPUT_TOKENS } from './output-tokens.js';
 import {
   INPUT_OVERFLOWS,
+  type InputOverflow,
   MAX_REQUESTED_INPUT_TOKENS,
   MIN_REQUESTED_INPUT_TOKENS,
   requestedInputTokens,
@@ -199,6 +200,13 @@ const citationSchema = z.object({
 }) satisfies z.ZodType<Citation>;
 /** Who pays for a branch's calls in power mode (`Branch.funding`); Learn ignores it. */
 export const branchFundingSchema = z.enum(['own-key', 'credit']) satisfies z.ZodType<BranchFunding>;
+/** A requested reply limit in tokens (JSON body). */
+export const requestedOutputTokens = z
+  .number()
+  .int()
+  .min(MIN_REQUESTED_OUTPUT_TOKENS)
+  .max(MAX_REQUESTED_OUTPUT_TOKENS);
+export const inputOverflowSchema = z.enum(INPUT_OVERFLOWS);
 /** Longest system prompt (or learner instructions) a tree or the account settings may hold. */
 export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
 
@@ -235,20 +243,55 @@ export interface SettingsResponse {
    * (ISO time); null = not yet, so Learn shows it.
    */
   walkthroughDoneAt: string | null;
+  /**
+   * Power's Normal and Max: what the Normal | Max switch, Compare and a new
+   * conversation use for each tier; null = the suggested model of the tier.
+   */
+  tiers: Readonly<Record<ModelTier, SettingsModelChoice | null>>;
+  /** Power's default model for "Review up to here"; null = the thread's provider's default. */
+  reviewer: SettingsModelChoice | null;
+  /** Power's reply limit, sent with each message; null = Auto, the model's default. */
+  maxOutputTokens: number | null;
+  /** Power's input limit, sent with each message; null = no limit of the user's. */
+  maxInputTokens: number | null;
+  /** What a power conversation over its input limit loses. */
+  inputOverflow: InputOverflow;
 }
+
+/** A model saved in the settings: its provider, who pays, and the model. */
+export const settingsModelChoiceSchema = z.object({
+  providerId: id,
+  funding: branchFundingSchema,
+  model: z.string().min(1).max(200),
+});
+export type SettingsModelChoice = z.infer<typeof settingsModelChoiceSchema>;
 
 /**
  * Changes the fields it names and keeps the others; it must name at least
- * one. A blank `systemPrompt` is stored as null (the built-in default).
- * `walkthroughDone: true` stamps `walkthroughDoneAt` with the server's time,
- * false clears it.
+ * one (and `tiers` at least one tier). A blank `systemPrompt` is stored as
+ * null (the built-in default). `walkthroughDone: true` stamps
+ * `walkthroughDoneAt` with the server's time, false clears it. Null resets a
+ * model or a limit to the default (SettingsResponse).
  */
 export const updateSettingsRequestSchema = z
   .object({
     systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
     walkthroughDone: z.boolean().optional(),
+    tiers: z
+      .object({
+        normal: settingsModelChoiceSchema.nullable().optional(),
+        max: settingsModelChoiceSchema.nullable().optional(),
+      })
+      .refine((t) => t.normal !== undefined || t.max !== undefined, {
+        message: 'No tier to update',
+      })
+      .optional(),
+    reviewer: settingsModelChoiceSchema.nullable().optional(),
+    maxOutputTokens: requestedOutputTokens.nullable().optional(),
+    maxInputTokens: requestedInputTokens.nullable().optional(),
+    inputOverflow: inputOverflowSchema.optional(),
   })
-  .refine((r) => r.systemPrompt !== undefined || r.walkthroughDone !== undefined, {
+  .refine((r) => Object.values(r).some((v) => v !== undefined), {
     message: 'Nothing to update',
   });
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
@@ -361,7 +404,7 @@ export const updateLinkRequestSchema = z.object({
 export type UpdateLinkRequest = z.infer<typeof updateLinkRequestSchema>;
 
 /**
- * Power's reply length and input limit, as a send, a compare candidate and a
+ * Power's reply limit and input limit, as a send, a compare candidate and a
  * review take them (JSON body fields; Learn's server ignores them). Clamped
  * like a send's: within the model's limits, and on Tangent credit at the
  * server's caps.
@@ -372,12 +415,7 @@ export const generationLimitsShape = {
    * default for the model (larger for reasoning models, output-tokens.ts);
    * capped at the model's limit.
    */
-  maxOutputTokens: z
-    .number()
-    .int()
-    .min(MIN_REQUESTED_OUTPUT_TOKENS)
-    .max(MAX_REQUESTED_OUTPUT_TOKENS)
-    .optional(),
+  maxOutputTokens: requestedOutputTokens.optional(),
   /**
    * Power only (Learn ignores it): the most input the message may send, below
    * the model's context window (input-limit.ts); the server caps it at the
@@ -385,7 +423,7 @@ export const generationLimitsShape = {
    */
   maxInputTokens: requestedInputTokens.optional(),
   /** Power only: what a conversation over its input budget loses (absent = `compact`). */
-  inputOverflow: z.enum(INPUT_OVERFLOWS).optional(),
+  inputOverflow: inputOverflowSchema.optional(),
 };
 
 export const sendMessageRequestSchema = z.object({
@@ -414,7 +452,7 @@ export const contextLimitsQuerySchema = z.object({
     .min(MIN_REQUESTED_OUTPUT_TOKENS)
     .max(MAX_REQUESTED_OUTPUT_TOKENS)
     .optional(),
-  inputOverflow: z.enum(INPUT_OVERFLOWS).optional(),
+  inputOverflow: inputOverflowSchema.optional(),
 });
 export type ContextLimitsQuery = z.infer<typeof contextLimitsQuerySchema>;
 

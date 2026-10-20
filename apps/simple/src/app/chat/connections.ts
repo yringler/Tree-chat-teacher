@@ -1,17 +1,11 @@
-import { MAIN_THREAD_LABEL, type Branch } from '@tangent/shared';
 import type { RelatedLink } from '@tangent/web-shared';
-import { branchTitle } from './titles';
+import { threadTitle } from './titles';
 
 /*
  * Learn's words for links between messages ("connections"). The shared chips
  * and picker name things in power-mode terms ("2 related", "Tangent: …");
  * a learner connects messages of a lesson and its tangents.
  */
-
-/** A branch as the connection chips and the picker name it: "Main thread" or the tangent's title. */
-export function connectionTitleOf(branch: Branch): string {
-  return branch.parentBranchId === null ? MAIN_THREAD_LABEL : branchTitle(branch);
-}
 
 /** The label above a message's connection chips. */
 export function connectedLabel(count: number): string {
@@ -26,7 +20,7 @@ export function connectedLabel(count: number): string {
 export function learnConnections(entries: readonly RelatedLink[]): RelatedLink[] {
   return entries.map((e) => {
     if (!e.endpoint.isTangentHead) return e;
-    const title = `Tangent: ${e.endpoint.crumbs.at(-1) ?? connectionTitleOf(e.endpoint.branch)}`;
+    const title = `Tangent: ${e.endpoint.crumbs.at(-1) ?? threadTitle(e.endpoint.branch)}`;
     return {
       ...e,
       title,

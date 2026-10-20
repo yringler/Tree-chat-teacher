@@ -1,6 +1,5 @@
-Long thread? Tap the down arrow to jump to the end, or the title or the tangent's name to go back to its start.
-Delete a message of yours from the trash beside it; what came after it in that thread goes with it.
 "Keep going" is now "Dig deeper" and opens a tangent, so you can try more than one.
 Credit and free replies now use Claude Haiku.
 Pay for replies with your own Anthropic API key: pick it under How replies are paid for. Replies use Claude Sonnet.
 Sign in with Google, from your phone.
+A tangent now starts from the reply you're reading, and a reply's Tangent ↳ puts it on the message box. Inside a tangent, Next ➜ is the filled button.

@@ -1,10 +1,9 @@
-import { CANDIDATE_TTL_MS } from '@tangent/shared';
+import { CANDIDATE_TTL_MS, joinList } from '@tangent/shared';
 import { Hono } from 'hono';
 import type { Child } from 'hono/jsx';
 import type { AppBindings } from '../env.js';
 import { POOL_IDENTITY_RETENTION_DAYS } from '../pool/identity.js';
 import { STRIKES_TO_SUSPEND } from '../share/review.js';
-import { joinList } from './copy.js';
 import { hostedAi, type HostedAi } from './hosted-ai.js';
 import { pageResponse } from './layout.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
@@ -23,7 +22,7 @@ import { DOC_STYLE } from './page-styles.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '19 October 2026';
+export const LEGAL_UPDATED = '20 October 2026';
 
 /** A long-form public page (the legal pages, `/pool`), cacheable for five minutes. */
 export function docResponse(
@@ -420,13 +419,13 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         </li>
       </ul>
       <p>
-        The apps also keep a few preferences in your browser's local storage (such as "remember me",
-        how Learn replies are paid for, and the default reviewer model). The phone app has no
-        cookies: it keeps its sign-in token in the device's secure storage until you sign out. While
-        you sign in, Learn keeps the email address a code went to (in local storage, or the phone's
-        secure storage) until you sign in or the code expires, so it can ask for that code again.
-        The sign-in page loads Cloudflare Turnstile, which checks that you're human. There are no
-        analytics, advertising or tracking cookies.
+        The apps also keep a few preferences in your browser's local storage (such as "remember me"
+        and how Learn replies are paid for). The phone app has no cookies: it keeps its sign-in
+        token in the device's secure storage until you sign out. While you sign in, Learn keeps the
+        email address a code went to (in local storage, or the phone's secure storage) until you
+        sign in or the code expires, so it can ask for that code again. The sign-in page loads
+        Cloudflare Turnstile, which checks that you're human. There are no analytics, advertising or
+        tracking cookies.
       </p>
 
       <h2>How long we keep it</h2>

@@ -72,7 +72,7 @@ export function apiRoutes(): Hono<AppBindings> {
   api.route('/key', keyRoutes());
   api.route('/account', accountDeletionRoutes());
 
-  // Account settings (per account, so power and Learn each have their own).
+  // Account settings, one row per account (`u_<userId>`, shared by power and Learn).
   api.get('/settings', async (c) => c.json(await chatOf(c).getSettings()));
   api.patch('/settings', validateJson(API_ROUTES.updateSettings), async (c) =>
     c.json(await chatOf(c).updateSettings(c.req.valid('json'))),

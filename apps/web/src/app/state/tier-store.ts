@@ -12,11 +12,12 @@ import {
 } from '@tangent/shared';
 import {
   ComposerController,
-  suggestionText,
+  pointerHovers,
   ToastStore,
   type SegmentedOption,
 } from '@tangent/web-shared';
-import { type ModelChoice, SettingsStore } from './settings-store';
+import { modelName } from './model-text';
+import { type AppSettings, type ModelChoice, SettingsStore } from './settings-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
 
@@ -67,10 +68,18 @@ export class TierStore {
   /**
    * The provider and model of `tier`, for a message in `branch` (null = a new
    * conversation): the saved choice (Settings) while its route is usable and
-   * allows the model, else the suggested one (`suggested`). Null when none.
+   * allows the model, else the suggested one (`suggested`). Null when none,
+   * and until the settings have loaded: the suggestion could be other than
+   * the user's choice, so the switch and Compare wait for it. `picks` stands
+   * in for the saved choices: the Settings dialog's, before they are saved.
    */
-  choice(tier: ModelTier, branch?: TierRoute | null): ModelChoice | null {
-    const saved = this.settings.settings().tiers[tier];
+  choice(
+    tier: ModelTier,
+    branch?: TierRoute | null,
+    picks: AppSettings['tiers'] = this.settings.settings().tiers,
+  ): ModelChoice | null {
+    if (!this.settings.loaded()) return null;
+    const saved = picks[tier];
     if (saved) {
       const p = this.tree.account.providerOf(saved);
       if (this.usable(p) && isModelAllowed(p, saved.model)) return choiceOn(p, saved.model);
@@ -103,6 +112,30 @@ export class TierStore {
     );
   }
 
+  /**
+   * The route and model a new conversation starts on (the home page): your
+   * Normal from Settings while its route can reply and allows the model,
+   * else the default route (`defaultProvider`) on its default model. A route
+   * can reply when it is open (`openRoutes`) and, on Tangent credit, the
+   * balance can pay (`creditCanPay`), as the default route asks: credit that
+   * could only be bought would answer the first send with a 402. Never the
+   * suggested Normal: that may be on a payer other than the default, and who
+   * pays is the user's to pick. Null until the default route and the
+   * settings are known.
+   */
+  starting(): ModelChoice | null {
+    const account = this.tree.account;
+    const fallback = account.defaultProvider();
+    if (!fallback || !this.settings.loaded()) return null;
+    const normal = this.settings.settings().tiers.normal;
+    const p = normal ? account.providerOf(normal) : undefined;
+    const canReply =
+      !!p && account.openRoutes().includes(p) && (p.funding !== 'credit' || account.creditCanPay());
+    return normal && p && canReply && isModelAllowed(p, normal.model)
+      ? choiceOn(p, normal.model)
+      : choiceOn(fallback, fallback.defaultModel);
+  }
+
   /** The tier `branch` replies on (its route and model are that tier's choice); null = another model. */
   tierOfBranch(branch: Pick<Branch, 'providerId' | 'funding' | 'model'>): ModelTier | null {
     for (const tier of TIERS) {
@@ -117,11 +150,11 @@ export class TierStore {
    * server's `ModelInfo.usageFactor`, which prices an entry's suggested Max
    * against that entry's suggested Normal. So only that pair gets a number;
    * with a custom Normal or Max (Settings) it is undefined and the note stays
-   * vague rather than wrong.
+   * vague rather than wrong. `picks` as in `choice`.
    */
-  usageFactor(branch?: TierRoute | null): number | undefined {
-    const normal = this.choice('normal', branch);
-    const max = this.choice('max', branch);
+  usageFactor(branch?: TierRoute | null, picks?: AppSettings['tiers']): number | undefined {
+    const normal = this.choice('normal', branch, picks);
+    const max = this.choice('max', branch, picks);
     if (!normal || !max) return undefined;
     const models = this.tree.account.providerOf(max)?.models ?? [];
     const suggestedMax = tierModel(models, 'max');
@@ -137,16 +170,18 @@ export class TierStore {
     return !!normal && !!max && !sameChoice(normal, max);
   }
 
-  /**
-   * What a choice's model is called, beside its tier's name: its label on
-   * its route, or its id where the label only names the tier ("Max
-   * (suggested)" reads "claude-sonnet-5.5") or it isn't listed.
-   */
+  /** What a choice's model is called on its route (`modelName`). */
   modelLabel(choice: ModelChoice): string {
-    const m = this.tree.account.providerOf(choice)?.models.find((x) => x.id === choice.model);
-    if (!m) return choice.model;
-    const text = suggestionText(m);
-    return TIERS.some((t) => TIER_LABELS[t] === text.name) ? (text.id ?? m.id) : text.name;
+    return modelName(this.tree.account.providerOf(choice), choice.model);
+  }
+
+  /**
+   * A route's model as the bar under the message box names it: the tier by
+   * name ("Normal") when the route and model are one, else the model.
+   */
+  tierOrModel(route: Pick<Branch, 'providerId' | 'funding' | 'model'>): string {
+    const tier = this.tierOfBranch(route);
+    return tier ? TIER_LABELS[tier] : this.modelLabel(route);
   }
 
   private open(p: ProviderInfo | null | undefined): p is ProviderInfo {
@@ -162,8 +197,9 @@ export class TierStore {
    * The Normal | Max switch: moves the branch onto the tier's choice, like
    * `TreeStore.switchToCredit` (every later send uses it). The notice names
    * the new route when the tier lives on another one (e.g. a branch on a
-   * provider without tiers moves to Tangent credit). Resolves true once the
-   * server has it.
+   * provider without tiers moves to Tangent credit). The message box takes
+   * the focus back only where that doesn't pop up an on-screen keyboard.
+   * Resolves true once the server has it.
    */
   async switchTier(branchId: string, tier: ModelTier): Promise<boolean> {
     const branch = this.tree.index()?.branches.get(branchId);
@@ -180,7 +216,7 @@ export class TierStore {
         ? ` (${this.tree.account.providerOf(target)?.label ?? target.providerId})`
         : '';
       this.toast.notify(`Replies now on ${TIER_LABELS[tier]}${where}`);
-      this.composer.focus();
+      if (pointerHovers()) this.composer.focus();
     }
     return ok;
   }

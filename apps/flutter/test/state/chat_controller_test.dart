@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/state/chat_controller.dart';
+import 'package:tangent/state/composer_plan.dart';
 import 'package:tangent/state/lessons_controller.dart';
 import 'package:tangent/state/session_controller.dart';
 
@@ -78,6 +81,113 @@ void main() {
         ..selectBranch(null)
         ..selectBranch('moon');
       expect(chat.cameFromIds, isEmpty);
+    });
+  });
+
+  group('the composer’s target', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+
+    /// The main thread u1 a1 u2 a2, and the tangent `side` from a1 with two
+    /// questions and their replies.
+    setUp(() async {
+      api = FakeTangentApi()
+        ..details['t1'] = treeDetail(
+          branches: [
+            branch('trunk'),
+            branch('side', parent: 'trunk', fork: 'a1'),
+          ],
+          nodes: [
+            node('u1', branch: 'trunk', seq: 0),
+            node('a1', branch: 'trunk', seq: 1, role: Role.assistant),
+            node('u2', branch: 'trunk', seq: 2),
+            node('a2', branch: 'trunk', seq: 3, role: Role.assistant),
+            node('s1', branch: 'side', seq: 0),
+            node('s2', branch: 'side', seq: 1, role: Role.assistant),
+            node('s3', branch: 'side', seq: 2),
+            node('s4', branch: 'side', seq: 3, role: Role.assistant),
+          ],
+        );
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+        branchId: 'side',
+      );
+      await chat.load();
+    });
+
+    tearDown(() => chat.dispose());
+
+    test('a tangent opened at its start goes on from its first reply, '
+        'named', () {
+      expect(chat.target?.id, 's2');
+      expect(chat.plan.nameTarget, isTrue);
+      expect(chat.plan.place, ComposerPlace.tangent);
+    });
+
+    test('opened again, from its first reply again', () {
+      chat
+        ..jumpedToEnd()
+        ..selectBranch(null)
+        ..selectBranch('side');
+      expect(chat.target?.id, 's2');
+    });
+
+    test('once something is sent, from the last reply', () {
+      unawaited(chat.send('And then?'));
+      expect(chat.target?.id, 's4');
+      expect(chat.plan.nameTarget, isFalse);
+    });
+
+    test('a jump to the end lets the start go', () {
+      chat.jumpedToEnd();
+      expect(chat.target?.id, 's4');
+    });
+
+    test('the main thread goes on from its last reply', () {
+      chat.selectBranch(null);
+      expect(chat.target?.id, 'a2');
+      expect(chat.plan.nameTarget, isFalse);
+    });
+
+    test('words aimed at win, and go with a move to another thread', () {
+      chat.aim((nodeId: 'a1', quote: 'the sea'));
+      expect(chat.target?.id, 'a1');
+      expect(chat.plan.place, ComposerPlace.lead);
+      expect(chat.plan.actions, [(id: ComposerSendId.tangent, primary: true)]);
+      chat.dropLead();
+      expect(chat.lead, isNull);
+      expect(chat.target?.id, 's2');
+
+      chat
+        ..aim((nodeId: 'a1', quote: 'the sea'))
+        ..selectBranch(null);
+      expect(chat.lead, isNull);
+    });
+
+    test('a reply deleted from under the box takes the lead with it', () async {
+      chat
+        ..selectBranch(null)
+        ..aim((nodeId: 'a1', quote: 'the sea'));
+      api.deleteAnswer = const DeletedMessages(
+        branchIds: [],
+        nodeIds: ['s3', 's4'],
+      );
+      await chat.deleteMessage(node('s3', branch: 'side', seq: 2));
+      expect(chat.lead?.nodeId, 'a1');
+
+      chat.aim((nodeId: 'a2', quote: null));
+      api.deleteAnswer = const DeletedMessages(
+        branchIds: [],
+        nodeIds: ['u2', 'a2'],
+      );
+      await chat.deleteMessage(node('u2', branch: 'trunk', seq: 2));
+      expect(chat.lead, isNull);
+      expect(chat.target?.id, 'a1');
+      expect(chat.plan.place, ComposerPlace.main);
     });
   });
 

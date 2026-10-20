@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
 import type { ProviderInfo } from '@tangent/shared';
-import { modelHint, ModelSuggestions } from '@tangent/web-shared';
+import { modelChips, modelHint, ModelSuggestions } from '@tangent/web-shared';
 
 let uid = 0;
 
@@ -35,10 +35,9 @@ let uid = 0;
           [attr.aria-describedby]="hint() ? id + '-h' : null"
         />
         <app-model-suggestions
-          [models]="models()"
-          [value]="model()"
+          [chips]="chips()"
           [label]="label() + ' suggestions'"
-          (picked)="model.set($event)"
+          (picked)="model.set($event.model)"
         />
         @if (hint(); as h) {
           <span class="field-error small" [id]="id + '-h'">{{ h }}</span>
@@ -69,6 +68,7 @@ export class ModelField {
   protected readonly id = `mf${++uid}`;
 
   protected readonly models = computed(() => this.provider()?.models ?? []);
+  protected readonly chips = computed(() => modelChips(this.models(), this.model()));
   protected readonly known = computed(() => this.models().some((m) => m.id === this.model()));
   protected readonly hint = computed(() => modelHint(this.provider(), this.model()));
 }

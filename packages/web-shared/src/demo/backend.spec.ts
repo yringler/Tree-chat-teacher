@@ -578,12 +578,12 @@ describe('power demo backend', () => {
   it('saves a default system prompt in Settings, keeps it across a reload, and resets it', async () => {
     const storage = memoryStorage();
     const { api } = setup({ mode: 'power', storage, seed: false });
-    await expect(api.settings()).resolves.toEqual({
+    await expect(api.settings()).resolves.toMatchObject({
       systemPrompt: null,
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       walkthroughDoneAt: null,
     });
-    await expect(api.updateSettings({ systemPrompt: 'Be terse.' })).resolves.toEqual({
+    await expect(api.updateSettings({ systemPrompt: 'Be terse.' })).resolves.toMatchObject({
       systemPrompt: 'Be terse.',
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       walkthroughDoneAt: null,
@@ -598,6 +598,24 @@ describe('power demo backend', () => {
     await expect(next.updateSettings({ systemPrompt: 'x'.repeat(20_001) })).rejects.toMatchObject({
       status: 400,
     });
+  });
+
+  it("keeps power's models and limits across a reload", async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ mode: 'power', storage, seed: false });
+    const normal = { providerId: 'openrouter', funding: 'credit', model: 'a/b' } as const;
+    const saved = await api.updateSettings({
+      tiers: { normal },
+      maxOutputTokens: 4096,
+      inputOverflow: 'truncate',
+    });
+    expect(saved).toMatchObject({ tiers: { normal, max: null }, maxOutputTokens: 4096 });
+    await until(
+      () => storage.data.get('tangent.demo')?.includes('"maxOutputTokens":4096') ?? false,
+    );
+
+    const { api: next } = setup({ mode: 'power', storage });
+    expect(await next.settings()).toEqual(saved);
   });
 
   it('shows a new session the walkthrough and remembers it is done across a reload', async () => {

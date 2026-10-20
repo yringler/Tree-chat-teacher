@@ -1,10 +1,13 @@
 import '@angular/compiler'; // JIT: the component in the same module.
+import type { ComposerSend } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ComposerController,
   joinWhenRendered,
+  labelParts,
   refocusesWhenEnabled,
   releasesDraft,
+  sendActions,
 } from './composer';
 
 function box(branchId: string | null, current = true) {
@@ -83,6 +86,19 @@ describe('ComposerController and a page with one box', () => {
     c.attach(later);
     expect(later.focus).not.toHaveBeenCalled();
   });
+
+  it('aims the box at a message and focuses it; dropping the lead leaves the box alone', () => {
+    const c = new ComposerController();
+    const single = box(null);
+    c.attach(single);
+    expect(c.lead()).toBeNull();
+    c.aim({ nodeId: 'a1', quote: 'wave' });
+    expect(c.lead()).toEqual({ nodeId: 'a1', quote: 'wave' });
+    expect(single.focus).toHaveBeenCalledTimes(1);
+    c.drop();
+    expect(c.lead()).toBeNull();
+    expect(single.focus).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('Composer helpers', () => {
@@ -109,6 +125,35 @@ describe('Composer helpers', () => {
     for (const fn of destroyed) fn();
     c.sent('lane-1', 'x');
     expect(lanes.release).not.toHaveBeenCalled();
+  });
+
+  it("makes the rule's ways to send buttons", () => {
+    const sends: ComposerSend[] = [
+      { id: 'tangent', label: 'Tangent ↳', hint: 'Explore.', primary: true },
+      { id: 'next', label: 'Next ➜', hint: 'Go on.', primary: false },
+    ];
+    expect(sendActions(sends)).toEqual([
+      { id: 'tangent', label: 'Tangent ↳', title: 'Explore.', primary: true },
+      { id: 'next', label: 'Next ➜', title: 'Go on.', primary: false },
+    ]);
+    // Options for one of them give it a caret.
+    expect(sendActions(sends, { tangent: 'With options.' })).toEqual([
+      {
+        id: 'tangent',
+        label: 'Tangent ↳',
+        title: 'Explore.',
+        primary: true,
+        options: 'With options.',
+      },
+      { id: 'next', label: 'Next ➜', title: 'Go on.', primary: false },
+    ]);
+  });
+
+  it("parts an action's label into the words read out and the glyph that only shows", () => {
+    expect(labelParts('Tangent ↳')).toEqual({ name: 'Tangent', glyph: '↳' });
+    expect(labelParts('Next ➜')).toEqual({ name: 'Next', glyph: '➜' });
+    expect(labelParts('Ask about this…')).toEqual({ name: 'Ask about this…', glyph: '' });
+    expect(labelParts('↳')).toEqual({ name: '↳', glyph: '' });
   });
 
   it('lets a sent draft go only where the box clears on send, and only unedited', () => {

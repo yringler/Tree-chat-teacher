@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { clip, THREAD_ENDS } from '@tangent/shared';
+import { threadTitle } from '../state/thread-title';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { DEMO_MODE, Icon, SidebarToggle, TextSizeMenu, ThreadEnds } from '@tangent/web-shared';
@@ -25,11 +26,11 @@ import { ExportMenu } from './export-menu';
           <button
             type="button"
             class="btn btn-ghost btn-sm"
-            (click)="ui.dialogs.open({ kind: 'branch-settings' })"
-            [title]="inTangent() ? 'Tangent settings' : 'Main thread settings'"
+            aria-label="Conversation settings"
+            title="Conversation settings"
+            (click)="ui.dialogs.open({ kind: 'tree-settings' })"
           >
-            <app-icon name="settings" />
-            <span class="hide-narrow">{{ inTangent() ? 'Tangent' : 'Thread' }}</span>
+            <app-icon name="sliders" /> <span class="hide-narrow">Conversation</span>
           </button>
           <!-- Shares and exports are made by the server; the demo has none. Public links
                only while this user may publish them (MeResponse.sharing); export always. -->
@@ -38,6 +39,8 @@ import { ExportMenu } from './export-menu';
               <button
                 type="button"
                 class="btn btn-ghost btn-sm"
+                aria-label="Share…"
+                title="Share a read-only link"
                 (click)="ui.dialogs.open({ kind: 'share' })"
               >
                 <app-icon name="share" /> <span class="hide-narrow">Share…</span>
@@ -45,14 +48,6 @@ import { ExportMenu } from './export-menu';
             }
             <app-export-menu />
           }
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm"
-            (click)="ui.dialogs.open({ kind: 'tree-settings' })"
-            title="Conversation settings"
-          >
-            <app-icon name="edit" /> <span class="hide-narrow">Tree</span>
-          </button>
           <app-text-size-menu [(open)]="ui.textSizeMenuOpen" [shortcuts]="true" />
           <button
             type="button"
@@ -100,7 +95,7 @@ import { ExportMenu } from './export-menu';
                     [title]="inTangent() ? toTangentStartTitle : toStartTitle"
                     (click)="ends.toStart()"
                   >
-                    {{ c.branch.title }}
+                    {{ titleOf(c.branch) }}
                   </button>
                 } @else {
                   <button
@@ -108,7 +103,7 @@ import { ExportMenu } from './export-menu';
                     class="crumb"
                     (click)="store.go(c.branch.id, c.focusNodeId)"
                   >
-                    {{ c.branch.title }}
+                    {{ titleOf(c.branch) }}
                   </button>
                 }
                 @if (!last) {
@@ -126,6 +121,19 @@ import { ExportMenu } from './export-menu';
             <span class="badge" title="Excluded from shares and exports"
               ><app-icon name="lock" [size]="12" /> private</span
             >
+          }
+          <!-- The open tangent's own settings sit with its other actions; the main
+               thread's are the conversation's. -->
+          @if (b.parentBranchId) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              aria-label="Tangent settings"
+              title="Tangent settings"
+              (click)="ui.dialogs.open({ kind: 'branch-settings' })"
+            >
+              <app-icon name="sliders" /> <span class="hide-narrow">Tangent</span>
+            </button>
           }
           @if (b.parentBranchId && b.branchPointNodeId) {
             <button
@@ -198,6 +206,7 @@ export class ChatHeader {
   });
 
   protected readonly clip = clip;
+  protected readonly titleOf = threadTitle;
 
   protected goBack(): void {
     const back = this.ui.linkReturn();

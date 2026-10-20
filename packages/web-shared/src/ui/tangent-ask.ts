@@ -4,8 +4,6 @@ import {
   Component,
   effect,
   ElementRef,
-  inject,
-  Injector,
   input,
   model,
   output,
@@ -13,6 +11,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { enterSends, pointerHovers } from './composer';
 import { Icon } from './icon';
 
 /**
@@ -22,10 +21,12 @@ import { Icon } from './icon';
  * parent owns the text (`text`, cleared once the branch is created) and the
  * branching (`ask`).
  *
- * `expandable` (power, canvas): a one-line field that grows into a few lines
- * on focus, with Send and a gear (`settings`: the branch dialog, carrying the
- * text). Otherwise (Learn) a plain one-line input. Enter sends; Shift+Enter
- * is a newline in the expanded field (as in the composer); Escape folds it.
+ * `expandable` (Canvas): a one-line field that grows into a few lines on
+ * focus, with Ask and, given `options`, a caret joined to it as on the
+ * composer's actions (`openOptions`: the branch dialog, carrying the text).
+ * Otherwise a plain one-line input. Enter sends; Shift+Enter is a newline in
+ * the expanded field, and as in the composer, so is a plain Enter on a touch
+ * screen, where only Ask (or Ctrl or Cmd+Enter) sends; Escape folds it.
  *
  * `latest` marks the newest reply's item, the natural place to ask next: it
  * is drawn a little stronger, and an expandable one starts grown (without
@@ -53,6 +54,7 @@ import { Icon } from './icon';
           #field
           class="tangent-ask-field"
           [rows]="expanded() ? 3 : 1"
+          [attr.enterkeyhint]="touch ? 'enter' : 'send'"
           [placeholder]="placeholder()"
           [attr.aria-label]="label()"
           [value]="text()"
@@ -88,18 +90,6 @@ import { Icon } from './icon';
           >
             <app-icon name="chevronUp" [size]="15" />
           </button>
-          @if (settingsLabel(); as gear) {
-            <button
-              type="button"
-              class="icon-btn"
-              [attr.aria-label]="gear"
-              [title]="gear"
-              [disabled]="disabled() || busy()"
-              (click)="settings.emit(text().trim())"
-            >
-              <app-icon name="gear" [size]="15" />
-            </button>
-          }
           <button
             type="submit"
             class="btn btn-primary btn-sm"
@@ -107,6 +97,20 @@ import { Icon } from './icon';
           >
             <app-icon name="send" [size]="14" /> {{ busy() ? 'Starting…' : 'Ask' }}
           </button>
+          @if (options(); as tip) {
+            <button
+              type="button"
+              class="btn btn-primary btn-sm tangent-ask-caret"
+              aria-haspopup="dialog"
+              aria-label="Ask with options…"
+              [title]="tip"
+              [attr.aria-description]="tip"
+              [disabled]="disabled() || busy()"
+              (click)="openOptions.emit(text().trim())"
+            >
+              <app-icon name="chevronDown" [size]="14" />
+            </button>
+          }
         </div>
       } @else if (!expandable() && text().trim()) {
         <button
@@ -128,15 +132,10 @@ export class TangentAsk {
   readonly placeholder = input('Ask your own question…');
   /** Accessible name of the field (what happens to the question). */
   readonly label = input.required<string>();
-  /** Grows into a few lines with Send and a gear when focused (power, canvas). */
+  /** Grows into a few lines with Ask (and its caret) when focused (Canvas). */
   readonly expandable = input(false);
-  /**
-   * Scroll the grown field into view (in a scrolling list; not on a canvas,
-   * which moves by its own transform).
-   */
-  readonly reveal = input(false);
-  /** The gear's label; null for no gear. */
-  readonly settingsLabel = input<string | null>(null);
+  /** What Ask's options are, as its caret's tooltip ("Ask with options: …"); null for no caret. */
+  readonly options = input<string | null>(null);
   readonly disabled = input(false);
   /** Why it is disabled, as a tooltip. */
   readonly disabledTitle = input<string | null>(null);
@@ -148,12 +147,12 @@ export class TangentAsk {
   readonly focusOnOpen = input(false);
   /** Send: the trimmed, non-empty question. */
   readonly ask = output<string>();
-  /** The gear: the trimmed question (possibly empty), for the branch dialog to send. */
-  readonly settings = output<string>();
+  /** The caret: the trimmed question (possibly empty), for the branch dialog to send. */
+  readonly openOptions = output<string>();
 
-  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly injector = inject(Injector);
   protected readonly expanded = signal(false);
+  /** No pointer hovers: a plain Enter in the grown field is a newline, and the keyboard's key says so. */
+  protected readonly touch = !pointerHovers();
   /** Open because it is the newest reply's, not because the user opened it: leaving it keeps it open. */
   private readonly pinned = signal(false);
   /** The next focus is the fold button handing focus back: it doesn't re-open the field. */
@@ -201,32 +200,20 @@ export class TangentAsk {
   }
 
   protected expand(): void {
-    if (!this.expandable() || this.expanded()) return;
-    this.expanded.set(true);
-    // Under the last reply the grown field and its buttons would sit below the fold.
-    afterNextRender(() => this.revealAll(), { injector: this.injector });
-  }
-
-  /**
-   * Keeps the whole item, buttons included, in view while it grows. Instant:
-   * typing right away would cut a smooth scroll short.
-   */
-  private revealAll(): void {
-    if (this.reveal()) this.host.nativeElement.scrollIntoView?.({ block: 'nearest' });
+    if (this.expandable()) this.expanded.set(true);
   }
 
   protected onInput(el: HTMLTextAreaElement): void {
     this.text.set(el.value);
     // Typing into a folded field (focus kept after folding it) grows it again.
     if (!this.expanded()) this.expand();
-    const before = el.offsetHeight;
     this.autosize(el);
-    if (el.offsetHeight > before) this.revealAll();
   }
 
   protected onKey(e: KeyboardEvent): void {
     if (e.isComposing) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // The one-line input has no newline to insert, so its Enter always sends.
+    if (enterSends(e, this.touch && this.expandable())) {
       e.preventDefault();
       this.submit();
     } else if (e.key === 'Escape') {

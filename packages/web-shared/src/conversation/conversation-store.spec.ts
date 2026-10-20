@@ -371,6 +371,7 @@ describe('ConversationStore streaming a reply', () => {
     const other = s.store.send('trunk', 'Two');
     expect(s.store.busy()).toBe(true);
     // The other branch's POST ends (refused here) while the first is still out.
+    await vi.waitFor(() => expect(posts.has('trunk')).toBe(true));
     posts.get('trunk')?.(new Response('nope', { status: 500 }));
     await other;
     expect(s.store.busy()).toBe(true);

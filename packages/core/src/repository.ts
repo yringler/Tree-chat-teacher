@@ -178,15 +178,49 @@ export interface ShareRepository {
 }
 
 /**
+ * A model saved in the settings, as stored. Not validated: a value stored
+ * by an earlier rule may no longer pass (`TreeService.getSettings` checks).
+ */
+export interface StoredModelChoice {
+  providerId: string;
+  funding: string;
+  model: string;
+}
+
+/**
  * Per-account settings (one row per account, created on the first save). An
- * account with no row has the defaults: every field null.
+ * account with no row has the defaults: every field null
+ * (`EMPTY_ACCOUNT_SETTINGS`). The values are as stored, unvalidated.
  */
 export interface AccountSettings {
   /** System prompt of new trees; null = the built-in default. */
   systemPrompt: string | null;
   /** When the first-run tangent walkthrough was finished or skipped; null = not yet. */
   walkthroughDoneAt: string | null;
+  /** Power's Normal; null = the suggested one. */
+  tierNormal: StoredModelChoice | null;
+  /** Power's Max; null = the suggested one. */
+  tierMax: StoredModelChoice | null;
+  /** Power's default reviewer; null = the thread's provider's default model. */
+  reviewer: StoredModelChoice | null;
+  /** Power's reply limit; null = Auto. */
+  maxOutputTokens: number | null;
+  /** Power's input limit; null = none. */
+  maxInputTokens: number | null;
+  /** What a power conversation over its input limit loses; null = `compact`. */
+  inputOverflow: string | null;
 }
+
+export const EMPTY_ACCOUNT_SETTINGS: Readonly<AccountSettings> = {
+  systemPrompt: null,
+  walkthroughDoneAt: null,
+  tierNormal: null,
+  tierMax: null,
+  reviewer: null,
+  maxOutputTokens: null,
+  maxInputTokens: null,
+  inputOverflow: null,
+};
 
 export interface SettingsRepository {
   /** The account's settings, or null when it has never saved any. */

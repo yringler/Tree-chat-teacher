@@ -461,7 +461,7 @@ test('Learn demo: on a phone the lesson title stays whole and every header contr
   expect(errors).toEqual([]);
 });
 
-test('power demo: ask your own question under a reply, inline or through the tangent dialog', async ({
+test('power demo: the message box goes on a tangent or goes on; Tangent ↳’s caret sets a tangent up first', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -471,67 +471,65 @@ test('power demo: ask your own question under a reply, inline or through the tan
   const last = page.locator('.msg-assistant').last();
   await expect(last).toBeVisible();
   const reply = page.locator(`#${await last.getAttribute('id')}`);
-  const ask = reply.locator('.tangent-ask');
-  const noTitle = (dialog: Locator) =>
-    expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
-  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
-  // The last item of the Suggested tangents group, after the suggestions.
-  await expect(
-    reply.locator('.tangents > .tangents-group:last-child > :last-child .tangent-ask'),
-  ).toBeVisible();
-  await expect(field).toHaveAttribute('placeholder', 'Ask your own question…');
+  // A question of your own goes in the message box: no field of its own under a reply.
+  await expect(page.locator('.tangent-ask')).toHaveCount(0);
+  const composer = page.locator('#composer-input');
+  const dock = page.locator('.composer-dock');
+  const tangent = dock.getByRole('button', { name: 'Tangent', exact: true });
+  const next = dock.getByRole('button', { name: 'Next', exact: true });
+  await expect(composer).toHaveAttribute('placeholder', 'Ask anything…');
+  await expect(tangent).toHaveClass(/btn-primary/);
+  await expect(next).not.toHaveClass(/btn-primary/);
 
-  // One click grows it; Escape folds it, typing in it is not a shortcut.
-  await field.click();
-  await expect(ask).toHaveClass(/is-expanded/);
-  await page.keyboard.press('Escape');
-  await expect(ask).not.toHaveClass(/is-expanded/);
-  await field.click();
-  await page.keyboard.type('b');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await field.fill('');
-
-  // Enter asks it in a new tangent, opened at once.
+  // Enter on the main thread goes on a tangent from its last reply, opened at once.
   const url = page.url();
-  await field.fill('Do owls ever whistle back?');
-  await field.press('Enter');
+  await composer.fill('Do owls ever whistle back?');
+  await composer.press('Enter');
   await expect.poll(() => page.url()).not.toBe(url);
   await expect(page.locator('.msg-user').last()).toContainText('Do owls ever whistle back?');
   await expect(page.locator('.fork-divider.fork-current')).toBeVisible();
-  // The field it came from is empty again.
-  await expect(field).toHaveValue('');
-  await expect(ask).not.toHaveClass(/is-expanded/);
+  await expect(composer).toHaveValue('');
+  // Inside it Next ➜ is filled: Enter goes on in the tangent.
+  await expect(composer).toHaveAttribute('placeholder', 'Ask anything in this tangent…');
+  await expect(next).toHaveClass(/btn-primary/);
+  const inTangent = page.url();
+  await composer.fill('And then?');
+  await composer.press('Enter');
+  await expect(page.locator('.msg-user').last()).toContainText('And then?');
+  await expect(page).toHaveURL(inTangent);
   await page.goBack();
   await expect.poll(() => page.url()).toBe(url);
 
-  // The gear: the tangent dialog without a starting message (or a title), carrying the question.
-  await field.click();
-  await field.fill('What do lemons applaud?');
-  await ask.getByRole('button', { name: /^Tangent settings/ }).click();
+  // The caret: "Tangent from here" (no title), from the same reply, starting with what was typed.
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
+  const starting = dialog.getByRole('textbox', { name: /Starting message/ });
+  await composer.fill('What do lemons applaud?');
+  await dock.getByRole('button', { name: 'Tangent with options…' }).click();
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText('Starting message')).toHaveCount(0);
-  await noTitle(dialog);
-  await expect(dialog.locator('.excerpt').last()).toContainText('What do lemons applaud?');
+  await expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
+  await expect(starting).toHaveValue('What do lemons applaud?');
   // Cancelled, the question stays where it was typed.
   await dialog.getByRole('button', { name: 'Cancel' }).click();
-  await expect(field).toHaveValue('What do lemons applaud?');
-  await ask.getByRole('button', { name: /^Tangent settings/ }).click();
+  await expect(composer).toHaveValue('What do lemons applaud?');
+  // Ctrl+Shift+Enter in the box opens it too; Ctrl+Enter in any of its fields creates and asks.
+  await composer.press('Control+Shift+Enter');
+  await starting.fill('What do lemons applaud, and why?');
   await dialog.getByRole('radio', { name: /Independent/ }).check();
-  await dialog.getByRole('button', { name: 'Create and ask' }).click();
+  await page.keyboard.press('Control+Enter');
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator('.msg-user').last()).toContainText('What do lemons applaud?');
+  await expect(page.locator('.msg-user').last()).toContainText('What do lemons applaud, and why?');
   await expect(page.locator('.fork-divider.fork-current')).toContainText(/independent/i);
+  // The message box let the question go once it was asked, though it was changed in the dialog.
+  await expect(composer).toHaveValue('');
   await page.goBack();
   await expect.poll(() => page.url()).toBe(url);
-  await expect(field).toHaveValue('');
 
-  // "Tangent ↳": a starting message instead of a title; Ctrl+Enter creates and asks.
-  await reply.getByRole('button', { name: 'Tangent ↳' }).click();
+  // Shift+B on the reply: an empty starting message; Ctrl+Enter creates and asks.
+  await reply.locator('.msg-body').click();
+  await page.keyboard.press('Shift+B');
   await expect(dialog).toBeVisible();
-  await noTitle(dialog);
-  const starting = dialog.getByRole('textbox', { name: /Starting message/ });
   await expect(starting).toBeFocused();
+  await expect(starting).toHaveValue('');
   await starting.fill('Can a melon hum?');
   await starting.press('Control+Enter');
   await expect(dialog).toHaveCount(0);
@@ -552,9 +550,10 @@ test('power demo: "Ask about this" puts the words on the composer; the tangent s
   const bar = page.locator('app-selection-ask');
   await expect(bar).toHaveCount(0);
 
-  // Selecting words in a reply floats the action above the composer.
+  // Selecting words in a reply floats the action above the composer (its options are the composer's).
   await selectText(body, 'a careful hamster in disguise');
   await expect(bar.getByRole('button', { name: 'Ask about this' })).toBeVisible();
+  await expect(bar.getByRole('button')).toHaveCount(1);
   await bar.getByRole('button', { name: 'Ask about this' }).click();
   // The words go on the composer, focused; nothing is made yet.
   const composer = page.locator('#composer-input');
@@ -568,7 +567,16 @@ test('power demo: "Ask about this" puts the words on the composer; the tangent s
   // Dropped, they leave nothing behind.
   await quote.getByRole('button', { name: /^Don’t ask about/ }).click();
   await expect(quote).toHaveCount(0);
-  await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
+  await expect(composer).toHaveAttribute('placeholder', 'Ask anything…');
+  expect(page.url()).toBe(url);
+
+  // A message's own Tangent ↳ puts the whole message there the same way.
+  await reply.getByRole('button', { name: 'Tangent ↳' }).click();
+  await expect(quote).toContainText('Tangent from “');
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveAttribute('placeholder', 'Ask about this…');
+  await quote.getByRole('button', { name: 'Don’t go on this tangent' }).click();
+  await expect(quote).toHaveCount(0);
   expect(page.url()).toBe(url);
 
   // Asked, the tangent starts with the question, quoting the words.
@@ -581,98 +589,43 @@ test('power demo: "Ask about this" puts the words on the composer; the tangent s
   await expect(page.locator('.anchor-quote').last()).toHaveText('a careful hamster in disguise');
   await expect(page.locator('.msg-user').last()).toContainText('Why a hamster?');
   await expect(quote).toHaveCount(0);
-  await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
+  await expect(composer).toHaveAttribute('placeholder', 'Ask anything in this tangent…');
 
-  // Its gear: "Tangent from here" with the quote filled in.
+  // Tangent ↳'s caret: "Tangent from here" with the quote filled in; cancelled, the quote stays.
   await page.goto(url);
   await expect(body).toBeVisible();
   await selectText(body, 'patient lemon');
-  await bar.getByRole('button', { name: /^More: Tangent from here/ }).click();
+  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  await page
+    .locator('.composer-dock')
+    .getByRole('button', { name: 'Tangent with options…' })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('patient lemon');
+  await expect(dialog.getByRole('group', { name: 'Quote' })).toContainText('patient lemon');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(page.url()).toBe(url);
+  await expect(quote).toContainText('patient lemon');
+  await quote.getByRole('button', { name: /^Don’t ask about/ }).click();
 
-  // `b` on the focused message with a selection in it still opens the dialog with it.
+  // `b` puts selected words on the composer too; Shift+B opens the dialog with them.
+  // Each key waits for the selection to register (its float shows) with the box not focused,
+  // so it reaches the shortcuts rather than the box.
+  const asks = bar.getByRole('button', { name: 'Ask about this' });
   await body.click();
+  await expect(composer).not.toBeFocused();
   await selectText(body, 'off-key');
+  await expect(asks).toBeVisible();
   await page.keyboard.press('b');
-  await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('off-key');
+  await expect(quote).toContainText('off-key');
+  await expect(composer).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(composer).not.toBeFocused();
+  await selectText(body, 'off-key');
+  await expect(asks).toBeVisible();
+  await page.keyboard.press('Shift+B');
+  await expect(dialog.getByRole('group', { name: 'Quote' })).toContainText('off-key');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
-  expect(errors).toEqual([]);
-});
-
-test('power demo: the newest reply’s "Ask your own" is open, without taking focus', async ({
-  page,
-}) => {
-  const errors = collectErrors(page);
-  await page.goto('/demo');
-  await page.locator('.home-list .tree-row a').first().click();
-  const replies = page.locator('.msg-assistant');
-  await expect(replies.first()).toBeVisible();
-  const newest = page.locator(`#${await replies.last().getAttribute('id')}`);
-  const older = page.locator(`#${await replies.first().getAttribute('id')}`);
-  const ask = newest.locator('.tangent-ask');
-  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
-  const composer = page.locator('#composer-input');
-
-  // Open from the start (three lines), marked as the newest, and nothing focused.
-  await expect(ask).toHaveClass(/is-expanded/);
-  await expect(ask).toHaveClass(/is-latest/);
-  await expect(field).toHaveAttribute('rows', '3');
-  // (The composer keeps the focus it takes on opening.)
-  await expect(field).not.toBeFocused();
-  await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
-  // Older replies keep theirs folded.
-  await expect(older.locator('.tangent-ask')).not.toHaveClass(/is-expanded/);
-  await expect(older.locator('.tangent-ask')).not.toHaveClass(/is-latest/);
-
-  // Leaving it empty keeps it open; Shift+Enter is a new line, not a question.
-  await field.click();
-  await composer.click();
-  await expect(ask).toHaveClass(/is-expanded/);
-  await field.click();
-  await field.pressSequentially('Line one');
-  await field.press('Shift+Enter');
-  await field.pressSequentially('line two');
-  await expect(field).toHaveValue('Line one\nline two');
-  expect(page.url()).not.toMatch(/\/b\//);
-  await field.fill('');
-
-  // Folded by hand (its button, or Escape), it stays folded until the user moves on.
-  await ask.getByRole('button', { name: 'Fold' }).click();
-  await expect(ask).not.toHaveClass(/is-expanded/);
-  await expect(field).toBeFocused();
-  await composer.click();
-  await expect(ask).not.toHaveClass(/is-expanded/);
-  await older.locator('.msg-body').click();
-  await expect(page).toHaveURL(/[?&]m=/);
-  await expect(ask).not.toHaveClass(/is-expanded/);
-
-  // Into a tangent and back: the newest reply's item is open again.
-  const here = page.url();
-  await page
-    .getByRole('button', { name: /^Open tangent: / })
-    .first()
-    .click();
-  await expect.poll(() => page.url()).not.toBe(here);
-  await page.goBack();
-  await expect.poll(() => page.url()).toBe(here);
-  await expect(ask).toHaveClass(/is-expanded/);
-
-  // An older reply's item: blurred empty, it folds; blurred with text, it stays open with it.
-  const olderAsk = older.locator('.tangent-ask');
-  const olderField = olderAsk.getByRole('textbox');
-  await olderField.click();
-  await expect(olderAsk).toHaveClass(/is-expanded/);
-  await composer.click();
-  await expect(olderAsk).not.toHaveClass(/is-expanded/);
-  await olderField.click();
-  await olderField.fill('Keep me');
-  await composer.click();
-  await expect(olderAsk).toHaveClass(/is-expanded/);
-  await expect(olderField).toHaveValue('Keep me');
   expect(errors).toEqual([]);
 });
 
@@ -701,10 +654,10 @@ test('Canvas demo: ask your own question in a new lane, inline or through the ta
   // Back on the main thread (the canvas pans to the new lane).
   await page.goBack();
 
-  // The gear: the lanes dialog without a starting message (or a title), asking the question.
+  // Ask's caret: the lanes dialog without a starting message (or a title), asking the question.
   await field.click();
   await field.fill('And owls?');
-  await ask.getByRole('button', { name: /^Lane settings/ }).click();
+  await ask.getByRole('button', { name: 'Ask with options…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('Starting message')).toHaveCount(0);
@@ -848,8 +801,8 @@ test('Canvas demo: "Ask about this" asks in a new lane once the question is sent
   // Select words in the first reply: "Ask about this" asks for the question, making no lane yet.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'a careful hamster');
   const bar = page.locator('app-selection-ask');
-  await expect(bar.getByRole('button', { name: /^More: Tangent from here/ })).toBeVisible();
-  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  await expect(bar.getByRole('button', { name: 'Ask about this with options…' })).toBeVisible();
+  await bar.getByRole('button', { name: 'Ask about this', exact: true }).click();
   const box = page.locator('.quote-ask');
   const question = box.getByRole('textbox', { name: /question about the quoted words/ });
   await expect(box.locator('.composer-quote')).toContainText('a careful hamster');
@@ -862,7 +815,7 @@ test('Canvas demo: "Ask about this" asks in a new lane once the question is sent
 
   // Asked, the path lane quoting the words starts with the question.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'a careful hamster');
-  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  await bar.getByRole('button', { name: 'Ask about this', exact: true }).click();
   await question.fill('Why a hamster?');
   await question.press('Enter');
   await expect(lanes).toHaveCount(4);
@@ -873,9 +826,9 @@ test('Canvas demo: "Ask about this" asks in a new lane once the question is sent
   // The trunk is no longer selected: its open ask folds.
   await expect(page.locator('.tangent-ask.is-expanded')).toHaveCount(0);
 
-  // The gear: the tangent dialog with the quote filled in.
+  // The caret: the tangent dialog with the quote filled in.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'patient lemon');
-  await bar.getByRole('button', { name: /^More: Tangent from here/ }).click();
+  await bar.getByRole('button', { name: 'Ask about this with options…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('patient lemon');

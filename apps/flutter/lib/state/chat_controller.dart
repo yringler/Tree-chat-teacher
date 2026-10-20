@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
 import '../api/tangent_api.dart';
+import 'composer_plan.dart';
 import 'lessons_controller.dart';
 import 'notice.dart';
 import 'session_controller.dart';
@@ -93,22 +94,58 @@ class ChatController extends ChangeNotifier {
     return threadPath(branchId: id, branches: _branches, nodes: _nodes.values);
   }
 
-  /// The branch on screen has no message of its own yet.
-  bool get isEmptyBranch {
-    final last = thread.lastOrNull;
-    return last != null && last.branchId != branchId;
+  /// What the composer's next message asks about, on a tangent made when it
+  /// is sent: a reply, or words "Ask about this" quoted from it. Moving to
+  /// another thread drops it, and so does deleting that reply.
+  ComposerLead? get lead => _lead;
+  ComposerLead? _lead;
+
+  /// The learner is at the start of the tangent on screen, where every
+  /// tangent opens, reading its first reply, until they send or jump to the
+  /// end: the app's stand-in for the focused message that picks the reply
+  /// on the web, where `j` / `k` and a click move the focus too.
+  bool _atTangentStart = true;
+
+  /// What the composer offers, and the reply a tangent from it starts at
+  /// (see [composerPlan]): the [lead], else the first reply of a tangent the
+  /// learner is at the start of, else the thread's last reply.
+  ComposerPlan get plan {
+    final id = branchId;
+    final path = thread;
+    final opened = isSideBranch && _atTangentStart;
+    return composerPlan(
+      path: path,
+      branchId: id,
+      inTangent: isSideBranch,
+      focusedId: opened
+          ? path.where((n) => n.branchId == id).firstOrNull?.id
+          : null,
+      lead: _lead,
+    );
   }
 
-  /// The reply a tangent asked from the composer starts at: the last
-  /// message on screen, once it is a reply that didn't fail. Null (the
-  /// message continues the thread): an empty lesson or tangent, or a
-  /// failed reply.
-  ChatNode? get asideFrom {
-    final last = thread.lastOrNull;
-    if (last == null || isEmptyBranch) return null;
-    return last.role == Role.assistant && last.status != NodeStatus.error
-        ? last
-        : null;
+  /// The reply a tangent from the composer starts at. Null (the message
+  /// continues the thread): an empty lesson or tangent, or a failed reply.
+  ChatNode? get target => _nodes[plan.target];
+
+  /// Aims the composer at [lead]; what is typed stays.
+  void aim(ComposerLead lead) {
+    _lead = lead;
+    _notify();
+  }
+
+  /// Takes the lead off the composer; what is typed stays.
+  void dropLead() {
+    _lead = null;
+    _notify();
+  }
+
+  /// The learner jumped to the end of the thread, so a tangent from the
+  /// composer starts from its last reply.
+  void jumpedToEnd() {
+    if (!_atTangentStart) return;
+    _atTangentStart = false;
+    _notify();
   }
 
   /// The reply being written on this thread, if any.
@@ -155,6 +192,8 @@ class ChatController extends ChangeNotifier {
     _requestedBranchId = branchId;
     _cameFromIds = left.difference({for (final b in chain) b.id});
     _notice = null;
+    _lead = null;
+    _atTangentStart = true;
     _notify();
   }
 
@@ -166,6 +205,7 @@ class ChatController extends ChangeNotifier {
     final accepted = Completer<bool>();
     _sending = true;
     _notice = null;
+    _atTangentStart = false;
     _notify();
     _listen(api.sendMessage(id, text), accepted: accepted);
     return accepted.future;
@@ -241,6 +281,7 @@ class ChatController extends ChangeNotifier {
         _nodes.remove(id);
         _status.remove(id);
       }
+      _dropLeadIfGone();
       // Counts and the last update in the lesson list.
       unawaited(lessons.refresh());
       _notify();
@@ -381,6 +422,15 @@ class ChatController extends ChangeNotifier {
     _nodes
       ..clear()
       ..addEntries(detail.nodes.map((n) => MapEntry(n.id, n)));
+    _dropLeadIfGone();
+  }
+
+  /// A message deleted from under the box takes the lead with it: the box
+  /// can't ask about a message that isn't there.
+  void _dropLeadIfGone() {
+    if (_lead case final lead? when !_nodes.containsKey(lead.nodeId)) {
+      _lead = null;
+    }
   }
 
   void _fail(Object error) {

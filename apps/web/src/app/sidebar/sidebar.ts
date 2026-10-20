@@ -14,6 +14,7 @@ import {
 } from '@tangent/web-shared';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { confirmDeleteTree } from '../dialogs/tree-settings';
+import { threadTitle } from '../state/thread-title';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ImportButton } from '../ui/import-button';
@@ -168,7 +169,7 @@ export class Sidebar extends SidebarHost {
   }
 
   branchTitle(item: OutlineItem): string {
-    return item.branch.title;
+    return threadTitle(item.branch);
   }
 
   treeCount(t: TreeSummary): { text: string; title: string } {

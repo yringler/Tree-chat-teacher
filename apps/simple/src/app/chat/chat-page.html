@@ -188,17 +188,20 @@
         [disabled]="store.busy()"
         [busy]="store.streamingNode() !== null"
         [actions]="actions()"
-        (send)="send($event)"
+        [target]="box.target()"
+        [nameTarget]="box.plan().nameTarget || thread.farFromEnd()"
+        (send)="box.send($event)"
         (act)="act($event)"
         (stop)="stop()"
+        (showTarget)="box.showTarget()"
       >
         <!-- What the message asks about (words, or a whole message); dropping it leaves the focus in the box. -->
-        @if (quote(); as q) {
+        @if (box.lead(); as q) {
           <app-composer-quote
             composerLead
             [quote]="q.quote"
-            [excerpt]="excerptOf(q.nodeId)"
-            (dropped)="dropQuote()"
+            [excerpt]="box.excerptOf(q.nodeId)"
+            (dropped)="box.dropLead()"
           />
         }
       </app-composer>

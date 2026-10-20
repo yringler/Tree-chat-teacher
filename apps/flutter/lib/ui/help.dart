@@ -138,8 +138,8 @@ class _Item extends StatelessWidget {
   );
 }
 
-/// An action's label as its button shows it: filled for the tangent, the
-/// recommended default, outlined for the next step.
+/// An action's label as its button shows it on the main thread, where the
+/// help starts: filled for the tangent, the default there, outlined for Next.
 class _ActionChip extends StatelessWidget {
   const _ActionChip({required this.label, required this.primary});
 

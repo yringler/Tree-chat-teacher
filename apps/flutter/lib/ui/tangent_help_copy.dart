@@ -1,26 +1,37 @@
 // The words that teach going on tangents, and the plain reply beside them:
-// the two send actions, the "How tangents work" help, the first-run walkthrough, the
-// headings of a reply's tangents footer and the ways to the two ends of a
-// thread.
+// the two send actions, the message box's placeholders, the "How tangents
+// work" help, the first-run walkthrough, the headings of a reply's tangents
+// footer and the ways to the two ends of a thread.
 //
-// This mirrors packages/shared/src/tangent-help.ts and the footer headings of
+// This mirrors packages/shared/src/tangent-help.ts, the placeholders of
+// packages/shared/src/composer-plan.ts and the footer headings of
 // packages/shared/src/tangents.ts, which the landing page and the web apps
 // use; packages/web-shared/src/tangent-help-parity.spec.ts checks that
 // every string there appears here verbatim, so the two change together.
 
-/// Sends the message as a new tangent: the recommended default.
+/// Sends the message as a new tangent: the default on the main thread.
 const tangentAction = (
   label: 'Tangent ↳',
   hint: 'Wait, tell me more about that. Explore in a tangent without derailing the lesson.',
 );
 
 /// Sends the message as the next one in the thread on screen, as any chat
-/// would. Inside a tangent, Next continues that tangent rather than the
-/// lesson.
+/// would: the default inside a tangent, where it continues that tangent
+/// rather than the lesson.
 const replyAction = (
   label: 'Next ➜',
   hint: 'Good old-fashioned AI chat: continues the main lesson.',
   hintInTangent: 'Good old-fashioned AI chat: continues this tangent.',
+);
+
+/// The message box's placeholder in every place but the start of a lesson,
+/// which each app words itself: where the message goes, not which button
+/// sends it.
+const composerPlaceholders = (
+  lead: 'Ask about this…',
+  emptyTangent: 'Ask your tangent…',
+  tangent: 'Ask anything in this tangent…',
+  main: 'Ask anything…',
 );
 
 const helpTitle = 'How tangents work';
@@ -34,14 +45,17 @@ const helpItems = [
     label: 'Tangent ↳',
     text: '“Wait, tell me more about that” or “Hey, what about…?” Explores in its own thread without derailing the lesson. The suggestions under a reply are tangents too: Dig deeper goes further in, Suggested tangents go off to the side.',
   ),
-  (label: 'Next ➜', text: 'Good old-fashioned AI chat. Here if you want it.'),
+  (
+    label: 'Next ➜',
+    text: 'Good old-fashioned AI chat, here if you want it. Inside a tangent it’s the default, so the tangent goes on.',
+  ),
 ];
 
-/// When in doubt: a wrong tangent is cheap, a wrong reply clutters the main
-/// thread.
+/// When in doubt on the main thread: a wrong tangent is cheap, a wrong reply
+/// clutters it.
 const helpDefault = (
   label: 'Not sure? Tangent.',
-  text: 'You can always come back.',
+  text: 'On the main thread that’s the default, and you can always come back.',
 );
 
 const helpAnalogy =

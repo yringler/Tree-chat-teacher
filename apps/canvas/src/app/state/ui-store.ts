@@ -10,7 +10,7 @@ export interface BranchDialogState {
   quote: string | null;
   /**
    * The first message, already written ("Ask your own" under a reply, via its
-   * gear): sent to every new lane, in place of the dialog's own field.
+   * caret): sent to every new lane, in place of the dialog's own field.
    */
   message?: string;
   /** Called once the lanes exist (e.g. to clear the field the message came from). */

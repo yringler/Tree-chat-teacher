@@ -7,7 +7,6 @@ import {
   ElementRef,
   inject,
   type OnDestroy,
-  signal,
   untracked,
   viewChild,
 } from '@angular/core';
@@ -15,12 +14,9 @@ import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
 import {
+  COMPOSER_PLACEHOLDERS,
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
-  plainText,
-  REPLY_ACTION,
-  splitTangents,
-  TANGENT_ACTION,
   THREAD_ENDS,
   type ChatNode,
 } from '@tangent/shared';
@@ -28,6 +24,7 @@ import {
   Composer,
   ComposerController,
   ComposerQuote,
+  ComposerTarget,
   Icon,
   JumpToEnd,
   PendingQuote,
@@ -35,31 +32,21 @@ import {
   Segmented,
   selectedMessageQuote,
   SelectionAsk,
+  sendActions,
   TextSizeMenu,
   TextSizeStore,
   ThreadScroll,
   Walkthrough,
-  type ComposerAction,
   type MessageQuote,
 } from '@tangent/web-shared';
 import { BRAND } from '../brand';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
-import { connectionTitleOf } from './connections';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
 import { FUNDING_OPTIONS, ownKeyOption, type FundingOption } from './switches';
-import { branchTitle, lessonTitle } from './titles';
+import { branchTitle, lessonTitle, threadTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
-
-/** What a tangent from the composer starts at: a message, about `quote` when words were selected. */
-interface AskTarget {
-  nodeId: string;
-  quote: string | null;
-}
-
-/** How much of a whole message the composer shows when its message asks about it. */
-const EXCERPT_CHARS = 60;
 
 /** `/t/:treeId[/b/:branchId]`: the lesson, one branch at a time. */
 @Component({
@@ -102,11 +89,6 @@ export class ChatPage implements OnDestroy {
   protected readonly threadEnds = THREAD_ENDS;
   /** Text selected inside one finished message: offers "Ask about this". */
   protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
-  /**
-   * What the composer's next message asks about, on a tangent made when it is
-   * sent: words "Ask about this" quoted, or a whole message (its Tangent ↳).
-   */
-  protected readonly quote = signal<AskTarget | null>(null);
   /** Where the lesson is scrolled; a reply being written is read from its first line. */
   protected readonly thread = new ThreadScroll({
     store: this.store,
@@ -114,7 +96,7 @@ export class ChatPage implements OnDestroy {
     readRepliesFromStart: true,
     moved: () => {
       this.pendingAsk.clear();
-      this.quote.set(null);
+      this.composer.drop();
     },
   });
 
@@ -136,51 +118,20 @@ export class ChatPage implements OnDestroy {
     const back = this.store.linkReturn();
     if (back && back.toBranchId !== this.store.selectedBranchId()) return null;
     const idx = this.store.index();
-    const from = back && idx ? describeEndpoint(idx, back.nodeId, connectionTitleOf) : null;
+    const from = back && idx ? describeEndpoint(idx, back.nodeId, threadTitle) : null;
     if (!from) return null;
-    return { label: from.snippet || connectionTitleOf(from.branch) };
+    return { label: from.snippet || threadTitle(from.branch) };
   });
 
-  /**
-   * The reply a tangent from the composer starts at: the last message on
-   * screen, once it is a reply that didn't fail. Otherwise (a new lesson, an
-   * empty tangent, a failed reply) the message continues what is open, with
-   * nothing to choose.
-   */
-  protected readonly asideFrom = computed<ChatNode | null>(() => {
-    const last = this.store.emptyBranch() ? undefined : this.store.path().at(-1);
-    return last?.role === 'assistant' && last.status !== 'error' ? last : null;
-  });
+  /** Where the message box sends, by the rule power's follows too (`ComposerTarget`). */
+  protected readonly box = new ComposerTarget({ store: this.store, thread: this.thread });
 
-  /**
-   * The composer's buttons in place of Send, once there is a reply to go on
-   * a tangent from: Tangent ↳ first (Enter), since a needless tangent costs
-   * nothing and a stray reply clutters the lesson for good, then Next ➜
-   * (Ctrl+Enter). Words to ask about only go on a tangent.
-   */
-  protected readonly actions = computed<readonly ComposerAction[]>(() => {
-    const tangent: ComposerAction = {
-      id: 'tangent',
-      label: TANGENT_ACTION.label,
-      title: `${TANGENT_ACTION.hint} (Enter)`,
-      primary: true,
-    };
-    if (this.quote()) return [tangent];
-    if (!this.asideFrom()) return [];
-    const inTangent = this.store.selectedBranch()?.parentBranchId != null;
-    const hint = inTangent ? REPLY_ACTION.hintInTangent : REPLY_ACTION.hint;
-    return [
-      tangent,
-      { id: 'next', label: REPLY_ACTION.label, title: `${hint} (Ctrl+Enter)`, primary: false },
-    ];
-  });
+  /** Tangent ↳ and Next ➜ in place of Send, once there is a reply to go on a tangent from. */
+  protected readonly actions = computed(() => sendActions(this.box.plan().actions));
 
   protected readonly placeholder = computed(() => {
-    const b = this.store.selectedBranch();
-    if (!b || this.store.path().length === 0) return 'What do you want to learn?';
-    if (b.parentBranchId && this.store.emptyBranch()) return 'Ask your tangent…';
-    if (this.quote()) return 'Ask about this…';
-    return b.parentBranchId ? 'Ask anything in this tangent…' : 'Ask anything…';
+    const place = this.box.plan().place;
+    return place === 'start' ? 'What do you want to learn?' : COMPOSER_PLACEHOLDERS[place];
   });
 
   /** The pool's refusal of a message in this branch (empty or a cap), shown above the composer. */
@@ -217,8 +168,8 @@ export class ChatPage implements OnDestroy {
       if (!b) return;
       const inTangent = b.parentBranchId !== null;
       const actionsShown =
-        this.actions().length > 1 &&
-        this.asideFrom()?.status === 'complete' &&
+        this.box.plan().actions.length > 1 &&
+        !this.store.busy() &&
         !this.funding.membershipBlocked();
       untracked(() => {
         if (inTangent) this.walkthrough.onEnteredTangent();
@@ -238,26 +189,13 @@ export class ChatPage implements OnDestroy {
   protected askAbout(q: MessageQuote): void {
     this.pendingAsk.clear();
     window.getSelection()?.removeAllRanges();
-    this.quote.set(q);
-    this.composer.focus();
+    this.composer.aim(q);
   }
 
   /** A message's own Tangent ↳: the message goes on the composer, the tangent is made when it is sent. */
   protected askAboutMessage(node: ChatNode): void {
     this.pendingAsk.clear();
-    this.quote.set({ nodeId: node.id, quote: null });
-    this.composer.focus();
-  }
-
-  /** The opening words of message `nodeId`, for the composer to say what it asks about. */
-  protected excerptOf(nodeId: string): string {
-    const content = this.store.index()?.nodes.get(nodeId)?.content ?? '';
-    return plainText(splitTangents(content).body, { max: EXCERPT_CHARS });
-  }
-
-  protected dropQuote(): void {
-    this.quote.set(null);
-    this.composer.focus();
+    this.composer.aim({ nodeId: node.id, quote: null });
   }
 
   /** Credit and the pool, and the own key ("Anthropic key") while it could reply. */
@@ -288,39 +226,16 @@ export class ChatPage implements OnDestroy {
   /** Tangent ↳ or Next ➜ pressed (or Enter / Ctrl+Enter) with the composer's text. */
   protected act({ id, text }: { id: string; text: string }): void {
     if (id === 'tangent') {
-      void this.goOnTangent(text);
+      void this.box.goOnTangent(text);
       return;
     }
     if (this.store.selectedBranch()?.parentBranchId === null) this.walkthrough.onRepliedOnTrunk();
-    this.send(text);
-  }
-
-  /** The message continues what is open (Send or Next ➜). */
-  protected send(content: string): void {
-    const id = this.store.selectedBranchId();
-    if (!id) return;
-    this.thread.pin();
-    if (this.store.focusedNodeId()) this.store.go(id, null, true);
-    void this.store.send(id, content);
-  }
-
-  /** The message starts a tangent from the quoted reply, or else the last one. */
-  private async goOnTangent(content: string): Promise<void> {
-    const from = this.tangentFrom();
-    if (!from) return;
-    this.thread.pin();
-    // Kept on failure, to try again.
-    if (await this.store.askFrom(from, content, this.quote()?.quote ?? null)) this.quote.set(null);
+    this.box.send(text);
   }
 
   /** The lesson's own instructions, offered only where the learner pays (the pool ignores them). */
   protected openInstructions(): void {
     this.ui.dialogs.open({ kind: 'instructions' });
-  }
-
-  /** The message a tangent from the composer starts at; null: there is none to go on. */
-  private tangentFrom(): string | null {
-    return this.quote()?.nodeId ?? this.asideFrom()?.id ?? null;
   }
 
   protected stop(): void {

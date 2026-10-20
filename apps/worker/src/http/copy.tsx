@@ -64,12 +64,6 @@ export function offerOf(env: AppEnv, sharing: boolean): Offer {
   };
 }
 
-/** `A`, `A or B`, `A, B or C` (or `and`). */
-export function joinList(items: readonly string[], word: 'and' | 'or'): string {
-  if (items.length <= 1) return items.join('');
-  return `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
-}
-
 /**
  * How the pool comes about, as numbered steps for the landing and pricing
  * pages. Tangent is the subject of every step that moves money: a customer

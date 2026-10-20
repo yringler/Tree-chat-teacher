@@ -1,4 +1,4 @@
-// Power's input limit and reply length (@tangent/shared input-limit.ts,
+// Power's input limit and reply limit (@tangent/shared input-limit.ts,
 // output-tokens.ts), as a send, a Context preview, a compare candidate or a
 // review runs with them: the user's settings, sent with each request, clamped
 // here and in ChatService `budgetFor` (never above the model's window less

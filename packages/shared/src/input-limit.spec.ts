@@ -23,7 +23,7 @@ describe('inputBudgetOf', () => {
       replyTokens: 4096,
       boundBy: 'window',
     });
-    // A longer reply length leaves less room for input.
+    // A longer reply limit leaves less room for input.
     expect(
       inputBudgetOf(ownKey, { maxInputTokens: null, maxOutputTokens: 32_768 }).defaultTokens,
     ).toBe(200_000 - 32_000);

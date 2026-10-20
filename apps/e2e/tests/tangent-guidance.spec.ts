@@ -62,8 +62,9 @@ test('Learn demo: the first-run walkthrough goes round the loop once, then stays
   // Below the path, so it covers the messages rather than the header.
   const crumb = (await mainThread.boundingBox())!;
   expect((await coach.boundingBox())!.y).toBeGreaterThan(crumb.y + crumb.height);
-  // Inside the tangent, Next ➜ keeps the tangent moving.
-  await expect(next).toHaveAttribute('title', /continues this tangent/);
+  // Inside the tangent, Next ➜ keeps the tangent moving, and is the one Enter sends.
+  await expect(next).toHaveAttribute('title', /continues this tangent\. \(Enter\)$/);
+  await expect(next).toHaveClass(/btn-primary/);
 
   // Back on the main thread: step 3 points at Next ➜, and Done ends the tour.
   await mainThread.click();

@@ -7,7 +7,7 @@ import {
   type ChatNode,
   type TreeDetail,
 } from '@tangent/shared';
-import { BillingClient, Walkthrough } from '@tangent/web-shared';
+import { ApiClient, BillingClient, Walkthrough } from '@tangent/web-shared';
 import {
   appProviders,
   billing,
@@ -94,6 +94,16 @@ function selectWave(): void {
 
 const dock = () => composer()?.closest<HTMLElement>('.composer-dock') ?? document.body;
 
+/** `branchyLesson` with a second exchange in the tangent `side`: u2 a2, then u5 a5. */
+function longerSide(): TreeDetail {
+  const d = branchyLesson();
+  d.nodes.push(
+    node('u5', { parentId: 'a2', seq: 6, branchId: 'side', role: 'user', content: 'How so?' }),
+    node('a5', { parentId: 'u5', seq: 7, branchId: 'side', content: 'It comes in lumps.' }),
+  );
+  return d;
+}
+
 describe('Learn: the lesson page', () => {
   it.each([
     ['the own key', {}, true],
@@ -110,7 +120,7 @@ describe('Learn: the lesson page', () => {
     screen.getByRole('heading', { name: 'Light' });
     expect(screen.getByText('A wave.')).toBeTruthy();
     expect(composer()?.placeholder).toBe('Ask anything…');
-    const [tangent, next] = within(dock()).getAllByRole('button', { name: /Tangent ↳|Next ➜/ });
+    const [tangent, next] = within(dock()).getAllByRole('button', { name: /^(Tangent|Next)$/ });
     expect(tangent?.textContent?.trim()).toBe('Tangent ↳');
     expect(tangent?.dataset['action']).toBe('tangent');
     expect(tangent?.title).toBe(`${TANGENT_ACTION.hint} (Enter)`);
@@ -118,6 +128,8 @@ describe('Learn: the lesson page', () => {
     expect(next?.dataset['action']).toBe('next');
     expect(next?.title).toBe(`${REPLY_ACTION.hint} (Ctrl+Enter)`);
     expect(within(dock()).queryByRole('button', { name: 'Send' })).toBeNull();
+    // Learn has no tangent dialog, so its Tangent ↳ has no options to open.
+    expect(within(dock()).queryByRole('button', { name: /with options/ })).toBeNull();
   });
 
   it('Tangent ↳ goes on a tangent from the last reply; Next ➜ continues the lesson', async () => {
@@ -125,12 +137,94 @@ describe('Learn: the lesson page', () => {
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?');
-    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent ↳' }));
+    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent' }));
     expect(askFrom).toHaveBeenCalledWith('a1', 'And a particle?', null);
     expect(send).not.toHaveBeenCalled();
-    await p.user.click(within(dock()).getByRole('button', { name: 'Next ➜' }));
+    await p.user.click(within(dock()).getByRole('button', { name: 'Next' }));
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
     expect(askFrom).toHaveBeenCalledTimes(1);
+  });
+
+  it('after opening a tangent at its start, Tangent ↳ goes from its first reply, not its last', async () => {
+    const p = await page(longerSide());
+    p.store.setRoute('t1', 'side', 'u2');
+    await p.fixture.whenStable();
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
+    await p.user.type(composer()!, 'How big?');
+    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent' }));
+    expect(askFrom).toHaveBeenCalledWith('a2', 'How big?', null);
+  });
+
+  it('names the reply Tangent ↳ goes from when it is not the last, and shows it on a click', async () => {
+    const p = await page(longerSide());
+    const view = layOutThread({
+      height: 3000,
+      view: 500,
+      at: { '.fork-current': 1200, '#msg-a2': 1400 },
+    });
+    composer()!.blur();
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    await p.user.click(composer()!);
+    const named = within(dock()).getByRole('button', { name: 'from “A particle.”' });
+    // Read on to the end, then back to where the tangent goes from.
+    view.scrollBy(2000);
+    await p.user.click(named);
+    expect(view.scrollTop).toBe(1400);
+    expect(document.activeElement).toBe(composer());
+  });
+
+  it('a reply put on the open box and taken off again leaves nothing named until the box opens again', async () => {
+    const p = await page(longerSide());
+    composer()!.blur();
+    p.store.setRoute('t1', 'side', 'u2');
+    await p.fixture.whenStable();
+    await p.user.click(composer()!);
+    within(dock()).getByRole('button', { name: 'from “A particle.”' });
+    await p.user.click(
+      within(document.getElementById('msg-a5')!).getByRole('button', { name: 'Tangent ↳' }),
+    );
+    within(dock()).getByText('Tangent from “It comes in lumps.”');
+    expect(within(dock()).queryByRole('button', { name: /^from/ })).toBeNull();
+    await p.user.click(within(dock()).getByRole('button', { name: 'Don’t go on this tangent' }));
+    expect(document.activeElement).toBe(composer());
+    expect(within(dock()).queryByRole('button', { name: /^from/ })).toBeNull();
+    // Opened again, it names the reply Tangent ↳ goes from.
+    composer()!.blur();
+    await p.user.click(composer()!);
+    within(dock()).getByRole('button', { name: 'from “A particle.”' });
+  });
+
+  it('back up the path, Tangent ↳ goes from the reply left from; an earlier thread’s is context', async () => {
+    const p = await page(longerSide(), {}, 'side');
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
+    for (const [focus, from] of [
+      ['a2', 'a2'],
+      ['a1', 'a5'],
+    ] as const) {
+      p.store.setRoute('t1', 'side', focus);
+      await p.fixture.whenStable();
+      await p.user.type(composer()!, 'How big?{Control>}{Enter}{/Control}');
+      expect(askFrom).toHaveBeenLastCalledWith(from, 'How big?', null);
+      await p.user.clear(composer()!);
+    }
+  });
+
+  it('jumping to the end lets the focus go: Tangent ↳ goes from the last reply again', async () => {
+    const p = await page(longerSide());
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    await p.fixture.whenStable();
+    const focus = vi
+      .spyOn(p.store, 'focus')
+      .mockImplementation((id) => p.store.setRoute('t1', 'side', id));
+    await p.user.click(screen.getByRole('button', { name: 'Jump to the end' }));
+    expect(focus).toHaveBeenCalledWith(null);
+    await p.fixture.whenStable();
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
+    await p.user.type(composer()!, 'How big?{Control>}{Enter}{/Control}');
+    expect(askFrom).toHaveBeenCalledWith('a5', 'How big?', null);
   });
 
   it('Learn runs one model: no tutor switch and no Compare, even where the provider lists more', async () => {
@@ -143,12 +237,12 @@ describe('Learn: the lesson page', () => {
     ]);
     await p.fixture.whenStable();
     await p.user.type(composer()!, 'And a particle?');
-    expect(screen.queryByRole('radiogroup', { name: 'Tutor' })).toBeNull();
+    expect(screen.queryByRole('toolbar', { name: 'Tutor' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Compare/ })).toBeNull();
     expect(within(dock()).queryByRole('status')).toBeNull();
   });
 
-  it('Enter sends as a tangent, Ctrl+Enter as Next', async () => {
+  it('on the main thread, Enter sends as a tangent, Ctrl+Enter as Next', async () => {
     const p = await page();
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
@@ -159,20 +253,37 @@ describe('Learn: the lesson page', () => {
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
   });
 
-  it('inside a tangent, Next ➜ keeps that tangent moving', async () => {
+  it('inside a tangent, Next ➜ keeps that tangent moving: filled, in its place after Tangent ↳', async () => {
     const p = await page(branchyLesson(), {}, 'side');
     expect(composer()?.placeholder).toBe('Ask anything in this tangent…');
-    const next = within(dock()).getByRole('button', { name: 'Next ➜' });
-    expect(next.title).toBe(`${REPLY_ACTION.hintInTangent} (Ctrl+Enter)`);
+    const [tangent, next] = within(dock()).getAllByRole('button', { name: /^(Tangent|Next)$/ });
+    expect(tangent?.dataset['action']).toBe('tangent');
+    expect(tangent?.title).toBe(`${TANGENT_ACTION.hint} (Ctrl+Enter)`);
+    expect(tangent?.classList).not.toContain('btn-primary');
+    expect(next?.dataset['action']).toBe('next');
+    expect(next?.title).toBe(`${REPLY_ACTION.hintInTangent} (Enter)`);
+    expect(next?.classList).toContain('btn-primary');
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'More?');
-    await p.user.click(next);
+    await p.user.click(next!);
     expect(send).toHaveBeenCalledWith('side', 'More?');
+  });
+
+  it('inside a tangent, Enter sends as Next, Ctrl+Enter as a tangent one level down', async () => {
+    const p = await page(branchyLesson(), {}, 'side');
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('deeper'));
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'More?{Enter}');
+    expect(send).toHaveBeenCalledWith('side', 'More?');
+    expect(askFrom).not.toHaveBeenCalled();
+    await p.user.keyboard('{Control>}{Enter}{/Control}');
+    expect(askFrom).toHaveBeenCalledWith('a2', 'More?', null);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('a new lesson has nothing to go on a tangent from: a single Send', async () => {
     const p = await page(detail([], [branch('trunk', { title: 'Main thread' })]));
-    expect(within(dock()).queryByRole('button', { name: /Tangent ↳|Next ➜/ })).toBeNull();
+    expect(within(dock()).queryByRole('button', { name: /^(Tangent|Next)$/ })).toBeNull();
     within(dock()).getByRole('button', { name: 'Send' });
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'Light?{Enter}');
@@ -181,7 +292,7 @@ describe('Learn: the lesson page', () => {
 
   it('a reply that failed is continued: the composer offers no tangent', async () => {
     const p = await page(lesson('normal-model', { status: 'error', error: 'It broke.' }));
-    expect(within(dock()).queryByRole('button', { name: /Tangent ↳|Next ➜/ })).toBeNull();
+    expect(within(dock()).queryByRole('button', { name: /^(Tangent|Next)$/ })).toBeNull();
     expect(composer()?.placeholder).toBe('Ask anything…');
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'Again?{Enter}');
@@ -199,8 +310,8 @@ describe('Learn: the lesson page', () => {
     within(dock()).getByText('“wave”');
     expect(composer()?.placeholder).toBe('Ask about this…');
     // Words to ask about only go on a tangent.
-    within(dock()).getByRole('button', { name: 'Tangent ↳' });
-    expect(within(dock()).queryByRole('button', { name: 'Next ➜' })).toBeNull();
+    within(dock()).getByRole('button', { name: 'Tangent' });
+    expect(within(dock()).queryByRole('button', { name: 'Next' })).toBeNull();
     expect(document.activeElement).toBe(composer());
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     await p.user.type(composer()!, 'Of what?{Enter}');
@@ -227,7 +338,7 @@ describe('Learn: the lesson page', () => {
     expect(startBranch).not.toHaveBeenCalled();
     within(dock()).getByText('Tangent from “Light is a wave of fields.”');
     expect(document.activeElement).toBe(composer());
-    expect(within(dock()).queryByRole('button', { name: 'Next ➜' })).toBeNull();
+    expect(within(dock()).queryByRole('button', { name: 'Next' })).toBeNull();
     // Dropped, it leaves nothing behind.
     await p.user.click(within(dock()).getByRole('button', { name: 'Don’t go on this tangent' }));
     expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
@@ -239,13 +350,36 @@ describe('Learn: the lesson page', () => {
     expect(askFrom).toHaveBeenCalledWith('a1', 'Of what?', null);
   });
 
+  it('a reply deleted from under the composer goes off it', async () => {
+    const d = lesson();
+    d.nodes.push(
+      node('u2', { parentId: 'a1', seq: 2, role: 'user', content: 'Of what?' }),
+      node('a2', { parentId: 'u2', seq: 3, content: 'Of fields.' }),
+    );
+    const p = await page(d);
+    await p.user.click(
+      within(document.getElementById('msg-a2')!).getByRole('button', { name: 'Tangent ↳' }),
+    );
+    within(dock()).getByText('Tangent from “Of fields.”');
+    Object.assign(TestBed.inject(ApiClient), {
+      deleteMessage: vi.fn(async () => ({ treeId: 't1', branchIds: [], nodeIds: ['u2', 'a2'] })),
+    });
+    await p.store.deleteMessage('u2');
+    await p.fixture.whenStable();
+    expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
+    expect(composer()?.placeholder).toBe('Ask anything…');
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
+    await p.user.type(composer()!, 'Why?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'Why?', null);
+  });
+
   it('inside an empty tangent the composer asks it, with nothing to choose', async () => {
     const d = lesson();
     d.branches.push(
       branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1', title: 'Why' }),
     );
     const p = await page(d, {}, 'side');
-    expect(within(dock()).queryByRole('button', { name: /Tangent ↳|Next ➜/ })).toBeNull();
+    expect(within(dock()).queryByRole('button', { name: /^(Tangent|Next)$/ })).toBeNull();
     expect(composer()?.placeholder).toBe('Ask your tangent…');
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'Why?{Enter}');
@@ -258,34 +392,26 @@ describe('Learn: the lesson page', () => {
       pool: POOL_ON,
       chosen: 'credit',
     });
-    const pay = within(dock()).getByRole('radiogroup', { name: 'Pay for replies with' });
-    expect(within(pay).getByRole('radio', { name: 'My credit' }).getAttribute('aria-checked')).toBe(
-      'true',
-    );
-    await p.user.click(within(pay).getByRole('radio', { name: 'Open pool' }));
+    const pay = within(dock()).getByRole('toolbar', { name: 'Pay for replies with' });
+    within(pay).getByRole('button', { name: 'My credit', pressed: true });
+    await p.user.click(within(pay).getByRole('button', { name: 'Open pool' }));
     await p.fixture.whenStable();
-    expect(within(pay).getByRole('radio', { name: 'Open pool' }).getAttribute('aria-checked')).toBe(
-      'true',
-    );
+    within(pay).getByRole('button', { name: 'Open pool', pressed: true });
   });
 
   it('a saved own key the learner can use is a third stop of the funding switch', async () => {
     const both = { billing: billing({ availableMicros: 500_000 }), pool: POOL_ON } as const;
     const p = await page(lesson(), { ...both, chosen: 'own-key' });
-    const pay = within(dock()).getByRole('radiogroup', { name: 'Pay for replies with' });
+    const pay = within(dock()).getByRole('toolbar', { name: 'Pay for replies with' });
     const stops = () =>
       within(pay)
-        .getAllByRole('radio')
+        .getAllByRole('button')
         .map((r) => r.textContent?.trim());
     expect(stops()).toEqual(['My credit', 'Open pool', 'OpenRouter key']);
-    expect(
-      within(pay).getByRole('radio', { name: 'OpenRouter key' }).getAttribute('aria-checked'),
-    ).toBe('true');
-    await p.user.click(within(pay).getByRole('radio', { name: 'My credit' }));
+    within(pay).getByRole('button', { name: 'OpenRouter key', pressed: true });
+    await p.user.click(within(pay).getByRole('button', { name: 'My credit' }));
     await p.fixture.whenStable();
-    expect(within(pay).getByRole('radio', { name: 'My credit' }).getAttribute('aria-checked')).toBe(
-      'true',
-    );
+    within(pay).getByRole('button', { name: 'My credit', pressed: true });
   });
 
   it('the own key stop names the key replies run on', async () => {
@@ -297,10 +423,8 @@ describe('Learn: the lesson page', () => {
       learnProviders: ['openrouter', 'anthropic'],
       chosenKey: 'anthropic',
     });
-    const pay = within(dock()).getByRole('radiogroup', { name: 'Pay for replies with' });
-    expect(
-      within(pay).getByRole('radio', { name: 'Anthropic key' }).getAttribute('aria-checked'),
-    ).toBe('true');
+    const pay = within(dock()).getByRole('toolbar', { name: 'Pay for replies with' });
+    within(pay).getByRole('button', { name: 'Anthropic key', pressed: true });
   });
 
   it('without a saved own key the funding switch keeps its two stops', async () => {
@@ -310,10 +434,10 @@ describe('Learn: the lesson page', () => {
       chosen: 'credit',
       ownKey: false,
     });
-    const two = within(dock()).getByRole('radiogroup', { name: 'Pay for replies with' });
+    const two = within(dock()).getByRole('toolbar', { name: 'Pay for replies with' });
     expect(
       within(two)
-        .getAllByRole('radio')
+        .getAllByRole('button')
         .map((r) => r.textContent?.trim()),
     ).toEqual(['My credit', 'Open pool']);
   });
@@ -731,9 +855,9 @@ describe('Learn: what the lesson page tells the walkthrough', () => {
     vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?');
-    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent ↳' }));
+    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent' }));
     expect(w.onRepliedOnTrunk).not.toHaveBeenCalled();
-    await p.user.click(within(dock()).getByRole('button', { name: 'Next ➜' }));
+    await p.user.click(within(dock()).getByRole('button', { name: 'Next' }));
     expect(w.onRepliedOnTrunk).toHaveBeenCalledOnce();
   });
 
@@ -742,7 +866,7 @@ describe('Learn: what the lesson page tells the walkthrough', () => {
     const p = await page(branchyLesson(), {}, 'side', w);
     vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'More?');
-    await p.user.click(within(dock()).getByRole('button', { name: 'Next ➜' }));
+    await p.user.click(within(dock()).getByRole('button', { name: 'Next' }));
     expect(w.onRepliedOnTrunk).not.toHaveBeenCalled();
   });
 

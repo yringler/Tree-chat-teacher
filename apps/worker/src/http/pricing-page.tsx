@@ -3,6 +3,7 @@ import {
   formatCents,
   formatMicros,
   formatServiceFee,
+  joinList,
   OPENROUTER_PROVIDER_ID,
   POOL_FUNDING_TEXT,
   POOL_MOTTO,
@@ -19,7 +20,7 @@ import type { AppBindings, AppEnv } from '../env.js';
 import { logEvent } from '../log.js';
 import { cachedPoolStatus, poolModelInfo } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
-import { joinList, offerOf, PoolSteps, type Offer } from './copy.js';
+import { offerOf, PoolSteps, type Offer } from './copy.js';
 import { pageResponse } from './layout.js';
 import { legalInfo } from './legal-info.js';
 import { PRICING_STYLE } from './page-styles.js';

@@ -87,7 +87,7 @@ export interface InputBudget {
 /**
  * A message's input budget on `info`'s route, as the server works it out
  * (ChatService `budgetFor`, plus the Worker's cap): the context window less
- * the reply's cap (`maxOutputTokens`, power's reply length; null = the
+ * the reply's cap (`maxOutputTokens`, power's reply limit; null = the
  * default for the model), within the server's cap and the user's limit.
  */
 export function inputBudgetOf(

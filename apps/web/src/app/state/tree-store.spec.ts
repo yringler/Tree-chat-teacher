@@ -11,6 +11,7 @@ import type {
   NodeLink,
   PoolStatusResponse,
   ProviderInfo,
+  SettingsResponse,
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
@@ -78,6 +79,7 @@ function setup() {
     me: vi.fn(async (): Promise<MeResponse> => me()),
     providers: vi.fn(async (): Promise<ProviderInfo[]> => []),
     listTrees: vi.fn(async (): Promise<TreeSummary[]> => []),
+    settings: vi.fn(async (): Promise<SettingsResponse> => fixtures.accountSettings()),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
     billing: vi.fn(async (): Promise<BillingSummary> => summary),
     poolStatus: vi.fn(async () => ({ enabled: false }) as PoolStatusResponse),
@@ -293,6 +295,38 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.toasts.toasts()[0]?.text).toBe('“Main thread” now uses Tangent credit (a/b)');
   });
 
+  it('names the model it moves to as power does: a tier label isn’t your Normal', async () => {
+    const s = setup();
+    const haiku = 'anthropic/claude-haiku-5.5';
+    // Credit offers only its suggested Normal, so the main thread moves onto that.
+    s.api.providers.mockResolvedValue([
+      ownKey,
+      {
+        ...credit,
+        openModels: false,
+        models: [{ id: haiku, label: 'Normal (suggested)', tier: 'normal' }],
+        defaultModel: haiku,
+      },
+    ]);
+    await s.store.init(me({ membership: inactive() }));
+    s.store.detail.set(tree());
+    s.store.setRoute('t1', null, null);
+    const updateBranch = vi.fn(async (id: string, req: UpdateBranchRequest) => ({
+      ...tree().branches.find((b) => b.id === id)!,
+      ...req,
+    }));
+    Object.assign(s.api, { updateBranch });
+    await expect(s.store.switchToCredit('trunk')).resolves.toBe(true);
+    expect(updateBranch).toHaveBeenCalledWith('trunk', {
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: haiku,
+    });
+    expect(s.toasts.toasts()[0]?.text).toBe(
+      '“Main thread” now uses Tangent credit (claude-haiku-5.5)',
+    );
+  });
+
   it('a lapsed member out of credit on a credit branch: a 402 payment_required toasts to /billing, nothing turns read-only', async () => {
     const s = setup();
     s.api.billing.mockResolvedValue(empty);
@@ -337,6 +371,62 @@ describe('TreeStore read-only power without a membership', () => {
     (s.api as unknown as { updateBranch: typeof updateBranch }).updateBranch = updateBranch;
     await expect(s.store.switchToCredit('trunk')).resolves.toBe(true);
     expect(s.store.readOnly()).toBe(false);
+  });
+
+  it('a tangent from a read-only thread’s path starts on its parent’s route and web search: the open one can’t generate', async () => {
+    const s = setup();
+    await open(s, inactive());
+    // The main thread on Tangent credit; the open tangent off it on the user's own key.
+    s.store.detail.set(
+      fixtures.detail(tree().nodes, [
+        fixtures.branch('trunk', {
+          title: 'Main thread',
+          funding: 'credit',
+          model: 'c/d',
+          grounding: 'off',
+        }),
+        fixtures.branch('side', {
+          parentBranchId: 'trunk',
+          branchPointNodeId: 'n2',
+          grounding: 'always',
+        }),
+      ]),
+    );
+    s.store.setRoute('t1', 'side', null);
+    expect(s.store.readOnly()).toBe(true);
+    const createBranch = vi.fn(async (req: CreateBranchRequest) =>
+      fixtures.branch('new', { parentBranchId: 'trunk', branchPointNodeId: req.fromNodeId }),
+    );
+    Object.assign(s.api, { createBranch, sendMessage: vi.fn(), streamNode: vi.fn() });
+    await s.store.followTangent('n2', 'Twin primes');
+    expect(createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'openrouter',
+        funding: 'credit',
+        model: 'c/d',
+        grounding: 'off',
+      }),
+    );
+  });
+
+  it('a suggestion under a locked thread’s reply starts from a tangent that can reply, on its route', async () => {
+    const s = setup();
+    await open(s, inactive());
+    // The main thread on the lapsed own key; the open tangent off it on Tangent credit.
+    s.store.setRoute('t1', 'side', null);
+    expect(s.store.readOnly()).toBe(false);
+    const createBranch = vi.fn(async (req: CreateBranchRequest) =>
+      fixtures.branch('new', { parentBranchId: 'trunk', branchPointNodeId: req.fromNodeId }),
+    );
+    Object.assign(s.api, { createBranch, sendMessage: vi.fn(), streamNode: vi.fn() });
+    await expect(s.store.followTangent('n2', 'Twin primes')).resolves.not.toBeNull();
+    expect(createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'openrouter', funding: 'credit', model: 'c/d' }),
+    );
+    // From the read-only main thread itself, it would start on the locked own key.
+    s.store.setRoute('t1', null, null);
+    await expect(s.store.followTangent('n2', 'Mersenne primes')).resolves.toBeNull();
+    expect(createBranch).toHaveBeenCalledTimes(1);
   });
 
   describe('a branch on the own key, with no key in this browser', () => {
@@ -424,7 +514,7 @@ describe('TreeStore read-only power without a membership', () => {
       s.sendMessage.mockImplementation(async () => fixtures.stream([]));
       await expect(s.store.account.saveKey('openrouter', 'sk-or-1')).resolves.toBe(true);
       s.store.resumeAfterKey('openrouter');
-      expect(s.sendMessage).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => expect(s.sendMessage).toHaveBeenCalledTimes(2));
       expect(s.sendMessage).toHaveBeenLastCalledWith(
         'trunk',
         { content: 'Why primes?' },
@@ -434,9 +524,9 @@ describe('TreeStore read-only power without a membership', () => {
       expect(s.ui.dialogs.get('keys')).toBeNull();
     });
 
-    it('sends the reply length set in Settings; Auto sends none', async () => {
+    it('sends the reply limit set in Settings; Auto sends none', async () => {
       const s = await openNoKey();
-      s.settings.update({ maxOutputTokens: 16_384 });
+      s.settings.settings.update((v) => ({ ...v, maxOutputTokens: 16_384 }));
       try {
         await s.store.send('trunk', 'Why primes?');
         expect(s.sendMessage).toHaveBeenLastCalledWith(
@@ -445,7 +535,7 @@ describe('TreeStore read-only power without a membership', () => {
           expect.any(AbortSignal),
         );
       } finally {
-        s.settings.update({ maxOutputTokens: null });
+        s.settings.settings.update((v) => ({ ...v, maxOutputTokens: null }));
       }
       await s.store.send('trunk', 'Why primes?');
       expect(s.sendMessage).toHaveBeenLastCalledWith(
@@ -457,7 +547,11 @@ describe('TreeStore read-only power without a membership', () => {
 
     it('sends the input limit and the over-limit choice set in Settings', async () => {
       const s = await openNoKey();
-      s.settings.update({ maxInputTokens: 60_000, inputOverflow: 'truncate' });
+      s.settings.settings.update((v) => ({
+        ...v,
+        maxInputTokens: 60_000,
+        inputOverflow: 'truncate',
+      }));
       try {
         await s.store.send('trunk', 'Why primes?');
         expect(s.sendMessage).toHaveBeenLastCalledWith(
@@ -466,8 +560,57 @@ describe('TreeStore read-only power without a membership', () => {
           expect.any(AbortSignal),
         );
       } finally {
-        s.settings.update({ maxInputTokens: null, inputOverflow: 'compact' });
+        s.settings.settings.update((v) => ({
+          ...v,
+          maxInputTokens: null,
+          inputOverflow: 'compact',
+        }));
       }
+    });
+
+    /** `openNoKey`, but with the settings still loading: `settings` answers their load. */
+    function openLoading(settings: () => Promise<SettingsResponse>) {
+      const s = setup();
+      s.api.providers.mockResolvedValue([noKey, credit]);
+      s.api.settings.mockImplementation(settings);
+      const init = s.store.init(me()).catch(() => undefined);
+      s.store.detail.set(tree());
+      s.store.setRoute('t1', null, null);
+      const sendMessage = vi.fn(
+        async (_b: string, _req: unknown, _signal: AbortSignal): Promise<Response> => {
+          throw keyRequired();
+        },
+      );
+      Object.assign(s.api, { sendMessage, streamNode: vi.fn() });
+      return { ...s, init, sendMessage };
+    }
+
+    it("a send before the settings have loaded waits for them, and carries the user's limits", async () => {
+      let answer = (_res: SettingsResponse): void => undefined;
+      const s = openLoading(() => new Promise((resolve) => (answer = resolve)));
+      const sent = s.store.send('trunk', 'Why primes?');
+      await new Promise((resolve) => setTimeout(resolve));
+      expect(s.sendMessage).not.toHaveBeenCalled();
+      answer(fixtures.accountSettings({ maxOutputTokens: 4096 }));
+      await sent;
+      expect(s.sendMessage).toHaveBeenCalledExactlyOnceWith(
+        'trunk',
+        { content: 'Why primes?', maxOutputTokens: 4096 },
+        expect.any(AbortSignal),
+      );
+    });
+
+    it("a send whose settings can't load fails and keeps its text; the next one loads them", async () => {
+      const s = openLoading(async () => {
+        throw new ApiError(0, 'network', 'Network error');
+      });
+      await s.init;
+      await expect(s.store.send('trunk', 'Why primes?')).resolves.toBe(false);
+      expect(s.sendMessage).not.toHaveBeenCalled();
+      expect(s.store.unsentDrafts().get('trunk')).toBe('Why primes?');
+      s.api.settings.mockImplementation(async () => fixtures.accountSettings());
+      await s.store.send('trunk', 'Why primes?');
+      expect(s.sendMessage).toHaveBeenCalledOnce();
     });
 
     it('closing the dialog sends nothing and leaves the text for the composer', async () => {
@@ -656,7 +799,7 @@ describe('TreeStore branching with a first message', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('"Ask your own" opens an untitled path branch (titled after its first reply) and asks the question', async () => {
+  it('a question asked from a message opens an untitled path branch (titled after its first reply) and asks it', async () => {
     const s = open();
     const branch = await s.store.askFrom('a1', 'Why does it bend?');
     expect(branch?.id).toBe('side');
@@ -664,6 +807,10 @@ describe('TreeStore branching with a first message', () => {
       fromNodeId: 'a1',
       contextMode: 'path',
       anchorQuote: null,
+      providerId: 'openrouter',
+      funding: 'own-key',
+      model: 'a/b',
+      grounding: 'auto',
     });
     expect(s.go).toHaveBeenCalledWith('side');
     expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['side']);
@@ -683,6 +830,10 @@ describe('TreeStore branching with a first message', () => {
       'And particles?',
     );
     expect(s.createBranch).toHaveBeenCalledWith({
+      providerId: 'openrouter',
+      funding: 'own-key',
+      model: 'a/b',
+      grounding: 'auto',
       fromNodeId: 'a1',
       contextMode: 'summary',
       anchorQuote: 'a wave',
@@ -725,6 +876,81 @@ describe('TreeStore branching with a first message', () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+
+  it('a tangent starts on the open thread’s route, the one the bar under the box shows, even from an earlier thread’s message', async () => {
+    const s = open();
+    const deep = fixtures.branch('deep', {
+      parentBranchId: 'trunk',
+      branchPointNodeId: 'a1',
+      funding: 'credit',
+      model: 'c/d',
+    });
+    s.store.detail.set(fixtures.detail([reply], [trunk, deep]));
+    s.store.setRoute('t1', 'deep', null);
+    await s.store.askFrom('a1', 'Why does it bend?');
+    expect(s.createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'c/d',
+      grounding: 'auto',
+    });
+  });
+
+  it('a tangent from an earlier thread’s message takes the open thread’s web search with its route, Check sources too', async () => {
+    const s = open();
+    // The main thread searches never; the open tangent off it is on the default (auto).
+    const main = { ...trunk, grounding: 'off' as const };
+    const deep = fixtures.branch('deep', {
+      parentBranchId: 'trunk',
+      branchPointNodeId: 'a1',
+      funding: 'credit',
+      model: 'c/d',
+    });
+    s.store.detail.set(fixtures.detail([reply], [main, deep]));
+    s.store.setRoute('t1', 'deep', null);
+    await s.store.followTangent('a1', 'Waves in water');
+    expect(s.createBranch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ funding: 'credit', model: 'c/d', grounding: 'auto' }),
+    );
+    // The check still forces its search, whatever the tangent's setting.
+    s.store.detail.set(fixtures.detail([reply], [main, { ...deep, grounding: 'always' }]));
+    await s.store.checkSources('a1');
+    expect(s.createBranch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: 'Checking sources',
+        funding: 'credit',
+        grounding: 'always',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(s.sendMessage).toHaveBeenLastCalledWith(
+        'side',
+        expect.objectContaining({ ground: 'required' }),
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('offers Check sources on an earlier thread’s reply where the open thread’s route can search: the check is a tangent on it', () => {
+    const s = open();
+    const entry = (funding: 'own-key' | 'credit', webSearch: boolean) =>
+      fixtures.provider({ funding, webSearch, acceptsUserKey: funding === 'own-key' });
+    s.store.account.providers.set([entry('own-key', true), entry('credit', false)]);
+    const deep = fixtures.branch('deep', {
+      parentBranchId: 'trunk',
+      branchPointNodeId: 'a1',
+      funding: 'credit',
+    });
+    s.store.detail.set(fixtures.detail([reply], [trunk, deep]));
+    expect(s.store.canCheckSources('trunk')).toBe(true);
+    s.store.setRoute('t1', 'deep', null);
+    expect(s.store.canCheckSources('trunk')).toBe(false);
+    s.store.account.providers.set([entry('own-key', false), entry('credit', true)]);
+    expect(s.store.canCheckSources('trunk')).toBe(true);
   });
 
   it('a branch that cannot be created sends nothing (the caller keeps the text)', async () => {

@@ -1,8 +1,16 @@
 import { computed, inject, Injectable } from '@angular/core';
 import { Router } from '@angular/router';
 import { branchesWithLinks, linkTarget } from '@tangent/core';
-import { type BranchFunding } from '@tangent/shared';
-import type { Branch, NodeLink, ShareScope } from '@tangent/shared';
+import { DEFAULT_GROUNDING_MODE, type BranchFunding } from '@tangent/shared';
+import type {
+  Branch,
+  ComposerLead,
+  CreateBranchRequest,
+  MeResponse,
+  NodeLink,
+  ProviderInfo,
+  ShareScope,
+} from '@tangent/shared';
 import {
   ApiClient,
   ComposerController,
@@ -11,7 +19,9 @@ import {
   SidebarState,
   ToastStore,
 } from '@tangent/web-shared';
+import { modelName } from './model-text';
 import { generationLimits, SettingsStore } from './settings-store';
+import { threadTitle } from './thread-title';
 import { UiStore } from './ui-store';
 
 /**
@@ -56,6 +66,11 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     return !!branch && !this.account.routeLocked(branch) && this.account.canGenerate();
   }
 
+  /** With the account and the conversations, the account's Settings (`SettingsStore`). */
+  override async init(me: MeResponse): Promise<void> {
+    await Promise.all([super.init(me), this.appSettings.load()]);
+  }
+
   // Routing
 
   override setRoute(
@@ -96,9 +111,68 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   // Branches
 
-  /** Whether replies in `branchId` can be checked against web sources (its provider can search). */
+  /**
+   * The thread a tangent from a message of `from` takes its route and web
+   * search from: the open thread, wherever on the path the message is. The
+   * bar under the message box shows its route, so who pays and which model
+   * answers are on screen before the first send, and the searches that payer
+   * pays for follow that same thread's setting. A read-only thread shows no
+   * bar and can't generate: `from`, as the server would pick.
+   */
+  tangentRoute(from: Branch | null): Branch | null {
+    return this.readOnly() ? from : (this.selectedBranch() ?? from);
+  }
+
+  protected override newBranchRoute(from: Branch | null): Partial<CreateBranchRequest> {
+    const route = this.tangentRoute(from);
+    // Web search is named even when it is the default: a request naming none takes `from`'s.
+    return route
+      ? {
+          providerId: route.providerId,
+          funding: route.funding,
+          model: route.model,
+          grounding: route.grounding ?? DEFAULT_GROUNDING_MODE,
+        }
+      : {};
+  }
+
+  /**
+   * A tangent from message `nodeId` can't start: the route it would start on
+   * (`tangentRoute`) needs the membership the user lacks. Judged on that
+   * route rather than the message's thread, so a locked thread's reply
+   * above a tangent that can reply still offers its suggestions.
+   */
+  tangentLocked(nodeId: string): boolean {
+    const route = this.tangentRoute(this.branchOf(nodeId));
+    return !!route && this.account.routeLocked(route);
+  }
+
+  protected override canBranchFrom(nodeId: string): boolean {
+    return !this.tangentLocked(nodeId);
+  }
+
+  /**
+   * A tangent from a message, or from words of it (its Tangent ↳, `b`): the
+   * message box is aimed at it, and the tangent is made when the box's
+   * message is sent. A read-only thread has no message box, so Tangent from
+   * here opens instead, where a route that can reply is picked.
+   */
+  aimComposer(lead: ComposerLead): void {
+    if (this.readOnly()) {
+      this.ui.dialogs.open({ kind: 'branch', fromNodeId: lead.nodeId, quote: lead.quote });
+    } else {
+      this.composer.aim(lead);
+    }
+  }
+
+  /**
+   * Whether replies in `branchId` can be checked against web sources: the
+   * route the check runs on can search. That is the open thread's, in place
+   * on its last reply or as a tangent from an earlier one (`tangentRoute`).
+   */
   canCheckSources(branchId: string): boolean {
-    const branch = this.index()?.branches.get(branchId);
+    const from = this.index()?.branches.get(branchId);
+    const branch = from ? this.tangentRoute(from) : null;
     if (!branch) return false;
     return this.account
       .providers()
@@ -140,7 +214,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     this.ui.linkReturn.set({
       branchId: here.id,
       focusNodeId: fromNodeId ?? this.focusedInPath()?.id ?? null,
-      label: here.title,
+      label: threadTitle(here),
       toBranchId: target.branchId,
       toNodeId: nodeId,
     });
@@ -151,8 +225,13 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   // Messages and streams
 
-  /** The reply length and input limit the user set (Settings), else nothing: the server's defaults. */
-  protected override sendExtras(): ReturnType<typeof generationLimits> {
+  /**
+   * The reply limit and input limit the user set (Settings), else nothing:
+   * the server's defaults. A send before the settings have loaded waits for
+   * them, so it never goes with limits other than the user's.
+   */
+  protected override async sendExtras(): Promise<ReturnType<typeof generationLimits>> {
+    await this.appSettings.load();
     return generationLimits(this.appSettings.settings());
   }
 
@@ -184,8 +263,10 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     this.ui.dialogs.close('keys');
   }
 
-  protected override movedToCredit(branch: Branch, modelLabel: string): void {
-    this.toast.notify(`“${branch.title}” now uses Tangent credit (${modelLabel})`);
+  protected override movedToCredit(branch: Branch, credit: ProviderInfo, model: string): void {
+    this.toast.notify(
+      `“${threadTitle(branch)}” now uses Tangent credit (${modelName(credit, model)})`,
+    );
     this.composer.focus();
   }
 

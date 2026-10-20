@@ -11,8 +11,10 @@ import '../api/models.dart';
 import '../api/tangents.dart';
 import '../state/app_scope.dart';
 import '../state/chat_controller.dart';
+import '../state/composer_plan.dart';
 import '../state/walkthrough_controller.dart';
 import 'coach_mark.dart';
+import 'format.dart';
 import 'help.dart';
 import 'lesson_outline.dart';
 import 'message_view.dart';
@@ -47,9 +49,16 @@ class _ChatPageState extends State<ChatPage> {
   final _composerFocus = FocusNode();
   final _scroll = ScrollController();
 
-  /// Words "Ask about this" put on the composer, in the reply they are from:
-  /// the next message asks about them.
-  ({ChatNode node, String text})? _quote;
+  /// The open message box names the reply its tangent starts from: decided
+  /// as it takes the focus and kept while it has it, so the box doesn't
+  /// change height under the learner's typing.
+  final _namesTarget = ValueNotifier(false);
+
+  /// The message box had the focus when it last changed.
+  bool _hadFocus = false;
+
+  /// How much of a reply the box shows when it names it, as on Learn web.
+  static const _excerptChars = 60;
 
   /// Follows the end of the thread until the learner scrolls up.
   bool _stickToBottom = true;
@@ -100,14 +109,18 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     final scope = AppScope.of(context);
-    _chat = ChatController(
-      api: scope.api,
-      session: scope.session,
-      lessons: scope.lessons,
-      treeId: widget.treeId,
-      branchId: widget.branchId,
-    )..addListener(_followEnd);
+    _chat =
+        ChatController(
+            api: scope.api,
+            session: scope.session,
+            lessons: scope.lessons,
+            treeId: widget.treeId,
+            branchId: widget.branchId,
+          )
+          ..addListener(_followEnd)
+          ..addListener(_forgetNamedTarget);
     _scroll.addListener(_onScroll);
+    _composerFocus.addListener(_onComposerFocus);
     _walkthrough = scope.walkthrough;
     unawaited(_walkthrough.start());
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -130,7 +143,6 @@ class _ChatPageState extends State<ChatPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.branchId != widget.branchId) {
       _chat.selectBranch(widget.branchId);
-      _quote = null;
       _showBranch();
     }
   }
@@ -142,6 +154,7 @@ class _ChatPageState extends State<ChatPage> {
     _composerFocus.dispose();
     _scroll.dispose();
     _farFromEnd.dispose();
+    _namesTarget.dispose();
     super.dispose();
   }
 
@@ -194,8 +207,10 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   /// Scrolls to the end of the thread and follows it from there, so a reply
-  /// being written stays in view.
+  /// being written stays in view. A tangent from the composer then starts
+  /// from the last reply.
   void _jumpToEnd() {
+    _chat.jumpedToEnd();
     if (!_scroll.hasClients) return;
     _stickToBottom = true;
     final end = _scroll.position.maxScrollExtent;
@@ -311,17 +326,24 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  /// Sends the composer's text: on a tangent from the reply on screen (or
-  /// the one quoted), or as the next step of the branch on screen. False
-  /// when there is nothing to send yet.
+  /// Sends the composer's text: on a tangent from its target (the reply it
+  /// is aimed at, or the one the learner is on), or as the next step of the
+  /// branch on screen. Words to ask about always go on a tangent, and a
+  /// tangent without a reply to start from isn't sent: it never lands on the
+  /// thread as its next step. False when nothing was sent.
   bool _sendComposer({required bool tangent}) {
     final text = _composer.text.trim();
     if (text.isEmpty || _chat.sending || _chat.streamingNode != null) {
       return false;
     }
-    final quote = _quote;
-    final from = quote?.node ?? (tangent ? _chat.asideFrom : null);
-    unawaited(from == null ? _send(text) : _ask(from, text, quote?.text));
+    final lead = _chat.lead;
+    if (!tangent && lead == null) {
+      unawaited(_send(text));
+      return true;
+    }
+    final from = _chat.target;
+    if (from == null) return false;
+    unawaited(_ask(from, text, lead?.quote));
     return true;
   }
 
@@ -344,56 +366,127 @@ class _ChatPageState extends State<ChatPage> {
     await _settle(text, started.accepted);
   }
 
-  void _askAbout(ChatNode node, String text) {
-    setState(() => _quote = (node: node, text: text));
+  /// Puts the words [quote] of [node] on the composer, or with none the
+  /// whole of it: the next message asks about them on a tangent.
+  void _askAbout(ChatNode node, String? quote) {
+    _chat.aim((nodeId: node.id, quote: quote));
     _composerFocus.requestFocus();
   }
 
-  void _dropQuote() {
-    setState(() => _quote = null);
+  void _dropLead() {
+    _chat.dropLead();
     _composerFocus.requestFocus();
   }
 
   /// The composer's placeholder, as Learn web words it: where the message
   /// goes, not which button sends it.
-  String _hint() {
-    if (_chat.thread.isEmpty) return 'Ask a question or name a topic';
-    if (_chat.isSideBranch && _chat.isEmptyBranch) {
-      return 'Ask your tangent…';
-    }
-    if (_quote != null) return 'Ask about this…';
-    return _chat.isSideBranch
-        ? 'Ask anything in this tangent…'
-        : 'Ask anything…';
-  }
+  String _hint(ComposerPlace place) => switch (place) {
+    ComposerPlace.start => 'Ask a question or name a topic',
+    ComposerPlace.lead => composerPlaceholders.lead,
+    ComposerPlace.emptyTangent => composerPlaceholders.emptyTangent,
+    ComposerPlace.tangent => composerPlaceholders.tangent,
+    ComposerPlace.main => composerPlaceholders.main,
+  };
 
-  /// Where the composer's message can go, when there is a choice: on a
-  /// tangent from the last reply, the recommended default, or as the next
-  /// step. A quote is always asked about on a tangent. Without a reply to
-  /// start a tangent from, there is no choice, and a plain Send continues.
-  List<_SendAction> _composerActions() {
-    if (_quote == null && _chat.asideFrom == null) return const [];
-    return [
-      _SendAction(
-        key: _tangentKey,
-        label: tangentAction.label,
-        tooltip: tangentAction.hint,
-        semanticsLabel: 'Send as tangent',
-        primary: true,
-        onPressed: () => _sendComposer(tangent: true),
-      ),
-      if (_quote == null)
-        _SendAction(
+  /// Where the composer's message can go, when there is a choice
+  /// ([composerPlan]): on a tangent from its target, or as the next step.
+  /// The filled one is Tangent on the main thread and Next inside a
+  /// tangent; without a reply to start a tangent from, a plain Send
+  /// continues.
+  List<_SendAction> _composerActions(List<ComposerSend> sends) => [
+    for (final send in sends)
+      switch (send.id) {
+        ComposerSendId.tangent => _SendAction(
+          key: _tangentKey,
+          label: tangentAction.label,
+          tooltip: tangentAction.hint,
+          semanticsLabel: 'Send as tangent',
+          primary: send.primary,
+          onPressed: () => _sendComposer(tangent: true),
+        ),
+        ComposerSendId.next => _SendAction(
           key: _nextKey,
           label: replyAction.label,
           tooltip: _chat.isSideBranch
               ? replyAction.hintInTangent
               : replyAction.hint,
           semanticsLabel: 'Send as next message',
-          primary: false,
+          primary: send.primary,
           onPressed: _sendNext,
         ),
+      },
+  ];
+
+  /// As the box takes the focus, decides whether it names the reply its
+  /// tangent starts from: when that reply may not be the one in view, since
+  /// it isn't the last or the end is out of view. A lead names itself.
+  void _onComposerFocus() {
+    final focused = _composerFocus.hasFocus;
+    if (focused && !_hadFocus) {
+      _namesTarget.value =
+          _chat.lead == null &&
+          _chat.target != null &&
+          (_chat.plan.nameTarget || _farFromEnd.value);
+    }
+    _hadFocus = focused;
+  }
+
+  /// Losing the target to name (to a lead, which names itself) ends the
+  /// naming until the box next takes the focus, so taking a lead off leaves
+  /// its place empty rather than naming something else. As on Learn web.
+  void _forgetNamedTarget() {
+    if (_namesTarget.value && (_chat.lead != null || _chat.target == null)) {
+      _namesTarget.value = false;
+    }
+  }
+
+  /// The opening words of [node], as the box names it.
+  static String _excerptOf(ChatNode node) =>
+      plainText(splitTangents(node.content).body, max: _excerptChars);
+
+  /// The named target tapped: the start of that reply comes into view. One
+  /// far off isn't laid out yet, so the thread first jumps to the end of the
+  /// open thread it is nearer: its start or its end.
+  void _showTarget() {
+    final id = _chat.plan.target;
+    if (id == null || !_scroll.hasClients) return;
+    _stickToBottom = false;
+    if (_revealStart(id)) return;
+    final own = [
+      for (final n in _chat.thread)
+        if (n.branchId == _chat.branchId) n.id,
     ];
+    final position = _scroll.position;
+    _scroll.jumpTo(
+      own.indexOf(id) < own.length / 2 ? 0 : position.maxScrollExtent,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) _revealStart(id);
+    });
+  }
+
+  /// Scrolls the start of message [id] to the top of the view, if it is
+  /// laid out.
+  bool _revealStart(String id) {
+    final box = _messageKeys[id]?.currentContext?.findRenderObject();
+    if (box == null || !box.attached) return false;
+    final position = _scroll.position;
+    final offset = RenderAbstractViewport.of(box)
+        .getOffsetToReveal(box, 0)
+        .offset
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if (_glidesTo(offset)) {
+      unawaited(
+        _scroll.animateTo(
+          offset,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    } else {
+      _scroll.jumpTo(offset);
+    }
+    return true;
   }
 
   /// Starts a tangent that follows [tangent], a suggestion of [node], and
@@ -637,6 +730,9 @@ class _ChatPageState extends State<ChatPage> {
     final thread = _chat.thread;
     final streaming = _chat.streamingNode;
     final busy = _chat.sending;
+    final plan = _chat.plan;
+    final lead = _chat.lead;
+    final target = _chat.target;
     return Column(
       children: [
         Expanded(
@@ -690,15 +786,24 @@ class _ChatPageState extends State<ChatPage> {
                 focusNode: _composerFocus,
                 enabled: !busy,
                 streaming: streaming != null,
-                hint: _hint(),
-                lead: switch (_quote) {
-                  final quote? => _QuoteChip(
-                    text: quote.text,
-                    onRemove: _dropQuote,
+                hint: _hint(plan.place),
+                lead: switch ((lead, target)) {
+                  (final lead?, final target?) => _QuoteChip(
+                    quote: lead.quote,
+                    excerpt: _excerptOf(target),
+                    onRemove: _dropLead,
                   ),
-                  null => null,
+                  _ => null,
                 },
-                actions: _composerActions(),
+                target: switch ((lead, target)) {
+                  (null, final target?) => _NamedTarget(
+                    excerpt: _excerptOf(target),
+                    onTap: _showTarget,
+                  ),
+                  _ => null,
+                },
+                namesTarget: _namesTarget,
+                actions: _composerActions(plan.actions),
                 onSend: () => _sendComposer(tangent: false),
                 onStop: () => unawaited(_chat.stop()),
               ),
@@ -753,6 +858,7 @@ class _ChatPageState extends State<ChatPage> {
       cameFromIds: _chat.cameFromIds,
       onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),
       onAskAbout: (text) => _askAbout(node, text),
+      onTangent: () => _askAbout(node, null),
       onOpenTangent: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),
       onDelete: node.role == Role.user
           ? () => unawaited(_deleteMessage(node))
@@ -1187,21 +1293,26 @@ class _SendAction {
   final GlobalKey key;
   final String label;
 
-  /// When to pick it; also shown on a long press.
+  /// When to pick it, as its tooltip (also shown on a long press), which
+  /// adds its key where Enter sends.
   final String tooltip;
   final String semanticsLabel;
 
-  /// Filled, as the recommended default; otherwise outlined.
+  /// Filled, and sent with Enter; otherwise outlined, and sent with Ctrl or
+  /// Cmd+Enter.
   final bool primary;
   final VoidCallback onPressed;
 }
 
-/// The message box. On the web, Enter sends (as the first of [actions]),
-/// Ctrl or Cmd+Enter sends as the second, and Shift+Enter starts a new line.
-/// The words it asks about ([lead]) sit before the text; with the focus they
-/// take a row of their own, and the box grows to three lines. With
+/// The message box. On the web, Enter sends (as the filled one of
+/// [actions]), Ctrl or Cmd+Enter sends as the other, and Shift+Enter starts
+/// a new line; on a phone or tablet a plain Enter starts one too
+/// ([enterSends]). The words it asks about ([lead]) sit before the text; with
+/// the focus they take a row of their own, and the box grows to three
+/// lines. Without a lead, the open box can name the reply its tangent
+/// starts from ([target]) in the same row, when [namesTarget] holds. With
 /// [actions], they replace the Send button with a row of equal buttons
-/// under the box.
+/// under the box, always in the same order.
 class _Composer extends StatelessWidget {
   const _Composer({
     super.key,
@@ -1211,6 +1322,8 @@ class _Composer extends StatelessWidget {
     required this.streaming,
     required this.hint,
     required this.lead,
+    required this.target,
+    required this.namesTarget,
     required this.actions,
     required this.onSend,
     required this.onStop,
@@ -1224,6 +1337,10 @@ class _Composer extends StatelessWidget {
 
   /// What the message asks about, if anything.
   final Widget? lead;
+
+  /// The reply a tangent from the box starts at, named.
+  final Widget? target;
+  final ValueListenable<bool> namesTarget;
   final List<_SendAction> actions;
   final VoidCallback onSend;
   final VoidCallback onStop;
@@ -1233,17 +1350,23 @@ class _Composer extends StatelessWidget {
         event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.numpadEnter;
     final keyboard = HardwareKeyboard.instance;
-    if (!kIsWeb ||
-        event is! KeyDownEvent ||
+    final modified = keyboard.isControlPressed || keyboard.isMetaPressed;
+    if (event is! KeyDownEvent ||
         !enter ||
         keyboard.isShiftPressed ||
-        controller.value.composing.isValid) {
+        controller.value.composing.isValid ||
+        !enterSends(
+          web: kIsWeb,
+          platform: defaultTargetPlatform,
+          modified: modified,
+        )) {
       return KeyEventResult.ignored;
     }
-    final modified = keyboard.isControlPressed || keyboard.isMetaPressed;
-    final action = modified && actions.length > 1
-        ? actions[1]
-        : actions.firstOrNull;
+    final action = sentByEnter(
+      actions,
+      primary: (a) => a.primary,
+      modified: modified,
+    );
     (action?.onPressed ?? onSend)();
     return KeyEventResult.handled;
   }
@@ -1251,10 +1374,11 @@ class _Composer extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) => ListenableBuilder(
-      listenable: focusNode,
+      listenable: Listenable.merge([focusNode, namesTarget]),
       builder: (context, _) {
         final focused = focusNode.hasFocus;
         final leading = lead;
+        final named = target;
         // A tap on it keeps the focus in the box.
         final tappable = leading == null
             ? null
@@ -1265,6 +1389,9 @@ class _Composer extends StatelessWidget {
           children: [
             if (focused && tappable != null) ...[
               tappable,
+              const SizedBox(height: 6),
+            ] else if (focused && named != null && namesTarget.value) ...[
+              TextFieldTapRegion(child: named),
               const SizedBox(height: 6),
             ],
             _row(
@@ -1344,17 +1471,28 @@ class _Composer extends StatelessWidget {
 
   /// The actions side by side, equally wide, so the tangent is never the
   /// smaller choice. The label carries the arrow, so no icon doubles it.
+  /// Each tooltip names its key where Enter sends ([sendTooltip]).
   Widget _actionRow() => ValueListenableBuilder(
     valueListenable: controller,
     builder: (context, value, _) {
       final ready = enabled && value.text.trim().isNotEmpty;
+      final keys = enterSends(
+        web: kIsWeb,
+        platform: defaultTargetPlatform,
+        modified: false,
+      );
       return Row(
+        key: const ValueKey('composer-actions'),
         children: [
           for (final (i, action) in actions.indexed) ...[
             if (i > 0) const SizedBox(width: 8),
             Expanded(
               child: Tooltip(
-                message: action.tooltip,
+                message: sendTooltip(
+                  action.tooltip,
+                  primary: action.primary,
+                  keys: keys,
+                ),
                 child: _actionButton(action, ready: ready),
               ),
             ),
@@ -1378,11 +1516,72 @@ class _Composer extends StatelessWidget {
   }
 }
 
-/// The words the composer's message asks about, with a way to take them off.
-class _QuoteChip extends StatelessWidget {
-  const _QuoteChip({required this.text, required this.onRemove});
+/// The reply a tangent from the box starts at, named where the words it
+/// asks about would sit and quieter than them; a tap shows it. Never
+/// focused, so the box keeps the focus and a phone's keyboard stays up.
+class _NamedTarget extends StatelessWidget {
+  const _NamedTarget({required this.excerpt, required this.onTap});
 
-  final String text;
+  /// The reply's opening words.
+  final String excerpt;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodySmall
+        ?.copyWith(color: TangentColors.of(context).fgMuted);
+    final label = 'from “$excerpt”';
+    return Tooltip(
+      message: 'Show the reply Tangent ↳ starts from',
+      child: Semantics(
+        button: true,
+        label: label,
+        onTap: onTap,
+        excludeSemantics: true,
+        child: ExcludeFocus(
+          child: InkWell(
+            key: const ValueKey('composer-target'),
+            borderRadius: BorderRadius.circular(6),
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 40),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('↳ ', style: style),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: style,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// What the composer's message asks about, with a way to take it off: the
+/// words "Ask about this" quoted ([quote]), or else a whole reply, by its
+/// opening words ([excerpt]), as Learn web's composer shows them.
+class _QuoteChip extends StatelessWidget {
+  const _QuoteChip({
+    required this.quote,
+    required this.excerpt,
+    required this.onRemove,
+  });
+
+  final String? quote;
+  final String excerpt;
   final VoidCallback onRemove;
 
   @override
@@ -1392,12 +1591,21 @@ class _QuoteChip extends StatelessWidget {
     return InputChip(
       key: const ValueKey('composer-quote'),
       avatar: Icon(Icons.subdirectory_arrow_right, size: 16, color: accent),
-      label: Text('“$text”', maxLines: 1, overflow: TextOverflow.ellipsis),
+      label: Text(
+        switch (quote) {
+          final quote? => '“$quote”',
+          null => 'Tangent from “$excerpt”',
+        },
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       backgroundColor: tokens.accentSoft,
       side: BorderSide(color: accent),
       shape: const StadiumBorder(),
       onDeleted: onRemove,
-      deleteButtonTooltipMessage: 'Don’t ask about these words',
+      deleteButtonTooltipMessage: quote == null
+          ? 'Don’t go on this tangent'
+          : 'Don’t ask about these words',
     );
   }
 }

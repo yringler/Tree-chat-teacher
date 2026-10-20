@@ -39,12 +39,14 @@ export class Inspector {
 
   /**
    * Inputs of the query: branch, target node (focused on the path, else the
-   * leaf), completions, and the reply length and input limit a send would
-   * carry (Settings), so the preview plans as the next send will.
+   * leaf), completions, and the reply limit and input limit a send would
+   * carry (Settings), so the preview plans as the next send will. No
+   * branch until the settings have loaded: a preview without the user's
+   * limits would plan other than the send.
    */
   private readonly query = computed(
     () => ({
-      branchId: this.store.selectedBranchId(),
+      branchId: this.settings.loaded() ? this.store.selectedBranchId() : null,
       nodeId: this.store.focusedInPath()?.id ?? null,
       tick: this.store.completions(),
       limits: generationLimits(this.settings.settings()),

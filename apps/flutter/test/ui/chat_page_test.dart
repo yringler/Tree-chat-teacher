@@ -66,10 +66,27 @@ void main() {
     await tester.pump();
   }
 
+  /// The message box's button labelled [label], not a reply's own
+  /// Tangent ↳.
+  Finder action(String label) => find.descendant(
+    of: find.byKey(const ValueKey('composer-actions')),
+    matching: find.text(label),
+  );
+
+  /// Message [id] of the thread.
+  Finder message(String id) =>
+      find.byWidgetPredicate((w) => w is MessageView && w.node.id == id);
+
+  /// A reply's own Tangent ↳, in its header.
+  Finder replyTangent(String id) => find.descendant(
+    of: message(id),
+    matching: find.byTooltip('Go on a tangent about this message'),
+  );
+
   /// Types [text] and sends it with the action labelled [label].
   Future<void> sendAs(WidgetTester tester, String label, String text) async {
     await type(tester, text);
-    await tester.tap(find.text(label));
+    await tester.tap(action(label));
     await tester.pump();
   }
 
@@ -125,6 +142,9 @@ void main() {
     );
     expect(find.textContaining('tangents', findRichText: true), findsNothing);
     expect(find.text(suggestedTangentsLabel), findsNothing);
+    // Its own Tangent ↳ waits for the whole reply.
+    expect(replyTangent('a1').hitTestable(), findsNothing);
+    expect(find.bySemanticsLabel(tangentAction.label), findsNothing);
 
     await emit(
       tester,
@@ -140,8 +160,10 @@ void main() {
       ),
     );
     await settle(tester);
-    expect(find.text(tangentAction.label), findsOneWidget);
-    expect(find.text(replyAction.label), findsOneWidget);
+    expect(replyTangent('a1').hitTestable(), findsOneWidget);
+    expect(find.bySemanticsLabel(tangentAction.label), findsOneWidget);
+    expect(action(tangentAction.label), findsOneWidget);
+    expect(action(replyAction.label), findsOneWidget);
     expect(find.text(suggestedTangentsLabel), findsOneWidget);
     expect(find.text('Spring tides'), findsOneWidget);
     expect(find.text('when the sun and moon line up'), findsOneWidget);
@@ -158,6 +180,49 @@ void main() {
     expect(api.sends.last.content, 'Spring tides');
     expect(find.text('Main thread'), findsOneWidget);
   });
+
+  testWidgets(
+    'a reply’s text stays put as the reply finishes and gains its Tangent ↳',
+    (tester) async {
+      await pumpApp(tester, api, location: '/t/t1');
+      await sendTyped(tester, 'Why tides?');
+      await start(tester);
+      await emit(
+        tester,
+        const DeltaEvent(nodeId: 'a1', text: 'The **moon** pulls the sea.'),
+      );
+      final text = find
+          .descendant(
+            of: message('a1'),
+            matching: find.textContaining('pulls the sea', findRichText: true),
+          )
+          .first;
+      double below() =>
+          tester.getTopLeft(text).dy - tester.getTopLeft(message('a1')).dy;
+      final streaming = below();
+
+      await emit(
+        tester,
+        DoneEvent(
+          node: node(
+            'a1',
+            branch: 'trunk',
+            seq: 1,
+            role: Role.assistant,
+            content: reply,
+          ),
+          branch: trunk,
+        ),
+      );
+      await settle(tester);
+      expect(replyTangent('a1'), findsOneWidget);
+      expect(below(), streaming);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.linux,
+    }),
+  );
 
   testWidgets('a tangent asked in its own words is listed and opens', (
     tester,
@@ -364,6 +429,45 @@ void main() {
     String? hint(WidgetTester tester) =>
         tester.widget<TextField>(find.byType(TextField)).decoration?.hintText;
 
+    final long = List.filled(60, 'The moon pulls the sea.').join('\n\n');
+
+    /// The tangent Moon from a1, with two questions and their long replies:
+    /// the second is out of view as the tangent opens, and at the end the
+    /// first is far above.
+    TreeDetail twoStepTangent() => treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon'),
+      ],
+      nodes: [
+        userNode,
+        answered,
+        node('s1', branch: 'side-9', seq: 0, content: 'Why the moon?'),
+        node(
+          's2',
+          branch: 'side-9',
+          seq: 1,
+          role: Role.assistant,
+          content: 'Gravity pulls the near side.\n\n$long',
+        ),
+        node('s3', branch: 'side-9', seq: 2, content: 'And the far side?'),
+        node(
+          's4',
+          branch: 'side-9',
+          seq: 3,
+          role: Role.assistant,
+          content: 'Inertia.\n\n$long',
+        ),
+      ],
+    );
+
+    ScrollPosition thread(WidgetTester tester) =>
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+
+    /// The box naming the reply its tangent starts from.
+    final named = find.byKey(const ValueKey('composer-target'));
+
     testWidgets('offers Tangent and Next after a reply, not Send', (
       tester,
     ) async {
@@ -372,8 +476,8 @@ void main() {
         nodes: [userNode, answered],
       );
       await pumpApp(tester, api, location: '/t/t1');
-      expect(find.text(tangentAction.label), findsOneWidget);
-      expect(find.text(replyAction.label), findsOneWidget);
+      expect(action(tangentAction.label), findsOneWidget);
+      expect(action(replyAction.label), findsOneWidget);
       expect(find.bySemanticsLabel('Send as tangent'), findsOneWidget);
       expect(find.bySemanticsLabel('Send as next message'), findsOneWidget);
       expect(find.byTooltip('Send'), findsNothing);
@@ -401,7 +505,9 @@ void main() {
       expect(find.byTooltip(replyAction.hint), findsOneWidget);
     });
 
-    testWidgets('in a tangent, Next keeps the tangent moving', (tester) async {
+    testWidgets('in a tangent, Next is filled and keeps the tangent moving', (
+      tester,
+    ) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',
         branches: [
@@ -424,6 +530,12 @@ void main() {
       await pumpApp(tester, api, location: '/t/t1/b/side-9');
       expect(find.byTooltip(replyAction.hintInTangent), findsOneWidget);
       expect(find.byTooltip(replyAction.hint), findsNothing);
+      // Only the fill moves: the tangent stays first.
+      final next = find.widgetWithText(FilledButton, replyAction.label);
+      final tangent = find.widgetWithText(OutlinedButton, tangentAction.label);
+      expect(next, findsOneWidget);
+      expect(tangent, findsOneWidget);
+      expect(tester.getRect(tangent).left, lessThan(tester.getRect(next).left));
 
       await sendAs(tester, replyAction.label, 'And the sun?');
       expect(api.createdBranches, isEmpty);
@@ -474,6 +586,117 @@ void main() {
       expect(api.sends.single.target, 'side-1');
       expect(api.sends.single.content, 'Why the moon?');
       expect(find.text('Main thread'), findsOneWidget);
+    });
+
+    testWidgets('a tangent opened at its start goes on a tangent from its '
+        'first reply', (tester) async {
+      api.details['t1'] = twoStepTangent();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      await sendAs(tester, tangentAction.label, 'Why the near side?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 's2');
+    });
+
+    testWidgets('after a jump to the end, it goes on a tangent from the last '
+        'reply', (tester) async {
+      api.details['t1'] = twoStepTangent();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      await tester.tap(find.byTooltip(jumpToEnd));
+      await settle(tester);
+      await sendAs(tester, tangentAction.label, 'Why inertia?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 's4');
+    });
+
+    testWidgets('the open box names the reply its tangent starts from when it '
+        'isn’t the last, and a tap shows it', (tester) async {
+      api.details['t1'] = twoStepTangent();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      expect(named, findsNothing);
+      // Read down to the end, past the first reply.
+      final position = thread(tester);
+      position.jumpTo(position.maxScrollExtent);
+      await settle(tester);
+
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(named, findsOneWidget);
+      // Its opening words, as many as the web shows.
+      expect(
+        find.text(
+          'from “Gravity pulls the near side. The moon pulls the sea. The mo…”',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(named);
+      await settle(tester);
+      final top = tester.getRect(find.byType(Scrollable).first).top;
+      final start = find.descendant(
+        of: find.byType(MessageView),
+        matching: find.textContaining(
+          'Gravity pulls the near side.',
+          findRichText: true,
+        ),
+      );
+      expect(tester.getTopLeft(start).dy, inInclusiveRange(top, top + 64));
+      // The box keeps the focus, and with it a phone's keyboard.
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+        isTrue,
+      );
+    });
+
+    testWidgets('the box names the last reply only while the end is out of '
+        'view, deciding as it takes the focus', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answer(long)],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(named, findsNothing);
+
+      // Read back up while the box keeps the focus: it stays as it was.
+      thread(tester).jumpTo(0);
+      await settle(tester);
+      expect(named, findsNothing);
+
+      // Back in the box after reading up.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(named, findsOneWidget);
+    });
+
+    testWidgets('a reply put on the open box and taken off again leaves '
+        'nothing named until the box opens again', (tester) async {
+      api.details['t1'] = twoStepTangent();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(named, findsOneWidget);
+
+      await tester.tap(replyTangent('s2'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('composer-quote')), findsOneWidget);
+      expect(named, findsNothing);
+      await tester.tap(find.byTooltip('Don’t go on this tangent'));
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+        isTrue,
+      );
+      expect(named, findsNothing);
+
+      // Opened again, it names the reply Tangent ↳ goes from.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(named, findsOneWidget);
     });
 
     testWidgets('Next replies on the branch on screen', (tester) async {
@@ -529,8 +752,8 @@ void main() {
       final quote = find.byKey(const ValueKey('composer-quote'));
       expect(quote, findsOneWidget);
       // A quote is asked about on a tangent, so that is the only action.
-      expect(find.text(tangentAction.label), findsOneWidget);
-      expect(find.text(replyAction.label), findsNothing);
+      expect(action(tangentAction.label), findsOneWidget);
+      expect(action(replyAction.label), findsNothing);
       expect(find.byTooltip('Send'), findsNothing);
 
       await sendAs(tester, tangentAction.label, 'What does?');
@@ -557,6 +780,119 @@ void main() {
       await tester.pump();
       expect(find.byKey(const ValueKey('composer-quote')), findsNothing);
       expect(hint(tester), 'Ask anything…');
+    });
+
+    testWidgets('a reply’s own Tangent ↳ puts the whole reply on the box, '
+        'even a reply of an earlier thread', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        branches: [
+          trunk,
+          branch('side-9', parent: 'trunk', fork: 'a1', title: 'Moon'),
+        ],
+        nodes: [
+          userNode,
+          answered,
+          node('s1', branch: 'side-9', seq: 0, content: 'Why the moon?'),
+          node(
+            's2',
+            branch: 'side-9',
+            seq: 1,
+            role: Role.assistant,
+            content: 'Gravity.',
+          ),
+        ],
+      );
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      // A finished reply has one; the learner's messages don't.
+      expect(message('s1'), findsOneWidget);
+      expect(replyTangent('s1'), findsNothing);
+      expect(replyTangent('s2'), findsOneWidget);
+      // Read back up to the main thread's reply.
+      final position = thread(tester);
+      position.jumpTo(position.minScrollExtent);
+      await settle(tester);
+
+      await tester.tap(replyTangent('a1'));
+      await tester.pump();
+      expect(api.createdBranches, isEmpty);
+      expect(hint(tester), 'Ask about this…');
+      expect(find.byKey(const ValueKey('composer-quote')), findsOneWidget);
+      expect(
+        find.text('Tangent from “The moon pulls the sea.”'),
+        findsOneWidget,
+      );
+      // The learner asked for the box, so it takes the focus.
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+        isTrue,
+      );
+      // A message to ask about goes on a tangent, so that is the only action.
+      expect(action(tangentAction.label), findsOneWidget);
+      expect(action(replyAction.label), findsNothing);
+
+      await sendAs(tester, tangentAction.label, 'What else does it pull?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 'a1');
+      expect(api.createdBranches.single.anchorQuote, isNull);
+      expect(api.sends.single.content, 'What else does it pull?');
+      expect(find.byKey(const ValueKey('composer-quote')), findsNothing);
+    });
+
+    testWidgets('a whole reply can be taken off the composer', (tester) async {
+      api.details['t1'] = treeDetail(
+        title: 'Tides',
+        nodes: [userNode, answered],
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(replyTangent('a1'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Don’t go on this tangent'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('composer-quote')), findsNothing);
+      expect(hint(tester), 'Ask anything…');
+      expect(action(replyAction.label), findsOneWidget);
+    });
+
+    testWidgets('a reply deleted from under the box goes off it, and Tangent ↳ '
+        'never lands on the main thread', (tester) async {
+      api
+        ..details['t1'] = treeDetail(
+          title: 'Tides',
+          nodes: [
+            userNode,
+            answered,
+            node('u2', branch: 'trunk', seq: 2, content: 'And the sun?'),
+            node(
+              'a2',
+              branch: 'trunk',
+              seq: 3,
+              role: Role.assistant,
+              content: 'It pulls too.',
+            ),
+          ],
+        )
+        ..deleteAnswer = const DeletedMessages(
+          branchIds: [],
+          nodeIds: ['u2', 'a2'],
+        );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(replyTangent('a2'));
+      await tester.pump();
+      expect(find.text('Tangent from “It pulls too.”'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Delete message').last);
+      await settle(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await settle(tester);
+      expect(api.deletedMessages, ['u2']);
+      expect(find.byKey(const ValueKey('composer-quote')), findsNothing);
+      expect(hint(tester), 'Ask anything…');
+
+      await sendAs(tester, tangentAction.label, 'Why the moon?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 'a1');
+      expect(api.sends.single.target, 'side-1');
     });
 
     testWidgets('a tangent shows the words it asks about', (tester) async {

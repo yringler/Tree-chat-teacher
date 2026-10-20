@@ -94,7 +94,7 @@ export class CanvasPage implements OnDestroy {
   /**
    * Text selected in a finished card: offers "Ask about this" (a box for the
    * question, asked in a `path` lane quoting it, made when it is sent) and,
-   * by its gear, the branch dialog with the quote filled in (variants,
+   * by its caret, the branch dialog with the quote filled in (variants,
    * modes, models).
    */
   protected readonly selection = new PendingQuote(() => this.selectedQuote());
@@ -380,7 +380,7 @@ export class CanvasPage implements OnDestroy {
     }
   }
 
-  /** The box's gear: the branch dialog with the quote and the question so far. */
+  /** The box's caret: the branch dialog with the quote and the question so far. */
   protected moreAboutQuoted(q: MessageQuote, message: string): void {
     this.dropQuote();
     this.ui.dialogs.open({
@@ -396,7 +396,7 @@ export class CanvasPage implements OnDestroy {
     this.askText.set('');
   }
 
-  /** The gear: the branch dialog with the quote filled in. */
+  /** The caret: the branch dialog with the quote filled in. */
   protected moreAbout(q: MessageQuote): void {
     this.selection.clear();
     window.getSelection()?.removeAllRanges();

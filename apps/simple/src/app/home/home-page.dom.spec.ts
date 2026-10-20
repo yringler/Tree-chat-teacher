@@ -55,7 +55,7 @@ describe('Learn: the home page', () => {
       }),
     ]);
     await h.fixture.whenStable();
-    expect(screen.queryByRole('radiogroup')).toBeNull();
+    expect(screen.queryByRole('toolbar')).toBeNull();
     const start = vi.spyOn(h.store, 'startLesson').mockResolvedValue(true);
     await h.user.type(screen.getByRole('textbox', { name: 'Topic or first question' }), 'Tides');
     await h.user.click(screen.getByRole('button', { name: 'Start lesson' }));

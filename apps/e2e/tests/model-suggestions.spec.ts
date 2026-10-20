@@ -7,8 +7,9 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
  * as a chip under it, against the real Worker: serve.mjs lists Normal
  * (`normal`, the default) and Max (`max`) as the built-in provider's models,
  * labelled "Normal (suggested)" and "Max (suggested)" on Tangent credit; the
- * chips drop the note. A `<datalist>` filtered its options by the field's
- * text, so with the default id in it only that model was offered.
+ * chips drop the note (power's are the user's Normal and Max, here the
+ * suggested ones). A `<datalist>` filtered its options by the field's text,
+ * so with the default id in it only that model was offered.
  */
 
 interface TreeDetail {
@@ -76,12 +77,14 @@ test('every suggested model stays in view under the model id, in power and Canva
 }) => {
   const treeId = await setUp(page, baseURL!);
 
-  // Power: Tangent ↳ on a reply.
+  // Power: Tangent from here on a reply (Shift+B).
   await page.goto(`/t/${treeId}`);
   const reply = page.locator('.msg-assistant').first();
   await expect(reply).toBeVisible();
-  await reply.getByRole('button', { name: 'Tangent ↳' }).click();
+  await reply.locator('.msg-body').click();
+  await page.keyboard.press('Shift+B');
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
+  await dialog.getByRole('button', { name: 'Change' }).click();
   await dialog
     .getByRole('combobox', { name: 'Provider' })
     .selectOption({ label: 'Tangent credit' });

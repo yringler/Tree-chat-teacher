@@ -7,36 +7,46 @@ import type { LiveReply } from './conversation-store';
 import { ThreadEnds, ThreadScroll } from './thread-scroll';
 
 /** The thread a page shows: the main thread, u1 → a1, nothing streaming. */
-const thread = () => ({
-  selectedBranchId: signal<string | null>('trunk'),
-  focusedInPath: signal<ChatNode | null>(null),
-  path: signal<ChatNode[]>([
+const thread = () => {
+  const path = signal<ChatNode[]>([
     node('u1', { role: 'user', content: 'What is light?' }),
     node('a1', { parentId: 'u1', seq: 1, content: 'A wave.' }),
-  ]),
-  firstNodeOf: (): ChatNode | null => null,
-  streamingNode: signal<ChatNode | null>(null),
-  live: signal<ReadonlyMap<string, LiveReply>>(new Map()),
-});
+  ]);
+  const focusedInPath = signal<ChatNode | null>(null);
+  return {
+    selectedBranchId: signal<string | null>('trunk'),
+    focusedInPath,
+    focus: vi.fn((id: string | null) => {
+      focusedInPath.set(path().find((n) => n.id === id) ?? null);
+    }),
+    path,
+    firstNodeOf: (): ChatNode | null => null,
+    streamingNode: signal<ChatNode | null>(null),
+    live: signal<ReadonlyMap<string, LiveReply>>(new Map()),
+  };
+};
 let source = thread();
+/** The page's `moved`: the view went to another branch or message. */
+let moved = vi.fn();
 
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="messages" (scroll)="thread.onScroll()">
-    <div class="messages-inner"></div>
+    <div class="messages-inner"><article id="msg-a1"></article></div>
   </div>`,
 })
 class Page {
   readonly thread = new ThreadScroll({
     store: source,
     scroller: () => document.querySelector<HTMLElement>('.messages') ?? undefined,
+    moved: () => moved(),
   });
 }
 
 /** A 500px view on 3000px of thread, scrolled 1000px down: far from either end. */
-async function page() {
+async function page(at: Record<string, number> = {}) {
   const r = await render(Page);
-  const view = layOutThread({ height: 3000, view: 500, at: {} });
+  const view = layOutThread({ height: 3000, view: 500, at });
   await new Promise(requestAnimationFrame);
   view.scrollBy(1000 - view.scrollTop);
   const scrollTo = vi.spyOn(view.scroller, 'scrollTo');
@@ -47,7 +57,10 @@ function lessMotion(on: boolean): void {
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: on && q.includes('reduced-motion') }));
 }
 
-beforeEach(() => (source = thread()));
+beforeEach(() => {
+  source = thread();
+  moved = vi.fn();
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ThreadScroll', () => {
@@ -129,5 +142,30 @@ describe('ThreadScroll', () => {
     expect(p.view.scrollTop).toBe(2500);
     p.fixture.destroy();
     expect(ends.toEnd()).toBe(false);
+  });
+
+  it('the end lets a focused message go, staying where it went and keeping what belongs there', async () => {
+    lessMotion(true);
+    const p = await page();
+    source.focus('a1');
+    TestBed.tick();
+    expect(moved).toHaveBeenCalledTimes(2);
+    p.thread.toEnd();
+    expect(source.focus).toHaveBeenLastCalledWith(null);
+    TestBed.tick();
+    await new Promise(requestAnimationFrame);
+    expect(p.view.scrollTop).toBe(2500);
+    expect(moved).toHaveBeenCalledTimes(2);
+    // Nothing focused: nothing to let go.
+    p.thread.toEnd();
+    expect(source.focus).toHaveBeenCalledTimes(2);
+  });
+
+  it('scrolls a message to the top of the view, while it is on the page', async () => {
+    lessMotion(true);
+    const p = await page({ '#msg-a1': 1800 });
+    expect(p.thread.toMessage('a1')).toBe(true);
+    expect(p.view.scrollTop).toBe(1800);
+    expect(p.thread.toMessage('gone')).toBe(false);
   });
 });
