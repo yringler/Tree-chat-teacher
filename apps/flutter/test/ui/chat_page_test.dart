@@ -781,6 +781,47 @@ void main() {
       expect(action(replyAction.label), findsOneWidget);
     });
 
+    testWidgets('a reply deleted from under the box goes off it, and Tangent ↳ '
+        'never lands on the main thread', (tester) async {
+      api
+        ..details['t1'] = treeDetail(
+          title: 'Tides',
+          nodes: [
+            userNode,
+            answered,
+            node('u2', branch: 'trunk', seq: 2, content: 'And the sun?'),
+            node(
+              'a2',
+              branch: 'trunk',
+              seq: 3,
+              role: Role.assistant,
+              content: 'It pulls too.',
+            ),
+          ],
+        )
+        ..deleteAnswer = const DeletedMessages(
+          branchIds: [],
+          nodeIds: ['u2', 'a2'],
+        );
+      await pumpApp(tester, api, location: '/t/t1');
+      await tester.tap(replyTangent('a2'));
+      await tester.pump();
+      expect(find.text('Tangent from “It pulls too.”'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Delete message').last);
+      await settle(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await settle(tester);
+      expect(api.deletedMessages, ['u2']);
+      expect(find.byKey(const ValueKey('composer-quote')), findsNothing);
+      expect(hint(tester), 'Ask anything…');
+
+      await sendAs(tester, tangentAction.label, 'Why the moon?');
+      await settle(tester);
+      expect(api.createdBranches.single.fromNodeId, 'a1');
+      expect(api.sends.single.target, 'side-1');
+    });
+
     testWidgets('a tangent shows the words it asks about', (tester) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',

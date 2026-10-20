@@ -167,6 +167,28 @@ void main() {
         ..selectBranch(null);
       expect(chat.lead, isNull);
     });
+
+    test('a reply deleted from under the box takes the lead with it', () async {
+      chat
+        ..selectBranch(null)
+        ..aim((nodeId: 'a1', quote: 'the sea'));
+      api.deleteAnswer = const DeletedMessages(
+        branchIds: [],
+        nodeIds: ['s3', 's4'],
+      );
+      await chat.deleteMessage(node('s3', branch: 'side', seq: 2));
+      expect(chat.lead?.nodeId, 'a1');
+
+      chat.aim((nodeId: 'a2', quote: null));
+      api.deleteAnswer = const DeletedMessages(
+        branchIds: [],
+        nodeIds: ['u2', 'a2'],
+      );
+      await chat.deleteMessage(node('u2', branch: 'trunk', seq: 2));
+      expect(chat.lead, isNull);
+      expect(chat.target?.id, 'a1');
+      expect(chat.plan.place, ComposerPlace.main);
+    });
   });
 
   group('startTangent', () {

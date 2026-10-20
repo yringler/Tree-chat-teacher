@@ -7,7 +7,7 @@ import {
   type ChatNode,
   type TreeDetail,
 } from '@tangent/shared';
-import { BillingClient, Walkthrough } from '@tangent/web-shared';
+import { ApiClient, BillingClient, Walkthrough } from '@tangent/web-shared';
 import {
   appProviders,
   billing,
@@ -325,6 +325,29 @@ describe('Learn: the lesson page', () => {
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     await p.user.type(composer()!, 'Of what?{Enter}');
     expect(askFrom).toHaveBeenCalledWith('a1', 'Of what?', null);
+  });
+
+  it('a reply deleted from under the composer goes off it', async () => {
+    const d = lesson();
+    d.nodes.push(
+      node('u2', { parentId: 'a1', seq: 2, role: 'user', content: 'Of what?' }),
+      node('a2', { parentId: 'u2', seq: 3, content: 'Of fields.' }),
+    );
+    const p = await page(d);
+    await p.user.click(
+      within(document.getElementById('msg-a2')!).getByRole('button', { name: 'Tangent ↳' }),
+    );
+    within(dock()).getByText('Tangent from “Of fields.”');
+    Object.assign(TestBed.inject(ApiClient), {
+      deleteMessage: vi.fn(async () => ({ treeId: 't1', branchIds: [], nodeIds: ['u2', 'a2'] })),
+    });
+    await p.store.deleteMessage('u2');
+    await p.fixture.whenStable();
+    expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
+    expect(composer()?.placeholder).toBe('Ask anything…');
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
+    await p.user.type(composer()!, 'Why?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'Why?', null);
   });
 
   it('inside an empty tangent the composer asks it, with nothing to choose', async () => {

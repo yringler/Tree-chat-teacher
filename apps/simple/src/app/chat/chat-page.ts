@@ -189,6 +189,15 @@ export class ChatPage implements OnDestroy {
       this.title.setTitle(t ? `${t} · ${BRAND}` : BRAND);
     });
 
+    // A message deleted from under the composer takes the lead with it: the
+    // box can't ask about a message that isn't there.
+    effect(() => {
+      const lead = this.lead();
+      if (lead && !this.store.index()?.nodes.has(lead.nodeId)) {
+        untracked(() => this.composer.drop());
+      }
+    });
+
     // Tells the first-run walkthrough where the learner is: on the main thread
     // with Tangent ↳ and Next ➜ under a reply, or inside a tangent. Again when
     // its coach mark changes or a dialog closes (a replay, from the help), so

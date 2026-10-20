@@ -325,16 +325,22 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Sends the composer's text: on a tangent from its target (the reply it
   /// is aimed at, or the one the learner is on), or as the next step of the
-  /// branch on screen. Words to ask about always go on a tangent. False
-  /// when there is nothing to send yet.
+  /// branch on screen. Words to ask about always go on a tangent, and a
+  /// tangent without a reply to start from isn't sent: it never lands on the
+  /// thread as its next step. False when nothing was sent.
   bool _sendComposer({required bool tangent}) {
     final text = _composer.text.trim();
     if (text.isEmpty || _chat.sending || _chat.streamingNode != null) {
       return false;
     }
     final lead = _chat.lead;
-    final from = tangent || lead != null ? _chat.target : null;
-    unawaited(from == null ? _send(text) : _ask(from, text, lead?.quote));
+    if (!tangent && lead == null) {
+      unawaited(_send(text));
+      return true;
+    }
+    final from = _chat.target;
+    if (from == null) return false;
+    unawaited(_ask(from, text, lead?.quote));
     return true;
   }
 

@@ -95,8 +95,8 @@ class ChatController extends ChangeNotifier {
   }
 
   /// What the composer's next message asks about, on a tangent made when it
-  /// is sent: words "Ask about this" quoted from a message. Moving to
-  /// another thread drops it.
+  /// is sent: a reply, or words "Ask about this" quoted from it. Moving to
+  /// another thread drops it, and so does deleting that reply.
   ComposerLead? get lead => _lead;
   ComposerLead? _lead;
 
@@ -281,6 +281,7 @@ class ChatController extends ChangeNotifier {
         _nodes.remove(id);
         _status.remove(id);
       }
+      _dropLeadIfGone();
       // Counts and the last update in the lesson list.
       unawaited(lessons.refresh());
       _notify();
@@ -421,6 +422,15 @@ class ChatController extends ChangeNotifier {
     _nodes
       ..clear()
       ..addEntries(detail.nodes.map((n) => MapEntry(n.id, n)));
+    _dropLeadIfGone();
+  }
+
+  /// A message deleted from under the box takes the lead with it: the box
+  /// can't ask about a message that isn't there.
+  void _dropLeadIfGone() {
+    if (_lead case final lead? when !_nodes.containsKey(lead.nodeId)) {
+      _lead = null;
+    }
   }
 
   void _fail(Object error) {
