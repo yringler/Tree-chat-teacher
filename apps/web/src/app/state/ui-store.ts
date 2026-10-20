@@ -46,7 +46,7 @@ export interface LinkReturn {
 /**
  * The parts of Settings a control elsewhere opens it at: `tiers`, the models
  * of Normal and Max (the bar under the message box); `output-cap`, the reply
- * length (a reply cut off at it).
+ * limit (a reply cut off at it).
  */
 export type SettingsSection = 'tiers' | 'output-cap';
 

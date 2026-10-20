@@ -26,7 +26,10 @@ export interface ModelChoice {
  * breaks the app.
  */
 export interface AppSettings {
-  /** Default model for "Review up to here"; null = the branch's provider default. */
+  /**
+   * Default model for "Review up to here", kept by its "Use as my default
+   * reviewer"; null = the branch's provider default.
+   */
   reviewer: ModelChoice | null;
   /**
    * What the Normal | Max switch (route bar, home page) and Compare use for

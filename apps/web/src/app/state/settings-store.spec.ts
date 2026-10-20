@@ -75,7 +75,7 @@ describe('parseSettings tiers (Normal and Max)', () => {
   });
 });
 
-describe('the reply length (maxOutputTokens)', () => {
+describe('the reply limit (maxOutputTokens)', () => {
   it('defaults to Auto (null) and reads a saved cap', () => {
     expect(parseSettings(null).maxOutputTokens).toBeNull();
     expect(parseSettings('{"maxOutputTokens":16384}').maxOutputTokens).toBe(16_384);

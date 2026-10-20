@@ -508,7 +508,7 @@ describe('TreeStore read-only power without a membership', () => {
       expect(s.ui.dialogs.get('keys')).toBeNull();
     });
 
-    it('sends the reply length set in Settings; Auto sends none', async () => {
+    it('sends the reply limit set in Settings; Auto sends none', async () => {
       const s = await openNoKey();
       s.settings.update({ maxOutputTokens: 16_384 });
       try {

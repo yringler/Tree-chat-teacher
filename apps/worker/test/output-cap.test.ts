@@ -35,7 +35,7 @@ function echoedCap(text: string): string {
   return m![1]!;
 }
 
-describe('power: the reply length setting', () => {
+describe('power: the reply limit setting', () => {
   async function trunk(): Promise<string> {
     const res = await call('/api/trees', { json: { title: 'Cap', providerId: 'fake' } });
     expect(res.status).toBe(201);

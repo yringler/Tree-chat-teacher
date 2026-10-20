@@ -323,7 +323,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     return null;
   }
 
-  /** What the app adds to every message it sends (e.g. power's reply length). */
+  /** What the app adds to every message it sends (e.g. power's reply limit). */
   protected sendExtras(): Partial<SendMessageRequest> {
     return {};
   }

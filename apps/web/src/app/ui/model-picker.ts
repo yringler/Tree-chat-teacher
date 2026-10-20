@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, model } from '@angular/core';
 import { parseRouteKey, providerRouteKey, routeKey, TIER_LABELS, TIERS } from '@tangent/shared';
 import {
   modelHint,
@@ -7,7 +7,7 @@ import {
   suggestionText,
   type ModelChip,
 } from '@tangent/web-shared';
-import type { ModelChoice } from '../state/settings-store';
+import type { AppSettings, ModelChoice } from '../state/settings-store';
 import { modelText } from '../state/model-text';
 import { sameChoice, TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
@@ -95,6 +95,8 @@ export class ModelPicker {
   /** The picked route: a `routeKey` (provider id, `@credit` for Tangent credit). */
   readonly route = model.required<string>();
   readonly modelId = model.required<string>();
+  /** Normal and Max as the Settings dialog holds them, for its chips; null = as saved. */
+  readonly tierPicks = input<AppSettings['tiers'] | null>(null);
   protected readonly id = `mp${++uid}`;
   protected readonly suffix = routeSuffix;
   protected readonly key = providerRouteKey;
@@ -118,7 +120,8 @@ export class ModelPicker {
   /**
    * The chips of an open field: the user's Normal and Max first (TierStore
    * `choice`: what the Normal | Max switch moves a thread to, each on the
-   * payer chosen with it, which the chip names when it isn't this field's),
+   * payer chosen with it, which the chip names when it isn't this field's;
+   * in Settings, as edited there),
    * then the route's other listed models, where one the route suggests for a
    * tier reads as its id, so "Normal" names only the user's Normal.
    */
@@ -128,7 +131,7 @@ export class ModelPicker {
     const tiers: ModelChoice[] = [];
     const chips: ModelChip[] = [];
     for (const tier of TIERS) {
-      const c = this.tiers.choice(tier, parseRouteKey(route));
+      const c = this.tiers.choice(tier, parseRouteKey(route), this.tierPicks() ?? undefined);
       if (!c || tiers.some((t) => sameChoice(t, c))) continue;
       tiers.push(c);
       const key = routeKey(c);

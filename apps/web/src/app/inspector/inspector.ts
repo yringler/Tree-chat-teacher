@@ -39,7 +39,7 @@ export class Inspector {
 
   /**
    * Inputs of the query: branch, target node (focused on the path, else the
-   * leaf), completions, and the reply length and input limit a send would
+   * leaf), completions, and the reply limit and input limit a send would
    * carry (Settings), so the preview plans as the next send will.
    */
   private readonly query = computed(

@@ -361,7 +361,7 @@ export const updateLinkRequestSchema = z.object({
 export type UpdateLinkRequest = z.infer<typeof updateLinkRequestSchema>;
 
 /**
- * Power's reply length and input limit, as a send, a compare candidate and a
+ * Power's reply limit and input limit, as a send, a compare candidate and a
  * review take them (JSON body fields; Learn's server ignores them). Clamped
  * like a send's: within the model's limits, and on Tangent credit at the
  * server's caps.

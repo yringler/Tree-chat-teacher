@@ -212,7 +212,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   // Messages and streams
 
-  /** The reply length and input limit the user set (Settings), else nothing: the server's defaults. */
+  /** The reply limit and input limit the user set (Settings), else nothing: the server's defaults. */
   protected override sendExtras(): ReturnType<typeof generationLimits> {
     return generationLimits(this.appSettings.settings());
   }

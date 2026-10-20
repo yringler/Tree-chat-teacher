@@ -20,7 +20,7 @@ export const reviewRequestSchema = z.object({
   funding: z.enum(['own-key', 'credit']).optional() satisfies z.ZodType<BranchFunding | undefined>,
   model: z.string().min(1).max(200),
   /**
-   * Power's reply length (the review's cap) and input limit (what of the
+   * Power's reply limit (the review's cap) and input limit (what of the
    * conversation the reviewer reads), as on a send (Learn sends none).
    */
   ...generationLimitsShape,

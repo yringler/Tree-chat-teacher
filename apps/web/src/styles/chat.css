@@ -621,11 +621,6 @@ app-link-dialog app-node-picker {
   margin: 0;
 }
 
-/* Settings, "Normal & Max": one block per tier (dialogs/settings-dialog.ts). */
-.tier-setting {
-  margin-top: 8px;
-}
-
 /* Under the Compare sheet's answers (dialogs/compare-dialog.ts). */
 .compare-foot {
   margin: 8px 0 0;

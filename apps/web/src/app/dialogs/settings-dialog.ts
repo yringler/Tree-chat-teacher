@@ -18,13 +18,11 @@ import {
   type InputOverflow,
   type ModelTier,
   parseRouteKey,
-  providerRouteKey,
   routeKey,
   TIER_LABELS,
   TIERS,
 } from '@tangent/shared';
-import { ReviewStore } from '../state/review-store';
-import { type ModelChoice, SettingsStore } from '../state/settings-store';
+import { type AppSettings, type ModelChoice, SettingsStore } from '../state/settings-store';
 import { TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { type SettingsSection, UiStore } from '../state/ui-store';
@@ -35,7 +33,7 @@ import { OutputCapSetting, type OutputCapModel } from '../ui/output-cap-setting'
 
 let uid = 0;
 
-/** One tier in the "Normal & Max" section: the suggested model, or the user's own pick. */
+/** One tier in "Normal and Max": the suggested model, or the user's own pick. */
 interface TierRow {
   tier: ModelTier;
   label: string;
@@ -46,11 +44,13 @@ interface TierRow {
 }
 
 /**
- * App-wide preferences, one section per feature. The default system prompt
- * is saved to the account (server-side, `/api/settings`); the reviewer and
- * the models of Normal and Max, the reply length and the input limit are
- * saved in this browser. Opened at a section (`section`), it shows that one
- * and focuses its first choice; else it opens at its top.
+ * Defaults for every conversation in power, grouped by what they control,
+ * each saying where it is saved: Normal and Max; how replies are written
+ * (the default system prompt, saved to the account through `/api/settings`,
+ * and the reply limit); what each message sends (the input limit). All but
+ * the prompt are saved in this browser (`SettingsStore`). Opened at a
+ * section (`section`), it shows that one and focuses its first choice; else
+ * it opens at its top.
  */
 @Component({
   selector: 'app-settings-dialog',
@@ -58,130 +58,142 @@ interface TierRow {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Settings" [focusHeading]="true" [openAt]="openAt()" (closed)="close()">
+      <p class="muted small settings-intro">Defaults for every conversation in power.</p>
       <form class="form" (submit)="$event.preventDefault(); save()">
-        <fieldset class="settings-section">
-          <legend>Default system prompt</legend>
-          <p class="muted small">
-            Every conversation without a prompt of its own uses this one, including ones started
-            before you change it. A conversation's own prompt (Conversation settings) replaces it
-            for that conversation. Saved to your account, on every device.
+        <fieldset class="settings-group" #tiers>
+          <legend><h3>Normal and Max</h3></legend>
+          <p class="settings-where">
+            Saved in this browser only. Your other devices keep their own.
           </p>
-          @if (promptError(); as err) {
-            <p class="small" role="alert">Couldn't load it: {{ err }}</p>
-          } @else {
-            <p class="small">
-              @if (!promptLoaded()) {
-                Loading…
-              } @else if (usesBuiltIn()) {
-                Now: the built-in prompt. It answers directly, then suggests next steps and
-                tangents.
-              } @else {
-                Now: your own prompt.
-              }
-            </p>
-            <label class="field">
-              <span class="sr-only">Default system prompt</span>
-              <textarea
-                rows="10"
-                [attr.maxlength]="maxChars"
-                placeholder="Empty: use the built-in prompt"
-                [disabled]="!promptLoaded()"
-                [value]="systemPrompt()"
-                [attr.aria-invalid]="saveError() ? true : null"
-                [attr.aria-describedby]="saveError() ? saveErrorId : null"
-                (input)="systemPrompt.set(sp.value)"
-                #sp
-              ></textarea>
-            </label>
-            @if (saveError(); as err) {
-              <p class="field-error small" role="alert" [id]="saveErrorId" #saveErrorLine>
-                Couldn't save it: {{ err }}
-              </p>
-            }
-            <div class="settings-buttons">
-              <button
-                type="button"
-                class="btn btn-sm"
-                [disabled]="!promptLoaded()"
-                title="Copy the built-in prompt into the box, to edit it"
-                (click)="useDefault()"
-              >
-                Use default
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm"
-                [disabled]="!promptLoaded() || systemPrompt() === ''"
-                title="Empty the box: conversations without their own prompt use the built-in one"
-                (click)="systemPrompt.set('')"
-              >
-                Reset to built-in
-              </button>
-            </div>
-          }
-        </fieldset>
-
-        <fieldset class="settings-section">
-          <legend>Reviewer</legend>
           <p class="muted small">
-            “Review” on an assistant message sends the conversation up to that message to this
-            model. It points out mistakes and says whether to continue on a stronger model. Pick a
-            more capable model than the one you chat with. You can still choose another model for
-            each review.
-          </p>
-          @if (custom()) {
-            <app-model-picker [(route)]="route" [(modelId)]="modelId" />
-            <div class="settings-buttons">
-              <button type="button" class="btn btn-sm" (click)="custom.set(false)">
-                Use the tangent's provider default instead
-              </button>
-            </div>
-          } @else {
-            <p class="small">Now: the default model of the tangent's own provider.</p>
-            <div class="settings-buttons">
-              <button type="button" class="btn btn-sm" (click)="customize()">Choose a model</button>
-            </div>
-          }
-        </fieldset>
-
-        <fieldset class="settings-section" #tiers>
-          <legend>Normal &amp; Max</legend>
-          <p class="muted small">
-            The Normal | Max switch under the message box uses these, and Compare asks both. Each
-            tier keeps who pays for the thread where it can.
+            The Normal | Max switch under the message box and Compare use these, and a new
+            conversation starts on a Normal you choose. A suggested model stays on the thread's
+            payer when it offers it; a model you choose runs on the payer you chose with it.
             @if (maxSuggested()) {
               {{ maxNote() }}
             }
           </p>
           @for (row of tierRows; track row.tier) {
-            <div class="tier-setting">
-              <label class="check">
+            <fieldset class="settings-section tier-setting">
+              <legend>{{ row.label }}</legend>
+              <label class="radio">
                 <input
-                  type="checkbox"
+                  type="radio"
+                  [name]="id + '-' + row.tier"
+                  [attr.aria-describedby]="id + '-' + row.tier + '-suggested'"
                   [checked]="row.suggested()"
-                  (change)="setSuggested(row, !row.suggested())"
+                  (change)="setSuggested(row, true)"
                 />
-                {{ row.label }}: use the suggested model
+                <span>Suggested</span>
               </label>
-              @if (row.suggested()) {
-                <p class="small indent">Now: {{ suggestion(row.tier) }}</p>
-              } @else {
-                <app-model-picker [(route)]="row.route" [(modelId)]="row.modelId" />
+              <span class="muted small indent" [id]="id + '-' + row.tier + '-suggested'">{{
+                suggestion(row.tier)
+              }}</span>
+              <label class="radio">
+                <input
+                  type="radio"
+                  [name]="id + '-' + row.tier"
+                  [checked]="!row.suggested()"
+                  (change)="setSuggested(row, false)"
+                />
+                <span>Choose a model</span>
+              </label>
+              @if (!row.suggested()) {
+                <div class="indent">
+                  <app-model-picker
+                    [(route)]="row.route"
+                    [(modelId)]="row.modelId"
+                    [tierPicks]="heldPicks()"
+                  />
+                </div>
               }
-            </div>
+            </fieldset>
           }
         </fieldset>
-        <app-output-cap-setting
-          [(value)]="outputCap"
-          [(invalid)]="outputCapInvalid"
-          [target]="outputCapTarget()"
-        />
-        <app-input-limit-setting
-          [(value)]="inputLimit"
-          [(overflow)]="inputOverflow"
-          [(invalid)]="inputLimitInvalid"
-          [replyTokens]="outputCap()"
-        />
+
+        <fieldset class="settings-group">
+          <legend><h3>How replies are written</h3></legend>
+          <fieldset class="settings-section">
+            <legend>Default system prompt</legend>
+            <p class="settings-where">Synced to your account</p>
+            <p class="muted small" [id]="id + '-prompt-help'">
+              Used by every conversation without its own prompt (set one in Conversation settings),
+              including ones already started.
+            </p>
+            @if (promptError(); as err) {
+              <p class="small" role="alert">Couldn't load it: {{ err }}</p>
+            } @else {
+              <label class="field">
+                <span class="sr-only">Default system prompt</span>
+                <textarea
+                  rows="10"
+                  [attr.maxlength]="maxChars"
+                  placeholder="Leave empty to use the built-in prompt"
+                  [disabled]="!promptLoaded()"
+                  [value]="systemPrompt()"
+                  [attr.aria-invalid]="saveError() ? true : null"
+                  [attr.aria-describedby]="promptDescribedBy()"
+                  (input)="systemPrompt.set(sp.value)"
+                  #sp
+                ></textarea>
+              </label>
+              @if (saveError(); as err) {
+                <p class="field-error small" role="alert" [id]="saveErrorId" #saveErrorLine>
+                  Couldn't save it: {{ err }}
+                </p>
+              }
+              <p class="small settings-status" [id]="id + '-prompt-status'">
+                @if (!promptLoaded()) {
+                  Loading…
+                } @else if (usesBuiltIn()) {
+                  Using the built-in prompt: it answers directly, then suggests tangents.
+                } @else {
+                  Using your prompt.
+                }
+              </p>
+              <div class="settings-buttons">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  [disabled]="!promptLoaded()"
+                  title="Copy the built-in prompt into the box, to edit it"
+                  (click)="useDefault()"
+                  #startFrom
+                >
+                  Start from the built-in prompt
+                </button>
+                @if (systemPrompt() !== '') {
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    title="Empty the box: conversations without their own prompt use the built-in one"
+                    (click)="clearPrompt()"
+                  >
+                    Clear
+                  </button>
+                }
+              </div>
+            }
+          </fieldset>
+          <app-output-cap-setting
+            [(value)]="outputCap"
+            [(invalid)]="outputCapInvalid"
+            [target]="outputCapTarget()"
+          >
+            <p class="settings-where">Saved in this browser only.</p>
+          </app-output-cap-setting>
+        </fieldset>
+
+        <fieldset class="settings-group">
+          <legend><h3>What each message sends</h3></legend>
+          <p class="settings-where">Saved in this browser only.</p>
+          <app-input-limit-setting
+            [(value)]="inputLimit"
+            [(overflow)]="inputOverflow"
+            [(invalid)]="inputLimitInvalid"
+            [replyTokens]="outputCap()"
+          />
+        </fieldset>
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
@@ -200,7 +212,6 @@ interface TierRow {
 export class SettingsDialog implements OnInit {
   private readonly api = inject(ApiClient);
   private readonly settings = inject(SettingsStore);
-  private readonly reviews = inject(ReviewStore);
   private readonly store = inject(TreeStore);
   private readonly tiers = inject(TierStore);
   private readonly ui = inject(UiStore);
@@ -208,6 +219,7 @@ export class SettingsDialog implements OnInit {
   private readonly injector = inject(Injector);
   /** Where it opens: at that section, else at its top. */
   readonly section = input<SettingsSection | null>(null);
+  protected readonly id = `sd${++uid}`;
   private readonly tiersSection = viewChild.required<ElementRef<HTMLElement>>('tiers');
   private readonly outputCapSection = viewChild.required<OutputCapSetting, ElementRef<HTMLElement>>(
     OutputCapSetting,
@@ -231,26 +243,29 @@ export class SettingsDialog implements OnInit {
     route: signal(''),
     modelId: signal(''),
   }));
+  /** Normal and Max as this dialog holds them, which Save stores and the pickers' chips show. */
+  protected readonly heldPicks = computed<AppSettings['tiers']>(() => {
+    const held = (tier: ModelTier) => {
+      const row = this.tierRows.find((r) => r.tier === tier);
+      return row ? this.tierChoice(row) : null;
+    };
+    return { normal: held('normal'), max: held('max') };
+  });
   protected readonly maxSuggested = computed(() =>
     this.tierRows.every((row) => row.tier !== 'max' || row.suggested()),
   );
   protected readonly maxNote = computed(() =>
-    maxUsageNote(this.tiers.usageFactor(this.store.selectedBranch())),
+    maxUsageNote(this.tiers.usageFactor(this.store.selectedBranch(), this.heldPicks())),
   );
 
-  protected readonly custom = signal(false);
-  /** The reviewer's provider and funding, as a `routeKey`. */
-  protected readonly route = signal('');
-  protected readonly modelId = signal('');
-
-  /** Reply length (`AppSettings.maxOutputTokens`); null = Auto. */
+  /** Reply limit (`AppSettings.maxOutputTokens`); null = Auto. */
   protected readonly outputCap = signal<number | null>(null);
   protected readonly outputCapInvalid = signal(false);
   /** Input limit (`AppSettings.maxInputTokens`, null = off) and what happens over it. */
   protected readonly inputLimit = signal<number | null>(null);
   protected readonly inputOverflow = signal<InputOverflow>('compact');
   protected readonly inputLimitInvalid = signal(false);
-  /** The open conversation's model, for the reply-length hint. */
+  /** The open conversation's model, for the reply limit's hint. */
   protected readonly outputCapTarget = computed<OutputCapModel | null>(() => {
     const branch = this.store.selectedBranch();
     return branch ? { model: branch.model, provider: this.store.account.providerOf(branch) } : null;
@@ -267,8 +282,15 @@ export class SettingsDialog implements OnInit {
   protected readonly promptError = signal<string | null>(null);
   /** Why the last Save couldn't save the prompt, shown under its box. */
   protected readonly saveError = signal<string | null>(null);
-  protected readonly saveErrorId = `settings-save-error-${++uid}`;
+  protected readonly saveErrorId = `${this.id}-save-error`;
   private readonly saveErrorLine = viewChild<ElementRef<HTMLElement>>('saveErrorLine');
+  private readonly startFrom = viewChild<ElementRef<HTMLElement>>('startFrom');
+  /** The box's helper and status, and why it couldn't be saved. */
+  protected readonly promptDescribedBy = computed(() =>
+    [`${this.id}-prompt-help`, `${this.id}-prompt-status`]
+      .concat(this.saveError() ? [this.saveErrorId] : [])
+      .join(' '),
+  );
   protected readonly saving = signal(false);
   /** What saving the editor would store: blank, or the built-in text unchanged, is the built-in prompt. */
   private readonly promptToSave = computed(() => {
@@ -281,12 +303,6 @@ export class SettingsDialog implements OnInit {
     this.outputCap.set(this.settings.settings().maxOutputTokens);
     this.inputLimit.set(this.settings.settings().maxInputTokens);
     this.inputOverflow.set(this.settings.settings().inputOverflow);
-    const saved = this.settings.settings().reviewer;
-    this.custom.set(saved !== null);
-    if (saved) {
-      this.route.set(routeKey(saved));
-      this.modelId.set(saved.model);
-    }
     const tiers = this.settings.settings().tiers;
     for (const row of this.tierRows) {
       const own = tiers[row.tier];
@@ -296,15 +312,23 @@ export class SettingsDialog implements OnInit {
     void this.loadPrompt();
   }
 
-  /** What a suggested tier is now, for the open branch: "model (provider)". */
+  /**
+   * What Suggested means: the tier the open thread's payer suggests, which
+   * differs from thread to thread, or without one open, a new conversation's.
+   */
   protected suggestion(tier: ModelTier): string {
-    const c = this.tiers.suggested(tier, this.store.selectedBranch());
-    if (!c) return 'none (no provider lists one)';
-    const provider = this.store.account.providerOf(c)?.label ?? c.providerId;
-    return `${this.tiers.modelLabel(c)} (${provider})`;
+    const branch = this.store.selectedBranch();
+    const where = branch ? 'In this thread' : 'In a new conversation';
+    const c = this.tiers.suggested(tier, branch);
+    if (!c) return `Follows each thread's payer. ${where}: no provider suggests one.`;
+    const payer = this.store.account.providerOf(c)?.label ?? c.providerId;
+    return `Follows each thread's payer. ${where}: ${this.tiers.modelLabel(c)} on ${payer}.`;
   }
 
-  /** Unticking "suggested" starts the picker on the tier's model now. */
+  /**
+   * Choose a model starts the picker on the tier's model now; back on
+   * Suggested, the pick is kept for when it is chosen again.
+   */
   protected setSuggested(row: TierRow, suggested: boolean): void {
     if (!suggested && !row.route()) {
       const start = this.tiers.choice(row.tier, this.store.selectedBranch());
@@ -343,14 +367,10 @@ export class SettingsDialog implements OnInit {
     this.systemPrompt.set(this.defaultPrompt());
   }
 
-  protected customize(): void {
-    if (!this.route()) {
-      const start = this.reviews.defaultReviewer(this.store.selectedBranch());
-      const fallback = this.store.account.defaultProvider();
-      this.route.set(start ? routeKey(start) : fallback ? providerRouteKey(fallback) : '');
-      this.modelId.set(start?.model ?? fallback?.defaultModel ?? '');
-    }
-    this.custom.set(true);
+  /** Empties the editor. Clear goes with the text, so the focus moves to its neighbour. */
+  protected clearPrompt(): void {
+    this.systemPrompt.set('');
+    this.startFrom()?.nativeElement.focus();
   }
 
   protected close(): void {
@@ -374,7 +394,7 @@ export class SettingsDialog implements OnInit {
       } catch (err) {
         this.saveError.set(errorMessage(err));
         // Save is at the bottom of a dialog taller than the screen, the error
-        // under the prompt near its top. The focus stays: moving it to the box
+        // under the prompt above it. The focus stays: moving it to the box
         // would raise a phone's keyboard.
         afterNextRender(
           () => this.saveErrorLine()?.nativeElement.scrollIntoView({ block: 'nearest' }),
@@ -385,14 +405,8 @@ export class SettingsDialog implements OnInit {
         this.saving.set(false);
       }
     }
-    const reviewer =
-      this.custom() && this.route() && this.modelId().trim()
-        ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
-        : null;
-    const [normal, max] = this.tierRows.map((row) => this.tierChoice(row));
     this.settings.update({
-      reviewer,
-      tiers: { normal: normal ?? null, max: max ?? null },
+      tiers: this.heldPicks(),
       maxOutputTokens: this.outputCap(),
       maxInputTokens: this.inputLimit(),
       inputOverflow: this.inputOverflow(),

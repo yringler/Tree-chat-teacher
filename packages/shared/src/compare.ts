@@ -33,7 +33,7 @@ export const candidateRequestSchema = z.object({
   /** How power pays for this candidate (default `own-key`); Learn pays per request. */
   funding: z.enum(['own-key', 'credit']).optional() satisfies z.ZodType<BranchFunding | undefined>,
   model: z.string().min(1).max(200),
-  /** Power's reply length and input limit, as on a send (Learn sends none). */
+  /** Power's reply limit and input limit, as on a send (Learn sends none). */
   ...generationLimitsShape,
 });
 export type CandidateRequest = z.infer<typeof candidateRequestSchema>;

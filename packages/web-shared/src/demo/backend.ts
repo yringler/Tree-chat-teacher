@@ -564,7 +564,7 @@ export class DemoBackend {
   }
 
   /**
-   * Power's reply length and input limit, as the Worker passes them on the
+   * Power's reply limit and input limit, as the Worker passes them on the
    * own key (apps/worker input-limit.ts); Learn ignores them.
    */
   private powerLimits(requested: GenerationLimits): GenerationLimits {

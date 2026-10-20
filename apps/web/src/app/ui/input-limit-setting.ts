@@ -34,7 +34,7 @@ const n = (tokens: number) => tokens.toLocaleString('en-US');
 const perMillion = (usd: number) =>
   `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 
-/** The setting as the hints see it: the limit (null = off) and the reply length (null = Auto). */
+/** The setting as the hints see it: the limit (null = off) and the reply limit (null = Auto). */
 export interface InputLimitState {
   maxInputTokens: number | null;
   maxOutputTokens: number | null;
@@ -98,7 +98,7 @@ export function inputLimitNotes(
  * the model's window less the reply (on Tangent credit, the server's cap).
  * Bound with `[(value)]`, `[(overflow)]` and `[(invalid)]` (a custom number
  * out of range: `value` keeps the last valid one); `replyTokens` is the
- * dialog's reply length, which the default reserves room for. The dialog
+ * dialog's reply limit, which the default reserves room for. The dialog
  * saves it. The hints are `inputLimitNotes` for the open conversation.
  */
 @Component({
@@ -108,10 +108,8 @@ export function inputLimitNotes(
     <fieldset class="settings-section">
       <legend>Input limit</legend>
       <p class="muted small">
-        Each message sends the conversation so far (its thread's path) to the model, and you pay for
-        all of it as input. On your own key only the model's context window bounds it, so a long
-        conversation can send hundreds of thousands of tokens with every message. Sizes are rough,
-        for English: ¾ of a word a token, {{ wordsPerPage }} words a paperback page.
+        Every message re-sends the conversation so far, and you pay for all of it as input. With no
+        limit, only the model's window caps it.
       </p>
       <label class="check">
         <input type="checkbox" [checked]="enabled()" (change)="setEnabled(!enabled())" />
@@ -188,8 +186,7 @@ export function inputLimitNotes(
             <strong>Summarize the oldest part</strong>
             <span class="muted small">
               A model call writes a summary to stand in for the oldest messages, paid like any call,
-              and again whenever the conversation outgrows it. If no summary can be written, or the
-              limit leaves no room for one, those messages are left out.
+              and again whenever the conversation outgrows it.
             </span>
           </span>
         </label>
@@ -208,6 +205,16 @@ export function inputLimitNotes(
           </span>
         </label>
       </div>
+      <details class="more-details">
+        <summary>More about input limits</summary>
+        <p>
+          The conversation so far is the thread's path. On Tangent credit, Tangent caps what a
+          message sends too; on your own key, a long conversation can send hundreds of thousands of
+          tokens with every message. Sizes are rough, for English: ¾ of a word a token,
+          {{ wordsPerPage }} words a paperback page. When no summary can be written, or the limit
+          leaves no room for one, the oldest messages are left out.
+        </p>
+      </details>
     </fieldset>
   `,
   styles: `
@@ -230,6 +237,9 @@ export function inputLimitNotes(
     .input-limit-overflow > p {
       margin: 0;
     }
+    .more-details {
+      margin-top: 10px;
+    }
   `,
 })
 export class InputLimitSetting {
@@ -241,7 +251,7 @@ export class InputLimitSetting {
   readonly overflow = model<InputOverflow>('compact');
   /** True while the custom box holds no valid number. */
   readonly invalid = model(false);
-  /** The reply length chosen in the same dialog (null = Auto): the default reserves room for it. */
+  /** The reply limit chosen in the same dialog (null = Auto): the default reserves room for it. */
   readonly replyTokens = input<number | null>(null);
 
   protected readonly name = `input-limit-${++uid}`;

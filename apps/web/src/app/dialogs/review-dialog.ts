@@ -20,8 +20,9 @@ import {
   TypesetMath,
 } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
+import { type ModelChoice, SettingsStore } from '../state/settings-store';
 import { threadTitle } from '../state/thread-title';
-import { TierStore } from '../state/tier-store';
+import { sameChoice, TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ModelPicker } from '../ui/model-picker';
@@ -29,10 +30,13 @@ import { ReviewVerdict } from '../ui/review-verdict';
 
 const EXCERPT_CHARS = 280;
 
+let uid = 0;
+
 /**
- * "Review up to here": pick a reviewer model, stream its review, then act on
- * it: send the corrections back into the thread, move the branch to the
- * reviewer's model, or branch off on it.
+ * "Review up to here": pick a reviewer model (and keep it as the default
+ * reviewer), stream its review, then act on it: send the corrections back
+ * into the thread, move the branch to the reviewer's model, or branch off on
+ * it.
  */
 @Component({
   selector: 'app-review-dialog',
@@ -127,14 +131,19 @@ const EXCERPT_CHARS = 280;
           @if (choice(); as c) {
             <form class="form review-form" (submit)="$event.preventDefault(); run()">
               <app-model-picker [(route)]="route" [(modelId)]="modelId" />
+              <div class="field">
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    [attr.aria-describedby]="id + '-default'"
+                    [checked]="makeDefault()"
+                    (change)="makeDefault.set(!makeDefault())"
+                  />
+                  Use as my default reviewer
+                </label>
+                <span class="muted small indent" [id]="id + '-default'">{{ defaultNote() }}</span>
+              </div>
               <div class="form-actions">
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-left"
-                  (click)="ui.dialogs.open({ kind: 'settings' }); close()"
-                >
-                  <app-icon name="gear" /> Default reviewer…
-                </button>
                 <button type="button" class="btn btn-ghost" (click)="close()">Close</button>
                 <button type="submit" class="btn btn-primary" autofocus [disabled]="!c.providerId">
                   <app-icon name="review" /> {{ review() ? 'Review again' : 'Review' }}
@@ -157,9 +166,10 @@ const EXCERPT_CHARS = 280;
 export class ReviewDialog implements OnInit {
   protected readonly store = inject(TreeStore);
   protected readonly reviews = inject(ReviewStore);
-  protected readonly ui = inject(UiStore);
+  private readonly ui = inject(UiStore);
   /** Names models as power does: "Normal" and "Max" are only the user's tiers. */
   protected readonly tiers = inject(TierStore);
+  private readonly settings = inject(SettingsStore);
   private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
@@ -170,6 +180,9 @@ export class ReviewDialog implements OnInit {
   protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly acting = signal(false);
+  /** "Use as my default reviewer", applied when the review starts. */
+  protected readonly makeDefault = signal(false);
+  protected readonly id = `rv${++uid}`;
 
   protected readonly node = computed(() => this.store.index()?.nodes.get(this.nodeId()) ?? null);
   protected readonly branch = computed(() => {
@@ -204,6 +217,22 @@ export class ReviewDialog implements OnInit {
     return !!r && !!b && routeKey(r) === routeKey(b) && r.model === b.model;
   });
 
+  /**
+   * The default reviewer by what it is: the saved one, or the default model
+   * of the thread's provider, which is often the model it chats with.
+   */
+  protected readonly defaultNote = computed(() => {
+    const saved = this.settings.settings().reviewer;
+    if (saved) return `Your default: ${this.tiers.modelLabel(saved)} on ${this.payer(saved)}.`;
+    const branch = this.branch();
+    const here = this.reviews.threadReviewer(branch);
+    const elsewhere = here && branch && routeKey(here) !== routeKey(branch);
+    const model = here
+      ? ` (here: ${this.tiers.modelLabel(here)}${elsewhere ? ` on ${this.payer(here)}` : ''})`
+      : '';
+    return `Your default: Same provider as the thread, its default model${model}.`;
+  });
+
   ngOnInit(): void {
     const previous = this.review();
     const start = previous ?? this.reviews.defaultReviewer(this.branch());
@@ -211,11 +240,30 @@ export class ReviewDialog implements OnInit {
       this.route.set(routeKey(start));
       this.modelId.set(start.model);
     }
+    const saved = this.settings.settings().reviewer;
+    this.makeDefault.set(!!start && !!saved && sameChoice(saved, start));
   }
 
   protected run(): void {
     const c = this.choice();
-    if (c) void this.reviews.start(this.nodeId(), c);
+    if (!c) return;
+    this.keepDefault(c);
+    void this.reviews.start(this.nodeId(), c);
+  }
+
+  /**
+   * "Use as my default reviewer": ticked, `c` becomes the default; unticked
+   * on the default, the default goes back to the thread's provider's.
+   */
+  private keepDefault(c: ModelChoice): void {
+    const saved = this.settings.settings().reviewer;
+    const isDefault = !!saved && sameChoice(saved, c);
+    if (this.makeDefault() && c.model && !isDefault) this.settings.update({ reviewer: c });
+    else if (!this.makeDefault() && isDefault) this.settings.update({ reviewer: null });
+  }
+
+  private payer(c: ModelChoice): string {
+    return this.store.account.providerOf(c)?.label ?? c.providerId;
   }
 
   protected sendCorrections(): void {

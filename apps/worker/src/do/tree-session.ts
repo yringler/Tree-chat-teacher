@@ -52,7 +52,7 @@ export interface SessionSendBody extends GenerationLimits {
   content: string;
   /** "Check sources": the reply must run a web search. */
   ground?: 'required';
-  // GenerationLimits: power's reply length and input limit, as the Worker clamped them.
+  // GenerationLimits: power's reply limit and input limit, as the Worker clamped them.
   account: AccountContext;
   sealedKeys?: string;
   /** A reply on Tangent credit: what to reserve before any node is written. */

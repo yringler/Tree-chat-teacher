@@ -395,7 +395,7 @@ describe('MessageStatus: a reply that is not whole', () => {
     expect(within(alert).queryByRole('button', { name: 'Continue' })).toBeNull();
     expect(alert.textContent).toContain('ask the model to continue');
     // And where the limit is raised: Settings, opened there.
-    await m.user.click(within(alert).getByRole('button', { name: 'Settings → Reply length' }));
+    await m.user.click(within(alert).getByRole('button', { name: 'Settings → Reply limit' }));
     expect(m.ui.dialogs.list()).toEqual([{ kind: 'settings', section: 'output-cap' }]);
   });
 

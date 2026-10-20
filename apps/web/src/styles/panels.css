@@ -363,6 +363,66 @@
   margin-top: 6px;
 }
 
+/*
+ * Settings (dialogs/settings-dialog.ts): a group per kind of default, its
+ * name a heading over a rule, each setting tagged with where it is saved.
+ */
+.settings-intro {
+  margin: 0 0 14px;
+}
+
+.settings-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-group > legend {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.settings-group > legend > h3 {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* The form's gap is between groups: a group's last setting adds none. */
+.settings-group .settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-where {
+  width: fit-content;
+  margin: 0 0 6px;
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+
+.settings-status {
+  margin: 6px 0 0;
+}
+
+/* Normal or Max: Suggested, or Choose a model with the picker under it. */
+.tier-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tier-setting > .indent:has(app-model-picker) {
+  margin-top: 4px;
+}
+
 /* A thread's replies (ui/reply-fields.ts): its fields spaced as a form's, in a form or a section. */
 .reply-fields {
   display: flex;

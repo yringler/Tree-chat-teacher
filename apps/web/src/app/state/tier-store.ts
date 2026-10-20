@@ -17,7 +17,7 @@ import {
   type SegmentedOption,
 } from '@tangent/web-shared';
 import { modelName } from './model-text';
-import { type ModelChoice, SettingsStore } from './settings-store';
+import { type AppSettings, type ModelChoice, SettingsStore } from './settings-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
 
@@ -69,9 +69,15 @@ export class TierStore {
    * The provider and model of `tier`, for a message in `branch` (null = a new
    * conversation): the saved choice (Settings) while its route is usable and
    * allows the model, else the suggested one (`suggested`). Null when none.
+   * `picks` stands in for the saved choices: the Settings dialog's, before
+   * they are saved.
    */
-  choice(tier: ModelTier, branch?: TierRoute | null): ModelChoice | null {
-    const saved = this.settings.settings().tiers[tier];
+  choice(
+    tier: ModelTier,
+    branch?: TierRoute | null,
+    picks: AppSettings['tiers'] = this.settings.settings().tiers,
+  ): ModelChoice | null {
+    const saved = picks[tier];
     if (saved) {
       const p = this.tree.account.providerOf(saved);
       if (this.usable(p) && isModelAllowed(p, saved.model)) return choiceOn(p, saved.model);
@@ -141,11 +147,11 @@ export class TierStore {
    * server's `ModelInfo.usageFactor`, which prices an entry's suggested Max
    * against that entry's suggested Normal. So only that pair gets a number;
    * with a custom Normal or Max (Settings) it is undefined and the note stays
-   * vague rather than wrong.
+   * vague rather than wrong. `picks` as in `choice`.
    */
-  usageFactor(branch?: TierRoute | null): number | undefined {
-    const normal = this.choice('normal', branch);
-    const max = this.choice('max', branch);
+  usageFactor(branch?: TierRoute | null, picks?: AppSettings['tiers']): number | undefined {
+    const normal = this.choice('normal', branch, picks);
+    const max = this.choice('max', branch, picks);
     if (!normal || !max) return undefined;
     const models = this.tree.account.providerOf(max)?.models ?? [];
     const suggestedMax = tierModel(models, 'max');

@@ -26,7 +26,7 @@ import { UiStore } from '../state/ui-store';
               class="link-btn"
               (click)="openLimit($event)"
             >
-              Settings → Reply length
+              Settings → Reply limit
             </button>
             raises the limit).</span
           >
