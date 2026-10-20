@@ -5,8 +5,9 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
  * Normal and Max in power, against the real Worker: serve.mjs lists Normal
  * (`normal`) and Max (`max`) as the built-in provider's tiers, which power
  * offers on Tangent credit. The switch under the message box moves the branch
- * between them; Compare asks both and keeps nothing until one is picked
- * (closed here, so nothing is kept).
+ * between them on a click, Enter or Space (the arrow keys only move the
+ * focus); Compare asks both and keeps nothing until one is picked (closed
+ * here, so nothing is kept).
  */
 
 interface TreeDetail {
@@ -39,27 +40,38 @@ test('the Normal | Max switch moves a credit branch between the tiers, and Compa
 
   await page.goto(`/t/${t.id}`);
   const bar = page.locator('.route-bar');
-  const tiers = bar.getByRole('radiogroup', { name: 'Model tier' });
-  const normal = tiers.getByRole('radio', { name: 'Normal' });
-  const max = tiers.getByRole('radio', { name: 'Max' });
+  const tiers = bar.getByRole('toolbar', { name: 'Model tier' });
+  const normal = tiers.getByRole('button', { name: 'Normal' });
+  const max = tiers.getByRole('button', { name: 'Max' });
   const note = page.locator('.route-tier-note');
-  await expect(normal).toHaveAttribute('aria-checked', 'true');
+  await expect(normal).toHaveAttribute('aria-pressed', 'true');
   await expect(bar.locator('.route-chip')).toContainText('Normal');
   await expect(note).toHaveCount(0);
 
-  // Max: the branch moves onto it (still on credit), and what it costs shows.
+  // The arrow keys only move the focus: passing over Max doesn't move the branch onto it.
+  const patches: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'PATCH') patches.push(r.url());
+  });
+  await normal.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(max).toBeFocused();
+  await expect(normal).toHaveAttribute('aria-pressed', 'true');
+  expect(patches).toEqual([]);
+
+  // Max, with Enter: the branch moves onto it (still on credit), and what it costs shows.
   const [patch] = await Promise.all([
     page.waitForRequest(
       (r) => r.method() === 'PATCH' && r.url().endsWith(`/api/branches/${t.trunkBranchId}`),
     ),
-    max.click(),
+    page.keyboard.press('Enter'),
   ]);
   expect(patch.postDataJSON()).toEqual({
     providerId: 'openrouter',
     funding: 'credit',
     model: 'max',
   });
-  await expect(max).toHaveAttribute('aria-checked', 'true');
+  await expect(max).toHaveAttribute('aria-pressed', 'true');
   await expect(bar.locator('.route-chip')).toContainText('Max');
   await expect(note).toHaveText(/^Max uses about \d+× as much as Normal\.$/);
   expect((await tree(request, t.id)).branches[0]).toMatchObject({
@@ -69,7 +81,7 @@ test('the Normal | Max switch moves a credit branch between the tiers, and Compa
 
   // And back.
   await normal.click();
-  await expect(normal).toHaveAttribute('aria-checked', 'true');
+  await expect(normal).toHaveAttribute('aria-pressed', 'true');
   await expect(note).toHaveCount(0);
   await expect.poll(async () => (await tree(request, t.id)).branches[0]?.model).toBe('normal');
 
