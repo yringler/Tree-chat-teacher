@@ -602,7 +602,7 @@ test('power demo: "Ask about this" puts the words on the composer; the tangent s
     .click();
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('patient lemon');
+  await expect(dialog.getByRole('group', { name: 'Quote' })).toContainText('patient lemon');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(page.url()).toBe(url);
   await expect(quote).toContainText('patient lemon');
@@ -617,7 +617,7 @@ test('power demo: "Ask about this" puts the words on the composer; the tangent s
   await page.keyboard.press('Escape');
   await selectText(body, 'off-key');
   await page.keyboard.press('Shift+B');
-  await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('off-key');
+  await expect(dialog.getByRole('group', { name: 'Quote' })).toContainText('off-key');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });

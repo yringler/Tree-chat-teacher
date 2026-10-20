@@ -107,6 +107,69 @@ describe('Tangent settings', () => {
     expect(d.api.updateBranch).toHaveBeenCalledWith('side', { isPrivate: true });
   });
 
+  it('groups its fields: Context (the quote, then the mode), Replies, which new tangents from here start with, and Private', async () => {
+    await open(BranchSettings, { branch: { ...side, anchorQuote: 'a wave' } });
+    const context = screen.getByRole('group', { name: 'Context' });
+    expect(within(context).getByRole<HTMLTextAreaElement>('textbox', { name: 'Quote' }).value).toBe(
+      'a wave',
+    );
+    within(context).getByRole('radio', { name: /Full path/ });
+    expect(screen.getAllByText('Context', { exact: true })).toHaveLength(1);
+
+    const replies = screen.getByRole('group', { name: 'Replies' });
+    expect(replies.textContent).toContain('New tangents from here start with these.');
+    within(replies).getByRole('combobox', { name: 'Provider' });
+    // What a search costs, and who pays it, stays in view; the exact prices are a click away.
+    within(replies).getByRole('combobox', {
+      name: 'Web search',
+      description:
+        'About 1¢ a search, plus the results as input tokens, paid like the reply. The model decides whether to search, at most once a reply.',
+    });
+    const prices = within(replies).getByText('Web search prices').closest('details');
+    expect(prices?.open).toBe(false);
+    expect(prices?.textContent).toMatch(
+      /OpenRouter, about \$0\.007 a search; at Anthropic, \$0\.01/,
+    );
+    expect(replies.textContent).not.toMatch(/inherit/);
+
+    screen.getByRole('checkbox', {
+      name: 'Private',
+      description: 'Left out of shares and exports, with every tangent under it.',
+    });
+    expect(screen.queryByText(/trunk/)).toBeNull();
+  });
+
+  it('says how the title comes about until you name it', async () => {
+    const d = await open(BranchSettings, { branch: side });
+    const title = () => screen.getByRole('textbox', { name: 'Title' });
+    expect(title().getAttribute('aria-describedby')).toBeTruthy();
+    screen.getByRole('textbox', {
+      name: 'Title',
+      description: 'Named after its first reply unless you rename it.',
+    });
+    await d.set({ branch: { ...side, titleSource: 'auto' } });
+    screen.getByRole('textbox', { name: 'Title', description: 'Named after its first reply.' });
+    await d.set({ branch: { ...side, titleSource: 'user' } });
+    expect(title().getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('on a provider that can’t search the web, names the ones that can and keeps the choice', async () => {
+    const own = { ...side, funding: 'own-key' as const, grounding: 'off' as const };
+    const d = await open(BranchSettings, { branch: own });
+    const replies = screen.getByRole('group', { name: 'Replies' });
+    expect(within(replies).queryByRole('combobox', { name: 'Web search' })).toBeNull();
+    expect(replies.textContent).toContain(
+      "This provider can't search the web; Tangent credit can. Your choice is kept for when you switch.",
+    );
+    await d.user.selectOptions(
+      within(replies).getByRole('combobox', { name: 'Provider' }),
+      'openrouter@credit',
+    );
+    expect(
+      within(replies).getByRole<HTMLSelectElement>('combobox', { name: 'Web search' }).value,
+    ).toBe('off');
+  });
+
   it('saves to the branch it was opened on', async () => {
     const d = await open(BranchSettings, { branch: side });
     await d.set({ branch: branch() });
@@ -179,9 +242,10 @@ describe('Conversation settings', () => {
     expect(screen.getAllByRole('textbox', { name: /^Title/ })).toHaveLength(1);
     const replies = screen.getByRole('group', { name: 'Main thread replies' });
     expect(replies.textContent).toContain('New tangents from the main thread start with these.');
+    expect(replies.textContent).not.toMatch(/inherit/);
     await d.user.click(within(replies).getByRole('button', { name: /^Max/ }));
     await d.user.selectOptions(
-      within(replies).getByRole('combobox', { name: /^Check facts with web search/ }),
+      within(replies).getByRole('combobox', { name: 'Web search' }),
       'off',
     );
     const priv = screen.getByRole('checkbox', { name: 'Private' });

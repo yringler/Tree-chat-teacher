@@ -84,6 +84,7 @@ test('every suggested model stays in view under the model id, in power and Canva
   await reply.locator('.msg-body').click();
   await page.keyboard.press('Shift+B');
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
+  await dialog.getByRole('button', { name: 'Change' }).click();
   await dialog
     .getByRole('combobox', { name: 'Provider' })
     .selectOption({ label: 'Tangent credit' });

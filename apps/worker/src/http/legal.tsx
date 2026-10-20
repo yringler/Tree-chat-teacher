@@ -1,10 +1,9 @@
-import { CANDIDATE_TTL_MS } from '@tangent/shared';
+import { CANDIDATE_TTL_MS, joinList } from '@tangent/shared';
 import { Hono } from 'hono';
 import type { Child } from 'hono/jsx';
 import type { AppBindings } from '../env.js';
 import { POOL_IDENTITY_RETENTION_DAYS } from '../pool/identity.js';
 import { STRIKES_TO_SUSPEND } from '../share/review.js';
-import { joinList } from './copy.js';
 import { hostedAi, type HostedAi } from './hosted-ai.js';
 import { pageResponse } from './layout.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';

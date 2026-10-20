@@ -30,14 +30,14 @@ export const CONTEXT_MODE_META: Readonly<Record<ContextMode, ContextModeMeta>> =
   message: {
     label: 'Parent message',
     abbr: 'msg',
-    help: 'Sends only the message the tangent started from and the anchor quote, no other earlier messages.',
+    help: 'Sends only the message the tangent started from and the quote, no other earlier messages.',
     longHelp:
       'Parent message: the model sees only the message this tangent starts from, the quote and this tangent',
   },
   independent: {
     label: 'Independent',
     abbr: 'ind',
-    help: 'Starts fresh: only the system prompt and the anchor quote, no earlier messages.',
+    help: 'Starts fresh: only the system prompt and the quote, no earlier messages.',
     longHelp: 'Independent: the model sees only the system prompt, the quote and this tangent',
   },
 };

@@ -10,7 +10,7 @@ export interface RouteView {
   branch: Branch;
   /** The provider entry's label ("OpenRouter", "Tangent credit"), else its id. */
   label: string;
-  /** The tier it replies on, by name ("Normal"), else its model (`TierStore.modelLabel`). */
+  /** The tier it replies on, by name ("Normal"), else its model (`TierStore.tierOrModel`). */
   model: string;
   /** On the user's own key, with none saved in this browser (`TreeStore.keyMissing`). */
   missing: boolean;
@@ -124,7 +124,7 @@ export class RouteBar {
     return {
       branch,
       label: this.store.account.providerOf(branch)?.label ?? branch.providerId,
-      model: tier ? TIER_LABELS[tier] : this.tiers.modelLabel(branch),
+      model: this.tiers.tierOrModel(branch),
       missing: this.store.account.keyMissing(branch),
       tiers: this.tiers.available(branch),
       tier,

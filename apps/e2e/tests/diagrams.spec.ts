@@ -122,7 +122,7 @@ test('power: a selection inside a diagram quotes its whole source', async ({
     .getByRole('button', { name: 'Tangent with options…' })
     .click();
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
-  await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue(
+  await expect(dialog.getByRole('group', { name: 'Quote' }).locator('p')).toHaveText(
     '```mermaid\n' + FLOWCHART + '```',
   );
   await dialog.getByRole('button', { name: 'Cancel' }).click();

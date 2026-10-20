@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   input,
   type OnInit,
@@ -18,6 +19,8 @@ import { UiStore } from '../state/ui-store';
 import { deleteBranchQuestion, Icon, Modal, ToastStore } from '@tangent/web-shared';
 import { ModePicker } from '../ui/mode-picker';
 import { ReplyFields, replyChanges, replyFieldsOf } from '../ui/reply-fields';
+
+let uid = 0;
 
 /**
  * Asks, then deletes a branch with every branch below it. Shared by the
@@ -41,9 +44,10 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
 }
 
 /**
- * Edit the open tangent: title, mode, anchor quote, its replies (who pays,
- * the model, web search), privacy; delete it. The main thread's are in
- * Conversation settings.
+ * Edit the open tangent, in groups: its title; Context (the quote and the
+ * mode); Replies (who pays, the model, web search), which new tangents from
+ * it start with; Private. Delete it. The main thread's are in Conversation
+ * settings.
  */
 @Component({
   selector: 'app-branch-settings',
@@ -52,38 +56,50 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
   template: `
     <app-modal heading="Tangent settings" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); save()">
-        <label class="field">
-          <span class="field-label">Title</span>
+        <div class="field">
+          <label class="field-label" [for]="id + '-title'">Title</label>
           <input
             type="text"
             maxlength="200"
             required
+            [id]="id + '-title'"
+            [attr.aria-describedby]="titleHelp() ? id + '-title-help' : null"
             [value]="title()"
             (input)="title.set(t.value)"
             #t
           />
-          @if (branch().titleSource !== 'user') {
-            <span class="muted small"
-              >{{
-                branch().titleSource === 'auto' ? 'Generated automatically.' : 'Default title.'
-              }}
-              Editing it keeps your title.</span
-            >
+          @if (titleHelp(); as help) {
+            <span class="muted small" [id]="id + '-title-help'">{{ help }}</span>
           }
-        </label>
+        </div>
 
-        <app-mode-picker [(mode)]="mode" />
-        <label class="field">
-          <span class="field-label">Anchor quote</span>
-          <textarea rows="3" [value]="quote()" (input)="quote.set(q.value)" #q></textarea>
-        </label>
+        <app-mode-picker [(mode)]="mode">
+          <label class="field">
+            <span class="field-label">Quote</span>
+            <textarea rows="3" [value]="quote()" (input)="quote.set(q.value)" #q></textarea>
+          </label>
+        </app-mode-picker>
 
-        <app-reply-fields [(route)]="route" [(modelId)]="modelId" [(grounding)]="grounding" />
+        <fieldset class="settings-section">
+          <legend>Replies</legend>
+          <p class="muted small">New tangents from here start with these.</p>
+          <app-reply-fields [(route)]="route" [(modelId)]="modelId" [(grounding)]="grounding" />
+        </fieldset>
 
-        <label class="check">
-          <input type="checkbox" [checked]="isPrivate()" (change)="isPrivate.set(!isPrivate())" />
-          Private (excluded from shares and exports, with everything below it)
-        </label>
+        <div class="field">
+          <label class="check">
+            <input
+              type="checkbox"
+              [attr.aria-describedby]="id + '-private'"
+              [checked]="isPrivate()"
+              (change)="isPrivate.set(!isPrivate())"
+            />
+            Private
+          </label>
+          <span class="muted small indent" [id]="id + '-private'"
+            >Left out of shares and exports, with every tangent under it.</span
+          >
+        </div>
 
         <div class="form-actions">
           <button type="button" class="btn btn-danger-ghost btn-left" (click)="remove()">
@@ -109,6 +125,7 @@ export class BranchSettings implements OnInit {
    * may have retitled it.
    */
   private opened: Branch | null = null;
+  protected readonly id = `bs${++uid}`;
 
   protected readonly title = signal('');
   protected readonly mode = signal<ContextMode>('path');
@@ -119,6 +136,18 @@ export class BranchSettings implements OnInit {
   protected readonly modelId = signal('');
   protected readonly grounding = signal<GroundingMode>(DEFAULT_GROUNDING_MODE);
   protected readonly saving = signal(false);
+
+  /** How the title comes about, until the user names it: from the first reply. */
+  protected readonly titleHelp = computed(() => {
+    switch (this.branch().titleSource) {
+      case 'default':
+        return 'Named after its first reply unless you rename it.';
+      case 'auto':
+        return 'Named after its first reply.';
+      case 'user':
+        return null;
+    }
+  });
 
   ngOnInit(): void {
     const b = this.branch();

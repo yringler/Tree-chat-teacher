@@ -166,6 +166,15 @@ export class TierStore {
     return modelName(this.tree.account.providerOf(choice), choice.model);
   }
 
+  /**
+   * A route's model as the bar under the message box names it: the tier by
+   * name ("Normal") when the route and model are one, else the model.
+   */
+  tierOrModel(route: Pick<Branch, 'providerId' | 'funding' | 'model'>): string {
+    const tier = this.tierOfBranch(route);
+    return tier ? TIER_LABELS[tier] : this.modelLabel(route);
+  }
+
   private open(p: ProviderInfo | null | undefined): p is ProviderInfo {
     return !!p && !this.tree.account.routeLocked(p);
   }
