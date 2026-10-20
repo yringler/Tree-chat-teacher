@@ -28,6 +28,15 @@ describe('DEFAULT_SYSTEM_PROMPT', () => {
     expect(rule).toContain('write a double quote inside a label as #quot;');
   });
 
+  it('asks for math in TeX with the delimiters the renderer typesets', () => {
+    const rule = DEFAULT_SYSTEM_PROMPT.slice(
+      DEFAULT_SYSTEM_PROMPT.indexOf('- Write mathematics in TeX'),
+    ).split('\n')[0];
+    expect(rule).toContain('$…$ inline, like $\\frac{dy}{dt} = ky$');
+    expect(rule).toContain('$$…$$ on lines of their own');
+    expect(rule).toContain('not for plain numbers or amounts of money');
+  });
+
   it('asks for Markdown links, never HTML, which the renderer shows as text', () => {
     expect(DEFAULT_SYSTEM_PROMPT).toContain(
       'Write Markdown, never HTML tags: a link is [text](url).',
