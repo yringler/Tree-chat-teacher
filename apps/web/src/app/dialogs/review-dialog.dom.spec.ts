@@ -43,12 +43,17 @@ const trunk: Branch = fixtures.branch('trunk', {
 });
 
 /**
- * The Review dialog on reply a1 of the main thread, with Normal set to
- * DeepSeek on Tangent credit in Settings, and `reviewer` as the default
- * reviewer; its review by `model` on Tangent credit done, unless `model` is
- * null (none yet). Reviews started are recorded, not run.
+ * The Review dialog on reply a1 of the main thread (`thread`), with Normal
+ * set to DeepSeek on Tangent credit in Settings, and `reviewer` as the
+ * default reviewer; its review by `model` on Tangent credit done, unless
+ * `model` is null (none yet). `ownKey`: an OpenRouter key is in this
+ * browser. Reviews started are recorded, not run.
  */
-async function open(model: string | null, reviewer: ModelChoice | null = null) {
+async function open(
+  model: string | null,
+  reviewer: ModelChoice | null = null,
+  { thread = trunk, ownKey = true }: { thread?: Branch; ownKey?: boolean } = {},
+) {
   const api = {
     updateBranch: vi.fn(async (_id: string, req: UpdateBranchRequest) => ({ ...trunk, ...req })),
   };
@@ -61,8 +66,11 @@ async function open(model: string | null, reviewer: ModelChoice | null = null) {
         reviewer,
       });
       const store = TestBed.inject(TreeStore);
-      signIn(store.account, { providers: [provider(), CREDIT], builtInCredit: true });
-      openTree(store, fixtures.detail([node('a1', { content: 'A wave.' })], [trunk]));
+      signIn(store.account, {
+        providers: [provider({ available: ownKey }), CREDIT],
+        builtInCredit: true,
+      });
+      openTree(store, fixtures.detail([node('a1', { content: 'A wave.' })], [thread]));
       if (!model) return;
       TestBed.inject(ReviewStore).reviews.set(
         new Map([
@@ -125,12 +133,12 @@ describe('Review up to here', () => {
 
   it('keeps the model picked as the default reviewer when asked, which names what the default is', async () => {
     const d = await open(HAIKU);
-    // Settings has no reviewer any more, and this dialog no way there.
+    // The default reviewer is set here, not in Settings: no button leads there.
     expect(screen.queryByRole('button', { name: /Default reviewer/ })).toBeNull();
     // No default yet: the thread's provider's default model, which it names.
     expect(defaultBox().checked).toBe(false);
     expect(defaultNote()).toBe(
-      'Your default: Same provider as the thread, its default model (here: claude-haiku-5.5).',
+      'Your default: same provider as the thread, its default model (here: claude-haiku-5.5).',
     );
 
     await d.user.click(screen.getByRole('textbox', { name: 'Model' }));
@@ -144,7 +152,16 @@ describe('Review up to here', () => {
     expect(defaultNote()).toBe('Your default: claude-sonnet-5.5 on Tangent credit.');
   });
 
-  it('opened on the default reviewer, the box is ticked; unticked, a review puts the default back', async () => {
+  it('names the provider it falls back to when the thread’s can’t be used here', async () => {
+    // The thread is on OpenRouter with your own key, which isn't in this browser.
+    await open(null, null, { thread: { ...trunk, funding: 'own-key' }, ownKey: false });
+    expect(defaultNote()).toBe(
+      "Your default: the default model of the thread's provider, which can't be used here, " +
+        'so claude-haiku-5.5 on Tangent credit.',
+    );
+  });
+
+  it('opened on the default reviewer, the box is ticked; unticked, the default goes back', async () => {
     const sonnet = { providerId: 'openrouter', funding: 'credit' as const, model: SONNET };
     const d = await open(null, sonnet);
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Model' }).value).toBe(SONNET);
@@ -152,9 +169,36 @@ describe('Review up to here', () => {
     expect(defaultNote()).toBe('Your default: claude-sonnet-5.5 on Tangent credit.');
 
     await d.user.click(defaultBox());
+    expect(d.settings.settings().reviewer).toBeNull();
     await d.user.click(screen.getByRole('button', { name: 'Review' }));
     expect(d.started).toHaveBeenCalledExactlyOnceWith('a1', sonnet);
     expect(d.settings.settings().reviewer).toBeNull();
+  });
+
+  it('opened on the default reviewer, another model unticks the box: a review on it leaves the default alone', async () => {
+    const sonnet = { providerId: 'openrouter', funding: 'credit' as const, model: SONNET };
+    const d = await open(null, sonnet);
+    expect(defaultBox().checked).toBe(true);
+
+    await d.user.clear(screen.getByRole('textbox', { name: 'Model' }));
+    await d.user.type(screen.getByRole('textbox', { name: 'Model' }), HAIKU);
+    expect(defaultBox().checked).toBe(false);
+    await d.user.click(screen.getByRole('button', { name: 'Review' }));
+    expect(d.started).toHaveBeenCalledExactlyOnceWith('a1', { ...sonnet, model: HAIKU });
+    expect(d.settings.settings().reviewer).toEqual(sonnet);
+  });
+
+  it('ticking the box keeps the default at once, without another review', async () => {
+    const d = await open(HAIKU);
+    await d.user.click(defaultBox());
+    // The form's Close, after the title bar's.
+    await d.user.click(screen.getAllByRole('button', { name: 'Close' }).at(-1)!);
+    expect(d.started).not.toHaveBeenCalled();
+    expect(d.settings.settings().reviewer).toEqual({
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: HAIKU,
+    });
   });
 
   it('a review on another model leaves the default alone', async () => {

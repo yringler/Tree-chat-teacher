@@ -34,9 +34,9 @@ let uid = 0;
 
 /**
  * "Review up to here": pick a reviewer model (and keep it as the default
- * reviewer), stream its review, then act on it: send the corrections back
- * into the thread, move the branch to the reviewer's model, or branch off on
- * it.
+ * reviewer, which "Use as my default reviewer" saves as it is ticked),
+ * stream its review, then act on it: send the corrections back into the
+ * thread, move the branch to the reviewer's model, or branch off on it.
  */
 @Component({
   selector: 'app-review-dialog',
@@ -136,8 +136,10 @@ let uid = 0;
                   <input
                     type="checkbox"
                     [attr.aria-describedby]="id + '-default'"
-                    [checked]="makeDefault()"
-                    (change)="makeDefault.set(!makeDefault())"
+                    [checked]="isDefault()"
+                    [disabled]="!c.providerId || !c.model"
+                    (change)="setDefault(box.checked)"
+                    #box
                   />
                   Use as my default reviewer
                 </label>
@@ -180,8 +182,6 @@ export class ReviewDialog implements OnInit {
   protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly acting = signal(false);
-  /** "Use as my default reviewer", applied when the review starts. */
-  protected readonly makeDefault = signal(false);
   protected readonly id = `rv${++uid}`;
 
   protected readonly node = computed(() => this.store.index()?.nodes.get(this.nodeId()) ?? null);
@@ -210,6 +210,16 @@ export class ReviewDialog implements OnInit {
   protected readonly excerpt = computed(() =>
     plainText(this.node()?.content ?? '', { max: EXCERPT_CHARS }),
   );
+  /**
+   * "Use as my default reviewer" is ticked while the picked model is the
+   * saved default, so picking another unticks it: a one-off review never
+   * replaces the default unless it is ticked again.
+   */
+  protected readonly isDefault = computed(() => {
+    const saved = this.settings.settings().reviewer;
+    const c = this.choice();
+    return !!saved && !!c && sameChoice(saved, c);
+  });
   /** The branch already runs on the reviewer's model. */
   protected readonly sameModel = computed(() => {
     const r = this.review();
@@ -219,18 +229,24 @@ export class ReviewDialog implements OnInit {
 
   /**
    * The default reviewer by what it is: the saved one, or the default model
-   * of the thread's provider, which is often the model it chats with.
+   * of the thread's provider, which is often the model it chats with; where
+   * that provider can't be used (no key here, or a funding the membership
+   * locks), another provider's (`threadReviewer`), which it names.
    */
   protected readonly defaultNote = computed(() => {
     const saved = this.settings.settings().reviewer;
     if (saved) return `Your default: ${this.tiers.modelLabel(saved)} on ${this.payer(saved)}.`;
     const branch = this.branch();
     const here = this.reviews.threadReviewer(branch);
-    const elsewhere = here && branch && routeKey(here) !== routeKey(branch);
-    const model = here
-      ? ` (here: ${this.tiers.modelLabel(here)}${elsewhere ? ` on ${this.payer(here)}` : ''})`
-      : '';
-    return `Your default: Same provider as the thread, its default model${model}.`;
+    const thread = 'Your default: same provider as the thread, its default model';
+    if (!here) return `${thread}.`;
+    if (branch && routeKey(here) !== routeKey(branch)) {
+      return (
+        `Your default: the default model of the thread's provider, which can't be used ` +
+        `here, so ${this.tiers.modelLabel(here)} on ${this.payer(here)}.`
+      );
+    }
+    return `${thread} (here: ${this.tiers.modelLabel(here)}).`;
   });
 
   ngOnInit(): void {
@@ -240,26 +256,22 @@ export class ReviewDialog implements OnInit {
       this.route.set(routeKey(start));
       this.modelId.set(start.model);
     }
-    const saved = this.settings.settings().reviewer;
-    this.makeDefault.set(!!start && !!saved && sameChoice(saved, start));
   }
 
   protected run(): void {
     const c = this.choice();
-    if (!c) return;
-    this.keepDefault(c);
-    void this.reviews.start(this.nodeId(), c);
+    if (c) void this.reviews.start(this.nodeId(), c);
   }
 
   /**
-   * "Use as my default reviewer": ticked, `c` becomes the default; unticked
-   * on the default, the default goes back to the thread's provider's.
+   * "Use as my default reviewer", saved as it is toggled, like the label
+   * says, so closing keeps it: ticked, the picked model becomes the default;
+   * unticked, the default goes back to the thread's provider's.
    */
-  private keepDefault(c: ModelChoice): void {
-    const saved = this.settings.settings().reviewer;
-    const isDefault = !!saved && sameChoice(saved, c);
-    if (this.makeDefault() && c.model && !isDefault) this.settings.update({ reviewer: c });
-    else if (!this.makeDefault() && isDefault) this.settings.update({ reviewer: null });
+  protected setDefault(on: boolean): void {
+    const c = this.choice();
+    if (on && c?.providerId && c.model) this.settings.update({ reviewer: c });
+    else if (!on && this.isDefault()) this.settings.update({ reviewer: null });
   }
 
   private payer(c: ModelChoice): string {
