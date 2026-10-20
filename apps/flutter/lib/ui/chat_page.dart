@@ -109,13 +109,16 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     final scope = AppScope.of(context);
-    _chat = ChatController(
-      api: scope.api,
-      session: scope.session,
-      lessons: scope.lessons,
-      treeId: widget.treeId,
-      branchId: widget.branchId,
-    )..addListener(_followEnd);
+    _chat =
+        ChatController(
+            api: scope.api,
+            session: scope.session,
+            lessons: scope.lessons,
+            treeId: widget.treeId,
+            branchId: widget.branchId,
+          )
+          ..addListener(_followEnd)
+          ..addListener(_forgetNamedTarget);
     _scroll.addListener(_onScroll);
     _composerFocus.addListener(_onComposerFocus);
     _walkthrough = scope.walkthrough;
@@ -421,9 +424,20 @@ class _ChatPageState extends State<ChatPage> {
     final focused = _composerFocus.hasFocus;
     if (focused && !_hadFocus) {
       _namesTarget.value =
-          _chat.lead == null && (_chat.plan.nameTarget || _farFromEnd.value);
+          _chat.lead == null &&
+          _chat.target != null &&
+          (_chat.plan.nameTarget || _farFromEnd.value);
     }
     _hadFocus = focused;
+  }
+
+  /// Losing the target to name (to a lead, which names itself) ends the
+  /// naming until the box next takes the focus, so taking a lead off leaves
+  /// its place empty rather than naming something else. As on Learn web.
+  void _forgetNamedTarget() {
+    if (_namesTarget.value && (_chat.lead != null || _chat.target == null)) {
+      _namesTarget.value = false;
+    }
   }
 
   /// The opening words of [node], as the box names it.

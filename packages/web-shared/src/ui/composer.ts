@@ -194,7 +194,9 @@ export function sendActions(sends: readonly ComposerSend[], hovers: boolean): Co
  * With `target`, the open box can name the reply a tangent from it starts
  * at, in the same place: whether it does (`nameTarget`) is decided as the
  * box opens and kept while it stays open, so the box doesn't change height
- * under the user's typing.
+ * under the user's typing. Losing the target (to a lead, which names
+ * itself) ends the naming until the box next opens, so taking a lead off
+ * leaves the place empty rather than naming something else.
  *
  * `is-open` on the form marks it focused, for styles that change its size
  * then. A press elsewhere takes the focus on pointerdown, but the box keeps
@@ -406,6 +408,10 @@ export class Composer {
       if (!initial || untracked(this.text)) return;
       this.setText(initial);
     });
+    // No target to name: nothing is named until the box next opens.
+    effect(() => {
+      if (this.target() === null) untracked(() => this.namesTarget.set(false));
+    });
     // Re-focus when the composer is enabled again after a reply.
     effect(() => {
       if (
@@ -424,7 +430,7 @@ export class Composer {
   /** Opens; coming from outside the box, it decides now whether to name the target. */
   protected onFocusIn(e: FocusEvent, form: HTMLFormElement): void {
     if (!(e.relatedTarget instanceof Node && form.contains(e.relatedTarget)))
-      this.namesTarget.set(this.nameTarget());
+      this.namesTarget.set(this.nameTarget() && this.target() !== null);
     this.open.set(true);
   }
 

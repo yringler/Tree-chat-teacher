@@ -264,6 +264,24 @@ describe('Composer', () => {
     expect(screen.queryByRole('button', { name: /^from/ })).toBeNull();
   });
 
+  it('losing its target while open (to a lead), the box names nothing until it opens again', async () => {
+    const c = await composer({ target: 'A wave.', nameTarget: true });
+    const named = () => screen.queryByRole('button', { name: /^from/ });
+    c.box.blur();
+    await c.fixture.whenStable();
+    await c.user.click(c.box);
+    expect(named()).not.toBeNull();
+    await c.set({ target: null });
+    expect(named()).toBeNull();
+    // The lead taken off again: its place stays empty while the box is open.
+    await c.set({ target: 'A wave.' });
+    expect(named()).toBeNull();
+    c.box.blur();
+    await c.fixture.whenStable();
+    await c.user.click(c.box);
+    expect(named()).not.toBeNull();
+  });
+
   it('is open while focused, and stays open through a press elsewhere until it ends', async () => {
     const c = await composer();
     const form = c.box.closest('form')!;

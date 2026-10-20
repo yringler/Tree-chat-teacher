@@ -671,6 +671,34 @@ void main() {
       expect(named, findsOneWidget);
     });
 
+    testWidgets('a reply put on the open box and taken off again leaves '
+        'nothing named until the box opens again', (tester) async {
+      api.details['t1'] = twoStepTangent();
+      await pumpApp(tester, api, location: '/t/t1/b/side-9');
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(named, findsOneWidget);
+
+      await tester.tap(replyTangent('s2'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('composer-quote')), findsOneWidget);
+      expect(named, findsNothing);
+      await tester.tap(find.byTooltip('Don’t go on this tangent'));
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+        isTrue,
+      );
+      expect(named, findsNothing);
+
+      // Opened again, it names the reply Tangent ↳ goes from.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(named, findsOneWidget);
+    });
+
     testWidgets('Next replies on the branch on screen', (tester) async {
       api.details['t1'] = treeDetail(
         title: 'Tides',

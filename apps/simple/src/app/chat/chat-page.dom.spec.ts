@@ -172,6 +172,27 @@ describe('Learn: the lesson page', () => {
     expect(document.activeElement).toBe(composer());
   });
 
+  it('a reply put on the open box and taken off again leaves nothing named until the box opens again', async () => {
+    const p = await page(longerSide());
+    composer()!.blur();
+    p.store.setRoute('t1', 'side', 'u2');
+    await p.fixture.whenStable();
+    await p.user.click(composer()!);
+    within(dock()).getByRole('button', { name: 'from “A particle.”' });
+    await p.user.click(
+      within(document.getElementById('msg-a5')!).getByRole('button', { name: 'Tangent ↳' }),
+    );
+    within(dock()).getByText('Tangent from “It comes in lumps.”');
+    expect(within(dock()).queryByRole('button', { name: /^from/ })).toBeNull();
+    await p.user.click(within(dock()).getByRole('button', { name: 'Don’t go on this tangent' }));
+    expect(document.activeElement).toBe(composer());
+    expect(within(dock()).queryByRole('button', { name: /^from/ })).toBeNull();
+    // Opened again, it names the reply Tangent ↳ goes from.
+    composer()!.blur();
+    await p.user.click(composer()!);
+    within(dock()).getByRole('button', { name: 'from “A particle.”' });
+  });
+
   it('back up the path, Tangent ↳ goes from the reply left from; an earlier thread’s is context', async () => {
     const p = await page(longerSide(), {}, 'side');
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
