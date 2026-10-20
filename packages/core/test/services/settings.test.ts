@@ -73,3 +73,95 @@ describe('account settings: the walkthrough flag', () => {
     await expect(chat.updateSettings({})).rejects.toThrow();
   });
 });
+
+describe("account settings: power's models and limits", () => {
+  const normal = { providerId: 'openrouter', funding: 'credit', model: 'a/normal' } as const;
+  const max = { providerId: 'anthropic', funding: 'own-key', model: 'claude-max' } as const;
+
+  it('starts on the defaults', async () => {
+    const { chat } = setup({ autoTitle: false });
+    expect(await chat.getSettings()).toMatchObject({
+      tiers: { normal: null, max: null },
+      reviewer: null,
+      maxOutputTokens: null,
+      maxInputTokens: null,
+      inputOverflow: 'compact',
+    });
+  });
+
+  it('saves the fields it names and keeps the others', async () => {
+    const { chat } = setup({ autoTitle: false });
+    await chat.updateSettings({ systemPrompt: 'MINE', tiers: { normal, max } });
+    const saved = await chat.updateSettings({
+      tiers: { max: null },
+      reviewer: max,
+      maxOutputTokens: 8192,
+      maxInputTokens: 32_000,
+      inputOverflow: 'truncate',
+    });
+    expect(saved).toMatchObject({
+      systemPrompt: 'MINE',
+      tiers: { normal, max: null },
+      reviewer: max,
+      maxOutputTokens: 8192,
+      maxInputTokens: 32_000,
+      inputOverflow: 'truncate',
+    });
+    expect(await chat.getSettings()).toEqual(saved);
+    // Null goes back to the default; what isn't named stays.
+    expect(await chat.updateSettings({ reviewer: null, maxInputTokens: null })).toMatchObject({
+      tiers: { normal, max: null },
+      reviewer: null,
+      maxOutputTokens: 8192,
+      maxInputTokens: null,
+      inputOverflow: 'truncate',
+    });
+  });
+
+  it.each([
+    ['a reply limit below the least', { maxOutputTokens: 255 }],
+    ['a reply limit above the most', { maxOutputTokens: 128_001 }],
+    ['a fractional reply limit', { maxOutputTokens: 1000.5 }],
+    ['an input limit below the least', { maxInputTokens: 999 }],
+    ['an input limit above the most', { maxInputTokens: 2_000_001 }],
+    ['an unknown overflow', { inputOverflow: 'forget' }],
+    ['a null overflow', { inputOverflow: null }],
+    ['an unknown payer', { reviewer: { ...normal, funding: 'free' } }],
+    ['a model without a payer', { reviewer: { providerId: 'p', model: 'm' } }],
+    ['an empty provider', { reviewer: { ...normal, providerId: '' } }],
+    ['an overlong provider', { reviewer: { ...normal, providerId: 'p'.repeat(65) } }],
+    ['an overlong model', { tiers: { normal: { ...normal, model: 'm'.repeat(201) } } }],
+    ['no tier', { tiers: {} }],
+  ])('rejects %s', async (_name, body) => {
+    const { chat } = setup({ autoTitle: false });
+    // Deliberately malformed bodies, as a client could send them.
+    await expect(chat.updateSettings(JSON.parse(JSON.stringify(body)))).rejects.toThrow();
+    expect((await chat.getSettings()).reviewer).toBeNull();
+  });
+
+  it('reads a stored value that no longer validates as its default, keeping the rest', async () => {
+    const { chat, repos } = setup({ autoTitle: false });
+    await chat.updateSettings({ systemPrompt: 'MINE' });
+    const [accountId] = repos.dump().settings.keys();
+    await repos.settings.updateSettings(
+      accountId!,
+      {
+        tierNormal: { ...normal, funding: 'retired' },
+        tierMax: max,
+        reviewer: { ...normal, model: '' },
+        maxOutputTokens: 100,
+        maxInputTokens: 5_000_000,
+        inputOverflow: 'forget',
+      },
+      '2026-02-01T00:00:00.000Z',
+    );
+    expect(await chat.getSettings()).toMatchObject({
+      systemPrompt: 'MINE',
+      tiers: { normal: null, max },
+      reviewer: null,
+      maxOutputTokens: null,
+      maxInputTokens: null,
+      inputOverflow: 'compact',
+    });
+  });
+});

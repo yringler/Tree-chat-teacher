@@ -1,9 +1,11 @@
 import { ConflictError, NotFoundError, pairKey } from '@tangent/core';
 import type {
+  AccountSettings,
   Repositories,
   SettingsRepository,
   ShareRepository,
   ShareWithTree,
+  StoredModelChoice,
   SummaryRepository,
   TreeRepository,
 } from '@tangent/core';
@@ -306,6 +308,56 @@ function definedOnly<T extends object>(patch: T): Partial<T> {
     if (v !== undefined) out[k] = v;
   }
   return out;
+}
+
+type SettingsRow = typeof accountSettings.$inferSelect;
+
+function choiceOf(
+  providerId: string | null,
+  funding: string | null,
+  model: string | null,
+): StoredModelChoice | null {
+  return providerId !== null && funding !== null && model !== null
+    ? { providerId, funding, model }
+    : null;
+}
+
+function settingsOf(r: SettingsRow): AccountSettings {
+  return {
+    systemPrompt: r.systemPrompt,
+    walkthroughDoneAt: r.walkthroughDoneAt,
+    tierNormal: choiceOf(r.tierNormalProviderId, r.tierNormalFunding, r.tierNormalModel),
+    tierMax: choiceOf(r.tierMaxProviderId, r.tierMaxFunding, r.tierMaxModel),
+    reviewer: choiceOf(r.reviewerProviderId, r.reviewerFunding, r.reviewerModel),
+    maxOutputTokens: r.maxOutputTokens,
+    maxInputTokens: r.maxInputTokens,
+    inputOverflow: r.inputOverflow,
+  };
+}
+
+/** A settings patch as columns: a model choice sets, or clears, its three columns together. */
+function settingsColumns(
+  patch: Partial<AccountSettings>,
+): Partial<Omit<SettingsRow, 'accountId' | 'updatedAt'>> {
+  const { tierNormal, tierMax, reviewer, ...rest } = patch;
+  return definedOnly({
+    ...rest,
+    ...(tierNormal !== undefined && {
+      tierNormalProviderId: tierNormal?.providerId ?? null,
+      tierNormalFunding: tierNormal?.funding ?? null,
+      tierNormalModel: tierNormal?.model ?? null,
+    }),
+    ...(tierMax !== undefined && {
+      tierMaxProviderId: tierMax?.providerId ?? null,
+      tierMaxFunding: tierMax?.funding ?? null,
+      tierMaxModel: tierMax?.model ?? null,
+    }),
+    ...(reviewer !== undefined && {
+      reviewerProviderId: reviewer?.providerId ?? null,
+      reviewerFunding: reviewer?.funding ?? null,
+      reviewerModel: reviewer?.model ?? null,
+    }),
+  });
 }
 
 async function runBatch(db: Db, items: Batch): Promise<void> {
@@ -829,31 +881,23 @@ export function createD1Repositories(d1: D1Database): Repositories {
   const settingsRepo: SettingsRepository = {
     async getSettings(accountId) {
       const row = await db
-        .select({
-          systemPrompt: accountSettings.systemPrompt,
-          walkthroughDoneAt: accountSettings.walkthroughDoneAt,
-        })
+        .select()
         .from(accountSettings)
         .where(eq(accountSettings.accountId, accountId))
         .get();
-      return row
-        ? { systemPrompt: row.systemPrompt, walkthroughDoneAt: row.walkthroughDoneAt }
-        : null;
+      return row ? settingsOf(row) : null;
     },
 
     async updateSettings(accountId, patch, updatedAt) {
       // Only the named columns in the update, so a concurrent change of another one stays.
-      const set = { ...definedOnly(patch), updatedAt };
+      const set = { ...settingsColumns(patch), updatedAt };
       const row = await db
         .insert(accountSettings)
         .values({ accountId, ...set })
         .onConflictDoUpdate({ target: accountSettings.accountId, set })
-        .returning({
-          systemPrompt: accountSettings.systemPrompt,
-          walkthroughDoneAt: accountSettings.walkthroughDoneAt,
-        })
+        .returning()
         .get();
-      return { systemPrompt: row.systemPrompt, walkthroughDoneAt: row.walkthroughDoneAt };
+      return settingsOf(row);
     },
   };
 

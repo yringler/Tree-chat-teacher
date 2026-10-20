@@ -1,7 +1,7 @@
 import type { Branch, ChatNode, NodeLink, Share, SummaryRecord, Tree } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError } from '../src/errors.js';
-import type { Repositories } from '../src/repository.js';
+import { EMPTY_ACCOUNT_SETTINGS, type Repositories } from '../src/repository.js';
 
 /*
  * The behaviour every implementation of the storage ports shares: the memory
@@ -772,18 +772,19 @@ export function describeRepositories(name: string, factory: () => Repositories):
     });
 
     describe('account settings', () => {
+      const none = EMPTY_ACCOUNT_SETTINGS;
+
       it('has none until the first save, then upserts per account', async () => {
         const a = uid('acct');
         const b = uid('acct');
         expect(await repos.settings.getSettings(a)).toBeNull();
-        const first = { systemPrompt: 'First', walkthroughDoneAt: null };
+        const first = { ...none, systemPrompt: 'First' };
         expect(await repos.settings.updateSettings(a, first, '2026-01-01T00:00:00.000Z')).toEqual(
           first,
         );
         expect(await repos.settings.getSettings(a)).toEqual(first);
-        const second = { systemPrompt: null, walkthroughDoneAt: null };
-        await repos.settings.updateSettings(a, second, '2026-01-03T00:00:00.000Z');
-        expect(await repos.settings.getSettings(a)).toEqual(second);
+        await repos.settings.updateSettings(a, none, '2026-01-03T00:00:00.000Z');
+        expect(await repos.settings.getSettings(a)).toEqual(none);
         expect(await repos.settings.getSettings(b)).toBeNull();
       });
 
@@ -791,31 +792,77 @@ export function describeRepositories(name: string, factory: () => Repositories):
         const a = uid('acct');
         const done = '2026-01-02T00:00:00.000Z';
         expect(await repos.settings.updateSettings(a, { walkthroughDoneAt: done }, done)).toEqual({
-          systemPrompt: null,
+          ...none,
           walkthroughDoneAt: done,
         });
         const t = '2026-01-03T00:00:00.000Z';
         expect(await repos.settings.updateSettings(a, { systemPrompt: 'Mine' }, t)).toEqual({
+          ...none,
           systemPrompt: 'Mine',
           walkthroughDoneAt: done,
         });
         await repos.settings.updateSettings(a, { walkthroughDoneAt: null }, t);
+        expect(await repos.settings.getSettings(a)).toEqual({ ...none, systemPrompt: 'Mine' });
+      });
+
+      it("keeps power's models and limits, and clears a model as a whole", async () => {
+        const a = uid('acct');
+        const t = '2026-01-02T00:00:00.000Z';
+        const normal = { providerId: 'openrouter', funding: 'credit', model: 'a/normal' };
+        const max = { providerId: 'anthropic', funding: 'own-key', model: 'claude-max' };
+        const reviewer = { providerId: 'openrouter', funding: 'own-key', model: 'a/reviewer' };
+        const all = {
+          ...none,
+          tierNormal: normal,
+          tierMax: max,
+          reviewer,
+          maxOutputTokens: 8192,
+          maxInputTokens: 32_000,
+          inputOverflow: 'truncate',
+        };
+        expect(
+          await repos.settings.updateSettings(
+            a,
+            {
+              tierNormal: normal,
+              tierMax: max,
+              reviewer,
+              maxOutputTokens: 8192,
+              maxInputTokens: 32_000,
+              inputOverflow: 'truncate',
+            },
+            t,
+          ),
+        ).toEqual(all);
+        await repos.settings.updateSettings(a, { tierMax: null, maxInputTokens: null }, t);
         expect(await repos.settings.getSettings(a)).toEqual({
+          ...all,
+          tierMax: null,
+          maxInputTokens: null,
+        });
+        await repos.settings.updateSettings(a, { systemPrompt: 'Mine' }, t);
+        expect(await repos.settings.getSettings(a)).toEqual({
+          ...all,
           systemPrompt: 'Mine',
-          walkthroughDoneAt: null,
+          tierMax: null,
+          maxInputTokens: null,
         });
       });
 
       it('two changes at once, of different fields, both stick', async () => {
         const a = uid('acct');
         const t = '2026-01-02T00:00:00.000Z';
+        const reviewer = { providerId: 'p', funding: 'own-key', model: 'm' };
         await Promise.all([
           repos.settings.updateSettings(a, { systemPrompt: 'Mine' }, t),
           repos.settings.updateSettings(a, { walkthroughDoneAt: t }, t),
+          repos.settings.updateSettings(a, { reviewer }, t),
         ]);
         expect(await repos.settings.getSettings(a)).toEqual({
+          ...none,
           systemPrompt: 'Mine',
           walkthroughDoneAt: t,
+          reviewer,
         });
       });
     });

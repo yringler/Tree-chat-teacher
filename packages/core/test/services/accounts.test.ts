@@ -97,12 +97,12 @@ describe('account settings', () => {
     const base = setup({ autoTitle: false });
     const chat = withDefault('a', base);
     const other = withDefault('b', base);
-    expect(await chat.getSettings()).toEqual({
+    expect(await chat.getSettings()).toMatchObject({
       systemPrompt: null,
       defaultSystemPrompt: 'BUILT-IN',
       walkthroughDoneAt: null,
     });
-    expect(await chat.updateSettings({ systemPrompt: 'MINE' })).toEqual({
+    expect(await chat.updateSettings({ systemPrompt: 'MINE' })).toMatchObject({
       systemPrompt: 'MINE',
       defaultSystemPrompt: 'BUILT-IN',
       walkthroughDoneAt: null,
@@ -115,10 +115,6 @@ describe('account settings', () => {
 
   it('has no default prompt without a built-in one', async () => {
     const { chat } = setup({ autoTitle: false });
-    expect(await chat.getSettings()).toEqual({
-      systemPrompt: null,
-      defaultSystemPrompt: '',
-      walkthroughDoneAt: null,
-    });
+    expect(await chat.getSettings()).toMatchObject({ systemPrompt: null, defaultSystemPrompt: '' });
   });
 });

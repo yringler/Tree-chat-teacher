@@ -1,19 +1,14 @@
 import { TestBed } from '@angular/core/testing';
 import { screen } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
-import type { SettingsResponse } from '@tangent/shared';
 import { WALKTHROUGH_BUTTONS, WALKTHROUGH_STEPS } from '@tangent/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from '../testing';
+import { accountSettings, render } from '../testing';
 import { COACH_TARGET_CLASS, CoachMark } from './coach-mark';
 import { Walkthrough } from './walkthrough';
 
 function fakeApi() {
-  const settings: SettingsResponse = {
-    systemPrompt: null,
-    defaultSystemPrompt: 'Be a tutor.',
-    walkthroughDoneAt: null,
-  };
+  const settings = accountSettings();
   return {
     settings: vi.fn(async () => settings),
     updateSettings: vi.fn(async () => settings),

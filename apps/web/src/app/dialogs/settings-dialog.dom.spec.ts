@@ -17,11 +17,9 @@ import { type SettingsSection, UiStore } from '../state/ui-store';
 import { DialogHost } from './dialog-host';
 import { SettingsDialog } from './settings-dialog';
 
-const SAVED: SettingsResponse = {
-  systemPrompt: null,
+const SAVED: SettingsResponse = fixtures.accountSettings({
   defaultSystemPrompt: 'Answer directly.',
-  walkthroughDoneAt: null,
-};
+});
 
 const HAIKU = 'anthropic/claude-haiku-5.5';
 const SONNET = 'anthropic/claude-sonnet-5.5';

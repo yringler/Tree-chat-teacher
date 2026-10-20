@@ -252,15 +252,20 @@ describe('account settings: the default system prompt', () => {
   it('saves the default per user, a blank or null one meaning the built-in one', async () => {
     const u = await newUser();
     const other = await newUser();
-    expect(await ok<SettingsResponse>(await u.call('/api/settings'))).toEqual({
+    const defaults = {
       systemPrompt: null,
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       walkthroughDoneAt: null,
-    });
+      tiers: { normal: null, max: null },
+      reviewer: null,
+      maxOutputTokens: null,
+      maxInputTokens: null,
+      inputOverflow: 'compact',
+    };
+    expect(await ok<SettingsResponse>(await u.call('/api/settings'))).toEqual(defaults);
     expect(await ok<SettingsResponse>(await patch(u, 'Answer in French.'))).toEqual({
+      ...defaults,
       systemPrompt: 'Answer in French.',
-      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
-      walkthroughDoneAt: null,
     });
     expect(
       (await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'own-key' })))
@@ -270,6 +275,31 @@ describe('account settings: the default system prompt', () => {
     expect((await ok<SettingsResponse>(await patch(u, ' '))).systemPrompt).toBeNull();
     await ok<SettingsResponse>(await patch(u, 'Again.', 'credit'));
     expect((await ok<SettingsResponse>(await patch(u, null))).systemPrompt).toBeNull();
+  });
+
+  it("keeps power's models and limits with the account, field by field, and refuses bad ones", async () => {
+    const u = await newUser();
+    const normal = { providerId: 'openrouter', funding: 'credit', model: 'a/normal' };
+    const update = (json: unknown) => u.call('/api/settings', { method: 'PATCH', json });
+    await ok<SettingsResponse>(await update({ tiers: { normal }, maxInputTokens: 32_000 }));
+    await ok<SettingsResponse>(await update({ systemPrompt: 'Mine.', inputOverflow: 'truncate' }));
+    // Another device reads the same.
+    expect(await ok<SettingsResponse>(await u.call('/api/settings'))).toMatchObject({
+      systemPrompt: 'Mine.',
+      tiers: { normal, max: null },
+      maxInputTokens: 32_000,
+      inputOverflow: 'truncate',
+    });
+    for (const bad of [
+      {},
+      { maxOutputTokens: 100 },
+      { maxInputTokens: '32000' },
+      { tiers: { normal: { ...normal, funding: 'free' } } },
+      { reviewer: { providerId: 'openrouter', model: 'a/b' } },
+    ]) {
+      expect((await update(bad)).status, JSON.stringify(bad)).toBe(400);
+    }
+    expect((await ok<SettingsResponse>(await u.call('/api/settings'))).maxInputTokens).toBe(32_000);
   });
 
   it('power trees without their own prompt store none and send the current default', async () => {

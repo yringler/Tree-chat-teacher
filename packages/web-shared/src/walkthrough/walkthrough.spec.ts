@@ -1,6 +1,7 @@
 import type { SettingsResponse, UpdateSettingsRequest } from '@tangent/shared';
 import { WALKTHROUGH_BUTTONS, WALKTHROUGH_STEPS } from '@tangent/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { accountSettings } from '../testing/fixtures';
 import {
   Walkthrough,
   WALKTHROUGH_OFF,
@@ -11,16 +12,10 @@ import {
 
 function fakeApi(walkthroughDoneAt: string | null = null) {
   return {
-    settings: vi.fn(async (): Promise<SettingsResponse> => ({
-      systemPrompt: null,
-      defaultSystemPrompt: 'Be a tutor.',
-      walkthroughDoneAt,
-    })),
-    updateSettings: vi.fn(async (_req: UpdateSettingsRequest): Promise<SettingsResponse> => ({
-      systemPrompt: null,
-      defaultSystemPrompt: 'Be a tutor.',
-      walkthroughDoneAt: '2026-10-12T00:00:00.000Z',
-    })),
+    settings: vi.fn(async (): Promise<SettingsResponse> => accountSettings({ walkthroughDoneAt })),
+    updateSettings: vi.fn(async (_req: UpdateSettingsRequest): Promise<SettingsResponse> =>
+      accountSettings({ walkthroughDoneAt: '2026-10-12T00:00:00.000Z' }),
+    ),
   };
 }
 

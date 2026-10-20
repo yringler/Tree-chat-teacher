@@ -5,6 +5,7 @@ import type {
   MembershipInfo,
   NodeLink,
   ProviderInfo,
+  SettingsResponse,
   ShareSummary,
   StreamEvent,
   Tree,
@@ -207,4 +208,19 @@ export function deferred<V>() {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+/** `/api/settings` of an account that never saved any, unless `over` says otherwise. */
+export function accountSettings(over: Partial<SettingsResponse> = {}): SettingsResponse {
+  return {
+    systemPrompt: null,
+    defaultSystemPrompt: 'Be a tutor.',
+    walkthroughDoneAt: null,
+    tiers: { normal: null, max: null },
+    reviewer: null,
+    maxOutputTokens: null,
+    maxInputTokens: null,
+    inputOverflow: 'compact',
+    ...over,
+  };
 }
