@@ -92,12 +92,13 @@
           (jump)="thread.toEnd()"
         />
         @if (selection.value(); as q) {
-          <!-- Floats above the composer, over the end of the messages. -->
+          <!-- Floats above the composer, over the end of the messages. A read-only thread has no
+               message box to put the words on: Tangent from here instead. -->
           <div class="selection-float">
             <app-selection-ask
-              [label]="selectionLocked() ? 'Tangent from this selection…' : 'Ask about this'"
+              [label]="store.readOnly() ? 'Tangent from this selection…' : 'Ask about this'"
               [title]="
-                selectionLocked()
+                store.readOnly()
                   ? 'Tangent from here, quoting the selection (pick a route you can use)'
                   : 'Go on a tangent quoting the selection, keeping the conversation so far'
               "

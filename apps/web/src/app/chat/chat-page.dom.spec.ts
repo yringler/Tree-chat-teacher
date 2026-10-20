@@ -456,6 +456,35 @@ describe('ChatPage', () => {
     expect(composer()).not.toBeNull();
   });
 
+  it('on a read-only tangent, which has no message box, words of the thread above open Tangent from here', async () => {
+    // The main thread on Tangent credit; the open tangent off it on the lapsed own key.
+    const d = tree();
+    d.branches = [
+      branch('trunk', { title: 'Main thread', funding: 'credit' }),
+      branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1', title: 'Own key' }),
+    ];
+    const p = await page({ d, lapsed: true, branchId: 'side' });
+    expect(composer()).toBeNull();
+    selectWave();
+    await p.fixture.whenStable();
+    await p.user.click(screen.getByRole('button', { name: 'Tangent from this selection…' }));
+    expect(p.ui.dialogs.get('branch')).toEqual({ kind: 'branch', fromNodeId: 'a1', quote: 'wave' });
+    expect(TestBed.inject(ComposerController).lead()).toBeNull();
+  });
+
+  it('from a tangent that can reply, words of a locked thread above go on its message box', async () => {
+    // The main thread on the lapsed own key; the open tangent on Tangent credit, where the tangent starts.
+    const p = await page({ lapsed: true, branchId: 'side' });
+    selectWave();
+    await p.fixture.whenStable();
+    await p.user.click(screen.getByRole('button', { name: 'Ask about this' }));
+    expect(p.ui.dialogs.list()).toEqual([]);
+    expect(screen.getByText('“wave”')).toBeTruthy();
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('new'));
+    await p.user.type(composer()!, 'Of what?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'Of what?', 'wave');
+  });
+
   it('in pick mode, a banner says what is being linked, and Cancel leaves it', async () => {
     const p = await page();
     p.ui.linkPick.set({ fromNodeId: 'a1' });

@@ -138,15 +138,6 @@ export class ChatPage implements OnDestroy {
     return target && !this.lead() ? this.excerptOf(target) : null;
   });
 
-  /**
-   * The selection's message is on a route that needs the membership: only
-   * the dialog can pick another one.
-   */
-  protected readonly selectionLocked = computed(() => {
-    const q = this.selection.value();
-    return !!q && this.store.nodeLocked(q.nodeId);
-  });
-
   /** A message of the open branch that couldn't be sent: the composer takes it back. */
   protected readonly initialDraft = computed(() => {
     const id = this.store.selectedBranchId();
@@ -199,15 +190,16 @@ export class ChatPage implements OnDestroy {
     this.selection.destroy();
   }
 
-  /** "Ask about this": the selection on the composer, focused; the tangent is made when it is sent. */
+  /**
+   * "Ask about this": the selection on the message box, focused, as a
+   * message's Tangent ↳ and `b` put it (`TreeStore.aimComposer`, which opens
+   * Tangent from here on a read-only thread); the tangent is made when the
+   * box's message is sent.
+   */
   protected askAbout(q: MessageQuote): void {
-    if (this.selectionLocked()) {
-      this.moreAbout(q);
-      return;
-    }
     this.selection.clear();
     window.getSelection()?.removeAllRanges();
-    this.composer.aim(q);
+    this.store.aimComposer(q);
   }
 
   /** The opening words of message `nodeId`, for the composer to say what it asks about. */
@@ -224,16 +216,6 @@ export class ChatPage implements OnDestroy {
   protected showTarget(): void {
     const target = this.plan().target;
     if (target) this.thread.toMessage(target);
-  }
-
-  /**
-   * Words of a message on a route that needs the membership: Tangent from
-   * here with the quote filled in, where a route that can reply is picked.
-   */
-  private moreAbout(q: MessageQuote): void {
-    this.selection.clear();
-    window.getSelection()?.removeAllRanges();
-    this.ui.dialogs.open({ kind: 'branch', fromNodeId: q.nodeId, quote: q.quote });
   }
 
   /** The quote under the selection, when it lies in one finished message and branches can be made. */

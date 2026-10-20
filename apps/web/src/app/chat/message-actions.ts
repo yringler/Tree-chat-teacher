@@ -38,12 +38,18 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
     } @else {
       <!-- Without a route to generate on (no membership for own keys, no credit), no new branches or reviews. -->
       @if (store.account.canGenerate()) {
+        <!-- A read-only thread has no message box: it opens Tangent from here (TreeStore.aimComposer). -->
         <button
           type="button"
           class="btn btn-ghost btn-sm msg-tangent"
           (mousedown)="captureSelection()"
           (click)="aim($event)"
-          title="Tangent from here: put this message on the message box (b)"
+          [attr.aria-haspopup]="store.readOnly() ? 'dialog' : null"
+          [title]="
+            store.readOnly()
+              ? 'Tangent from here: set up a tangent from this message (b)'
+              : 'Tangent from here: put this message on the message box (b)'
+          "
         >
           Tangent ↳
         </button>

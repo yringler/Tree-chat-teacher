@@ -103,6 +103,7 @@ describe('MessageItem: a finished reply', () => {
     const m = await message('a1');
     const tangent = button('Tangent ↳');
     expect(tangent.title).toBe('Tangent from here: put this message on the message box (b)');
+    expect(tangent.hasAttribute('aria-haspopup')).toBe(false);
     await m.user.click(tangent);
     expect(TestBed.inject(ComposerController).lead()).toEqual({ nodeId: 'a1', quote: null });
     expect(m.ui.dialogs.list()).toEqual([]);
@@ -121,9 +122,12 @@ describe('MessageItem: a finished reply', () => {
     expect(window.getSelection()!.isCollapsed).toBe(true);
   });
 
-  it('on a read-only thread, which has no message box, Tangent ↳ opens Tangent from here', async () => {
+  it('on a read-only thread, which has no message box, Tangent ↳ opens Tangent from here, and says so', async () => {
     const m = await message('a1', { lapsed: true, credit: true });
-    await m.user.click(button('Tangent ↳'));
+    const tangent = button('Tangent ↳');
+    expect(tangent.title).toBe('Tangent from here: set up a tangent from this message (b)');
+    expect(tangent.getAttribute('aria-haspopup')).toBe('dialog');
+    await m.user.click(tangent);
     expect(m.ui.dialogs.get('branch')).toEqual({ kind: 'branch', fromNodeId: 'a1', quote: null });
     expect(TestBed.inject(ComposerController).lead()).toBeNull();
   });
