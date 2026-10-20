@@ -135,7 +135,10 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
     inputOverflow: 'truncate',
   });
   // Without the limit it would be 7 messages (three exchanges and the new question).
-  const reply = page.getByText(/Fake reply \(fake-1\) to \d+ message\(s\): "And what next\?"/);
+  // In the thread: the box can name the same reply ("↳ from …") while the end is out of view.
+  const reply = page
+    .locator('.messages')
+    .getByText(/Fake reply \(fake-1\) to \d+ message\(s\): "And what next\?"/);
   await expect(reply).toBeVisible();
   const count = Number(/to (\d+) message/.exec((await reply.textContent()) ?? '')?.[1]);
   expect(count).toBeGreaterThan(0);
