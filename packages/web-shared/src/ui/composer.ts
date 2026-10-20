@@ -148,6 +148,17 @@ export function pointerHovers(): boolean {
 }
 
 /**
+ * The keydown in a multi-line box that sends rather than starts a new line:
+ * Enter without Shift, outside an IME composition; on a touch screen
+ * (`touch`, no pointer hovers) only with Ctrl or Cmd, since a phone's
+ * keyboard has no Shift+Enter, so its plain Enter is the new line and the
+ * box's labelled button sends.
+ */
+export function enterSends(e: KeyboardEvent, touch: boolean): boolean {
+  return e.key === 'Enter' && !e.shiftKey && !e.isComposing && (e.ctrlKey || e.metaKey || !touch);
+}
+
+/**
  * A way to send what is typed, offered in place of Send (Learn's Tangent ↳
  * and Next ➜). Its button carries `data-action="<id>"`, which the
  * walkthrough points at.
@@ -465,13 +476,12 @@ export class Composer {
   }
 
   protected onKey(e: KeyboardEvent): void {
-    const modified = e.ctrlKey || e.metaKey;
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && (modified || !this.touch)) {
+    if (enterSends(e, this.touch)) {
       e.preventDefault();
       const actions = this.actions();
       const primary = actions.find((a) => a.primary) ?? actions[0];
       const other = actions.find((a) => a !== primary) ?? primary;
-      const action = modified ? other : primary;
+      const action = e.ctrlKey || e.metaKey ? other : primary;
       if (action) this.fire(action);
       else this.submit();
     }

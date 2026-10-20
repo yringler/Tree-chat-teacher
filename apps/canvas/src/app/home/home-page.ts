@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { providerRouteKey, type TreeSummary } from '@tangent/shared';
-import { Icon, pointerHovers, routeSuffix } from '@tangent/web-shared';
+import { enterSends, Icon, pointerHovers, routeSuffix } from '@tangent/web-shared';
 import { treeTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -41,6 +41,7 @@ import { ModelField } from '../dialogs/model-field';
             <textarea
               #box
               rows="3"
+              [attr.enterkeyhint]="touch ? 'enter' : 'send'"
               placeholder="Ask anything. The first lane opens with your question."
               [value]="text()"
               (input)="text.set(box.value)"
@@ -133,6 +134,8 @@ export class HomePage {
   private readonly box = viewChild<ElementRef<HTMLTextAreaElement>>('box');
   protected readonly text = signal('');
   protected readonly starting = signal(false);
+  /** No pointer hovers: a plain Enter is a newline, and the keyboard's key says so. */
+  protected readonly touch = !pointerHovers();
   protected readonly key = providerRouteKey;
   protected readonly suffix = routeSuffix;
   /** The picked provider and funding, as a `routeKey`. */
@@ -169,8 +172,9 @@ export class HomePage {
     this.pickedModel.set(id);
   }
 
+  /** Enter sends as in the composer: on a touch screen it is a newline, and only the button sends. */
   protected onKey(e: KeyboardEvent): void {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    if (enterSends(e, this.touch)) {
       e.preventDefault();
       void this.start();
     }

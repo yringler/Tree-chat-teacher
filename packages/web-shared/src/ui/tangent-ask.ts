@@ -13,6 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { enterSends, pointerHovers } from './composer';
 import { Icon } from './icon';
 
 /**
@@ -25,7 +26,9 @@ import { Icon } from './icon';
  * `expandable` (power, canvas): a one-line field that grows into a few lines
  * on focus, with Send and a gear (`settings`: the branch dialog, carrying the
  * text). Otherwise (Learn) a plain one-line input. Enter sends; Shift+Enter
- * is a newline in the expanded field (as in the composer); Escape folds it.
+ * is a newline in the expanded field, and as in the composer, so is a plain
+ * Enter on a touch screen, where only Ask (or Ctrl or Cmd+Enter) sends;
+ * Escape folds it.
  *
  * `latest` marks the newest reply's item, the natural place to ask next: it
  * is drawn a little stronger, and an expandable one starts grown (without
@@ -53,6 +56,7 @@ import { Icon } from './icon';
           #field
           class="tangent-ask-field"
           [rows]="expanded() ? 3 : 1"
+          [attr.enterkeyhint]="touch ? 'enter' : 'send'"
           [placeholder]="placeholder()"
           [attr.aria-label]="label()"
           [value]="text()"
@@ -154,6 +158,8 @@ export class TangentAsk {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   protected readonly expanded = signal(false);
+  /** No pointer hovers: a plain Enter in the grown field is a newline, and the keyboard's key says so. */
+  protected readonly touch = !pointerHovers();
   /** Open because it is the newest reply's, not because the user opened it: leaving it keeps it open. */
   private readonly pinned = signal(false);
   /** The next focus is the fold button handing focus back: it doesn't re-open the field. */
@@ -226,7 +232,8 @@ export class TangentAsk {
 
   protected onKey(e: KeyboardEvent): void {
     if (e.isComposing) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // The one-line input has no newline to insert, so its Enter always sends.
+    if (enterSends(e, this.touch && this.expandable())) {
       e.preventDefault();
       this.submit();
     } else if (e.key === 'Escape') {

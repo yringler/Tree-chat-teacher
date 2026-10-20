@@ -111,6 +111,7 @@ export { Compare, type CompareCandidate } from './ui/compare';
 export {
   Composer,
   ComposerController,
+  enterSends,
   pointerHovers,
   sendActions,
   type ComposerAction,
