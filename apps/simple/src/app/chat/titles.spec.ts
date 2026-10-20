@@ -1,6 +1,11 @@
-import { DEFAULT_BRANCH_TITLE_PREFIX, DEFAULT_TREE_TITLE } from '@tangent/shared';
+import {
+  DEFAULT_BRANCH_TITLE_PREFIX,
+  DEFAULT_TREE_TITLE,
+  MAIN_THREAD_LABEL,
+} from '@tangent/shared';
+import { branch } from '@tangent/web-shared/testing';
 import { describe, expect, it } from 'vitest';
-import { branchTitle, lessonTitle, NEW_LESSON_TITLE } from './titles';
+import { branchTitle, lessonTitle, NEW_LESSON_TITLE, threadTitle } from './titles';
 
 describe('lessonTitle', () => {
   it("shows the core's default tree title as a new lesson", () => {
@@ -28,5 +33,16 @@ describe('branchTitle', () => {
     expect(branchTitle({ title: 'Why the owl hums first', titleSource: 'auto' })).toBe(
       'Why the owl hums first',
     );
+  });
+});
+
+describe('threadTitle', () => {
+  it('names the main thread "Main thread" and tangents in Learn’s words', () => {
+    const trunk = branch('trunk', { title: 'Light' });
+    const side = branch('side', {
+      parentBranchId: 'trunk',
+      title: `${DEFAULT_BRANCH_TITLE_PREFIX}Why waves`,
+    });
+    expect([trunk, side].map(threadTitle)).toEqual([MAIN_THREAD_LABEL, 'Why waves']);
   });
 });

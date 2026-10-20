@@ -42,11 +42,10 @@ import {
 import { BRAND } from '../brand';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
-import { connectionTitleOf } from './connections';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
 import { FUNDING_OPTIONS, ownKeyOption, type FundingOption } from './switches';
-import { branchTitle, lessonTitle } from './titles';
+import { branchTitle, lessonTitle, threadTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
 
 /** `/t/:treeId[/b/:branchId]`: the lesson, one branch at a time. */
@@ -119,9 +118,9 @@ export class ChatPage implements OnDestroy {
     const back = this.store.linkReturn();
     if (back && back.toBranchId !== this.store.selectedBranchId()) return null;
     const idx = this.store.index();
-    const from = back && idx ? describeEndpoint(idx, back.nodeId, connectionTitleOf) : null;
+    const from = back && idx ? describeEndpoint(idx, back.nodeId, threadTitle) : null;
     if (!from) return null;
-    return { label: from.snippet || connectionTitleOf(from.branch) };
+    return { label: from.snippet || threadTitle(from.branch) };
   });
 
   /** Where the message box sends, by the rule power's follows too (`ComposerTarget`). */

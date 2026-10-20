@@ -29,9 +29,9 @@ import {
 } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
-import { connectedLabel, connectionTitleOf, learnConnections } from './connections';
+import { connectedLabel, learnConnections } from './connections';
 import { confirmDeleteSideQuestion } from './delete-side-question';
-import { branchTitle } from './titles';
+import { branchTitle, threadTitle } from './titles';
 
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
@@ -239,7 +239,7 @@ export class MessageItem {
     const idx = this.store.index();
     if (!idx) return [];
     return learnConnections(
-      relatedLinks(idx, this.store.linksByNode(), this.node().id, connectionTitleOf),
+      relatedLinks(idx, this.store.linksByNode(), this.node().id, threadTitle),
     );
   });
 

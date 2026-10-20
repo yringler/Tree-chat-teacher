@@ -11,7 +11,7 @@ import { describeEndpoint } from '@tangent/core/links';
 import { Modal, NodePicker, type LinkPick } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
-import { connectionTitleOf } from './connections';
+import { threadTitle } from './titles';
 
 /**
  * "Connect": a full-height sheet to connect a message to another one of the
@@ -54,7 +54,7 @@ import { connectionTitleOf } from './connections';
 export class ConnectDialog {
   protected readonly store = inject(LessonStore);
   private readonly ui = inject(UiStore);
-  protected readonly titleOf = connectionTitleOf;
+  protected readonly titleOf = threadTitle;
 
   /** The message the connection is made from. */
   readonly sourceNodeId = input.required<string>();
@@ -63,7 +63,7 @@ export class ConnectDialog {
   /** The message the connection starts from, as a snippet. */
   protected readonly source = computed(() => {
     const idx = this.store.index();
-    const endpoint = idx && describeEndpoint(idx, this.sourceNodeId(), connectionTitleOf);
+    const endpoint = idx && describeEndpoint(idx, this.sourceNodeId(), threadTitle);
     return endpoint ? endpoint.snippet || null : null;
   });
 

@@ -127,6 +127,18 @@ export type TitleSource = 'default' | 'auto' | 'user';
 export const DEFAULT_TREE_TITLE = 'New conversation';
 /** The trunk branch's title (the trunk is never auto-titled). */
 export const TRUNK_TITLE = 'Main thread';
+
+/**
+ * How an app names its threads: the trunk always `TRUNK_TITLE`, whatever
+ * title it has stored, and a tangent by `tangentTitle`, its stored title
+ * unless the app trims it (Learn drops `DEFAULT_BRANCH_TITLE_PREFIX`). The
+ * result takes one argument, so it can be mapped over branches.
+ */
+export function threadTitleOf<
+  B extends Pick<Branch, 'parentBranchId' | 'title'> = Pick<Branch, 'parentBranchId' | 'title'>,
+>(tangentTitle: (branch: B) => string = (b) => b.title): (branch: B) => string {
+  return (branch) => (branch.parentBranchId === null ? TRUNK_TITLE : tangentTitle(branch));
+}
 /**
  * Prefix of a branch's default title when it was started from a whole
  * message rather than a quote ("Tangent: <first words of the message>").

@@ -1,4 +1,9 @@
-import { DEFAULT_BRANCH_TITLE_PREFIX, DEFAULT_TREE_TITLE, type Branch } from '@tangent/shared';
+import {
+  DEFAULT_BRANCH_TITLE_PREFIX,
+  DEFAULT_TREE_TITLE,
+  threadTitleOf,
+  type Branch,
+} from '@tangent/shared';
 
 /*
  * The Learn app's words for the core's default titles. The ChatService names
@@ -27,3 +32,10 @@ export function branchTitle(branch: Pick<Branch, 'title' | 'titleSource'>): stri
   }
   return title;
 }
+
+/**
+ * A thread's title as shown to the learner (`threadTitleOf`): "Main thread",
+ * or the tangent's `branchTitle`. The connection chips, the picker and the
+ * sidebar name threads with it.
+ */
+export const threadTitle = threadTitleOf<Branch>(branchTitle);

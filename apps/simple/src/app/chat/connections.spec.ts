@@ -9,7 +9,8 @@ import {
 } from '@tangent/shared';
 import { relatedLinks } from '@tangent/web-shared';
 import { describe, expect, it } from 'vitest';
-import { connectedLabel, connectionTitleOf, learnConnections } from './connections';
+import { connectedLabel, learnConnections } from './connections';
+import { threadTitle } from './titles';
 import { branch, link } from '@tangent/web-shared/testing';
 import * as fixtures from '@tangent/web-shared/testing';
 
@@ -33,13 +34,6 @@ const index = indexTree(
   ],
 );
 
-describe('connectionTitleOf', () => {
-  it('names the main thread "Main thread" and tangents in Learn’s words', () => {
-    expect(connectionTitleOf(trunk)).toBe(MAIN_THREAD_LABEL);
-    expect(connectionTitleOf(side)).toBe('Why waves');
-  });
-});
-
 describe('connectedLabel', () => {
   it('counts the connected messages', () => {
     expect(connectedLabel(1)).toBe('Connected to 1 message');
@@ -51,9 +45,7 @@ describe('learnConnections', () => {
   const byNode = indexLinks([link('l1', 'a1', 's1', 'Same idea'), link('l2', 'a1', 's2', null)]);
 
   it('shows a tangent’s first message as the tangent', () => {
-    const [toHead, toReply] = learnConnections(
-      relatedLinks(index, byNode, 'a1', connectionTitleOf),
-    );
+    const [toHead, toReply] = learnConnections(relatedLinks(index, byNode, 'a1', threadTitle));
     expect(toHead?.title).toBe('Tangent: Why waves');
     expect(toHead?.crumbs).toBe(MAIN_THREAD_LABEL);
     expect(toHead?.tooltip).toBe('Main thread\nTangent: Why waves\nSame idea');
@@ -63,7 +55,7 @@ describe('learnConnections', () => {
   });
 
   it('shows the other end from either side', () => {
-    const [back] = learnConnections(relatedLinks(index, byNode, 's1', connectionTitleOf));
+    const [back] = learnConnections(relatedLinks(index, byNode, 's1', threadTitle));
     expect(back?.nodeId).toBe('a1');
     expect(back?.title).toBe('Light is a wave.');
     expect(back?.crumbs).toBe(MAIN_THREAD_LABEL);
