@@ -1668,6 +1668,13 @@ app-android-app-banner {
   }
 }
 
+/* The two halves overlap: the focused one lies on top, so its ring shows whole. */
+.tangent-ask-actions .btn:has(+ .tangent-ask-caret):focus-visible,
+.tangent-ask-caret:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
 /* The newest reply's item (TangentAsk `latest`): the natural place to ask next. */
 .tangent-ask.is-latest:not(.is-disabled),
 .tangent-ask.is-latest:not(.is-disabled):hover {
@@ -1701,6 +1708,13 @@ app-android-app-banner {
   padding: 6px 12px 6px 9px;
   border-left-color: color-mix(in srgb, var(--accent-fg) 40%, var(--accent));
   border-radius: 0 999px 999px 0;
+}
+
+/* The two halves meet: the focused one lies on top, so its ring shows whole. */
+.selection-ask-main:focus-visible,
+.selection-ask-caret:focus-visible {
+  position: relative;
+  z-index: 1;
 }
 
 /* Text size ("Aa": ui/text-size-menu.ts), a popover under its button */
