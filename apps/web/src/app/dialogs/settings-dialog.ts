@@ -49,7 +49,7 @@ interface TierRow {
   imports: [Modal, ModelPicker, OutputCapSetting, InputLimitSetting],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Settings" (closed)="close()">
+    <app-modal heading="Settings" [focusHeading]="true" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); save()">
         <fieldset class="settings-section">
           <legend>Default system prompt</legend>

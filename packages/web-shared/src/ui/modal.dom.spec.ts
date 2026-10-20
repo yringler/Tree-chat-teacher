@@ -1,19 +1,26 @@
 import { Component, signal } from '@angular/core';
 import { screen } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '../testing';
 import { Modal } from './modal';
 
-/** A dialog the way the apps write one: a Modal around a form, shown while `open`. */
+/**
+ * A dialog the way the apps write one: a Modal around a form, shown while
+ * `open`; `autofocus` marks its field, `focusHeading` sets the Modal's.
+ */
 @Component({
   imports: [Modal],
   template: `
     <button type="button" (click)="open.set(true)">Open settings</button>
     @if (open()) {
-      <app-modal heading="Settings" (closed)="closed(); open.set(false)">
+      <app-modal
+        heading="Settings"
+        [focusHeading]="focusHeading()"
+        (closed)="closed(); open.set(false)"
+      >
         <button type="button" disabled>Disabled first</button>
-        <input aria-label="Name" />
+        <input aria-label="Name" [attr.autofocus]="autofocus() ? '' : null" />
         <button type="button">Save</button>
       </app-modal>
     }
@@ -21,11 +28,15 @@ import { Modal } from './modal';
 })
 class Host {
   readonly open = signal(false);
+  readonly autofocus = signal(false);
+  readonly focusHeading = signal(false);
   readonly closed = vi.fn();
 }
 
-async function opened() {
+async function opened(set: { autofocus?: boolean; focusHeading?: boolean } = {}) {
   const r = await render(Host);
+  r.component.autofocus.set(set.autofocus ?? false);
+  r.component.focusHeading.set(set.focusHeading ?? false);
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Open settings' }));
   await r.fixture.whenStable();
@@ -38,6 +49,31 @@ describe('Modal', () => {
     const dialog = screen.getByRole('dialog', { name: 'Settings' });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Name')));
+  });
+
+  it('a dialog read before it is edited (focusHeading) opens on its heading', async () => {
+    await opened({ focusHeading: true });
+    const heading = screen.getByRole('heading', { name: 'Settings' });
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+  });
+
+  describe('on a touch screen (no hover)', () => {
+    beforeEach(() =>
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(hover: none)' })),
+    );
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('opens on its heading, so no on-screen keyboard comes up over it', async () => {
+      await opened();
+      const heading = screen.getByRole('heading', { name: 'Settings' });
+      await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    });
+
+    it('even where a field asks for the focus (autofocus)', async () => {
+      await opened({ autofocus: true });
+      const heading = screen.getByRole('heading', { name: 'Settings' });
+      await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    });
   });
 
   it('Close closes it and hands the focus back to what opened it', async () => {

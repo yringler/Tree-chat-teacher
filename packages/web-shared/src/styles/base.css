@@ -905,6 +905,11 @@ app-android-app-banner {
   padding: 14px 16px 8px 20px;
 }
 
+/* The heading takes the focus on open (Modal), but it is no control: no ring. */
+.modal-head h2:focus-visible {
+  box-shadow: none;
+}
+
 .modal-body {
   padding: 4px 20px 20px;
   overflow-y: auto;

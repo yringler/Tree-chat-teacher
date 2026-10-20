@@ -94,7 +94,10 @@ export class KeyForm {
   readonly placeholder = input<string | null>(null);
   /** A save is in flight: the button waits. */
   readonly busy = input(false);
-  /** The field takes the focus when its dialog opens (Modal focuses `[autofocus]`). */
+  /**
+   * The field takes the focus when its dialog opens, where a pointer hovers
+   * (Modal focuses `[autofocus]`).
+   */
   readonly autofocus = input(false);
   /** A key was submitted: the field is already empty. */
   readonly saved = output<KeySubmission>();

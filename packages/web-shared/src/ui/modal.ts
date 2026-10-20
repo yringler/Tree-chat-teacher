@@ -8,6 +8,7 @@ import {
   OnDestroy,
   output,
 } from '@angular/core';
+import { pointerHovers } from './composer';
 import { Icon } from './icon';
 
 let uid = 0;
@@ -27,7 +28,7 @@ let uid = 0;
       [attr.aria-labelledby]="titleId"
     >
       <header class="modal-head">
-        <h2 [id]="titleId">{{ heading() }}</h2>
+        <h2 [id]="titleId" tabindex="-1">{{ heading() }}</h2>
         <button type="button" class="icon-btn" aria-label="Close" (click)="closed.emit()">
           <app-icon name="x" />
         </button>
@@ -42,6 +43,11 @@ let uid = 0;
 export class Modal implements OnDestroy {
   readonly heading = input.required<string>();
   readonly wide = input(false);
+  /**
+   * The heading takes the focus on open, not the first control: for a dialog
+   * read before it is edited, which should open at its top.
+   */
+  readonly focusHeading = input(false);
   readonly closed = output();
   protected readonly titleId = `modal-title-${++uid}`;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -51,6 +57,13 @@ export class Modal implements OnDestroy {
   constructor() {
     afterNextRender(() => {
       const el = this.host.nativeElement;
+      // Where no pointer hovers (a touch screen), focusing a field pops up the
+      // on-screen keyboard over the dialog, and focusing a control further
+      // down scrolls the sheet: the heading takes the focus there.
+      if (this.focusHeading() || !pointerHovers()) {
+        el.querySelector<HTMLElement>('.modal-head h2')?.focus();
+        return;
+      }
       // The first usable control: not disabled, nor hidden by the layout (e.g.
       // Compare's tab bar on a wide screen); else the Close button.
       const usable = (c: HTMLElement) =>
