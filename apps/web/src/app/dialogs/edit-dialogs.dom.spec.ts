@@ -121,7 +121,9 @@ describe('Tangent settings', () => {
     expect(screen.getAllByText('Context', { exact: true })).toHaveLength(1);
 
     const replies = screen.getByRole('group', { name: 'Replies' });
-    expect(replies.textContent).toContain('New tangents from here start with these.');
+    expect(replies.textContent).toContain(
+      'New tangents start with these while this tangent is open.',
+    );
     within(replies).getByRole('combobox', { name: 'Provider' });
     // What a search costs, and who pays it, stays in view; the exact prices are a click away.
     within(replies).getByRole('combobox', {
@@ -288,7 +290,9 @@ describe('Conversation settings', () => {
     // The main thread has no title of its own to edit: the conversation's is the only one.
     expect(screen.getAllByRole('textbox', { name: /^Title/ })).toHaveLength(1);
     const replies = screen.getByRole('group', { name: 'Main thread replies' });
-    expect(replies.textContent).toContain('New tangents from the main thread start with these.');
+    expect(replies.textContent).toContain(
+      'New tangents start with these while the main thread is open.',
+    );
     expect(replies.textContent).not.toMatch(/inherit/);
     await d.user.click(within(replies).getByRole('button', { name: /^Max/ }));
     await d.user.selectOptions(

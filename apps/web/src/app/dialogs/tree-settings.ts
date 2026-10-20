@@ -37,9 +37,9 @@ export function confirmDeleteTree(title: string): boolean {
 
 /**
  * Conversation settings: the title and system prompt, how the main thread
- * replies (which new tangents from it start with) and its privacy, which
- * covers the whole conversation; and Delete. A tangent's own are in Tangent
- * settings.
+ * replies (which new tangents start with while it is open) and its privacy,
+ * which covers the whole conversation; and Delete. A tangent's own are in
+ * Tangent settings.
  */
 @Component({
   selector: 'app-tree-settings',
@@ -79,7 +79,7 @@ export function confirmDeleteTree(title: string): boolean {
         </label>
         <fieldset class="settings-section" tabindex="-1" #replies>
           <legend>Main thread replies</legend>
-          <p class="muted small">New tangents from the main thread start with these.</p>
+          <p class="muted small">New tangents start with these while the main thread is open.</p>
           <app-reply-fields [(route)]="route" [(modelId)]="modelId" [(grounding)]="grounding" />
         </fieldset>
         <div class="field">

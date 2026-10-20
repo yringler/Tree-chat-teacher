@@ -45,8 +45,8 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
 
 /**
  * Edit the open tangent, in groups: its title; Context (the quote and the
- * mode); Replies (who pays, the model, web search), which new tangents from
- * it start with; Private. Delete it. The main thread's are in Conversation
+ * mode); Replies (who pays, the model, web search), which new tangents start
+ * with while it is open; Private. Delete it. The main thread's are in Conversation
  * settings.
  */
 @Component({
@@ -82,7 +82,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
 
         <fieldset class="settings-section">
           <legend>Replies</legend>
-          <p class="muted small">New tangents from here start with these.</p>
+          <p class="muted small">New tangents start with these while this tangent is open.</p>
           <app-reply-fields [(route)]="route" [(modelId)]="modelId" [(grounding)]="grounding" />
         </fieldset>
 
