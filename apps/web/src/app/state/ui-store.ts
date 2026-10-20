@@ -44,7 +44,8 @@ export interface LinkReturn {
 }
 
 /**
- * A dialog of the power app, with what it was opened with. `keys`: Keys &
+ * A dialog of the power app, with what it was opened with. `tree-settings`:
+ * Conversation settings, `section` the part to open at; `keys`: Keys &
  * credit, `provider` preselecting the provider to enter a key for; `help`:
  * How tangents work; `review`:
  * the review of one assistant message; `compare`: Normal and Max answer
@@ -54,7 +55,7 @@ export interface LinkReturn {
 export type Dialog =
   | ({ kind: 'branch' } & BranchDialogState)
   | { kind: 'branch-settings' }
-  | { kind: 'tree-settings' }
+  | { kind: 'tree-settings'; section?: 'replies' }
   | { kind: 'share' }
   | { kind: 'shortcuts' }
   | { kind: 'help' }

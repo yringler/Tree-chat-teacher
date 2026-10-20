@@ -6,10 +6,20 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import type { Tree, UpdateTreeRequest } from '@tangent/shared';
+import {
+  DEFAULT_GROUNDING_MODE,
+  type Branch,
+  type GroundingMode,
+  type Tree,
+  type UpdateBranchRequest,
+  type UpdateTreeRequest,
+} from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { Icon, Modal } from '@tangent/web-shared';
+import { ReplyFields, replyChanges, replyFieldsOf } from '../ui/reply-fields';
+
+let uid = 0;
 
 /**
  * Asks before a whole conversation is deleted. Shared by the settings dialog
@@ -21,13 +31,22 @@ export function confirmDeleteTree(title: string): boolean {
   );
 }
 
-/** Rename the tree, edit its system prompt, delete it. */
+/**
+ * Conversation settings: the title and system prompt, how the main thread
+ * replies (which new tangents from it start with) and its privacy, which
+ * covers the whole conversation; and Delete. A tangent's own are in Tangent
+ * settings.
+ */
 @Component({
   selector: 'app-tree-settings',
-  imports: [Modal, Icon],
+  imports: [Modal, Icon, ReplyFields],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Conversation settings" (closed)="close()">
+    <app-modal
+      heading="Conversation settings"
+      [openAt]="section() === 'replies' ? replies : null"
+      (closed)="close()"
+    >
       <form class="form" (submit)="$event.preventDefault(); save()">
         <label class="field">
           <span class="field-label">Title</span>
@@ -53,6 +72,26 @@ export function confirmDeleteTree(title: string): boolean {
             #sp
           ></textarea>
         </label>
+        <fieldset class="settings-section" tabindex="-1" #replies>
+          <legend>Main thread replies</legend>
+          <p class="muted small">New tangents from the main thread start with these.</p>
+          <app-reply-fields [(route)]="route" [(modelId)]="modelId" [(grounding)]="grounding" />
+        </fieldset>
+        <div class="field">
+          <label class="check">
+            <input
+              type="checkbox"
+              [attr.aria-describedby]="id + '-private'"
+              [checked]="isPrivate()"
+              (change)="isPrivate.set(!isPrivate())"
+            />
+            Private
+          </label>
+          <span class="muted small indent" [id]="id + '-private'"
+            >Left out of shares and exports, with every tangent under it: the whole
+            conversation.</span
+          >
+        </div>
         <div class="form-actions">
           <button type="button" class="btn btn-danger-ghost btn-left" (click)="remove()">
             <app-icon name="trash" /> Delete conversation
@@ -70,42 +109,71 @@ export class TreeSettings implements OnInit {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   readonly tree = input.required<Tree>();
+  /** The conversation's main thread. */
+  readonly trunk = input.required<Branch>();
+  /** Where it opens: at the main thread's replies (the route chip), else at its top. */
+  readonly section = input<'replies' | null>(null);
   /**
-   * The tree as the form was filled from it. Saving sends what the user
-   * changed from this, not from the live tree: the first reply may have
-   * titled it meanwhile.
+   * The tree and its trunk as the form was filled from them. Saving sends
+   * what the user changed from these, not from the live ones: the first
+   * reply may have titled the tree meanwhile.
    */
-  private opened: Tree | null = null;
+  private opened: { tree: Tree; trunk: Branch } | null = null;
+  protected readonly id = `ts${++uid}`;
 
   protected readonly title = signal('');
   protected readonly systemPrompt = signal('');
+  /** Provider and funding of the main thread, as a `routeKey`. */
+  protected readonly route = signal('');
+  protected readonly modelId = signal('');
+  protected readonly grounding = signal<GroundingMode>(DEFAULT_GROUNDING_MODE);
+  protected readonly isPrivate = signal(false);
   protected readonly saving = signal(false);
 
   ngOnInit(): void {
     const t = this.tree();
-    this.opened = t;
+    const trunk = this.trunk();
+    this.opened = { tree: t, trunk };
     this.title.set(t.title);
     this.systemPrompt.set(t.systemPrompt ?? '');
+    const replies = replyFieldsOf(trunk);
+    this.route.set(replies.route);
+    this.modelId.set(replies.modelId);
+    this.grounding.set(replies.grounding);
+    this.isPrivate.set(trunk.isPrivate);
   }
 
   protected close(): void {
     this.ui.dialogs.close('tree-settings');
   }
 
+  /**
+   * Saves the main thread's fields, then the tree's: the main thread's are
+   * the ones the server may refuse (a model, a payer the membership locks),
+   * so a refusal leaves nothing saved. Both must be saved to close: when
+   * either fails, its error shows and the dialog stays open with every edit,
+   * so Save tries again.
+   */
   protected async save(): Promise<void> {
-    const t = this.opened;
-    if (!t) return;
-    const req: UpdateTreeRequest = {};
+    const opened = this.opened;
+    if (!opened) return;
+    const { tree: t, trunk } = opened;
+    const treeReq: UpdateTreeRequest = {};
     const title = this.title().trim();
-    if (title && title !== t.title) req.title = title;
+    if (title && title !== t.title) treeReq.title = title;
     const sp = this.systemPrompt().trim() ? this.systemPrompt() : null;
-    if (sp !== t.systemPrompt) req.systemPrompt = sp;
-    if (Object.keys(req).length === 0) {
-      this.close();
-      return;
-    }
+    if (sp !== t.systemPrompt) treeReq.systemPrompt = sp;
+    const trunkReq: UpdateBranchRequest = replyChanges(trunk, {
+      route: this.route(),
+      modelId: this.modelId(),
+      grounding: this.grounding(),
+    });
+    if (this.isPrivate() !== trunk.isPrivate) trunkReq.isPrivate = this.isPrivate();
+    const changed = (req: object) => Object.keys(req).length > 0;
     this.saving.set(true);
-    const ok = await this.store.updateTree(t.id, req);
+    const ok =
+      (!changed(trunkReq) || (await this.store.updateBranch(trunk.id, trunkReq))) &&
+      (!changed(treeReq) || (await this.store.updateTree(t.id, treeReq)));
     this.saving.set(false);
     if (ok) this.close();
   }

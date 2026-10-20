@@ -412,10 +412,25 @@ describe('ChatPage', () => {
   it('the header names the open thread: the main thread is not called a tangent', async () => {
     await page();
     expect(screen.getByRole('button', { name: /^Link the main thread/ })).toBeTruthy();
-    expect(screen.getByTitle('Main thread settings')).toBeTruthy();
+    // Its settings are the conversation's, beside the conversation's title.
+    const toolbar = screen.getByRole('toolbar', { name: 'Conversation actions' });
+    expect(within(toolbar).getByTitle('Conversation settings')).toBeTruthy();
+    expect(screen.queryByTitle('Tangent settings')).toBeNull();
     expect(
       screen.queryByText(/tangent/i, { selector: '.chat-head button, .chat-head span' }),
     ).toBeNull();
+  });
+
+  it('the main thread is called that in the path, whatever title it has stored', async () => {
+    const d = tree();
+    d.branches[0] = { ...d.branches[0]!, title: 'Waves, renamed' };
+    await page({ d, branchId: 'side' });
+    const path = screen.getByRole('navigation', { name: 'Tangent path' });
+    expect(
+      within(path)
+        .getAllByRole('button')
+        .map((b) => b.textContent?.trim()),
+    ).toEqual(['Main thread', 'On credit']);
   });
 
   it('on a narrow screen, where only their icons show, the header’s buttons keep their names', async () => {
@@ -429,10 +444,18 @@ describe('ChatPage', () => {
       expect(within(header).getByRole('button', { name })).toBeTruthy();
   });
 
-  it('inside a tangent the header says tangent', async () => {
-    await page({ branchId: 'side' });
+  it('inside a tangent the header says tangent, with its settings among its own actions', async () => {
+    const p = await page({ branchId: 'side' });
     expect(screen.getByRole('button', { name: /^Link this tangent/ })).toBeTruthy();
-    expect(screen.getByTitle('Tangent settings')).toBeTruthy();
+    const settings = screen.getByTitle('Tangent settings');
+    // On the path's row, beside the tangent's Parent message and Link, not the conversation's.
+    const row = settings.closest('.chat-head-row')!;
+    expect(row).toBe(
+      screen.getByRole('button', { name: /^Parent message/ }).closest('.chat-head-row'),
+    );
+    expect(within(row as HTMLElement).queryByTitle('Conversation settings')).toBeNull();
+    await p.user.click(settings);
+    expect(p.ui.dialogs.list()).toEqual([{ kind: 'branch-settings' }]);
   });
 
   it('while a reply streams, the box is disabled and Stop stops it', async () => {

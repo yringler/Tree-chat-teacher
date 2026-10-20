@@ -18,6 +18,7 @@ import {
   ToastStore,
 } from '@tangent/web-shared';
 import { generationLimits, SettingsStore } from './settings-store';
+import { threadTitle } from './thread-title';
 import { UiStore } from './ui-store';
 
 /**
@@ -198,7 +199,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     this.ui.linkReturn.set({
       branchId: here.id,
       focusNodeId: fromNodeId ?? this.focusedInPath()?.id ?? null,
-      label: here.title,
+      label: threadTitle(here),
       toBranchId: target.branchId,
       toNodeId: nodeId,
     });
@@ -243,7 +244,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   }
 
   protected override movedToCredit(branch: Branch, modelLabel: string): void {
-    this.toast.notify(`“${branch.title}” now uses Tangent credit (${modelLabel})`);
+    this.toast.notify(`“${threadTitle(branch)}” now uses Tangent credit (${modelLabel})`);
     this.composer.focus();
   }
 

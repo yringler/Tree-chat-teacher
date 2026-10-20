@@ -9,9 +9,11 @@ import {
   signIn,
 } from '@tangent/web-shared/testing';
 import { screen } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
+import { UiStore } from '../state/ui-store';
 import { RouteBar } from './route-bar';
 
 const HAIKU = 'anthropic/claude-haiku-5.5';
@@ -53,7 +55,47 @@ async function chip(model: string): Promise<string | undefined> {
     .trim();
 }
 
+/** The route chip, on the main thread or (`at`) a tangent off it. */
+async function routeChip(at: string | null = null) {
+  await render(RouteBar, {
+    providers: powerProviders(TreeStore, {}),
+    setup: () => {
+      const store = TestBed.inject(TreeStore);
+      signIn(store.account, { providers: [provider(), CREDIT], builtInCredit: true });
+      openTree(
+        store,
+        detail(
+          [],
+          [
+            branch('trunk', { funding: 'credit', model: HAIKU }),
+            branch('side', { parentBranchId: 'trunk', funding: 'credit', model: HAIKU }),
+          ],
+        ),
+        at,
+      );
+    },
+  });
+  return screen.getByRole('button', { name: /^Replies on/ });
+}
+
 describe('RouteBar', () => {
+  it('the route chip opens the main thread’s replies in Conversation settings, there', async () => {
+    const chip = await routeChip();
+    expect(chip.getAttribute('aria-label')).toBe(
+      'Replies on Tangent credit, Normal. Change the model or who pays',
+    );
+    expect(chip.title).toBe('Change the model or who pays');
+    await userEvent.setup().click(chip);
+    expect(TestBed.inject(UiStore).dialogs.list()).toEqual([
+      { kind: 'tree-settings', section: 'replies' },
+    ]);
+  });
+
+  it('and Tangent settings in a tangent', async () => {
+    await userEvent.setup().click(await routeChip('side'));
+    expect(TestBed.inject(UiStore).dialogs.list()).toEqual([{ kind: 'branch-settings' }]);
+  });
+
   it('names your Normal (Settings) when the thread is on it', async () => {
     expect(await chip(PRO)).toBe('Tangent credit · Normal');
   });

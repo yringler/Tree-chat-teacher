@@ -10,6 +10,7 @@ import {
   type LinkNoteEdit,
   type RelatedLink,
 } from '@tangent/web-shared';
+import { threadTitle } from '../state/thread-title';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { MessageActions, type PickState } from './message-actions';
@@ -144,7 +145,7 @@ export class MessageItem {
   /** The message's links, resolved to their other ends. */
   protected readonly related = computed<RelatedLink[]>(() => {
     const idx = this.store.index();
-    return idx ? relatedLinks(idx, this.store.linksByNode(), this.node().id) : [];
+    return idx ? relatedLinks(idx, this.store.linksByNode(), this.node().id, threadTitle) : [];
   });
   protected readonly relatedOpen = computed(() => this.ui.relatedOpen().has(this.node().id));
   /** In pick mode, what "Link here" does on this message. */

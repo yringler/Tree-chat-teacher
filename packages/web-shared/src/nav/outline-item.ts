@@ -34,7 +34,10 @@ export class SidebarBadges {
   }
 }
 
-/** One branch in the sidebar's outline (recursive), with rename (where the app allows) and delete. */
+/**
+ * One branch in the sidebar's outline (recursive). A tangent has rename
+ * (where the app allows) and delete.
+ */
 @Component({
   selector: 'app-sidebar-outline-item',
   imports: [Icon, NgTemplateOutlet, SidebarOutlineItem],
@@ -79,7 +82,7 @@ export class SidebarBadges {
             type="button"
             class="outline-link"
             [attr.aria-current]="selected() ? 'page' : null"
-            [attr.title]="host.canRename ? title + ' (double-click to rename)' : title"
+            [attr.title]="renamable() ? title + ' (double-click to rename)' : title"
             (click)="open()"
             (dblclick)="startRename()"
           >
@@ -95,7 +98,7 @@ export class SidebarBadges {
             }}</span>
           </button>
           <span class="outline-actions">
-            @if (host.canRename) {
+            @if (renamable()) {
               <button
                 type="button"
                 class="icon-btn"
@@ -147,6 +150,8 @@ export class SidebarOutlineItem {
     () => this.store.selectedBranchId() === this.item().branch.id,
   );
   protected readonly inChain = computed(() => this.store.chainIds().has(this.item().branch.id));
+  /** A tangent, where the app renames them: the main thread is always called that. */
+  protected readonly renamable = computed(() => this.host.canRename && this.item().depth > 0);
   protected readonly streaming = computed(() => {
     const id = this.item().branch.id;
     for (const s of this.store.live().values()) if (s.branchId === id) return true;
@@ -164,7 +169,7 @@ export class SidebarOutlineItem {
   }
 
   protected startRename(): void {
-    if (!this.host.canRename) return;
+    if (!this.renamable()) return;
     this.editing.set(true);
     queueMicrotask(() => {
       const el = this.titleInput()?.nativeElement;

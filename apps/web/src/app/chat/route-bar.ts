@@ -24,9 +24,10 @@ export interface RouteView {
  * Under the message box: the Normal | Max switch (TierStore; "Configure"
  * opens Settings, where each tier's model is chosen) with what Max costs
  * while it is on, then what the open branch replies on (provider, who pays,
- * model), as a button to its settings, where that and the rest of them
- * (context, web search, …) can be changed at any point of the conversation:
- * a branch's route is where it starts, and every send uses its current one.
+ * model), as a button to where that and web search can be changed at any
+ * point of the conversation: Tangent settings in a tangent, and on the main
+ * thread Conversation settings, at its replies. A branch's route is where it
+ * starts, and every send uses its current one.
  * On the user's own key with none saved in this browser (another device, or
  * it expired), it says so before anything is sent, with one click to
  * Tangent credit (where it can carry on) or to the key.
@@ -53,11 +54,11 @@ export interface RouteView {
           type="button"
           class="route-chip"
           [class.is-warn]="r.missing"
-          title="Change the provider, model or who pays (tangent settings)"
+          title="Change the model or who pays"
           [attr.aria-label]="
-            'Replies on ' + r.label + ', ' + r.model + '. Change them in the tangent settings'
+            'Replies on ' + r.label + ', ' + r.model + '. Change the model or who pays'
           "
-          (click)="ui.dialogs.open({ kind: 'branch-settings' })"
+          (click)="openSettings(r.branch)"
         >
           <span class="route-chip-text"
             ><strong>{{ r.label }}</strong> · {{ r.model }}</span
@@ -137,6 +138,18 @@ export class RouteBar {
     } finally {
       this.switching.set(false);
     }
+  }
+
+  /**
+   * Where the branch's route is changed: a tangent's own settings, and the
+   * main thread's in the conversation's.
+   */
+  protected openSettings(branch: Branch): void {
+    this.ui.dialogs.open(
+      branch.parentBranchId
+        ? { kind: 'branch-settings' }
+        : { kind: 'tree-settings', section: 'replies' },
+    );
   }
 
   protected async useCredit(branchId: string): Promise<void> {

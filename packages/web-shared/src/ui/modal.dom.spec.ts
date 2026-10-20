@@ -7,7 +7,8 @@ import { Modal } from './modal';
 
 /**
  * A dialog the way the apps write one: a Modal around a form, shown while
- * `open`; `autofocus` marks its field, `focusHeading` sets the Modal's.
+ * `open`; `autofocus` marks its field, `focusHeading` sets the Modal's, and
+ * `openAt` opens it at its "Replies" section.
  */
 @Component({
   imports: [Modal],
@@ -17,10 +18,15 @@ import { Modal } from './modal';
       <app-modal
         heading="Settings"
         [focusHeading]="focusHeading()"
+        [openAt]="openAt() ? replies : null"
         (closed)="closed(); open.set(false)"
       >
         <button type="button" disabled>Disabled first</button>
         <input aria-label="Name" [attr.autofocus]="autofocus() ? '' : null" />
+        <fieldset tabindex="-1" #replies>
+          <legend>Replies</legend>
+          <input aria-label="Model" />
+        </fieldset>
         <button type="button">Save</button>
       </app-modal>
     }
@@ -30,13 +36,15 @@ class Host {
   readonly open = signal(false);
   readonly autofocus = signal(false);
   readonly focusHeading = signal(false);
+  readonly openAt = signal(false);
   readonly closed = vi.fn();
 }
 
-async function opened(set: { autofocus?: boolean; focusHeading?: boolean } = {}) {
+async function opened(set: { autofocus?: boolean; focusHeading?: boolean; openAt?: boolean } = {}) {
   const r = await render(Host);
   r.component.autofocus.set(set.autofocus ?? false);
   r.component.focusHeading.set(set.focusHeading ?? false);
+  r.component.openAt.set(set.openAt ?? false);
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Open settings' }));
   await r.fixture.whenStable();
@@ -57,6 +65,12 @@ describe('Modal', () => {
     await vi.waitFor(() => expect(document.activeElement).toBe(heading));
   });
 
+  it('opened at a section (openAt), focuses that section rather than its first field', async () => {
+    await opened({ openAt: true, autofocus: true });
+    const replies = screen.getByRole('group', { name: 'Replies' });
+    await vi.waitFor(() => expect(document.activeElement).toBe(replies));
+  });
+
   describe('on a touch screen (no hover)', () => {
     beforeEach(() =>
       vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(hover: none)' })),
@@ -73,6 +87,12 @@ describe('Modal', () => {
       await opened({ autofocus: true });
       const heading = screen.getByRole('heading', { name: 'Settings' });
       await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    });
+
+    it('but opened at a section, focuses it there too: it is no field, so no keyboard comes up', async () => {
+      await opened({ openAt: true });
+      const replies = screen.getByRole('group', { name: 'Replies' });
+      await vi.waitFor(() => expect(document.activeElement).toBe(replies));
     });
   });
 

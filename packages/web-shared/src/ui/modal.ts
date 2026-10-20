@@ -48,6 +48,13 @@ export class Modal implements OnDestroy {
    * read before it is edited, which should open at its top.
    */
   readonly focusHeading = input(false);
+  /**
+   * The part of the dialog the user asked to open it at (e.g. a section,
+   * `tabindex="-1"`): it takes the focus on open, on a touch screen too,
+   * which scrolls it into view. Never a text field, whose focus would pop up
+   * the on-screen keyboard.
+   */
+  readonly openAt = input<HTMLElement | null>(null);
   readonly closed = output();
   protected readonly titleId = `modal-title-${++uid}`;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -57,6 +64,11 @@ export class Modal implements OnDestroy {
   constructor() {
     afterNextRender(() => {
       const el = this.host.nativeElement;
+      const at = this.openAt();
+      if (at) {
+        at.focus();
+        return;
+      }
       // Where no pointer hovers (a touch screen), focusing a field pops up the
       // on-screen keyboard over the dialog, and focusing a control further
       // down scrolls the sheet: the heading takes the focus there.

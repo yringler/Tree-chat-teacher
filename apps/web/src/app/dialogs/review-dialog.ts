@@ -20,6 +20,7 @@ import {
   TypesetMath,
 } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
+import { threadTitle } from '../state/thread-title';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ModelPicker } from '../ui/model-picker';
@@ -241,7 +242,7 @@ export class ReviewDialog implements OnInit {
     });
     this.acting.set(false);
     if (ok) {
-      this.toast.notify(`“${b.title}” now uses ${this.labelOf(r, r.model)}`);
+      this.toast.notify(`“${threadTitle(b)}” now uses ${this.labelOf(r, r.model)}`);
       if (b.id !== this.store.selectedBranchId()) this.store.go(b.id);
       this.close();
     }

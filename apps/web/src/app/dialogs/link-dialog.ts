@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { plainText } from '@tangent/shared';
 import { splitTangents } from '@tangent/shared';
 import { Modal, NodePicker, type LinkPick } from '@tangent/web-shared';
+import { threadTitle } from '../state/thread-title';
 import { TreeStore } from '../state/tree-store';
 import { UiStore, type LinkDialogState } from '../state/ui-store';
 
@@ -28,6 +29,7 @@ import { UiStore, type LinkDialogState } from '../state/ui-store';
             [index]="index"
             [sourceNodeId]="state().fromNodeId"
             [linksByNode]="store.linksByNode()"
+            [titleOf]="titleOf"
             placeholder="Search messages and tangents"
             (picked)="link($event)"
             (cancelled)="close()"
@@ -45,6 +47,7 @@ export class LinkDialog {
   protected readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   readonly state = input.required<LinkDialogState>();
+  protected readonly titleOf = threadTitle;
 
   protected readonly source = computed(
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,

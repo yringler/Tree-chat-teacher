@@ -914,8 +914,12 @@ app-android-app-banner {
   padding: 14px 16px 8px 20px;
 }
 
-/* The heading takes the focus on open (Modal), but it is no control: no ring. */
-.modal-head h2:focus-visible {
+/*
+ * The heading, or the section a dialog opens at (Modal's openAt), takes the
+ * focus on open, but neither is a control: no ring.
+ */
+.modal-head h2:focus-visible,
+.modal-body fieldset:focus-visible {
   box-shadow: none;
 }
 

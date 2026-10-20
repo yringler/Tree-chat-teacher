@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import type { TreeSummary } from '@tangent/shared';
 import { ApiError, ToastStore } from '@tangent/web-shared';
 import {
+  branch,
   detail,
   membership,
   openTree,
@@ -42,7 +43,7 @@ async function list<C>(type: Type<C>, opts: { open?: boolean; lapsed?: boolean }
       if (opts.open)
         openTree(store, detail([], undefined, [], { id: 't2', title: 'Tides, again' }));
     },
-    ...(type === TreeSettings ? { inputs: { tree: detail().tree } } : {}),
+    ...(type === TreeSettings ? { inputs: { tree: detail().tree, trunk: branch('trunk') } } : {}),
   });
   const store = TestBed.inject(TreeStore);
   const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
