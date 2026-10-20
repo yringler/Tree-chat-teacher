@@ -25,6 +25,7 @@ class MessageView extends StatelessWidget {
     required this.onFollow,
     required this.onOpenTangent,
     required this.onAskAbout,
+    required this.onTangent,
     this.onDelete,
   });
 
@@ -51,6 +52,10 @@ class MessageView extends StatelessWidget {
 
   /// "Ask about this" on words selected in a finished reply.
   final ValueChanged<String> onAskAbout;
+
+  /// A finished reply's own Tangent ↳: the page puts the whole reply on the
+  /// message box, asked about on a tangent when the message is sent.
+  final VoidCallback onTangent;
 
   /// Deletes the learner's message with everything after it, once they say
   /// so; null on a reply.
@@ -119,7 +124,27 @@ class MessageView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          label,
+          Row(
+            children: [
+              label,
+              const Spacer(),
+              if (complete)
+                Tooltip(
+                  message: 'Go on a tangent about this message',
+                  // Small, so the row stays about as tall as its label.
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: tokens.fgMuted,
+                      minimumSize: const Size(0, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: onTangent,
+                    child: Text(tangentAction.label),
+                  ),
+                ),
+            ],
+          ),
           if (streaming && status != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),

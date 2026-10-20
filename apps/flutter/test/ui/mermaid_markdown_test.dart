@@ -158,6 +158,7 @@ Future<void> pumpReply(
             onFollow: null,
             onOpenTangent: (_) {},
             onAskAbout: (_) {},
+            onTangent: () {},
           ),
         ),
       ),

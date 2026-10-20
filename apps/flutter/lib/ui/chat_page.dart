@@ -357,8 +357,10 @@ class _ChatPageState extends State<ChatPage> {
     await _settle(text, started.accepted);
   }
 
-  void _askAbout(ChatNode node, String text) {
-    _chat.aim((nodeId: node.id, quote: text));
+  /// Puts the words [quote] of [node] on the composer, or with none the
+  /// whole of it: the next message asks about them on a tangent.
+  void _askAbout(ChatNode node, String? quote) {
+    _chat.aim((nodeId: node.id, quote: quote));
     _composerFocus.requestFocus();
   }
 
@@ -765,10 +767,10 @@ class _ChatPageState extends State<ChatPage> {
                 enabled: !busy,
                 streaming: streaming != null,
                 hint: _hint(plan.place),
-                // The words, or the opening words of the whole reply.
                 lead: switch ((lead, target)) {
                   (final lead?, final target?) => _QuoteChip(
-                    text: lead.quote ?? _excerptOf(target),
+                    quote: lead.quote,
+                    excerpt: _excerptOf(target),
                     onRemove: _dropLead,
                   ),
                   _ => null,
@@ -836,6 +838,7 @@ class _ChatPageState extends State<ChatPage> {
       cameFromIds: _chat.cameFromIds,
       onFollow: _chat.sending ? null : (t) => unawaited(_follow(node, t)),
       onAskAbout: (text) => _askAbout(node, text),
+      onTangent: () => _askAbout(node, null),
       onOpenTangent: (b) => context.go('/t/${widget.treeId}/b/${b.id}'),
       onDelete: node.role == Role.user
           ? () => unawaited(_deleteMessage(node))
@@ -1446,6 +1449,7 @@ class _Composer extends StatelessWidget {
     builder: (context, value, _) {
       final ready = enabled && value.text.trim().isNotEmpty;
       return Row(
+        key: const ValueKey('composer-actions'),
         children: [
           for (final (i, action) in actions.indexed) ...[
             if (i > 0) const SizedBox(width: 8),
@@ -1529,11 +1533,18 @@ class _NamedTarget extends StatelessWidget {
   }
 }
 
-/// The words the composer's message asks about, with a way to take them off.
+/// What the composer's message asks about, with a way to take it off: the
+/// words "Ask about this" quoted ([quote]), or else a whole reply, by its
+/// opening words ([excerpt]), as Learn web's composer shows them.
 class _QuoteChip extends StatelessWidget {
-  const _QuoteChip({required this.text, required this.onRemove});
+  const _QuoteChip({
+    required this.quote,
+    required this.excerpt,
+    required this.onRemove,
+  });
 
-  final String text;
+  final String? quote;
+  final String excerpt;
   final VoidCallback onRemove;
 
   @override
@@ -1543,12 +1554,21 @@ class _QuoteChip extends StatelessWidget {
     return InputChip(
       key: const ValueKey('composer-quote'),
       avatar: Icon(Icons.subdirectory_arrow_right, size: 16, color: accent),
-      label: Text('“$text”', maxLines: 1, overflow: TextOverflow.ellipsis),
+      label: Text(
+        switch (quote) {
+          final quote? => '“$quote”',
+          null => 'Tangent from “$excerpt”',
+        },
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       backgroundColor: tokens.accentSoft,
       side: BorderSide(color: accent),
       shape: const StadiumBorder(),
       onDeleted: onRemove,
-      deleteButtonTooltipMessage: 'Don’t ask about these words',
+      deleteButtonTooltipMessage: quote == null
+          ? 'Don’t go on this tangent'
+          : 'Don’t ask about these words',
     );
   }
 }
