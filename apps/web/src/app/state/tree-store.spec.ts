@@ -678,7 +678,7 @@ describe('TreeStore branching with a first message', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('"Ask your own" opens an untitled path branch (titled after its first reply) and asks the question', async () => {
+  it('a question asked from a message opens an untitled path branch (titled after its first reply) and asks it', async () => {
     const s = open();
     const branch = await s.store.askFrom('a1', 'Why does it bend?');
     expect(branch?.id).toBe('side');

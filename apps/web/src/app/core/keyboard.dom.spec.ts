@@ -135,4 +135,15 @@ describe('Power: keyboard', () => {
       label: 'Open Tangent from here for the focused (or latest) message',
     });
   });
+
+  it("the help lists the message box's send keys", () => {
+    expect(SHORTCUTS.filter((s) => s.keys.some((k) => k.endsWith('Enter')))).toEqual([
+      {
+        keys: ['Enter'],
+        label: 'Send with the filled button: a tangent on the main thread, Next inside a tangent',
+      },
+      { keys: ['Ctrl+Enter'], label: 'Send with the other button' },
+      { keys: ['Ctrl+Shift+Enter'], label: 'Open Tangent from here with what you typed' },
+    ]);
+  });
 });

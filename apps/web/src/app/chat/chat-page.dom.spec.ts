@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { REPLY_ACTION, type TreeDetail } from '@tangent/shared';
+import { REPLY_ACTION, TANGENT_ACTION, type TreeDetail } from '@tangent/shared';
 import { ApiClient, ComposerController } from '@tangent/web-shared';
 import {
   branch,
@@ -59,7 +59,16 @@ function branchy(): TreeDetail {
   );
 }
 
-const CREDIT = provider({ funding: 'credit', acceptsUserKey: false, keySource: 'server' });
+/** Tangent credit with Normal and Max, so Compare is offered. */
+const CREDIT = provider({
+  funding: 'credit',
+  acceptsUserKey: false,
+  keySource: 'server',
+  models: [
+    { id: 'normal', label: 'Normal', tier: 'normal' },
+    { id: 'max', label: 'Max', tier: 'max' },
+  ],
+});
 
 async function page(opts: { branchId?: string; lapsed?: boolean; d?: TreeDetail | null } = {}) {
   const r = await render(ChatPage, {
@@ -102,19 +111,118 @@ function selectWave(): void {
   document.dispatchEvent(new Event('selectionchange'));
 }
 
+/** "Light" with a second exchange in "Particles": u2 → a2, then u4 → a4. */
+function longerSide(): TreeDetail {
+  const d = branchy();
+  d.nodes.push(
+    node('u4', { parentId: 'a2', seq: 4, branchId: 'side', role: 'user', content: 'How so?' }),
+    node('a4', { parentId: 'u4', seq: 5, branchId: 'side', content: 'In lumps.' }),
+  );
+  return d;
+}
+
 describe('ChatPage', () => {
-  it('shows the open branch’s messages, and a composer that continues it', async () => {
-    const p = await page();
+  it('after a reply the composer offers Tangent ↳, with its options, and Next ➜, and Compare', async () => {
+    await page();
     const chat = screen.getByRole('region', { name: 'Conversation' });
     expect(within(chat).getByText('What is light?')).toBeTruthy();
     expect(within(chat).getByText('A wave.')).toBeTruthy();
-    expect(composer()?.placeholder).toBe('Continue this thread…');
-    expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
-      `${REPLY_ACTION.label}: ${REPLY_ACTION.hint}`,
-    );
+    expect(composer()?.placeholder).toBe('Ask anything…');
+    const [tangent, next] = within(dock()).getAllByRole('button', { name: /^(Tangent|Next)$/ });
+    expect(tangent?.textContent?.trim()).toBe('Tangent ↳');
+    expect(tangent?.title).toBe(`${TANGENT_ACTION.hint} (Enter)`);
+    expect(tangent?.classList).toContain('btn-primary');
+    expect(next?.textContent?.trim()).toBe('Next ➜');
+    expect(next?.title).toBe(`${REPLY_ACTION.hint} (Ctrl+Enter)`);
+    const caret = within(dock()).getByRole('button', { name: 'Tangent with options…' });
+    expect(caret.getAttribute('aria-haspopup')).toBe('dialog');
+    within(dock()).getByRole('button', { name: 'Compare Normal and Max' });
+    expect(within(dock()).queryByRole('button', { name: 'Send message' })).toBeNull();
+  });
+
+  it('on the main thread, Enter goes on a tangent from the last reply, Ctrl+Enter continues it', async () => {
+    const p = await page();
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('new'));
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'And a particle?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'And a particle?', null);
+    expect(send).not.toHaveBeenCalled();
+    await p.user.keyboard('{Control>}{Enter}{/Control}');
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
+    expect(askFrom).toHaveBeenCalledTimes(1);
+  });
+
+  it('inside a tangent, Next ➜ is filled: Enter continues it, Ctrl+Enter goes one level down', async () => {
+    const p = await page({ d: branchy(), branchId: 'side' });
+    expect(composer()?.placeholder).toBe('Ask anything in this tangent…');
+    const [tangent, next] = within(dock()).getAllByRole('button', { name: /^(Tangent|Next)$/ });
+    expect(tangent?.classList).not.toContain('btn-primary');
+    expect(next?.classList).toContain('btn-primary');
+    expect(next?.title).toBe(`${REPLY_ACTION.hintInTangent} (Enter)`);
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('deeper'));
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'More?{Enter}');
+    expect(send).toHaveBeenCalledWith('side', 'More?');
+    expect(askFrom).not.toHaveBeenCalled();
+    await p.user.keyboard('{Control>}{Enter}{/Control}');
+    expect(askFrom).toHaveBeenCalledWith('a2', 'More?', null);
+  });
+
+  it('a tangent opened at its start goes on from its first reply, and the box names it', async () => {
+    const p = await page({ d: longerSide() });
+    composer()!.blur();
+    p.store.setRoute('t1', 'side', 'u2');
+    await p.fixture.whenStable();
+    await p.user.click(composer()!);
+    within(dock()).getByRole('button', { name: 'from “A particle.”' });
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
+    await p.user.type(composer()!, 'How big?{Control>}{Enter}{/Control}');
+    expect(askFrom).toHaveBeenCalledWith('a2', 'How big?', null);
+  });
+
+  it('a new conversation, or a reply that failed, has nothing to go on a tangent from: Send', async () => {
+    const p = await page({ d: detail([], [branch('trunk', { title: 'Main thread' })]) });
+    expect(composer()?.placeholder).toBe('Start the conversation…');
+    expect(within(dock()).queryByRole('button', { name: /^(Tangent|Next)$/ })).toBeNull();
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'Light?{Enter}');
+    expect(send).toHaveBeenCalledWith('trunk', 'Light?');
+
+    const failed = tree();
+    failed.nodes = failed.nodes.map((n) => (n.id === 'a1' ? { ...n, status: 'error' } : n));
+    p.store.detail.set(failed);
+    await p.fixture.whenStable();
+    expect(composer()?.placeholder).toBe('Ask anything…');
+    within(dock()).getByRole('button', { name: 'Send message' });
+  });
+
+  it('Tangent ↳’s caret sets the tangent up from the composer’s target, with the typed question', async () => {
+    const p = await page({ d: branchy() });
+    await p.user.type(composer()!, 'Why so?');
+    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent with options…' }));
+    expect(p.ui.dialogs.get('branch')).toEqual({
+      kind: 'branch',
+      fromNodeId: 'a1',
+      quote: null,
+      message: 'Why so?',
+    });
+    p.ui.dialogs.close('branch');
+    // With words on the box, Ctrl+Shift+Enter: their quote goes along.
+    selectWave();
+    await p.fixture.whenStable();
+    await p.user.click(screen.getByRole('button', { name: 'Ask about this' }));
+    await p.user.keyboard('{Control>}{Shift>}{Enter}{/Shift}{/Control}');
+    expect(p.ui.dialogs.get('branch')).toEqual({
+      kind: 'branch',
+      fromNodeId: 'a1',
+      quote: 'wave',
+      message: 'Why so?',
+    });
+    // Nothing is sent from the box, which keeps the question until the tangent's first message is in.
+    expect(composer()?.value).toBe('Why so?');
+    TestBed.inject(ComposerController).sent('new', 'Why so?');
+    await p.fixture.whenStable();
+    expect(composer()?.value).toBe('');
   });
 
   it('every tangent opens at its start, after the main thread was read to its end', async () => {
@@ -206,13 +314,14 @@ describe('ChatPage', () => {
   });
 
   it('a new tangent shows where it starts, and asks for its first question', async () => {
-    await page({ branchId: 'side' });
+    const p = await page({ branchId: 'side' });
     expect(screen.getByText('New tangent. Your next message starts it.')).toBeTruthy();
     expect(screen.getByText('A wave', { selector: 'blockquote' })).toBeTruthy();
-    expect(composer()?.placeholder).toBe('Ask your question…');
-    expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
-      `${REPLY_ACTION.label}: ${REPLY_ACTION.hintInTangent}`,
-    );
+    expect(composer()?.placeholder).toBe('Ask your tangent…');
+    expect(within(dock()).queryByRole('button', { name: /^(Tangent|Next)$/ })).toBeNull();
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'Why credit?{Enter}');
+    expect(send).toHaveBeenCalledWith('side', 'Why credit?');
   });
 
   it('"Ask about this" puts the words on the composer; the tangent is made when it is sent', async () => {
@@ -225,6 +334,10 @@ describe('ChatPage', () => {
     expect(startBranch).not.toHaveBeenCalled();
     expect(screen.getByText('“wave”')).toBeTruthy();
     expect(composer()?.placeholder).toBe('Ask about this…');
+    // Words to ask about only go on a tangent, and Compare waits.
+    within(dock()).getByRole('button', { name: 'Tangent' });
+    expect(within(dock()).queryByRole('button', { name: 'Next' })).toBeNull();
+    expect(within(dock()).queryByRole('button', { name: 'Compare Normal and Max' })).toBeNull();
     expect(document.activeElement).toBe(composer());
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('new'));
     await p.user.type(composer()!, 'Of what?{Enter}');
@@ -241,9 +354,9 @@ describe('ChatPage', () => {
     await p.user.click(screen.getByRole('button', { name: 'Ask about this' }));
     await p.user.click(screen.getByRole('button', { name: 'Don’t ask about “wave”' }));
     expect(screen.queryByText('“wave”')).toBeNull();
-    expect(composer()?.placeholder).toBe('Continue this thread…');
+    expect(composer()?.placeholder).toBe('Ask anything…');
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
-    await p.user.type(composer()!, 'And?{Enter}');
+    await p.user.type(composer()!, 'And?{Control>}{Enter}{/Control}');
     expect(send).toHaveBeenCalledWith('trunk', 'And?');
     expect(startBranch).not.toHaveBeenCalled();
   });
@@ -256,14 +369,13 @@ describe('ChatPage', () => {
     within(dock()).getByText('Tangent from “A wave.”');
     expect(composer()?.placeholder).toBe('Ask about this…');
     expect(document.activeElement).toBe(composer());
-    expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
-      'Ask in a new tangent about this message',
-    );
+    within(dock()).getByRole('button', { name: 'Tangent' });
+    expect(within(dock()).queryByRole('button', { name: 'Next' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Compare Normal and Max' })).toBeNull();
     // Dropped, it leaves nothing behind.
     await p.user.click(within(dock()).getByRole('button', { name: 'Don’t go on this tangent' }));
     expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
-    expect(composer()?.placeholder).toBe('Continue this thread…');
+    expect(composer()?.placeholder).toBe('Ask anything…');
     // Asked, the tangent starts with the question, about the whole message.
     await p.user.click(tangentOf('a1'));
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('new'));
@@ -288,7 +400,7 @@ describe('ChatPage', () => {
     await p.store.deleteMessage('u2');
     await p.fixture.whenStable();
     expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
-    expect(composer()?.placeholder).toBe('Continue this thread…');
+    expect(composer()?.placeholder).toBe('Ask anything…');
 
     await p.user.click(tangentOf('a1'));
     const lead = TestBed.inject(ComposerController).lead;

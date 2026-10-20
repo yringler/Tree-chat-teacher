@@ -60,12 +60,6 @@ describe('Composer', () => {
     expect(c.send).toHaveBeenCalledWith('Line one\nLine two');
   });
 
-  it('Send carries its hint as a tooltip and description', async () => {
-    await composer({ sendTitle: 'Next: keeps it moving.' });
-    expect(button('Send').title).toBe('Next: keeps it moving.');
-    expect(button('Send').getAttribute('aria-description')).toBe('Next: keeps it moving.');
-  });
-
   it('a blank message sends nothing', async () => {
     const c = await composer();
     await c.user.type(c.box, '   {Enter}');

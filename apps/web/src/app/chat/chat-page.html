@@ -101,9 +101,7 @@
                   ? 'Tangent from here, quoting the selection (pick a route you can use)'
                   : 'Go on a tangent quoting the selection, keeping the conversation so far'
               "
-              [moreLabel]="selectionLocked() ? null : 'More: Tangent from here with this quote…'"
               (ask)="askAbout(q)"
-              (more)="moreAbout(q)"
             />
           </div>
         }
@@ -120,16 +118,21 @@
         } @else {
           <app-composer
             sendLabel="Send message"
-            [sendTitle]="sendTitle()"
             stopLabel="Stop generating"
             [placeholder]="placeholder()"
             [initial]="initialDraft()"
             [disabled]="store.busy()"
             [busy]="store.streamingNode() !== null"
             [canCompare]="canCompare()"
+            [actions]="actions()"
+            [target]="target()"
+            [nameTarget]="plan().nameTarget || thread.farFromEnd()"
             (send)="send($event)"
+            (act)="act($event)"
+            (openOptions)="tangentWithOptions($event.text)"
             (stop)="stop()"
             (compare)="compare($event)"
+            (showTarget)="showTarget()"
           >
             <!-- What the message asks about (words, or a whole message); dropping it leaves the focus in the box. -->
             @if (lead(); as q) {

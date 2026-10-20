@@ -21,10 +21,10 @@ import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
 /**
- * "Branch from here": a tangent off any message, made with its first
- * message (typed here, or carried from "Ask your own"), which it sends and
- * opens. Cancelling makes nothing. Titles come after the first reply
- * (auto-titling).
+ * "Tangent from here": a tangent off any message, made with its first
+ * message (typed here, starting from what the message box held when its
+ * Tangent ↳ caret opened it), which it sends and opens. Cancelling makes
+ * nothing. Titles come after the first reply (auto-titling).
  */
 @Component({
   selector: 'app-branch-dialog',
@@ -32,7 +32,7 @@ import { ModePicker } from '../ui/mode-picker';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Tangent from here" (closed)="close()">
-      <form class="form" (submit)="$event.preventDefault(); create()">
+      <form class="form" (submit)="$event.preventDefault(); create()" (keydown)="onKey($event)">
         @if (source(); as n) {
           <div class="excerpt">
             <span class="field-label">{{ n.role === 'user' ? 'Your message' : 'Assistant' }}</span>
@@ -56,28 +56,20 @@ import { ModePicker } from '../ui/mode-picker';
           <button type="button" class="link-btn small" (click)="quote.set('')">Remove quote</button>
         }
 
-        @if (carried(); as text) {
-          <div class="excerpt">
-            <span class="field-label">First message</span>
-            <p>{{ text }}</p>
-          </div>
-        } @else {
-          <label class="field">
-            <span class="field-label"
-              >Starting message <span class="muted">(the tangent’s first message)</span></span
-            >
-            <textarea
-              rows="3"
-              autofocus
-              required
-              [value]="message()"
-              (input)="message.set(m.value)"
-              (keydown)="onMessageKey($event)"
-              #m
-              placeholder="Ask something to start the tangent"
-            ></textarea>
-          </label>
-        }
+        <label class="field">
+          <span class="field-label"
+            >Starting message <span class="muted">(the tangent’s first message)</span></span
+          >
+          <textarea
+            rows="3"
+            autofocus
+            required
+            [value]="message()"
+            (input)="message.set(m.value)"
+            #m
+            placeholder="Ask something to start the tangent"
+          ></textarea>
+        </label>
 
         <app-mode-picker [(mode)]="mode" />
 
@@ -92,7 +84,7 @@ import { ModePicker } from '../ui/mode-picker';
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
-          <button type="submit" class="btn btn-primary" [disabled]="saving() || !firstMessage()">
+          <button type="submit" class="btn btn-primary" [disabled]="saving() || !message().trim()">
             {{ saving() ? 'Creating…' : 'Create and ask' }}
           </button>
         </div>
@@ -119,11 +111,8 @@ export class BranchDialog implements OnInit {
 
   protected readonly quote = signal('');
   protected readonly mode = signal<ContextMode>('path');
-  /** The starting message typed here. */
+  /** The starting message. */
   protected readonly message = signal('');
-  /** A first message written before the dialog opened; replaces the starting message field. */
-  protected readonly carried = computed(() => this.state().message?.trim() || null);
-  protected readonly firstMessage = computed(() => this.carried() ?? this.message().trim());
   /** Provider and funding, as a `routeKey`. */
   protected readonly route = signal('');
   protected readonly modelId = signal('');
@@ -132,6 +121,7 @@ export class BranchDialog implements OnInit {
 
   ngOnInit(): void {
     this.quote.set(this.state().quote ?? '');
+    this.message.set(this.state().message ?? '');
     // The route tangents start on (the open thread's, `TreeStore.tangentRoute`), unless it
     // can't generate here: then the default route of a new conversation (a provider with a
     // key, else Tangent credit where it can pay or be bought), keeping its model where that
@@ -148,8 +138,8 @@ export class BranchDialog implements OnInit {
     this.ui.dialogs.close('branch');
   }
 
-  /** Ctrl/Cmd+Enter creates the branch (Enter is a newline, as in the anchor quote). */
-  protected onMessageKey(e: KeyboardEvent): void {
+  /** Ctrl/Cmd+Enter in any field creates and asks (Enter is a newline in the text fields). */
+  protected onKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
       e.preventDefault();
       void this.create();
@@ -157,7 +147,7 @@ export class BranchDialog implements OnInit {
   }
 
   protected async create(): Promise<void> {
-    const first = this.firstMessage();
+    const first = this.message().trim();
     if (this.saving() || !first) return;
     this.saving.set(true);
     const quote = this.quote().trim();
@@ -170,9 +160,6 @@ export class BranchDialog implements OnInit {
     };
     const branch = await this.store.startBranch(req, first);
     this.saving.set(false);
-    if (branch) {
-      this.state().onCreated?.();
-      this.close();
-    }
+    if (branch) this.close();
   }
 }

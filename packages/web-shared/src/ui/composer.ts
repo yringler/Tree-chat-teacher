@@ -212,9 +212,20 @@ export function labelParts(label: string): { name: string; glyph: string } {
   return m?.[1] && m[2] ? { name: m[1], glyph: m[2] } : { name: label, glyph: '' };
 }
 
-/** The composer rule's ways to send (`composerPlan`) as the box's buttons. */
-export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
-  return sends.map((s) => ({ id: s.id, label: s.label, title: s.hint, primary: s.primary }));
+/**
+ * The composer rule's ways to send (`composerPlan`) as the box's buttons;
+ * `options` gives an action a caret for the host's options (power's Tangent
+ * from here), as that caret's tooltip.
+ */
+export function sendActions(
+  sends: readonly ComposerSend[],
+  options: Partial<Record<ComposerSend['id'], string>> = {},
+): ComposerAction[] {
+  return sends.map((s) => {
+    const action = { id: s.id, label: s.label, title: s.hint, primary: s.primary };
+    const caret = options[s.id];
+    return caret ? { ...action, options: caret } : action;
+  });
 }
 
 /**
@@ -360,8 +371,6 @@ export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
             [class.btn-sm]="compact()"
             [disabled]="disabled() || !text().trim()"
             [attr.aria-label]="sendLabel()"
-            [attr.title]="sendTitle()"
-            [attr.aria-description]="sendTitle()"
           >
             <app-icon name="send" [size]="iconSize()" />
             @if (!compact()) {
@@ -380,8 +389,6 @@ export class Composer {
   readonly label = input('Message');
   readonly inputId = input('composer-input');
   readonly sendLabel = input('Send');
-  /** What sending does, as Send's tooltip and description (none by default). */
-  readonly sendTitle = input<string | null>(null);
   readonly stopLabel = input('Stop the reply');
   /** The branch this box writes in, where a page has one box per branch (the canvas's lanes). */
   readonly branchId = input<string | null>(null);

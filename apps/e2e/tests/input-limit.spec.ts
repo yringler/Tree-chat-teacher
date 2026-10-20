@@ -122,11 +122,13 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
 
   // A send carries the limit, and only the newest messages reach the model.
   const composer = page.getByRole('textbox', { name: 'Message' });
+  // Next ➜: the message goes on in the thread (after a reply the box offers it beside Tangent ↳).
+  const next = page.locator('.composer-dock').getByRole('button', { name: 'Next', exact: true });
   await composer.fill('And what next?');
   const asked = page.waitForRequest(
     (r) => r.method() === 'POST' && r.url().endsWith(`/api/branches/${t.trunkBranchId}/messages`),
   );
-  await page.getByRole('button', { name: 'Send message' }).click();
+  await next.click();
   expect((await asked).postDataJSON()).toEqual({
     content: 'And what next?',
     maxInputTokens: 3000,
@@ -153,7 +155,7 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
   const again = page.waitForRequest(
     (r) => r.method() === 'POST' && r.url().endsWith(`/api/branches/${t.trunkBranchId}/messages`),
   );
-  await page.getByRole('button', { name: 'Send message' }).click();
+  await next.click();
   expect((await again).postDataJSON()).toEqual({ content: 'One more?', maxInputTokens: 3000 });
   await expect(
     page.getByText(/Fake reply \(fake-1\) to \d+ message\(s\): "One more\?"/),

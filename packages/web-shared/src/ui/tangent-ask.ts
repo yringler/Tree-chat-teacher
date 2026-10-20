@@ -4,8 +4,6 @@ import {
   Component,
   effect,
   ElementRef,
-  inject,
-  Injector,
   input,
   model,
   output,
@@ -23,9 +21,9 @@ import { Icon } from './icon';
  * parent owns the text (`text`, cleared once the branch is created) and the
  * branching (`ask`).
  *
- * `expandable` (power, canvas): a one-line field that grows into a few lines
- * on focus, with Send and a gear (`settings`: the branch dialog, carrying the
- * text). Otherwise (Learn) a plain one-line input. Enter sends; Shift+Enter
+ * `expandable` (Canvas): a one-line field that grows into a few lines on
+ * focus, with Send and a gear (`settings`: the branch dialog, carrying the
+ * text). Otherwise a plain one-line input. Enter sends; Shift+Enter
  * is a newline in the expanded field, and as in the composer, so is a plain
  * Enter on a touch screen, where only Ask (or Ctrl or Cmd+Enter) sends;
  * Escape folds it.
@@ -132,13 +130,8 @@ export class TangentAsk {
   readonly placeholder = input('Ask your own question…');
   /** Accessible name of the field (what happens to the question). */
   readonly label = input.required<string>();
-  /** Grows into a few lines with Send and a gear when focused (power, canvas). */
+  /** Grows into a few lines with Send and a gear when focused (Canvas). */
   readonly expandable = input(false);
-  /**
-   * Scroll the grown field into view (in a scrolling list; not on a canvas,
-   * which moves by its own transform).
-   */
-  readonly reveal = input(false);
   /** The gear's label; null for no gear. */
   readonly settingsLabel = input<string | null>(null);
   readonly disabled = input(false);
@@ -155,8 +148,6 @@ export class TangentAsk {
   /** The gear: the trimmed question (possibly empty), for the branch dialog to send. */
   readonly settings = output<string>();
 
-  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly injector = inject(Injector);
   protected readonly expanded = signal(false);
   /** No pointer hovers: a plain Enter in the grown field is a newline, and the keyboard's key says so. */
   protected readonly touch = !pointerHovers();
@@ -207,27 +198,14 @@ export class TangentAsk {
   }
 
   protected expand(): void {
-    if (!this.expandable() || this.expanded()) return;
-    this.expanded.set(true);
-    // Under the last reply the grown field and its buttons would sit below the fold.
-    afterNextRender(() => this.revealAll(), { injector: this.injector });
-  }
-
-  /**
-   * Keeps the whole item, buttons included, in view while it grows. Instant:
-   * typing right away would cut a smooth scroll short.
-   */
-  private revealAll(): void {
-    if (this.reveal()) this.host.nativeElement.scrollIntoView?.({ block: 'nearest' });
+    if (this.expandable()) this.expanded.set(true);
   }
 
   protected onInput(el: HTMLTextAreaElement): void {
     this.text.set(el.value);
     // Typing into a folded field (focus kept after folding it) grows it again.
     if (!this.expanded()) this.expand();
-    const before = el.offsetHeight;
     this.autosize(el);
-    if (el.offsetHeight > before) this.revealAll();
   }
 
   protected onKey(e: KeyboardEvent): void {

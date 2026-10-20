@@ -136,6 +136,17 @@ describe('Composer helpers', () => {
       { id: 'tangent', label: 'Tangent ↳', title: 'Explore.', primary: true },
       { id: 'next', label: 'Next ➜', title: 'Go on.', primary: false },
     ]);
+    // Options for one of them give it a caret.
+    expect(sendActions(sends, { tangent: 'With options.' })).toEqual([
+      {
+        id: 'tangent',
+        label: 'Tangent ↳',
+        title: 'Explore.',
+        primary: true,
+        options: 'With options.',
+      },
+      { id: 'next', label: 'Next ➜', title: 'Go on.', primary: false },
+    ]);
   });
 
   it("parts an action's label into the words read out and the glyph that only shows", () => {

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '../testing';
 import { TangentAsk } from './tangent-ask';
 
-/** The grown "Ask your own" field, as power and Canvas show it. */
+/** The grown "Ask your own" field, as Canvas shows it. */
 async function tangentAsk() {
   const r = await render(TangentAsk, {
     inputs: { label: 'Ask on a new tangent', expandable: true },

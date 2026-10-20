@@ -6,15 +6,10 @@ export interface BranchDialogState {
   fromNodeId: string;
   /** Text the user had selected inside the source message, if any. */
   quote: string | null;
-  /**
-   * The first message, already written ("Ask your own" under a reply, via its
-   * gear): the dialog sends it and asks for no starting message of its own.
-   */
+  /** What the message box held (Tangent ↳'s caret): the starting message starts as it. */
   message?: string;
   /** The route the tangent starts on (a reviewer's model), instead of the parent's. */
   route?: { providerId: string; funding: BranchFunding; model: string };
-  /** Called once the branch exists (e.g. to clear the field the message came from). */
-  onCreated?: () => void;
 }
 
 /** "Link…" on a message: the dialog that picks the other end. */

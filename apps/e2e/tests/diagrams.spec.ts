@@ -116,8 +116,11 @@ test('power: a selection inside a diagram quotes its whole source', async ({
     }
     throw new Error('no label');
   });
-  const bar = page.locator('app-selection-ask');
-  await bar.getByRole('button', { name: /^More: Tangent from here/ }).click();
+  await page.locator('app-selection-ask').getByRole('button', { name: 'Ask about this' }).click();
+  await page
+    .locator('.composer-dock')
+    .getByRole('button', { name: 'Tangent with options…' })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue(
     '```mermaid\n' + FLOWCHART + '```',

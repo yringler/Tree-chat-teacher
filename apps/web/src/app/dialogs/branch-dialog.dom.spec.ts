@@ -147,14 +147,26 @@ describe('Tangent from here (power)', () => {
     );
   });
 
-  it('a question carried from "Ask your own" is the first message, cleared once created', async () => {
-    const onCreated = vi.fn();
-    const d = await open({ message: 'Why does it bend?', onCreated });
-    expect(screen.queryByRole('textbox', { name: /Starting message/ })).toBeNull();
-    expect(screen.getByText('Why does it bend?')).toBeTruthy();
+  it('opened from the message box, its starting message is what was typed there, still editable', async () => {
+    const d = await open({ message: 'Why does it bend?' });
+    const starting = field(/Starting message/);
+    expect(starting.value).toBe('Why does it bend?');
+    await d.user.type(starting, ' So much?');
     await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
-    expect(d.store.startBranch).toHaveBeenCalledWith(expect.anything(), 'Why does it bend?');
-    expect(onCreated).toHaveBeenCalledTimes(1);
+    expect(d.store.startBranch).toHaveBeenCalledWith(
+      expect.anything(),
+      'Why does it bend? So much?',
+    );
+  });
+
+  it('Ctrl+Enter in any field creates and asks', async () => {
+    const d = await open({ message: 'Why?' });
+    await d.user.click(field(/^Anchor quote/));
+    await d.user.keyboard('{Control>}{Enter}{/Control}');
+    expect(d.store.startBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ anchorQuote: 'a wave' }),
+      'Why?',
+    );
   });
 
   it('off a branch the membership locks, starts on Tangent credit, keeping the model', async () => {

@@ -165,11 +165,10 @@ describe('MessageItem: a finished reply', () => {
     button('Tangent ↳');
   });
 
-  it('with nothing left to generate on, offers no new branch, review or question; links stay', async () => {
+  it('with nothing left to generate on, offers no new branch or review; links stay', async () => {
     await message('a1', { lapsed: true });
     expect(names()).not.toContain('Tangent ↳');
     expect(names()).not.toContain('Review');
-    expect(screen.queryByRole('textbox', { name: /Ask your own/ })).toBeNull();
     button('Link…');
     button('Copy message');
   });
@@ -187,8 +186,8 @@ describe('TangentNav: Dig deeper and Suggested tangents', () => {
     const side = within(group('Suggested tangents'));
     side.getByRole('button', { name: start('Interference') });
     side.getByRole('button', { name: 'Start a tangent: Photons' });
-    // "Ask your own" comes after the suggestions.
-    screen.getByRole('textbox', { name: 'Ask your own question in a new tangent' });
+    // A question of the user's own goes in the message box, not in a field here.
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 
   it('Dig deeper shows on an older reply too, and opens a tangent', async () => {
@@ -216,18 +215,6 @@ describe('TangentNav: Dig deeper and Suggested tangents', () => {
       within(group('Suggested tangents')).getByRole('button', { name: start('Interference') }),
     );
     expect(follow).toHaveBeenCalledWith('a1', 'Interference');
-  });
-
-  it('asks your own question in a new tangent, emptying the field once asked', async () => {
-    const m = await message('a1');
-    const askFrom = vi.spyOn(m.store, 'askFrom').mockResolvedValue(branch('new'));
-    const field = screen.getByRole<HTMLTextAreaElement>('textbox', {
-      name: 'Ask your own question in a new tangent',
-    });
-    await m.user.type(field, 'Why does it bend?');
-    await m.user.click(button('Ask'));
-    expect(askFrom).toHaveBeenCalledWith('a1', 'Why does it bend?');
-    await vi.waitFor(() => expect(field.value).toBe(''));
   });
 
   it('on a thread the membership locks, suggestions fold and say why; one followed still opens', async () => {
@@ -259,9 +246,6 @@ describe('TangentNav: Dig deeper and Suggested tangents', () => {
       name: /^Open tangent: Photons/,
     });
     expect(photons.disabled).toBe(false);
-    expect(
-      screen.getByRole<HTMLTextAreaElement>('textbox', { name: /Ask your own/ }).disabled,
-    ).toBe(true);
   });
 
   it('a reply still being written offers no suggestions yet', async () => {

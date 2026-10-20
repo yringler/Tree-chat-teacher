@@ -46,16 +46,15 @@ In power, Learn and the Flutter and phone apps, opening a tangent shows it from 
 
 ## The power app
 
-- **Replying** in the message box (**Send**, whose tooltip reads **Next ➜**) continues the thread on screen; on a phone or tablet `Enter` starts a new line and only **Send** sends. Anything new is meant to be a tangent, a click away.
-- **Ask about this:** select text in a finished message and **Ask about this** appears above the message box. It puts the words on the message box ("Ask about this…"), focused: your next message asks about them in a new tangent that quotes them (**Compare** waits until then), and **×** takes them off. Its gear (**More**) opens **Tangent from here** with the quote filled in. Selecting and pressing `b` puts the words on the message box too; `Shift+B` opens the dialog with them.
+- **Replying:** the message box works as in [Learn](#learn). After a reply, **Tangent ↳** sends your message as a new tangent from the reply you're on and **Next ➜** as the next message of the thread you're in; `Enter` sends with the filled one (**Tangent ↳** on the main thread, **Next ➜** inside a tangent) and `Ctrl`/`Cmd+Enter` with the other. On a phone or tablet `Enter` starts a new line and only the buttons send. **Compare** sits beside them. The caret on **Tangent ↳** (or `Ctrl`/`Cmd+Shift+Enter`) opens **Tangent from here** from the same reply, with the words on the box as its quote and what you typed as its starting message; the box empties once that message is asked, and **Cancel** leaves it as it was. A question of your own about an earlier reply starts from that reply's **Tangent ↳**, below.
+- **Ask about this:** select text in a finished message and **Ask about this** appears above the message box. It puts the words on the message box ("Ask about this…"), focused: your next message asks about them in a new tangent that quotes them (**Compare** waits until then), and **×** takes them off. The caret on the box's **Tangent ↳** then opens **Tangent from here** with the quote filled in. Selecting and pressing `b` puts the words on the message box too; `Shift+B` opens the dialog with them.
 - **Tangent ↳**, on any message, puts that message on the message box ("Tangent from “…”"), or the words you highlighted in it, and focuses the box: your next message asks about it in a new tangent, and **×** takes it off. `b` does the same for the focused (or latest) reply. On a thread the membership locks, which has no message box, it opens **Tangent from here** instead.
-- **Tangent from here** (`Shift+B` on the focused message) sets a tangent up before it starts: quote highlighted text, write the starting message (`Ctrl`/`Cmd+Enter` creates and asks), pick a context mode, provider and model. It starts on the route the bar under the message box shows, or on a new conversation's default where that one can't reply in this browser. A tangent starts with its first message, so **Create and ask** waits for one, and cancelling makes nothing. There is no title field: a tangent is named after its first reply; rename it in **Tangent settings** or in the outline.
+- **Tangent from here** (`Shift+B` on the focused message, or the caret on the message box's **Tangent ↳**) sets a tangent up before it starts: quote highlighted text, write the starting message (`Ctrl`/`Cmd+Enter` in any field creates and asks), pick a context mode, provider and model. It starts on the route the bar under the message box shows, or on a new conversation's default where that one can't reply in this browser. A tangent starts with its first message, so **Create and ask** waits for one, and cancelling makes nothing. There is no title field: a tangent is named after its first reply; rename it in **Tangent settings** or in the outline.
 - **Context modes** decide what the model sees in a tangent:
   - `path`: everything its parent saw, plus the tangent's own messages;
   - `summary`: a summary of the parent's conversation;
   - `message`: only the message the tangent starts from, plus the quote;
   - `independent`: only the quote or topic.
-- **Ask your own question…** ends every finished reply's suggestions, after **Dig deeper** and **Suggested tangents**, and stays in view when they fold. On the newest reply it is already open, without taking focus. Enter asks in a new `path` tangent (Shift+Enter for a new line; on a phone or tablet `Enter` starts one too, and only **Ask** asks; Escape folds it); its gear opens **Tangent from here** with the question.
 - **Your tangents** under a message lists the tangents started from it, each with its context mode and message count. Breadcrumbs and **↩ Parent message** go back to the exact message a tangent started from.
 - **Deleting a tangent**, with everything below it, after a confirmation: the trash beside it under a message's **Your tangents**, beside **↩ Parent message**, in the outline or in **Tangent settings**. Conversations delete from the home page and the sidebar.
 - **Deleting a message**: the trash on one of your messages deletes it with everything after it in its thread, the later messages and the tangents started from them, after a confirmation that counts them. Deleting a tangent's first message deletes the tangent. There is no editing a message: delete it and ask again.
@@ -75,23 +74,26 @@ In power, Learn and the Flutter and phone apps, opening a tangent shows it from 
 
 ### Keyboard shortcuts
 
-| Keys              | Action                                                                         |
-| ----------------- | ------------------------------------------------------------------------------ |
-| `Alt+↑` or `[`    | Parent thread (where this tangent started)                                     |
-| `Alt+←` / `Alt+→` | Previous / next tangent                                                        |
-| `Alt+↓` or `]`    | First tangent from here                                                        |
-| `j` / `k`         | Next / previous message                                                        |
-| `Home` / `End`    | Start / end of the thread                                                      |
-| `b`               | Put the selected words, else the focused (or latest) reply, on the message box |
-| `Shift+B`         | Open Tangent from here for the focused (or latest) message                     |
-| `v`               | Review up to the focused (or latest) reply                                     |
-| `l`               | Link the focused (or latest) message to another                                |
-| `/`               | Focus the message box                                                          |
-| `i`               | Context Inspector                                                              |
-| `+` / `-`         | Larger / smaller conversation text                                             |
-| `0`               | Reset the text size                                                            |
-| `?`               | Show all shortcuts                                                             |
-| `Esc`             | Close dialogs and panels, stop picking a message to link                       |
+| Keys               | Action                                                                         |
+| ------------------ | ------------------------------------------------------------------------------ |
+| `Alt+↑` or `[`     | Parent thread (where this tangent started)                                     |
+| `Alt+←` / `Alt+→`  | Previous / next tangent                                                        |
+| `Alt+↓` or `]`     | First tangent from here                                                        |
+| `j` / `k`          | Next / previous message                                                        |
+| `Home` / `End`     | Start / end of the thread                                                      |
+| `b`                | Put the selected words, else the focused (or latest) reply, on the message box |
+| `Shift+B`          | Open Tangent from here for the focused (or latest) message                     |
+| `v`                | Review up to the focused (or latest) reply                                     |
+| `l`                | Link the focused (or latest) message to another                                |
+| `/`                | Focus the message box                                                          |
+| `Enter`            | Send with the filled button: a tangent on the main thread, Next inside one     |
+| `Ctrl+Enter`       | Send with the other button                                                     |
+| `Ctrl+Shift+Enter` | Open Tangent from here with what you typed                                     |
+| `i`                | Context Inspector                                                              |
+| `+` / `-`          | Larger / smaller conversation text                                             |
+| `0`                | Reset the text size                                                            |
+| `?`                | Show all shortcuts                                                             |
+| `Esc`              | Close dialogs and panels, stop picking a message to link                       |
 
 ### Without a membership
 
@@ -127,7 +129,7 @@ A view of the same conversations: anything started in power or Learn opens on th
 - **Every thread is a lane** on one pannable, zoomable surface, a tangent's lane hanging to the right of the message it starts from. The curve's stroke shows its context mode (solid `path`, dashed `summary`, dash-dot `message`, dotted `independent`).
 - **Every lane has its own message box and streams on its own;** the bar counts how many are writing.
 - **Tangent from here, in variants:** the tangent button opens one lane or several at once, each with its own mode and model, and the starting message they all start with ("Every context mode" asks the same question three ways).
-- **Dig deeper**, **Suggested tangents**, **Ask your own** and **Ask about this** work as in power: each opens a new lane. **Ask about this** opens a box over the canvas for your question, with the quote; the lane opens once you ask it, and Escape or **×** drops it. The lanes started from a card show on it as chips, under **Your tangents**.
+- **Dig deeper**, **Suggested tangents** and **Ask about this** work as in power, and **Ask your own question…** ends each finished reply's suggestions, in view when they fold (open on the selected lane's newest card): each opens a new lane. In **Ask your own**, Enter asks (Shift+Enter for a new line; on a phone or tablet `Enter` starts one too, and only **Ask** asks; Escape folds it), and its gear opens **Tangent from here** with the question. **Ask about this** opens a box over the canvas for your question, with the quote; the lane opens once you ask it, and Escape or **×** drops it. The lanes started from a card show on it as chips, under **Your tangents**.
 - **Lineage:** with a lane selected, the cards the model would see light up; summarized and dropped ones are marked.
 - **Fold** a lane's subtree into a capsule; a minimap and keyboard navigation (`?` lists it) cover the rest.
 - **Links** across lanes: drag the port on a card's edge onto another card, or press `r` for pick mode.

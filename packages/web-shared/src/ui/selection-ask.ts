@@ -72,11 +72,12 @@ export class PendingQuote {
 
 /**
  * "Ask about this": the floating action for text selected in a message. The
- * main button branches at once (the page decides how: Learn and power open
- * a tangent quoting it, ready to type); `moreLabel` adds a gear for
- * the full branch dialog with the quote filled in. Mousedown is cancelled
- * on both, so pressing them doesn't drop the selection they act on. Each app
- * positions the host.
+ * main button branches at once (the page decides how: Learn and power put
+ * the words on the message box, ready to type); `moreLabel` adds a gear for
+ * the full branch dialog with the quote filled in (Canvas; power's message
+ * box has Tangent ↳'s caret for that). Mousedown is cancelled on both, so
+ * pressing them doesn't drop the selection they act on. Each app positions
+ * the host.
  */
 @Component({
   selector: 'app-selection-ask',

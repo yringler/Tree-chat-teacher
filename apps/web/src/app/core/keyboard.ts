@@ -27,6 +27,12 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['v'], label: 'Review up to the focused (or latest) reply' },
   { keys: ['l'], label: 'Link the focused (or latest) message to another' },
   { keys: ['/'], label: 'Focus the composer' },
+  {
+    keys: ['Enter'],
+    label: 'Send with the filled button: a tangent on the main thread, Next inside a tangent',
+  },
+  { keys: ['Ctrl+Enter'], label: 'Send with the other button' },
+  { keys: ['Ctrl+Shift+Enter'], label: 'Open Tangent from here with what you typed' },
   { keys: ['i'], label: 'Toggle the context inspector' },
   { keys: ['+', '-'], label: 'Larger / smaller conversation text' },
   { keys: ['0'], label: 'Reset the conversation text size' },
