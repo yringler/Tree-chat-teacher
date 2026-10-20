@@ -94,6 +94,14 @@ export class PowerAccountStore {
   );
 
   /**
+   * Tangent credit can pay for a reply now (`creditCanPay`: a balance read
+   * and above zero), so a new conversation may start on it.
+   */
+  readonly creditCanPay = computed(() =>
+    creditCanPay(this.me()?.builtInCredit ?? false, this.billing()),
+  );
+
+  /**
    * How Learn would reply to a read-only conversation without a membership
    * (`learnWay`): the open pool while it is on, else Tangent credit while it
    * carries on; null when neither, and the read-only notice then leaves Learn out.
@@ -153,7 +161,7 @@ export class PowerAccountStore {
     const builtInCredit = this.me()?.builtInCredit ?? false;
     if (builtInCredit && !this.billingRead()) return null;
     return pickDefaultRoute(this.providers(), {
-      creditCanPay: creditCanPay(builtInCredit, this.billing()),
+      creditCanPay: this.creditCanPay(),
       creditBuyable: creditBuyable(builtInCredit, this.billing()),
       ownKeyLocked: this.lockedFundings().has('own-key'),
     });

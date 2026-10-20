@@ -120,21 +120,23 @@ export class TierStore {
 
   /**
    * The route and model a new conversation starts on (the home page): your
-   * Normal from Settings while its route can generate (`openRoutes`) and
-   * allows the model, else the default route (`defaultProvider`) on its
-   * default model. Never the suggested Normal: that may be on a payer other
-   * than the default, and who pays is the user's to pick. Null until the
-   * default route is known.
+   * Normal from Settings while its route can reply and allows the model,
+   * else the default route (`defaultProvider`) on its default model. A route
+   * can reply when it is open (`openRoutes`) and, on Tangent credit, the
+   * balance can pay (`creditCanPay`), as the default route asks: credit that
+   * could only be bought would answer the first send with a 402. Never the
+   * suggested Normal: that may be on a payer other than the default, and who
+   * pays is the user's to pick. Null until the default route is known.
    */
   starting(): ModelChoice | null {
-    const fallback = this.tree.account.defaultProvider();
+    const account = this.tree.account;
+    const fallback = account.defaultProvider();
     if (!fallback) return null;
     const normal = this.settings.settings().tiers.normal;
-    const p = normal ? this.tree.account.providerOf(normal) : undefined;
-    return normal &&
-      p &&
-      this.tree.account.openRoutes().includes(p) &&
-      isModelAllowed(p, normal.model)
+    const p = normal ? account.providerOf(normal) : undefined;
+    const canReply =
+      !!p && account.openRoutes().includes(p) && (p.funding !== 'credit' || account.creditCanPay());
+    return normal && p && canReply && isModelAllowed(p, normal.model)
       ? choiceOn(p, normal.model)
       : choiceOn(fallback, fallback.defaultModel);
   }

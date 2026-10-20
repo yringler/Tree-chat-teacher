@@ -42,11 +42,16 @@ const ANTHROPIC = provider({
 });
 
 /**
- * The home page for a member offered Tangent credit with $2 of it, over
- * `providers`, with the Normal and Max of `tiers` (Settings).
+ * The home page for a member offered Tangent credit with $2 of it (or
+ * `availableMicros`; top-ups are sold), over `providers`, with the Normal
+ * and Max of `tiers` (Settings).
  */
-async function home(providers: ProviderInfo[], tiers?: AppSettings['tiers']) {
-  const api = { billing: vi.fn(async () => billing({ availableMicros: 2_000_000 })) };
+async function home(
+  providers: ProviderInfo[],
+  tiers?: AppSettings['tiers'],
+  availableMicros = 2_000_000,
+) {
+  const api = { billing: vi.fn(async () => billing({ availableMicros })) };
   await render(HomePage, {
     providers: powerProviders(TreeStore, api),
     setup: async () => {
@@ -87,6 +92,17 @@ describe('A new conversation', () => {
       max: null,
     });
     expect(providerField().value).toBe('openrouter@credit');
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Model' }).value).toBe(HAIKU);
+  });
+
+  it('starts on your own key, not on your Normal on Tangent credit, when no credit is left', async () => {
+    // Top-ups are sold, but the first send on an empty balance would get a 402.
+    await home(
+      [ownKey(), CREDIT],
+      { normal: { providerId: 'openrouter', funding: 'credit', model: PRO }, max: null },
+      0,
+    );
+    expect(providerField().value).toBe('openrouter');
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Model' }).value).toBe(HAIKU);
   });
 
