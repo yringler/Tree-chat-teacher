@@ -16,6 +16,26 @@ import { Icon } from './icon';
 
 let uid = 0;
 
+/** Inputs that take no typing, so focusing them brings up no on-screen keyboard. */
+const NO_TEXT_INPUTS = new Set([
+  'checkbox',
+  'radio',
+  'button',
+  'submit',
+  'reset',
+  'range',
+  'color',
+  'file',
+  'image',
+  'hidden',
+]);
+
+/** A field whose focus brings up the on-screen keyboard. */
+function takesText(el: HTMLElement): boolean {
+  if (el instanceof HTMLTextAreaElement || el.isContentEditable) return true;
+  return el instanceof HTMLInputElement && !NO_TEXT_INPUTS.has(el.type);
+}
+
 /**
  * Modal shell: backdrop, title bar, projected body. Escape closes it from
  * the app's document keydown (`dispatchShortcut`, which closes the top-most
@@ -56,7 +76,7 @@ let uid = 0;
           >
             <p [id]="titleId + '-ask'">Discard your changes?</p>
             <div class="form-actions">
-              <button type="button" class="btn" (click)="discard()">Discard</button>
+              <button type="button" class="btn" (click)="discard()" #discardButton>Discard</button>
               <button type="button" class="btn btn-primary" (click)="keepEditing()" #keep>
                 Keep editing
               </button>
@@ -66,7 +86,7 @@ let uid = 0;
       }
     </section>
   `,
-  host: { class: 'modal-host', '(keydown.escape)': 'onEscape($event)' },
+  host: { class: 'modal-host', '(keydown)': 'onKey($event)' },
 })
 export class Modal implements OnDestroy {
   readonly heading = input.required<string>();
@@ -97,6 +117,7 @@ export class Modal implements OnDestroy {
   /** "Discard your changes?" is showing, over the dialog. */
   protected readonly asking = signal(false);
   private readonly keep = viewChild<ElementRef<HTMLElement>>('keep');
+  private readonly discardButton = viewChild<ElementRef<HTMLElement>>('discardButton');
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   private readonly previouslyFocused =
@@ -171,16 +192,36 @@ export class Modal implements OnDestroy {
   }
 
   /**
+   * A key in the dialog: Escape with any modifier, which the app's keydown
+   * closes on too (`dispatchShortcut`); Tab while it asks, which goes round
+   * the question's two buttons rather than leaving for the page behind.
+   */
+  protected onKey(e: Event): void {
+    if (!(e instanceof KeyboardEvent)) return;
+    if (e.key === 'Escape') this.onEscape(e);
+    else if (e.key === 'Tab' && this.asking()) this.tabRound(e);
+  }
+
+  /**
    * Escape, when this is the top-most dialog: asks first while there are
    * unsaved edits, and taking the key keeps the app from closing the dialog;
    * on the question, keeps editing. Otherwise the app's keydown closes it.
    */
-  protected onEscape(e: Event): void {
-    if (!(e instanceof KeyboardEvent) || e.defaultPrevented || e.isComposing) return;
+  private onEscape(e: KeyboardEvent): void {
+    if (e.defaultPrevented || e.isComposing) return;
     if (!this.isTop() || !(this.asking() || this.dirty()())) return;
     e.preventDefault();
     if (this.asking()) this.keepEditing();
     else this.ask();
+  }
+
+  /** The question has two buttons: Tab and Shift+Tab both move to the other one. */
+  private tabRound(e: KeyboardEvent): void {
+    const discard = this.discardButton()?.nativeElement;
+    const keep = this.keep()?.nativeElement;
+    if (!discard || !keep) return;
+    e.preventDefault();
+    (document.activeElement === discard ? keep : discard).focus();
   }
 
   protected noteFocus(e: FocusEvent): void {
@@ -193,17 +234,20 @@ export class Modal implements OnDestroy {
     afterNextRender(() => this.keep()?.nativeElement.focus(), { injector: this.injector });
   }
 
-  /** Back to the dialog, the focus where it was, the view where it was. */
+  /**
+   * Back to the dialog, the focus where it was, the view where it was. On a
+   * touch screen, never back into a text field: the user had left it, and
+   * its focus would bring the on-screen keyboard back over the sheet.
+   */
   protected keepEditing(): void {
     this.asking.set(false);
     afterNextRender(
       () => {
         const back = this.lastFocus;
         const el = this.host.nativeElement;
-        const target =
-          back?.isConnected && el.contains(back)
-            ? back
-            : el.querySelector<HTMLElement>('.modal-head h2');
+        const usable =
+          back?.isConnected && el.contains(back) && (pointerHovers() || !takesText(back));
+        const target = usable ? back : el.querySelector<HTMLElement>('.modal-head h2');
         target?.focus({ preventScroll: true });
       },
       { injector: this.injector },

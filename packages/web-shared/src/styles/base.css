@@ -956,6 +956,14 @@ app-android-app-banner {
   pointer-events: none;
 }
 
+/*
+ * A control the focus scrolls into view stops above that row and its fade
+ * (34px button, 20px padding, 14px fade), so it never lies hidden under Save.
+ */
+.modal-body:has(> .form > .form-actions:last-child) {
+  scroll-padding-bottom: 72px;
+}
+
 /* "Discard your changes?" (Modal's `dirty`), over the dialog it would close. */
 .modal-ask {
   position: absolute;

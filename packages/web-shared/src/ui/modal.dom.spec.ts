@@ -202,6 +202,56 @@ describe('Modal', () => {
       expect(m.component.closed).not.toHaveBeenCalled();
     });
 
+    it('Escape with a modifier held asks too, as the app closes on any Escape', async () => {
+      const m = await opened({ dirty: true });
+      await m.user.click(screen.getByLabelText('Name'));
+      await m.user.keyboard('{Shift>}{Escape}{/Shift}');
+      expect(ask()).not.toBeNull();
+      screen.getByRole('dialog', { name: 'Settings' });
+      expect(m.component.closed).not.toHaveBeenCalled();
+    });
+
+    it('Tab stays on the question: it goes round its two buttons, not to the page behind', async () => {
+      const m = await opened({ dirty: true });
+      await m.user.click(screen.getByLabelText('Name'));
+      await m.user.keyboard('{Escape}');
+      await vi.waitFor(() => expect(document.activeElement).toBe(keepEditing()));
+      const discard = screen.getByRole('button', { name: 'Discard' });
+      await m.user.tab();
+      expect(document.activeElement).toBe(discard);
+      await m.user.tab();
+      expect(document.activeElement).toBe(keepEditing());
+      await m.user.tab({ shift: true });
+      expect(document.activeElement).toBe(discard);
+      await m.user.tab({ shift: true });
+      expect(document.activeElement).toBe(keepEditing());
+    });
+
+    describe('on a touch screen (no hover)', () => {
+      beforeEach(() =>
+        vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(hover: none)' })),
+      );
+      afterEach(() => vi.unstubAllGlobals());
+
+      it('Keep editing leaves a text field it was in alone, so no keyboard comes up: the heading takes the focus', async () => {
+        const m = await opened({ dirty: true });
+        await m.user.click(screen.getByLabelText('Name'));
+        await m.user.click(m.host.querySelector<HTMLElement>('.backdrop')!);
+        await m.user.click(keepEditing());
+        const heading = screen.getByRole('heading', { name: 'Settings' });
+        await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+      });
+
+      it('but returns it to a choice, which brings up no keyboard', async () => {
+        const m = await opened({ dirty: true });
+        const radio = screen.getByRole('radio', { name: 'Auto' });
+        await m.user.click(radio);
+        await m.user.click(m.host.querySelector<HTMLElement>('.backdrop')!);
+        await m.user.click(keepEditing());
+        await vi.waitFor(() => expect(document.activeElement).toBe(radio));
+      });
+    });
+
     it('Escape on the question keeps editing', async () => {
       const m = await opened({ dirty: true });
       const name = screen.getByLabelText('Name');
