@@ -160,14 +160,14 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
           <app-tangent-ask
             [(text)]="askText"
             label="Ask your own question in a new lane"
-            settingsLabel="Lane settings: context, model, variants…"
+            options="Ask with options: context, model, variants…"
             [expandable]="true"
             [busy]="asking()"
             [latest]="latest()"
             [disabled]="locked()"
             disabledTitle="Asking needs a membership (this lane is on your own key)"
             (ask)="ask($event)"
-            (settings)="askWithSettings($event)"
+            (openOptions)="askWithOptions($event)"
           />
         }
       </app-suggestion-groups>
@@ -321,8 +321,8 @@ export class Card {
     }
   }
 
-  /** The gear: the branch dialog (variants and all), asking the question once the lanes exist. */
-  protected askWithSettings(text: string): void {
+  /** Ask's caret: the branch dialog (variants and all), asking the question once the lanes exist. */
+  protected askWithOptions(text: string): void {
     this.ui.dialogs.open({
       kind: 'branch',
       fromNodeId: this.node().id,

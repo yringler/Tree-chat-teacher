@@ -22,11 +22,11 @@ import { Icon } from './icon';
  * branching (`ask`).
  *
  * `expandable` (Canvas): a one-line field that grows into a few lines on
- * focus, with Send and a gear (`settings`: the branch dialog, carrying the
- * text). Otherwise a plain one-line input. Enter sends; Shift+Enter
- * is a newline in the expanded field, and as in the composer, so is a plain
- * Enter on a touch screen, where only Ask (or Ctrl or Cmd+Enter) sends;
- * Escape folds it.
+ * focus, with Ask and, given `options`, a caret joined to it as on the
+ * composer's actions (`openOptions`: the branch dialog, carrying the text).
+ * Otherwise a plain one-line input. Enter sends; Shift+Enter is a newline in
+ * the expanded field, and as in the composer, so is a plain Enter on a touch
+ * screen, where only Ask (or Ctrl or Cmd+Enter) sends; Escape folds it.
  *
  * `latest` marks the newest reply's item, the natural place to ask next: it
  * is drawn a little stronger, and an expandable one starts grown (without
@@ -90,18 +90,6 @@ import { Icon } from './icon';
           >
             <app-icon name="chevronUp" [size]="15" />
           </button>
-          @if (settingsLabel(); as gear) {
-            <button
-              type="button"
-              class="icon-btn"
-              [attr.aria-label]="gear"
-              [title]="gear"
-              [disabled]="disabled() || busy()"
-              (click)="settings.emit(text().trim())"
-            >
-              <app-icon name="gear" [size]="15" />
-            </button>
-          }
           <button
             type="submit"
             class="btn btn-primary btn-sm"
@@ -109,6 +97,20 @@ import { Icon } from './icon';
           >
             <app-icon name="send" [size]="14" /> {{ busy() ? 'Starting…' : 'Ask' }}
           </button>
+          @if (options(); as tip) {
+            <button
+              type="button"
+              class="btn btn-primary btn-sm tangent-ask-caret"
+              aria-haspopup="dialog"
+              aria-label="Ask with options…"
+              [title]="tip"
+              [attr.aria-description]="tip"
+              [disabled]="disabled() || busy()"
+              (click)="openOptions.emit(text().trim())"
+            >
+              <app-icon name="chevronDown" [size]="14" />
+            </button>
+          }
         </div>
       } @else if (!expandable() && text().trim()) {
         <button
@@ -130,10 +132,10 @@ export class TangentAsk {
   readonly placeholder = input('Ask your own question…');
   /** Accessible name of the field (what happens to the question). */
   readonly label = input.required<string>();
-  /** Grows into a few lines with Send and a gear when focused (Canvas). */
+  /** Grows into a few lines with Ask (and its caret) when focused (Canvas). */
   readonly expandable = input(false);
-  /** The gear's label; null for no gear. */
-  readonly settingsLabel = input<string | null>(null);
+  /** What Ask's options are, as its caret's tooltip ("Ask with options: …"); null for no caret. */
+  readonly options = input<string | null>(null);
   readonly disabled = input(false);
   /** Why it is disabled, as a tooltip. */
   readonly disabledTitle = input<string | null>(null);
@@ -145,8 +147,8 @@ export class TangentAsk {
   readonly focusOnOpen = input(false);
   /** Send: the trimmed, non-empty question. */
   readonly ask = output<string>();
-  /** The gear: the trimmed question (possibly empty), for the branch dialog to send. */
-  readonly settings = output<string>();
+  /** The caret: the trimmed question (possibly empty), for the branch dialog to send. */
+  readonly openOptions = output<string>();
 
   protected readonly expanded = signal(false);
   /** No pointer hovers: a plain Enter in the grown field is a newline, and the keyboard's key says so. */

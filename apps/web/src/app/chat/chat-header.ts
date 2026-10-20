@@ -30,7 +30,7 @@ import { ExportMenu } from './export-menu';
             title="Conversation settings"
             (click)="ui.dialogs.open({ kind: 'tree-settings' })"
           >
-            <app-icon name="settings" /> <span class="hide-narrow">Conversation</span>
+            <app-icon name="sliders" /> <span class="hide-narrow">Conversation</span>
           </button>
           <!-- Shares and exports are made by the server; the demo has none. Public links
                only while this user may publish them (MeResponse.sharing); export always. -->
@@ -132,7 +132,7 @@ import { ExportMenu } from './export-menu';
               title="Tangent settings"
               (click)="ui.dialogs.open({ kind: 'branch-settings' })"
             >
-              <app-icon name="settings" /> <span class="hide-narrow">Tangent</span>
+              <app-icon name="sliders" /> <span class="hide-narrow">Tangent</span>
             </button>
           }
           @if (b.parentBranchId && b.branchPointNodeId) {

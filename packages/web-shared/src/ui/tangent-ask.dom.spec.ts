@@ -5,17 +5,42 @@ import { render } from '../testing';
 import { TangentAsk } from './tangent-ask';
 
 /** The grown "Ask your own" field, as Canvas shows it. */
-async function tangentAsk() {
+async function tangentAsk(inputs: Record<string, unknown> = {}) {
   const r = await render(TangentAsk, {
-    inputs: { label: 'Ask on a new tangent', expandable: true },
+    inputs: { label: 'Ask on a new tangent', expandable: true, ...inputs },
   });
   const ask = vi.fn();
+  const openOptions = vi.fn();
   r.component.ask.subscribe(ask);
+  r.component.openOptions.subscribe(openOptions);
   const field = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Ask on a new tangent' });
-  return { ...r, ask, field, user: userEvent.setup() };
+  return { ...r, ask, openOptions, field, user: userEvent.setup() };
 }
 
 describe('TangentAsk', () => {
+  it("with options, a caret joined to Ask's right opens them with the question, typed or not", async () => {
+    const t = await tangentAsk({ options: 'Ask with options: context, model, variants…' });
+    await t.user.click(t.field);
+    const ask = screen.getByRole('button', { name: 'Ask' });
+    const caret = screen.getByRole('button', { name: 'Ask with options…' });
+    expect(ask.nextElementSibling).toBe(caret);
+    expect(caret.title).toBe('Ask with options: context, model, variants…');
+    expect(caret.getAttribute('aria-haspopup')).toBe('dialog');
+    await t.user.click(caret);
+    expect(t.openOptions).toHaveBeenLastCalledWith('');
+    await t.user.type(t.field, '  And owls? ');
+    await t.user.click(caret);
+    expect(t.openOptions).toHaveBeenLastCalledWith('And owls?');
+    expect(t.ask).not.toHaveBeenCalled();
+  });
+
+  it('without options, Ask stands alone', async () => {
+    const t = await tangentAsk();
+    await t.user.click(t.field);
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /with options/ })).toBeNull();
+  });
+
   it('Enter asks; Shift+Enter starts a new line', async () => {
     const t = await tangentAsk();
     expect(t.field.getAttribute('enterkeyhint')).toBe('send');

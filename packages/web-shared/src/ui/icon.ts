@@ -1,6 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-/** Stroke icons (24×24 viewBox, currentColor). Decorative: pair with a text label or aria-label. */
+/**
+ * Stroke icons (24×24 viewBox, currentColor). Decorative: pair with a text
+ * label or aria-label. Each is named for what it draws, not for a meaning;
+ * what the gear, sliders, caret (`chevronDown`) and pencil (`edit`) mean is
+ * one rule in docs/DECISIONS.md.
+ */
 const PATHS = {
   menu: 'M4 6h16M4 12h16M4 18h16',
   plus: 'M12 5v14M5 12h14',
@@ -19,7 +24,7 @@ const PATHS = {
   next: 'M5 12h14M12 5l7 7-7 7',
   keyboard: 'M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
-  settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6',
+  sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6',
   share: 'M4 12v8h16v-8M12 3v13M7 8l5-5 5 5',
   download: 'M12 3v12M7 10l5 5 5-5M4 21h16',
   upload: 'M12 21V9M7 14l5-5 5 5M4 3h16',

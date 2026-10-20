@@ -73,11 +73,11 @@ export class PendingQuote {
 /**
  * "Ask about this": the floating action for text selected in a message. The
  * main button branches at once (the page decides how: Learn and power put
- * the words on the message box, ready to type); `moreLabel` adds a gear for
- * the full branch dialog with the quote filled in (Canvas; power's message
- * box has Tangent ↳'s caret for that). Mousedown is cancelled on both, so
- * pressing them doesn't drop the selection they act on. Each app positions
- * the host.
+ * the words on the message box, ready to type); `options` joins a caret to
+ * it, as on the composer's actions, for the full branch dialog with the
+ * quote filled in (Canvas; power's message box has Tangent ↳'s caret for
+ * that). Mousedown is cancelled on both, so pressing them doesn't drop the
+ * selection they act on. Each app positions the host.
  */
 @Component({
   selector: 'app-selection-ask',
@@ -95,17 +95,19 @@ export class PendingQuote {
       >
         <app-icon name="tangent" /> {{ label() }}
       </button>
-      @if (moreLabel(); as gear) {
+      @if (options(); as tip) {
         <button
           type="button"
-          class="btn selection-ask-more"
-          [attr.aria-label]="gear"
-          [title]="gear"
+          class="btn btn-primary selection-ask-caret"
+          aria-haspopup="dialog"
+          [attr.aria-label]="label() + ' with options…'"
+          [title]="tip"
+          [attr.aria-description]="tip"
           [disabled]="busy()"
           (mousedown)="$event.preventDefault()"
-          (click)="more.emit()"
+          (click)="openOptions.emit()"
         >
-          <app-icon name="gear" [size]="15" />
+          <app-icon name="chevronDown" [size]="15" />
         </button>
       }
     </div>
@@ -116,9 +118,9 @@ export class SelectionAsk {
   readonly label = input('Ask about this');
   /** Tooltip of the main button: what it does. */
   readonly title = input<string | null>(null);
-  /** The gear's label (the branch dialog); null for no gear. */
-  readonly moreLabel = input<string | null>(null);
+  /** What the options are (the branch dialog), as the caret's tooltip; null for no caret. */
+  readonly options = input<string | null>(null);
   readonly busy = input(false);
   readonly ask = output();
-  readonly more = output();
+  readonly openOptions = output();
 }

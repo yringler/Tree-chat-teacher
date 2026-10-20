@@ -647,10 +647,10 @@ test('Canvas demo: ask your own question in a new lane, inline or through the ta
   // Back on the main thread (the canvas pans to the new lane).
   await page.goBack();
 
-  // The gear: the lanes dialog without a starting message (or a title), asking the question.
+  // Ask's caret: the lanes dialog without a starting message (or a title), asking the question.
   await field.click();
   await field.fill('And owls?');
-  await ask.getByRole('button', { name: /^Lane settings/ }).click();
+  await ask.getByRole('button', { name: 'Ask with options…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('Starting message')).toHaveCount(0);
@@ -794,8 +794,8 @@ test('Canvas demo: "Ask about this" asks in a new lane once the question is sent
   // Select words in the first reply: "Ask about this" asks for the question, making no lane yet.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'a careful hamster');
   const bar = page.locator('app-selection-ask');
-  await expect(bar.getByRole('button', { name: /^More: Tangent from here/ })).toBeVisible();
-  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  await expect(bar.getByRole('button', { name: 'Ask about this with options…' })).toBeVisible();
+  await bar.getByRole('button', { name: 'Ask about this', exact: true }).click();
   const box = page.locator('.quote-ask');
   const question = box.getByRole('textbox', { name: /question about the quoted words/ });
   await expect(box.locator('.composer-quote')).toContainText('a careful hamster');
@@ -808,7 +808,7 @@ test('Canvas demo: "Ask about this" asks in a new lane once the question is sent
 
   // Asked, the path lane quoting the words starts with the question.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'a careful hamster');
-  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  await bar.getByRole('button', { name: 'Ask about this', exact: true }).click();
   await question.fill('Why a hamster?');
   await question.press('Enter');
   await expect(lanes).toHaveCount(4);
@@ -819,9 +819,9 @@ test('Canvas demo: "Ask about this" asks in a new lane once the question is sent
   // The trunk is no longer selected: its open ask folds.
   await expect(page.locator('.tangent-ask.is-expanded')).toHaveCount(0);
 
-  // The gear: the tangent dialog with the quote filled in.
+  // The caret: the tangent dialog with the quote filled in.
   await selectText(trunk.locator('.card-assistant .card-body').first(), 'patient lemon');
-  await bar.getByRole('button', { name: /^More: Tangent from here/ }).click();
+  await bar.getByRole('button', { name: 'Ask about this with options…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('patient lemon');

@@ -63,7 +63,7 @@ export interface RouteView {
           <span class="route-chip-text"
             ><strong>{{ r.label }}</strong> · {{ r.model }}</span
           >
-          <app-icon name="settings" [size]="13" />
+          <app-icon name="sliders" [size]="13" />
         </button>
         @if (r.tiers) {
           <button
