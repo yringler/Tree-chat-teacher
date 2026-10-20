@@ -83,6 +83,9 @@ interface TierRow {
                 #sp
               ></textarea>
             </label>
+            @if (saveError(); as err) {
+              <p class="field-error small" role="alert">Couldn't save it: {{ err }}</p>
+            }
             <div class="settings-buttons">
               <button
                 type="button"
@@ -230,6 +233,8 @@ export class SettingsDialog implements OnInit {
   private readonly defaultPrompt = signal('');
   protected readonly promptLoaded = signal(false);
   protected readonly promptError = signal<string | null>(null);
+  /** Why the last Save couldn't save the prompt, shown under its box. */
+  protected readonly saveError = signal<string | null>(null);
   protected readonly saving = signal(false);
   /** What saving the editor would store: blank, or the built-in text unchanged, is the built-in prompt. */
   private readonly promptToSave = computed(() => {
@@ -318,12 +323,31 @@ export class SettingsDialog implements OnInit {
     this.ui.dialogs.close('settings');
   }
 
+  /**
+   * Saves all or nothing: the prompt goes to the account first, and this
+   * browser's settings change only once it is saved, so after a failed save
+   * Cancel still undoes every edit.
+   */
   protected async save(): Promise<void> {
+    if (this.outputCapInvalid() || this.inputLimitInvalid()) return;
+    const prompt = this.promptToSave();
+    if (this.promptLoaded() && prompt !== this.savedPrompt()) {
+      this.saving.set(true);
+      this.saveError.set(null);
+      try {
+        const res = await this.api.updateSettings({ systemPrompt: prompt });
+        this.savedPrompt.set(res.systemPrompt);
+      } catch (err) {
+        this.saveError.set(errorMessage(err));
+        return; // keep the dialog (and the edits) open
+      } finally {
+        this.saving.set(false);
+      }
+    }
     const reviewer =
       this.custom() && this.route() && this.modelId().trim()
         ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
         : null;
-    if (this.outputCapInvalid() || this.inputLimitInvalid()) return;
     const [normal, max] = this.tierRows.map((row) => this.tierChoice(row));
     this.settings.update({
       reviewer,
@@ -332,19 +356,6 @@ export class SettingsDialog implements OnInit {
       maxInputTokens: this.inputLimit(),
       inputOverflow: this.inputOverflow(),
     });
-    const prompt = this.promptToSave();
-    if (this.promptLoaded() && prompt !== this.savedPrompt()) {
-      this.saving.set(true);
-      try {
-        const res = await this.api.updateSettings({ systemPrompt: prompt });
-        this.savedPrompt.set(res.systemPrompt);
-      } catch (err) {
-        this.store.fail(err);
-        return; // keep the dialog (and the edit) open
-      } finally {
-        this.saving.set(false);
-      }
-    }
     this.toast.notify('Settings saved');
     this.close();
   }
