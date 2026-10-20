@@ -227,6 +227,28 @@ describe('Conversation settings', () => {
     expect(d.dialogs.isOpen('tree-settings')).toBe(false);
   });
 
+  it('when only the main thread’s were saved, Save again sends what changed since', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const d = await open(DialogHost, {}, undefined, null);
+    d.api.updateTree.mockRejectedValueOnce(new ApiError(503, 'network', 'Offline'));
+    d.dialogs.open({ kind: 'tree-settings' });
+    await d.fixture.whenStable();
+    await d.user.type(screen.getByRole('textbox', { name: /^System prompt/ }), 'Be brief.');
+    await d.user.click(screen.getByRole('checkbox', { name: 'Private' }));
+    await d.user.click(screen.getByRole('button', { name: 'Save' }));
+    await d.fixture.whenStable();
+    expect(d.api.updateBranch).toHaveBeenCalledExactlyOnceWith('trunk', { isPrivate: true });
+    expect(d.dialogs.isOpen('tree-settings')).toBe(true);
+
+    // The user takes Private back: the main thread, now private, must hear it.
+    await d.user.click(screen.getByRole('checkbox', { name: 'Private' }));
+    await d.user.click(screen.getByRole('button', { name: 'Save' }));
+    await d.fixture.whenStable();
+    expect(d.api.updateBranch).toHaveBeenLastCalledWith('trunk', { isPrivate: false });
+    expect(d.api.updateTree).toHaveBeenLastCalledWith('t1', { systemPrompt: 'Be brief.' });
+    expect(d.dialogs.isOpen('tree-settings')).toBe(false);
+  });
+
   it('opened from the route chip, opens at the main thread’s replies', async () => {
     const d = await open(DialogHost);
     d.dialogs.open({ kind: 'tree-settings', section: 'replies' });

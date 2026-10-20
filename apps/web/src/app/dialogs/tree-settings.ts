@@ -114,9 +114,9 @@ export class TreeSettings implements OnInit {
   /** Where it opens: at the main thread's replies (the route chip), else at its top. */
   readonly section = input<'replies' | null>(null);
   /**
-   * The tree and its trunk as the form was filled from them. Saving sends
-   * what the user changed from these, not from the live ones: the first
-   * reply may have titled the tree meanwhile.
+   * The tree and its trunk as the form was filled from them, or as last
+   * saved. Saving sends what the user changed from these, not from the live
+   * ones: the first reply may have titled the tree meanwhile.
    */
   private opened: { tree: Tree; trunk: Branch } | null = null;
   protected readonly id = `ts${++uid}`;
@@ -152,7 +152,9 @@ export class TreeSettings implements OnInit {
    * the ones the server may refuse (a model, a payer the membership locks),
    * so a refusal leaves nothing saved. Both must be saved to close: when
    * either fails, its error shows and the dialog stays open with every edit,
-   * so Save tries again.
+   * so Save tries again. When only the main thread's were saved, the next
+   * Save compares with what the server now has, so an edit taken back since
+   * is sent too.
    */
   protected async save(): Promise<void> {
     const opened = this.opened;
@@ -171,9 +173,14 @@ export class TreeSettings implements OnInit {
     if (this.isPrivate() !== trunk.isPrivate) trunkReq.isPrivate = this.isPrivate();
     const changed = (req: object) => Object.keys(req).length > 0;
     this.saving.set(true);
-    const ok =
-      (!changed(trunkReq) || (await this.store.updateBranch(trunk.id, trunkReq))) &&
-      (!changed(treeReq) || (await this.store.updateTree(t.id, treeReq)));
+    let ok = true;
+    if (changed(trunkReq)) {
+      ok = await this.store.updateBranch(trunk.id, trunkReq);
+      if (ok) {
+        this.opened = { ...opened, trunk: this.store.index()?.branches.get(trunk.id) ?? trunk };
+      }
+    }
+    if (ok && changed(treeReq)) ok = await this.store.updateTree(t.id, treeReq);
     this.saving.set(false);
     if (ok) this.close();
   }
