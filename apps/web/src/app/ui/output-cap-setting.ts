@@ -60,7 +60,8 @@ export function effectiveOutputCap(
       <p class="muted small">
         A hard stop: a reply that reaches it is cut off. Models that reason spend part of it on
         hidden thinking, so a low limit can leave a reply empty, and that thinking is still paid
-        for. You pay only for what a reply uses.
+        for. You pay only for what a reply uses. Each model's own limit still applies (on Tangent
+        credit, {{ creditMax }}), whatever you choose here.
       </p>
       <div class="radio-group output-cap-options" role="radiogroup" aria-label="Reply limit">
         <label class="radio">
@@ -114,9 +115,8 @@ export function effectiveOutputCap(
       <details class="more-details">
         <summary>More about reply limits</summary>
         <p>
-          It counts tokens, about ¾ of a word each. Each model's own limit still applies (on Tangent
-          credit, {{ creditMax }}), whatever you choose here. A reply cut off at it keeps what it
-          wrote, and Continue asks the model for the rest.
+          It counts tokens, about ¾ of a word each. A reply cut off at it keeps what it wrote, and
+          Continue asks the model for the rest.
         </p>
       </details>
     </fieldset>

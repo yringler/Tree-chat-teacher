@@ -109,7 +109,8 @@ export function inputLimitNotes(
       <legend>Input limit</legend>
       <p class="muted small">
         Every message re-sends the conversation so far, and you pay for all of it as input. With no
-        limit, only the model's window caps it.
+        limit, only the model's window caps it on your own key; on Tangent credit, Tangent caps it
+        too.
       </p>
       <label class="check">
         <input type="checkbox" [checked]="enabled()" (change)="setEnabled(!enabled())" />
@@ -208,9 +209,9 @@ export function inputLimitNotes(
       <details class="more-details">
         <summary>More about input limits</summary>
         <p>
-          The conversation so far is the thread's path. On Tangent credit, Tangent caps what a
-          message sends too; on your own key, a long conversation can send hundreds of thousands of
-          tokens with every message. Sizes are rough, for English: ¾ of a word a token,
+          The conversation so far is the thread's path. On your own key, a long conversation can
+          send hundreds of thousands of tokens with every message. Sizes are rough, for English: ¾
+          of a word a token,
           {{ wordsPerPage }} words a paperback page. When no summary can be written, or the limit
           leaves no room for one, the oldest messages are left out.
         </p>

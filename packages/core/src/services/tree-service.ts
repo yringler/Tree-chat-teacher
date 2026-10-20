@@ -142,7 +142,7 @@ export class TreeService {
 
   // ------------------------------------------------------------- settings
 
-  /** The account's settings, with the built-in default prompt a client can show ("Use default"). */
+  /** The account's settings, with the built-in default prompt a client can start from. */
   async getSettings(): Promise<SettingsResponse> {
     const saved = await this.ctx.repos.settings.getSettings(this.ctx.accountId);
     return this.settingsResponse(saved ?? { systemPrompt: null, walkthroughDoneAt: null });

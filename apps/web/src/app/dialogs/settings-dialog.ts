@@ -67,14 +67,17 @@ interface TierRow {
       <p class="muted small settings-intro">Defaults for every conversation in power.</p>
       <form class="form" (submit)="$event.preventDefault(); save()">
         <fieldset class="settings-group" #tiers>
-          <legend><h3>Normal and Max</h3></legend>
+          <legend>
+            <h3>{{ tierWords.normal }} and {{ tierWords.max }}</h3>
+          </legend>
           <p class="settings-where">
             Saved in this browser only. Your other devices keep their own.
           </p>
           <p class="muted small">
-            The Normal | Max switch under the message box and Compare use these, and a new
-            conversation starts on a Normal you choose. A suggested model stays on the thread's
-            payer when it offers it; a model you choose runs on the payer you chose with it.
+            The {{ tierWords.normal }} | {{ tierWords.max }} switch under the message box and
+            Compare use these, and a new conversation starts on a {{ tierWords.normal }} you choose.
+            A suggested model stays on the thread's payer when it offers it; a model you choose runs
+            on the payer you chose with it.
             @if (maxSuggested()) {
               {{ maxNote() }}
             }
@@ -242,6 +245,8 @@ export class SettingsDialog implements OnInit {
     }
   });
 
+  /** The tiers' names, for the section's heading and helper (`TIER_LABELS`). */
+  protected readonly tierWords = TIER_LABELS;
   protected readonly tierRows: readonly TierRow[] = TIERS.map((tier) => ({
     tier,
     label: TIER_LABELS[tier],

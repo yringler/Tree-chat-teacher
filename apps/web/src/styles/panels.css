@@ -356,6 +356,11 @@
   font-weight: 600;
 }
 
+/* A setting's helper sits under its name, as a projected tag does, not a paragraph away. */
+.settings-section > legend + p {
+  margin-top: 0;
+}
+
 .settings-buttons {
   display: flex;
   flex-wrap: wrap;
