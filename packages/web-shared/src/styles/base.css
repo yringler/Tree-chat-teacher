@@ -258,6 +258,13 @@ hr {
   border-left-color: color-mix(in srgb, var(--accent-fg) 40%, var(--accent));
 }
 
+/* The two halves overlap by a pixel: the focused one lies on top, so its ring shows whole. */
+.composer-action:focus-visible,
+.composer-caret:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
 @media (pointer: coarse) {
   .composer-caret {
     min-width: 44px;
