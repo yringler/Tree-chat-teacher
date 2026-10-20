@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { screen } from '@testing-library/dom';
+import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '../testing';
@@ -7,11 +7,18 @@ import { Composer, ComposerController, type ComposerAction } from './composer';
 
 async function composer(inputs: Record<string, unknown> = {}) {
   const r = await render(Composer, { inputs });
-  const out = { send: vi.fn(), stop: vi.fn(), compare: vi.fn(), act: vi.fn() };
+  const out = {
+    send: vi.fn(),
+    stop: vi.fn(),
+    compare: vi.fn(),
+    act: vi.fn(),
+    openOptions: vi.fn(),
+  };
   r.component.send.subscribe(out.send);
   r.component.stop.subscribe(out.stop);
   r.component.compare.subscribe(out.compare);
   r.component.act.subscribe(out.act);
+  r.component.openOptions.subscribe(out.openOptions);
   const box = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message' });
   return { ...r, ...out, box, user: userEvent.setup() };
 }
@@ -22,6 +29,11 @@ const actions: readonly ComposerAction[] = [
   { id: 'tangent', label: 'Tangent ↳', title: 'Explore on the side', primary: true },
   { id: 'next', label: 'Next ➜', icon: 'next', title: 'Keeps the lesson moving', primary: false },
 ];
+
+/** The actions with Tangent's options offered, as power's composer does. */
+const withOptions: readonly ComposerAction[] = actions.map((a) =>
+  a.id === 'tangent' ? { ...a, options: 'Tangent with options: context, model, quote…' } : a,
+);
 
 describe('Composer', () => {
   it('sends the trimmed text on Enter, and keeps it until the message is in the tree', async () => {
@@ -105,8 +117,8 @@ describe('Composer', () => {
     it('shows one button per action, marked for the walkthrough, and no Send', async () => {
       await composer({ actions });
       expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
-      const tangent = button('Tangent ↳');
-      const next = button('Next ➜');
+      const tangent = button('Tangent');
+      const next = button('Next');
       expect(tangent.dataset['action']).toBe('tangent');
       expect(next.dataset['action']).toBe('next');
       expect(tangent.classList).toContain('is-primary');
@@ -139,10 +151,10 @@ describe('Composer', () => {
         'tangent',
         'next',
       ]);
-      expect(button('Next ➜').classList).toContain('is-primary');
-      expect(button('Tangent ↳').classList).not.toContain('is-primary');
-      expect(button('Next ➜').title).toBe('Keeps the lesson moving (Enter)');
-      expect(button('Tangent ↳').title).toBe('Explore on the side (Ctrl+Enter)');
+      expect(button('Next').classList).toContain('is-primary');
+      expect(button('Tangent').classList).not.toContain('is-primary');
+      expect(button('Next').title).toBe('Keeps the lesson moving (Enter)');
+      expect(button('Tangent').title).toBe('Explore on the side (Ctrl+Enter)');
       await c.user.type(c.box, 'Go on{Enter}');
       expect(c.act).toHaveBeenLastCalledWith({ id: 'next', text: 'Go on' });
       await c.user.keyboard('{Control>}{Enter}{/Control}');
@@ -155,9 +167,9 @@ describe('Composer', () => {
     it('a click fires its action', async () => {
       const c = await composer({ actions });
       await c.user.type(c.box, 'Go on');
-      await c.user.click(button('Next ➜'));
+      await c.user.click(button('Next'));
       expect(c.act).toHaveBeenCalledExactlyOnceWith({ id: 'next', text: 'Go on' });
-      await c.user.click(button('Tangent ↳'));
+      await c.user.click(button('Tangent'));
       expect(c.act).toHaveBeenLastCalledWith({ id: 'tangent', text: 'Go on' });
     });
 
@@ -170,8 +182,8 @@ describe('Composer', () => {
 
     it('while a reply streams, Stop replaces them and Enter fires nothing', async () => {
       const c = await composer({ actions, busy: true });
-      expect(screen.queryByRole('button', { name: 'Tangent ↳' })).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Next ➜' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Tangent' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
       await c.user.type(c.box, 'More{Enter}');
       expect(c.act).not.toHaveBeenCalled();
       await c.user.click(button('Stop the reply'));
@@ -182,7 +194,7 @@ describe('Composer', () => {
       const c = await composer({ actions });
       await c.user.type(c.box, '   {Enter}');
       await c.set({ disabled: true });
-      await c.user.click(button('Next ➜'));
+      await c.user.click(button('Next'));
       expect(c.act).not.toHaveBeenCalled();
     });
 
@@ -196,6 +208,66 @@ describe('Composer', () => {
       await c.user.type(c.box, '{Enter}');
       expect(c.act).toHaveBeenCalledExactlyOnceWith({ id: 'tangent', text: 'Which is bigger?' });
       expect(c.compare).toHaveBeenCalledTimes(1);
+    });
+
+    it('each is named without its arrow, which shows but is not read out', async () => {
+      await composer({ actions });
+      const tangent = button('Tangent');
+      expect(tangent.textContent?.trim()).toBe('Tangent ↳');
+      expect(within(tangent).getByText('↳').getAttribute('aria-hidden')).toBe('true');
+      expect(button('Next').textContent?.trim()).toBe('Next ➜');
+      // Offered no options, an action has no caret.
+      expect(screen.queryByRole('button', { name: /with options/ })).toBeNull();
+    });
+
+    it('an action with options has a caret joined to it that opens them, typed or not', async () => {
+      const c = await composer({ actions: withOptions });
+      const caret = button('Tangent with options…');
+      expect(caret.getAttribute('aria-haspopup')).toBe('dialog');
+      expect(caret.title).toBe('Tangent with options: context, model, quote… (Ctrl+Shift+Enter)');
+      expect(caret.getAttribute('aria-description')).toBe(caret.title);
+      // Just after its action, before the next one.
+      expect(screen.getAllByRole('button')).toEqual([button('Tangent'), caret, button('Next')]);
+      // The options take the message themselves, so nothing need be typed first.
+      expect(caret.disabled).toBe(false);
+      await c.user.click(caret);
+      expect(c.openOptions).toHaveBeenCalledExactlyOnceWith({ id: 'tangent', text: '' });
+      await c.user.type(c.box, ' Why so? ');
+      await c.user.click(caret);
+      expect(c.openOptions).toHaveBeenLastCalledWith({ id: 'tangent', text: 'Why so?' });
+      expect(c.act).not.toHaveBeenCalled();
+      expect(c.send).not.toHaveBeenCalled();
+    });
+
+    it('Ctrl or Cmd+Shift+Enter opens the options, and leaves the text as it is', async () => {
+      const c = await composer({ actions: withOptions });
+      await c.user.type(c.box, 'Why so?');
+      await c.user.keyboard('{Control>}{Shift>}{Enter}{/Shift}{/Control}');
+      expect(c.openOptions).toHaveBeenLastCalledWith({ id: 'tangent', text: 'Why so?' });
+      await c.user.keyboard('{Meta>}{Shift>}{Enter}{/Shift}{/Meta}');
+      expect(c.openOptions).toHaveBeenCalledTimes(2);
+      expect(c.act).not.toHaveBeenCalled();
+      expect(c.box.value).toBe('Why so?');
+      // The other keys still fire the actions.
+      await c.user.keyboard('{Enter}');
+      expect(c.act).toHaveBeenCalledExactlyOnceWith({ id: 'tangent', text: 'Why so?' });
+    });
+
+    it('without options, Ctrl+Shift+Enter opens nothing', async () => {
+      const c = await composer({ actions });
+      await c.user.type(c.box, 'Why so?');
+      await c.user.keyboard('{Control>}{Shift>}{Enter}{/Shift}{/Control}');
+      expect(c.openOptions).not.toHaveBeenCalled();
+      expect(c.act).not.toHaveBeenCalled();
+    });
+
+    it('the options wait while the box is disabled, and go with the actions while a reply streams', async () => {
+      const c = await composer({ actions: withOptions, disabled: true, initial: 'Why so?' });
+      expect(button('Tangent with options…').disabled).toBe(true);
+      await c.set({ disabled: false, busy: true });
+      expect(screen.queryByRole('button', { name: 'Tangent with options…' })).toBeNull();
+      await c.user.type(c.box, '{Control>}{Shift>}{Enter}{/Shift}{/Control}');
+      expect(c.openOptions).not.toHaveBeenCalled();
     });
 
     it('without actions, Enter and Ctrl+Enter still send', async () => {
@@ -217,16 +289,25 @@ describe('Composer', () => {
       const c = await composer({ actions });
       expect(c.box.getAttribute('enterkeyhint')).toBe('enter');
       // So the tooltips name no key.
-      expect(button('Tangent ↳').title).toBe('Explore on the side');
-      expect(button('Next ➜').getAttribute('aria-description')).toBe('Keeps the lesson moving');
+      expect(button('Tangent').title).toBe('Explore on the side');
+      expect(button('Next').getAttribute('aria-description')).toBe('Keeps the lesson moving');
       await c.user.type(c.box, 'Line one{Enter}Line two');
       expect(c.box.value).toBe('Line one\nLine two');
       expect(c.act).not.toHaveBeenCalled();
       await c.user.keyboard('{Control>}{Enter}{/Control}');
       expect(c.act).toHaveBeenLastCalledWith({ id: 'next', text: 'Line one\nLine two' });
-      await c.user.click(button('Tangent ↳'));
+      await c.user.click(button('Tangent'));
       expect(c.act).toHaveBeenLastCalledWith({ id: 'tangent', text: 'Line one\nLine two' });
       expect(c.act).toHaveBeenCalledTimes(2);
+    });
+
+    it('the caret names no key either, and Ctrl or Cmd+Shift+Enter still opens the options', async () => {
+      const c = await composer({ actions: withOptions });
+      expect(button('Tangent with options…').title).toBe(
+        'Tangent with options: context, model, quote…',
+      );
+      await c.user.type(c.box, 'Why so?{Meta>}{Shift>}{Enter}{/Shift}{/Meta}');
+      expect(c.openOptions).toHaveBeenCalledExactlyOnceWith({ id: 'tangent', text: 'Why so?' });
     });
 
     it('with the plain Send too', async () => {

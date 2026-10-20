@@ -158,15 +158,21 @@ export function enterSends(e: KeyboardEvent, touch: boolean): boolean {
   return e.key === 'Enter' && !e.shiftKey && !e.isComposing && (e.ctrlKey || e.metaKey || !touch);
 }
 
+/** The keydown that opens an action's options: Ctrl or Cmd+Shift+Enter, outside an IME composition. */
+function opensOptions(e: KeyboardEvent): boolean {
+  return e.key === 'Enter' && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.isComposing;
+}
+
 /**
- * A way to send what is typed, offered in place of Send (Learn's Tangent ↳
- * and Next ➜). Its button carries `data-action="<id>"`, which the
- * walkthrough points at.
+ * A way to send what is typed, offered in place of Send (Tangent ↳ and
+ * Next ➜). Its button carries `data-action="<id>"`, which the walkthrough
+ * points at.
  */
 export interface ComposerAction {
   id: string;
+  /** A trailing glyph (the arrows of Tangent ↳ and Next ➜) shows but isn't read out. */
   label: string;
-  /** None where the label carries its own glyph (the arrows of Tangent ↳ and Next ➜). */
+  /** None where the label carries its own glyph. */
   icon?: IconName;
   /**
    * What the action is for: the button's tooltip and accessible description,
@@ -175,6 +181,21 @@ export interface ComposerAction {
   title: string;
   /** Filled, and fired by Enter; the other is outlined, and fired by Ctrl or Cmd+Enter. */
   primary: boolean;
+  /**
+   * What its options are, as the tooltip of a caret joined to its button,
+   * named "<label> with options…": the caret, or Ctrl or Cmd+Shift+Enter in
+   * the box, asks the host to open them (`openOptions`). None: no caret.
+   */
+  options?: string;
+}
+
+/**
+ * A label's words and its trailing glyph ("Tangent ↳": "Tangent" and "↳"),
+ * so a screen reader says the words and leaves the arrow to the eye.
+ */
+export function labelParts(label: string): { name: string; glyph: string } {
+  const m = /^(.+?)\s+(\p{S}+)$/u.exec(label);
+  return m?.[1] && m[2] ? { name: m[1], glyph: m[2] } : { name: label, glyph: '' };
 }
 
 /** The composer rule's ways to send (`composerPlan`) as the box's buttons. */
@@ -192,7 +213,10 @@ export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
  * `actions`, their buttons replace Send, in the order given, and emit `act`:
  * Enter fires the one marked `primary`, Ctrl or Cmd+Enter the other (the
  * primary when there is only one), so the keys follow the fill, and each
- * tooltip names its key where Enter sends (not on a touch screen). The text
+ * tooltip names its key where Enter sends (not on a touch screen). An
+ * action with `options` has a caret joined to its button that emits
+ * `openOptions`, as Ctrl or Cmd+Shift+Enter does; it works with nothing
+ * typed, since the host's options take the message themselves. The text
  * stays until the message is in the tree (`ComposerController.sent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed. An element marked `composerLead`
@@ -276,6 +300,7 @@ export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
         @if (actions().length) {
           <div class="composer-actions">
             @for (a of actions(); track a.id) {
+              @let label = labelParts(a.label);
               <button
                 type="button"
                 class="btn composer-action"
@@ -291,8 +316,27 @@ export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
                 @if (a.icon) {
                   <app-icon [name]="a.icon" [size]="iconSize()" />
                 }
-                {{ a.label }}
+                <span
+                  >{{ label.name }} <span aria-hidden="true">{{ label.glyph }}</span></span
+                >
               </button>
+              @if (a.options; as options) {
+                <button
+                  type="button"
+                  class="btn composer-caret"
+                  [class.is-primary]="a.primary"
+                  [class.btn-primary]="a.primary"
+                  [class.btn-sm]="compact()"
+                  aria-haspopup="dialog"
+                  [attr.aria-label]="label.name + ' with options…'"
+                  [title]="optionsTitle(options)"
+                  [attr.aria-description]="optionsTitle(options)"
+                  [disabled]="disabled()"
+                  (click)="openWith(a)"
+                >
+                  <app-icon name="chevronDown" [size]="iconSize()" />
+                </button>
+              }
             }
           </div>
         } @else {
@@ -358,6 +402,8 @@ export class Composer {
   readonly send = output<string>();
   /** An action fired with the trimmed text: like Send, the text stays until the message is in the tree. */
   readonly act = output<{ id: string; text: string }>();
+  /** An action's options asked for, with the trimmed text (maybe none): the host opens them. */
+  readonly openOptions = output<{ id: string; text: string }>();
   readonly stop = output();
   /** Compare the message: like Send, the text stays until the picked answer is in the tree. */
   readonly compare = output<string>();
@@ -375,6 +421,7 @@ export class Composer {
   private pressing = false;
   /** No pointer hovers: a plain Enter is a newline, and the keyboard's key says so. */
   protected readonly touch = !pointerHovers();
+  protected readonly labelParts = labelParts;
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
 
   constructor() {
@@ -471,7 +518,11 @@ export class Composer {
   }
 
   protected onKey(e: KeyboardEvent): void {
-    if (enterSends(e, this.touch)) {
+    const withOptions = opensOptions(e) ? this.actions().find((a) => a.options) : undefined;
+    if (withOptions) {
+      e.preventDefault();
+      this.openWith(withOptions);
+    } else if (enterSends(e, this.touch)) {
       e.preventDefault();
       const actions = this.actions();
       const primary = actions.find((a) => a.primary) ?? actions[0];
@@ -487,10 +538,20 @@ export class Composer {
     return this.touch ? a.title : `${a.title} (${a.primary ? 'Enter' : 'Ctrl+Enter'})`;
   }
 
+  /** The caret's tooltip, with its key where Enter sends. */
+  protected optionsTitle(options: string): string {
+    return this.touch ? options : `${options} (Ctrl+Shift+Enter)`;
+  }
+
   protected fire(action: ComposerAction): void {
     const content = this.text().trim();
     if (!content || this.disabled() || this.busy()) return;
     this.act.emit({ id: action.id, text: content });
+  }
+
+  protected openWith(action: ComposerAction): void {
+    if (this.disabled() || this.busy()) return;
+    this.openOptions.emit({ id: action.id, text: this.text().trim() });
   }
 
   /** Kept until the message is in the tree (`ComposerController.sent`). */

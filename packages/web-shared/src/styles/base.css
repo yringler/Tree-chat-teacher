@@ -218,8 +218,10 @@ hr {
 /*
  * The composer's actions in place of Send (ui/composer.ts): equal widths, the
  * primary one filled (`.btn-primary`) and the others outlined in the
- * accent, so each reads as a real choice. On a narrow screen they take a row
- * of their own under the text.
+ * accent, so each reads as a real choice. An action with options has a caret
+ * joined to its right, filled or outlined with it, wide enough for a finger
+ * on a touch screen. On a narrow screen they take a row of their own under
+ * the text.
  */
 .composer-actions {
   display: flex;
@@ -231,9 +233,35 @@ hr {
   min-width: 7.5em;
 }
 
-.composer-action:not(.is-primary) {
+.composer-action:not(.is-primary),
+.composer-caret:not(.is-primary) {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.composer-action:has(+ .composer-caret) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.composer-caret {
+  flex: none;
+  /* Across the gap, onto the button's border, so the two share one edge. */
+  margin-left: -7px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.composer-caret.is-primary {
+  border-left-color: color-mix(in srgb, var(--accent-fg) 40%, var(--accent));
+}
+
+@media (pointer: coarse) {
+  .composer-caret {
+    min-width: 44px;
+  }
 }
 
 @media (max-width: 559px) {

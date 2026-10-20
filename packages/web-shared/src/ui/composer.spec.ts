@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ComposerController,
   joinWhenRendered,
+  labelParts,
   refocusesWhenEnabled,
   releasesDraft,
   sendActions,
@@ -135,6 +136,13 @@ describe('Composer helpers', () => {
       { id: 'tangent', label: 'Tangent ↳', title: 'Explore.', primary: true },
       { id: 'next', label: 'Next ➜', title: 'Go on.', primary: false },
     ]);
+  });
+
+  it("parts an action's label into the words read out and the glyph that only shows", () => {
+    expect(labelParts('Tangent ↳')).toEqual({ name: 'Tangent', glyph: '↳' });
+    expect(labelParts('Next ➜')).toEqual({ name: 'Next', glyph: '➜' });
+    expect(labelParts('Ask about this…')).toEqual({ name: 'Ask about this…', glyph: '' });
+    expect(labelParts('↳')).toEqual({ name: '↳', glyph: '' });
   });
 
   it('lets a sent draft go only where the box clears on send, and only unedited', () => {
