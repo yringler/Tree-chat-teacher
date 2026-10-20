@@ -8,13 +8,16 @@ import { TRUNK_TITLE } from './domain.js';
  * a web-shared test keeps identical, as tiers.ts does for the tier words.
  */
 
-/** Sends the message as a new tangent: the recommended default. */
+/** Sends the message as a new tangent: the default on the main thread. */
 export const TANGENT_ACTION = {
   label: 'Tangent ↳',
   hint: 'Wait, tell me more about that. Explore in a tangent without derailing the lesson.',
 } as const;
 
-/** Sends the message as the next one in the thread on screen, as any chat would. */
+/**
+ * Sends the message as the next one in the thread on screen, as any chat
+ * would: the default inside a tangent.
+ */
 export const REPLY_ACTION = {
   label: 'Next ➜',
   hint: 'Good old-fashioned AI chat: continues the main lesson.',
@@ -32,13 +35,16 @@ export const HELP_ITEMS: readonly { readonly label: string; readonly text: strin
     label: TANGENT_ACTION.label,
     text: '“Wait, tell me more about that” or “Hey, what about…?” Explores in its own thread without derailing the lesson. The suggestions under a reply are tangents too: Dig deeper goes further in, Suggested tangents go off to the side.',
   },
-  { label: REPLY_ACTION.label, text: 'Good old-fashioned AI chat. Here if you want it.' },
+  {
+    label: REPLY_ACTION.label,
+    text: 'Good old-fashioned AI chat, here if you want it. Inside a tangent it’s the default, so the tangent goes on.',
+  },
 ];
 
-/** When in doubt: a wrong tangent is cheap, a wrong reply clutters the main thread. */
+/** When in doubt on the main thread: a wrong tangent is cheap, a wrong reply clutters it. */
 export const HELP_DEFAULT = {
   label: 'Not sure? Tangent.',
-  text: 'You can always come back.',
+  text: 'On the main thread that’s the default, and you can always come back.',
 } as const;
 
 export const HELP_ANALOGY =

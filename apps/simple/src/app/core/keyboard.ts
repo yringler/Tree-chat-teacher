@@ -18,8 +18,11 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Home', 'End'], label: 'Start / end of the thread' },
   { keys: ['b'], label: 'Put the focused (or latest) reply on the message box' },
   { keys: ['/'], label: 'Focus the message box' },
-  { keys: ['Enter'], label: 'Send as a tangent' },
-  { keys: ['Ctrl+Enter'], label: 'Send as Next' },
+  {
+    keys: ['Enter'],
+    label: 'Send with the filled button: a tangent on the main thread, Next inside a tangent',
+  },
+  { keys: ['Ctrl+Enter'], label: 'Send with the other button' },
   { keys: ['?'], label: 'Show this help' },
   { keys: ['Esc'], label: 'Close dialogs and menus' },
 ];

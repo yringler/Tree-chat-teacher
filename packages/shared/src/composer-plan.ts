@@ -41,7 +41,7 @@ export interface ComposerSend {
   label: string;
   /** What it is for (a tooltip). */
   hint: string;
-  /** Filled; the other is outlined. */
+  /** Filled, and sent with Enter; the other is outlined, and sent with Ctrl or Cmd+Enter. */
   primary: boolean;
 }
 
@@ -59,7 +59,7 @@ export const COMPOSER_PLACEHOLDERS: Readonly<Record<Exclude<ComposerPlace, 'star
 export interface ComposerPlan {
   /** The reply a tangent from the box starts at; null: there is none, and the message continues the open thread. */
   target: string | null;
-  /** The buttons in place of Send, in order; none: a plain Send. */
+  /** The buttons in place of Send, always Tangent ↳ before Next ➜; none: a plain Send. */
   actions: readonly ComposerSend[];
   place: ComposerPlace;
   /**
@@ -82,8 +82,11 @@ export interface ComposerPlan {
  * aimed at it: it is there as the open thread's context.
  *
  * With no target there is only Send; with a lead, only Tangent ↳, since
- * words to ask about only go on a tangent; otherwise Tangent ↳ (filled) and
- * Next ➜.
+ * words to ask about only go on a tangent; otherwise Tangent ↳ and Next ➜.
+ * The filled one, which Enter sends, is Tangent ↳ on the main thread, where
+ * a stray reply is read on every later turn, and Next ➜ inside a tangent,
+ * where going on is the natural step: a reflexive Enter goes at most one
+ * level down, and every level below that is chosen.
  */
 export function composerPlan(f: ComposerFacts): ComposerPlan {
   const own = f.path.filter((m) => m.branchId === f.branchId);
@@ -133,15 +136,18 @@ function finishedReplyAt(messages: readonly ComposerMessage[], i: number): Compo
 }
 
 function sends(f: ComposerFacts): ComposerSend[] {
-  const tangent: ComposerSend = {
+  const tangent = (primary: boolean): ComposerSend => ({
     id: 'tangent',
     label: TANGENT_ACTION.label,
     hint: TANGENT_ACTION.hint,
-    primary: true,
-  };
-  if (f.lead) return [tangent];
+    primary,
+  });
+  if (f.lead) return [tangent(true)];
   const hint = f.inTangent ? REPLY_ACTION.hintInTangent : REPLY_ACTION.hint;
-  return [tangent, { id: 'next', label: REPLY_ACTION.label, hint, primary: false }];
+  return [
+    tangent(!f.inTangent),
+    { id: 'next', label: REPLY_ACTION.label, hint, primary: f.inTangent },
+  ];
 }
 
 function placeOf(f: ComposerFacts, ownMessages: boolean): ComposerPlace {

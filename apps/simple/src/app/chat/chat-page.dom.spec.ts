@@ -181,7 +181,7 @@ describe('Learn: the lesson page', () => {
     ] as const) {
       p.store.setRoute('t1', 'side', focus);
       await p.fixture.whenStable();
-      await p.user.type(composer()!, 'How big?{Enter}');
+      await p.user.type(composer()!, 'How big?{Control>}{Enter}{/Control}');
       expect(askFrom).toHaveBeenLastCalledWith(from, 'How big?', null);
       await p.user.clear(composer()!);
     }
@@ -200,7 +200,7 @@ describe('Learn: the lesson page', () => {
     expect(focus).toHaveBeenCalledWith(null);
     await p.fixture.whenStable();
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
-    await p.user.type(composer()!, 'How big?{Enter}');
+    await p.user.type(composer()!, 'How big?{Control>}{Enter}{/Control}');
     expect(askFrom).toHaveBeenCalledWith('a5', 'How big?', null);
   });
 
@@ -219,7 +219,7 @@ describe('Learn: the lesson page', () => {
     expect(within(dock()).queryByRole('status')).toBeNull();
   });
 
-  it('Enter sends as a tangent, Ctrl+Enter as Next', async () => {
+  it('on the main thread, Enter sends as a tangent, Ctrl+Enter as Next', async () => {
     const p = await page();
     const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('side'));
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
@@ -230,15 +230,32 @@ describe('Learn: the lesson page', () => {
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
   });
 
-  it('inside a tangent, Next ➜ keeps that tangent moving', async () => {
+  it('inside a tangent, Next ➜ keeps that tangent moving: filled, in its place after Tangent ↳', async () => {
     const p = await page(branchyLesson(), {}, 'side');
     expect(composer()?.placeholder).toBe('Ask anything in this tangent…');
-    const next = within(dock()).getByRole('button', { name: 'Next ➜' });
-    expect(next.title).toBe(`${REPLY_ACTION.hintInTangent} (Ctrl+Enter)`);
+    const [tangent, next] = within(dock()).getAllByRole('button', { name: /Tangent ↳|Next ➜/ });
+    expect(tangent?.dataset['action']).toBe('tangent');
+    expect(tangent?.title).toBe(`${TANGENT_ACTION.hint} (Ctrl+Enter)`);
+    expect(tangent?.classList).not.toContain('btn-primary');
+    expect(next?.dataset['action']).toBe('next');
+    expect(next?.title).toBe(`${REPLY_ACTION.hintInTangent} (Enter)`);
+    expect(next?.classList).toContain('btn-primary');
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.type(composer()!, 'More?');
-    await p.user.click(next);
+    await p.user.click(next!);
     expect(send).toHaveBeenCalledWith('side', 'More?');
+  });
+
+  it('inside a tangent, Enter sends as Next, Ctrl+Enter as a tangent one level down', async () => {
+    const p = await page(branchyLesson(), {}, 'side');
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('deeper'));
+    const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
+    await p.user.type(composer()!, 'More?{Enter}');
+    expect(send).toHaveBeenCalledWith('side', 'More?');
+    expect(askFrom).not.toHaveBeenCalled();
+    await p.user.keyboard('{Control>}{Enter}{/Control}');
+    expect(askFrom).toHaveBeenCalledWith('a2', 'More?', null);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('a new lesson has nothing to go on a tangent from: a single Send', async () => {

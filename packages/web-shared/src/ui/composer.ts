@@ -159,7 +159,7 @@ export interface ComposerAction {
   icon?: IconName;
   /** What the action is for: the button's tooltip and accessible description. */
   title: string;
-  /** Filled; the others are outlined. */
+  /** Filled, and fired by Enter; the other is outlined, and fired by Ctrl or Cmd+Enter. */
   primary: boolean;
 }
 
@@ -177,8 +177,9 @@ export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
  * Message box of every app. Enter sends, Shift+Enter inserts a newline;
  * Stop replaces Send while a reply streams; with `canCompare`, Compare beside
  * Send (or the actions) asks Normal and Max (the host opens its dialog). With
- * `actions`, their buttons replace Send and emit `act`: Enter fires the first,
- * Ctrl or Cmd+Enter the second (the first when there is only one). The text
+ * `actions`, their buttons replace Send, in the order given, and emit `act`:
+ * Enter fires the one marked `primary`, Ctrl or Cmd+Enter the other (the
+ * primary when there is only one), so the keys follow the fill. The text
  * stays until the message is in the tree (`ComposerController.sent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed. An element marked `composerLead`
@@ -452,7 +453,9 @@ export class Composer {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       const actions = this.actions();
-      const action = e.ctrlKey || e.metaKey ? (actions[1] ?? actions[0]) : actions[0];
+      const primary = actions.find((a) => a.primary) ?? actions[0];
+      const other = actions.find((a) => a !== primary) ?? primary;
+      const action = e.ctrlKey || e.metaKey ? other : primary;
       if (action) this.fire(action);
       else this.submit();
     }

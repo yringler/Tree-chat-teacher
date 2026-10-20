@@ -68,7 +68,7 @@ test('Learn: a new lesson streams its first reply on credit, and charges for it'
   expect(errors).toEqual([]);
 });
 
-test('Learn: Tangent ↳ (Enter) goes on a tangent, Next ➜ (Ctrl+Enter) continues the thread', async ({
+test('Learn: Enter sends the filled button, Tangent ↳ on the main thread and Next ➜ in a tangent', async ({
   page,
   context,
   baseURL,
@@ -77,9 +77,11 @@ test('Learn: Tangent ↳ (Enter) goes on a tangent, Next ➜ (Ctrl+Enter) contin
   await page.goto(`/learn/t/${await withExampleLesson(context, baseURL!, 'learn')}`);
   const composer = page.locator('#composer-input');
   await expect(composer).toHaveAttribute('placeholder', 'Ask anything…');
-  const tangent = page.getByRole('button', { name: 'Tangent ↳' }).last();
-  const next = page.getByRole('button', { name: 'Next ➜' });
+  const tangent = page.locator('[data-action="tangent"]');
+  const next = page.locator('[data-action="next"]');
   await expect(next).toBeDisabled();
+  await expect(tangent).toHaveClass(/btn-primary/);
+  await expect(next).not.toHaveClass(/btn-primary/);
   const url = page.url();
   await composer.fill('Do owls ever whistle back?');
   await composer.press('Enter');
@@ -90,11 +92,14 @@ test('Learn: Tangent ↳ (Enter) goes on a tangent, Next ➜ (Ctrl+Enter) contin
     'Scripted reply (normal): "Do owls ever whistle back?"',
   );
 
-  // Inside the tangent, Next ➜ goes on in it.
+  // Inside the tangent, Next ➜ is filled, in its place, and Enter goes on in it.
   const tangentUrl = page.url();
   await expect(composer).toHaveAttribute('placeholder', 'Ask anything in this tangent…');
+  await expect(next).toHaveClass(/btn-primary/);
+  await expect(tangent).not.toHaveClass(/btn-primary/);
+  await expect(page.locator('.composer-action')).toHaveText(['Tangent ↳', 'Next ➜']);
   await composer.fill('And owlets?');
-  await next.click();
+  await composer.press('Enter');
   await expect(page.locator('.msg-assistant').last()).toContainText(
     'Scripted reply (normal): "And owlets?"',
   );

@@ -121,7 +121,7 @@ describe('Composer', () => {
       expect(tangent.disabled).toBe(true);
     });
 
-    it('Enter fires the first action, Ctrl or Cmd+Enter the second', async () => {
+    it('Enter fires the filled action, Ctrl or Cmd+Enter the other', async () => {
       const c = await composer({ actions });
       await c.user.type(c.box, ' What is a limit? {Enter}');
       expect(c.act).toHaveBeenLastCalledWith({ id: 'tangent', text: 'What is a limit?' });
@@ -133,6 +133,25 @@ describe('Composer', () => {
       expect(c.send).not.toHaveBeenCalled();
       // The text stays until the message is in the tree, as with Send.
       expect(c.box.value).toBe(' What is a limit? ');
+    });
+
+    it('the filled action keeps its keys wherever it stands: the buttons stay in order', async () => {
+      const c = await composer({
+        actions: actions.map((a) => ({ ...a, primary: a.id === 'next' })),
+      });
+      expect(screen.getAllByRole('button').map((b) => b.dataset['action'])).toEqual([
+        'tangent',
+        'next',
+      ]);
+      expect(button('Next ➜').classList).toContain('is-primary');
+      expect(button('Tangent ↳').classList).not.toContain('is-primary');
+      await c.user.type(c.box, 'Go on{Enter}');
+      expect(c.act).toHaveBeenLastCalledWith({ id: 'next', text: 'Go on' });
+      await c.user.keyboard('{Control>}{Enter}{/Control}');
+      expect(c.act).toHaveBeenLastCalledWith({ id: 'tangent', text: 'Go on' });
+      await c.user.keyboard('{Meta>}{Enter}{/Meta}');
+      expect(c.act).toHaveBeenLastCalledWith({ id: 'tangent', text: 'Go on' });
+      expect(c.act).toHaveBeenCalledTimes(3);
     });
 
     it('a click fires its action', async () => {

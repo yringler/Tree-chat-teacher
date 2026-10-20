@@ -100,8 +100,11 @@ describe('Learn: keyboard', () => {
     });
   });
 
-  it('the help lists how the message box sends: Enter as a tangent, Ctrl+Enter as Next', () => {
-    expect(SHORTCUTS).toContainEqual({ keys: ['Enter'], label: 'Send as a tangent' });
-    expect(SHORTCUTS).toContainEqual({ keys: ['Ctrl+Enter'], label: 'Send as Next' });
+  it('the help lists how the message box sends: Enter with the filled button, Ctrl+Enter the other', () => {
+    expect(SHORTCUTS).toContainEqual({
+      keys: ['Enter'],
+      label: 'Send with the filled button: a tangent on the main thread, Next inside a tangent',
+    });
+    expect(SHORTCUTS).toContainEqual({ keys: ['Ctrl+Enter'], label: 'Send with the other button' });
   });
 });

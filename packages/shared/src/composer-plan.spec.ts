@@ -77,11 +77,16 @@ describe('composerPlan', () => {
     });
   });
 
-  it('inside a tangent: from its last reply, and Next ➜ continues the tangent', () => {
-    const plan = composerPlan(inSide());
-    expect(plan.target).toBe('a4');
-    expect(plan.place).toBe('tangent');
-    expect(plan.actions[1]?.hint).toBe(REPLY_ACTION.hintInTangent);
+  it('inside a tangent: Tangent ↳ from its last reply, and Next ➜ continues the tangent, filled', () => {
+    expect(composerPlan(inSide())).toEqual({
+      target: 'a4',
+      actions: [
+        { ...TANGENT, primary: false },
+        { id: 'next', label: REPLY_ACTION.label, hint: REPLY_ACTION.hintInTangent, primary: true },
+      ],
+      place: 'tangent',
+      nameTarget: false,
+    });
   });
 
   it('a tangent opened at its start: from its first reply, named', () => {
@@ -133,7 +138,7 @@ describe('composerPlan', () => {
     });
   });
 
-  it('aimed at a message: only Tangent ↳, from it, though it is in an earlier thread', () => {
+  it('aimed at a message: only Tangent ↳, filled, from it, though it is in an earlier thread', () => {
     expect(
       composerPlan(inSide({ lead: { nodeId: 'a1', quote: 'wave' }, focusedId: 'u3' })),
     ).toEqual({ target: 'a1', actions: [TANGENT], place: 'lead', nameTarget: false });
