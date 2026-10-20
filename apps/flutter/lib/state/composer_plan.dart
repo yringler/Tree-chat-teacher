@@ -110,6 +110,13 @@ bool enterSends({
     (modified ||
         (platform != TargetPlatform.android && platform != TargetPlatform.iOS));
 
+/// A send button's [hint] as its tooltip, naming the key that sends it
+/// (Enter for the filled one, Ctrl+Enter for the other) where a plain Enter
+/// sends ([keys]: [enterSends] without a modifier), as the web's `Composer`
+/// does; elsewhere only the buttons send, so the hint alone.
+String sendTooltip(String hint, {required bool primary, required bool keys}) =>
+    keys ? '$hint (${primary ? 'Enter' : 'Ctrl+Enter'})' : hint;
+
 String? _implicitTarget(List<ChatNode> own, String? focusedId) {
   final focused = _finishedReplyAt(
     own,

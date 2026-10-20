@@ -111,8 +111,9 @@ describe('Composer', () => {
       expect(next.dataset['action']).toBe('next');
       expect(tangent.classList).toContain('is-primary');
       expect(next.classList).not.toContain('is-primary');
-      expect(tangent.title).toBe('Explore on the side');
-      expect(next.getAttribute('aria-description')).toBe('Keeps the lesson moving');
+      // Each names the key that fires it.
+      expect(tangent.title).toBe('Explore on the side (Enter)');
+      expect(next.getAttribute('aria-description')).toBe('Keeps the lesson moving (Ctrl+Enter)');
       expect(tangent.disabled).toBe(true);
     });
 
@@ -140,6 +141,8 @@ describe('Composer', () => {
       ]);
       expect(button('Next ➜').classList).toContain('is-primary');
       expect(button('Tangent ↳').classList).not.toContain('is-primary');
+      expect(button('Next ➜').title).toBe('Keeps the lesson moving (Enter)');
+      expect(button('Tangent ↳').title).toBe('Explore on the side (Ctrl+Enter)');
       await c.user.type(c.box, 'Go on{Enter}');
       expect(c.act).toHaveBeenLastCalledWith({ id: 'next', text: 'Go on' });
       await c.user.keyboard('{Control>}{Enter}{/Control}');
@@ -213,6 +216,9 @@ describe('Composer', () => {
     it('Enter starts a new line and only the buttons send; Ctrl or Cmd+Enter still sends', async () => {
       const c = await composer({ actions });
       expect(c.box.getAttribute('enterkeyhint')).toBe('enter');
+      // So the tooltips name no key.
+      expect(button('Tangent ↳').title).toBe('Explore on the side');
+      expect(button('Next ➜').getAttribute('aria-description')).toBe('Keeps the lesson moving');
       await c.user.type(c.box, 'Line one{Enter}Line two');
       expect(c.box.value).toBe('Line one\nLine two');
       expect(c.act).not.toHaveBeenCalled();

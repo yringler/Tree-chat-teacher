@@ -228,4 +228,22 @@ void main() {
       }
     });
   });
+
+  group('sendTooltip', () {
+    test('names the key that sends each button where Enter sends', () {
+      expect(
+        sendTooltip('Explore.', primary: true, keys: true),
+        'Explore. (Enter)',
+      );
+      expect(
+        sendTooltip('Go on.', primary: false, keys: true),
+        'Go on. (Ctrl+Enter)',
+      );
+    });
+
+    test('elsewhere, the hint alone: only the buttons send', () {
+      expect(sendTooltip('Explore.', primary: true, keys: false), 'Explore.');
+      expect(sendTooltip('Go on.', primary: false, keys: false), 'Go on.');
+    });
+  });
 }

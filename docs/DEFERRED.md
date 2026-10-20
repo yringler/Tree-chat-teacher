@@ -78,7 +78,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **No walkthrough in power or Canvas.** It is for a learner's first conversation, and these are surfaces for people past it; power has the help without **Replay the walkthrough**. Adding it means reporting power's screen events to `Walkthrough` and adding the `data-coach` targets.
 - **No help sheet in Canvas.** Its "Reading the canvas" help only says tangent. `TangentHelp` would go in its dialog stack like power's.
 - **Power's Send keeps the label Send,** with the Next hint as its tooltip: power starts tangents from a message's **Tangent ↳** action, and a Tangent and Next pair in its composer would need its own design.
-- **The Flutter help has no keyboard shortcuts link.** The app has no shortcuts list to open; Enter and Ctrl or Cmd+Enter are named in the send buttons' tooltips.
+- **The Flutter help has no keyboard shortcuts link.** The app has no shortcuts list to open. In a desktop browser the send buttons' tooltips name Enter and Ctrl+Enter, as on the web; elsewhere only the buttons send.
 - **No standalone `/help` page.** `/welcome#how-tangents` is the one public entry point. A page would reuse `TangentHelpCard`.
 - **The Play Store listing text isn't in the repository,** so it still needs the tangent wording by hand in the Play Console; only the feature graphic (`apps/flutter/store/`) changed.
 - **The send buttons' long-press tooltips and the coach marks are checked in widget tests and the browser, not by an automated device test,** like the rest of the Flutter app.

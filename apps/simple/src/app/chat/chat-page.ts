@@ -30,7 +30,6 @@ import {
   Icon,
   JumpToEnd,
   PendingQuote,
-  pointerHovers,
   PoolBlockNotice,
   Segmented,
   selectedMessageQuote,
@@ -151,7 +150,7 @@ export class ChatPage implements OnDestroy {
   );
 
   /** Tangent ↳ and Next ➜ in place of Send, once there is a reply to go on a tangent from. */
-  protected readonly actions = computed(() => sendActions(this.plan().actions, pointerHovers()));
+  protected readonly actions = computed(() => sendActions(this.plan().actions));
 
   protected readonly placeholder = computed(() => {
     const place = this.plan().place;

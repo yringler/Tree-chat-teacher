@@ -1293,7 +1293,8 @@ class _SendAction {
   final GlobalKey key;
   final String label;
 
-  /// When to pick it; also shown on a long press.
+  /// When to pick it, as its tooltip (also shown on a long press), which
+  /// adds its key where Enter sends.
   final String tooltip;
   final String semanticsLabel;
 
@@ -1470,10 +1471,16 @@ class _Composer extends StatelessWidget {
 
   /// The actions side by side, equally wide, so the tangent is never the
   /// smaller choice. The label carries the arrow, so no icon doubles it.
+  /// Each tooltip names its key where Enter sends ([sendTooltip]).
   Widget _actionRow() => ValueListenableBuilder(
     valueListenable: controller,
     builder: (context, value, _) {
       final ready = enabled && value.text.trim().isNotEmpty;
+      final keys = enterSends(
+        web: kIsWeb,
+        platform: defaultTargetPlatform,
+        modified: false,
+      );
       return Row(
         key: const ValueKey('composer-actions'),
         children: [
@@ -1481,7 +1488,11 @@ class _Composer extends StatelessWidget {
             if (i > 0) const SizedBox(width: 8),
             Expanded(
               child: Tooltip(
-                message: action.tooltip,
+                message: sendTooltip(
+                  action.tooltip,
+                  primary: action.primary,
+                  keys: keys,
+                ),
                 child: _actionButton(action, ready: ready),
               ),
             ),

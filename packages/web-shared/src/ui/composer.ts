@@ -168,24 +168,18 @@ export interface ComposerAction {
   label: string;
   /** None where the label carries its own glyph (the arrows of Tangent ↳ and Next ➜). */
   icon?: IconName;
-  /** What the action is for: the button's tooltip and accessible description. */
+  /**
+   * What the action is for: the button's tooltip and accessible description,
+   * to which the box adds the key that fires it where Enter sends.
+   */
   title: string;
   /** Filled, and fired by Enter; the other is outlined, and fired by Ctrl or Cmd+Enter. */
   primary: boolean;
 }
 
-/**
- * The composer rule's ways to send (`composerPlan`) as the box's buttons,
- * each tooltip naming its key where a pointer `hovers`: on a touch screen
- * Enter is a newline, and only the buttons send.
- */
-export function sendActions(sends: readonly ComposerSend[], hovers: boolean): ComposerAction[] {
-  return sends.map((s) => ({
-    id: s.id,
-    label: s.label,
-    title: hovers ? `${s.hint} (${s.primary ? 'Enter' : 'Ctrl+Enter'})` : s.hint,
-    primary: s.primary,
-  }));
+/** The composer rule's ways to send (`composerPlan`) as the box's buttons. */
+export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
+  return sends.map((s) => ({ id: s.id, label: s.label, title: s.hint, primary: s.primary }));
 }
 
 /**
@@ -197,7 +191,8 @@ export function sendActions(sends: readonly ComposerSend[], hovers: boolean): Co
  * Send (or the actions) asks Normal and Max (the host opens its dialog). With
  * `actions`, their buttons replace Send, in the order given, and emit `act`:
  * Enter fires the one marked `primary`, Ctrl or Cmd+Enter the other (the
- * primary when there is only one), so the keys follow the fill. The text
+ * primary when there is only one), so the keys follow the fill, and each
+ * tooltip names its key where Enter sends (not on a touch screen). The text
  * stays until the message is in the tree (`ComposerController.sent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed. An element marked `composerLead`
@@ -288,8 +283,8 @@ export function sendActions(sends: readonly ComposerSend[], hovers: boolean): Co
                 [class.btn-primary]="a.primary"
                 [class.btn-sm]="compact()"
                 [attr.data-action]="a.id"
-                [title]="a.title"
-                [attr.aria-description]="a.title"
+                [title]="titleOf(a)"
+                [attr.aria-description]="titleOf(a)"
                 [disabled]="disabled() || !text().trim()"
                 (click)="fire(a)"
               >
@@ -485,6 +480,11 @@ export class Composer {
       if (action) this.fire(action);
       else this.submit();
     }
+  }
+
+  /** An action's tooltip, with its key where Enter sends: the box decides both, so they agree. */
+  protected titleOf(a: ComposerAction): string {
+    return this.touch ? a.title : `${a.title} (${a.primary ? 'Enter' : 'Ctrl+Enter'})`;
   }
 
   protected fire(action: ComposerAction): void {
