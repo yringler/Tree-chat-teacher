@@ -31,7 +31,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **No native search on OpenAI.** The Responses API search isn't wired up, so an openai-compatible config that doesn't reach OpenRouter can't set `options.webSearch` (it is refused when `PROVIDERS` is parsed). (Anthropic's own `web_search` tool is wired up for own-key configs.)
 - **Reviews don't search.** A review with sources would need the tool on the reviewer call and somewhere to show its citations.
 - **Canvas shows no source list and has no Check sources button.** Cards render the reply text, so inline citation links do show.
-- **The new-branch dialog has no grounding choice.** New branches inherit the parent's setting; Branch settings change it afterwards.
+- **Canvas has no web search setting.** A new lane takes its parent's, which only power's Tangent and Conversation settings change. Canvas's Tangent from here and Lane settings would need power's web search field.
 - **No `openrouter:web_fetch` for URLs the learner pastes.** It would let the tutor read one page for about $0.001.
 - **No confidence trailer.** The model could flag low confidence at the end of an unsearched reply, to trigger a grounded follow-up only then. Not built: it pays for the reply twice, and Check sources covers the case at the learner's choice.
 - **The daily search cap counts settled rows only.** Replies still in flight aren't counted, so a burst of parallel sends can pass the cap by up to `USAGE_MAX_PENDING`.

@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import type { BillingSummary, GroundingMode, ProviderInfo } from '@tangent/shared';
+import type { BillingSummary, Branch, GroundingMode, ProviderInfo } from '@tangent/shared';
 import { ComposerController } from '@tangent/web-shared';
 import {
   branch,
@@ -34,11 +34,16 @@ const CREDIT: ProviderInfo = {
 /**
  * The branch dialog on reply a1 of an own-key trunk; `lapsed`: the membership it needs ended;
  * `inTangent`: open in a tangent off a1 on Tangent credit, so a1 is an earlier thread's;
- * `trunkSearch`: the trunk's web search.
+ * `trunkSearch`: the trunk's web search; `deep`: that tangent's settings.
  */
 async function open(
   state: Partial<BranchDialogState> = {},
-  opts: { lapsed?: boolean; inTangent?: boolean; trunkSearch?: GroundingMode } = {},
+  opts: {
+    lapsed?: boolean;
+    inTangent?: boolean;
+    trunkSearch?: GroundingMode;
+    deep?: Partial<Branch>;
+  } = {},
 ) {
   const api = {
     billing: vi.fn(async () => ({ availableMicros: 2_000_000 }) as BillingSummary),
@@ -71,6 +76,7 @@ async function open(
               branchPointNodeId: 'a1',
               funding: 'credit',
               model: 'vendor/m',
+              ...opts.deep,
             }),
           ],
         ),
@@ -190,13 +196,39 @@ describe('Tangent from here (power)', () => {
     );
   });
 
-  it('takes web search from the message’s thread, as a tangent from the box does, and says when that isn’t the bar’s', async () => {
-    const d = await open({}, { inTangent: true, trunkSearch: 'off' });
-    expect(repliesLine()).toBe('Tangent credit · vendor/m · no web search. Change');
+  it('takes web search from the open thread too, not the message’s, as a tangent from the box does: all the bar’s', async () => {
+    const d = await open(
+      {},
+      { inTangent: true, trunkSearch: 'off', deep: { grounding: 'always' } },
+    );
+    expect(repliesLine()).toBe(
+      'Same as the bar under the message box: Tangent credit · vendor/m · search offered on every reply. Change',
+    );
     await d.user.type(field(/Starting message/), 'Why?');
     await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
     expect(d.store.startBranch).toHaveBeenCalledWith(
-      expect.objectContaining({ funding: 'credit', model: 'vendor/m', grounding: 'off' }),
+      expect.objectContaining({ funding: 'credit', model: 'vendor/m', grounding: 'always' }),
+      'Why?',
+    );
+  });
+
+  it('on a read-only thread, which shows no bar, takes web search from the message’s thread, as its route', async () => {
+    const d = await open(
+      {},
+      {
+        lapsed: true,
+        inTangent: true,
+        trunkSearch: 'off',
+        deep: { funding: 'own-key', grounding: 'always' },
+      },
+    );
+    expect(d.store.readOnly()).toBe(true);
+    // The main thread's route is locked too: the default route, with the main thread's web search.
+    expect(repliesLine()).toBe('Tangent credit · X · no web search. Change');
+    await d.user.type(field(/Starting message/), 'Why?');
+    await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
+    expect(d.store.startBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ funding: 'credit', model: 'vendor/x', grounding: 'off' }),
       'Why?',
     );
   });

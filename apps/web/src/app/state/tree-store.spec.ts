@@ -371,14 +371,23 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.store.readOnly()).toBe(false);
   });
 
-  it('a tangent from a read-only thread’s path starts on its parent’s route: the open one can’t generate', async () => {
+  it('a tangent from a read-only thread’s path starts on its parent’s route and web search: the open one can’t generate', async () => {
     const s = setup();
     await open(s, inactive());
     // The main thread on Tangent credit; the open tangent off it on the user's own key.
     s.store.detail.set(
       fixtures.detail(tree().nodes, [
-        fixtures.branch('trunk', { title: 'Main thread', funding: 'credit', model: 'c/d' }),
-        fixtures.branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'n2' }),
+        fixtures.branch('trunk', {
+          title: 'Main thread',
+          funding: 'credit',
+          model: 'c/d',
+          grounding: 'off',
+        }),
+        fixtures.branch('side', {
+          parentBranchId: 'trunk',
+          branchPointNodeId: 'n2',
+          grounding: 'always',
+        }),
       ]),
     );
     s.store.setRoute('t1', 'side', null);
@@ -389,7 +398,12 @@ describe('TreeStore read-only power without a membership', () => {
     Object.assign(s.api, { createBranch, sendMessage: vi.fn(), streamNode: vi.fn() });
     await s.store.followTangent('n2', 'Twin primes');
     expect(createBranch).toHaveBeenCalledWith(
-      expect.objectContaining({ providerId: 'openrouter', funding: 'credit', model: 'c/d' }),
+      expect.objectContaining({
+        providerId: 'openrouter',
+        funding: 'credit',
+        model: 'c/d',
+        grounding: 'off',
+      }),
     );
   });
 
@@ -741,6 +755,7 @@ describe('TreeStore branching with a first message', () => {
       providerId: 'openrouter',
       funding: 'own-key',
       model: 'a/b',
+      grounding: 'auto',
     });
     expect(s.go).toHaveBeenCalledWith('side');
     expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['side']);
@@ -763,6 +778,7 @@ describe('TreeStore branching with a first message', () => {
       providerId: 'openrouter',
       funding: 'own-key',
       model: 'a/b',
+      grounding: 'auto',
       fromNodeId: 'a1',
       contextMode: 'summary',
       anchorQuote: 'a wave',
@@ -825,7 +841,43 @@ describe('TreeStore branching with a first message', () => {
       providerId: 'openrouter',
       funding: 'credit',
       model: 'c/d',
+      grounding: 'auto',
     });
+  });
+
+  it('a tangent from an earlier thread’s message takes the open thread’s web search with its route, Check sources too', async () => {
+    const s = open();
+    // The main thread searches never; the open tangent off it is on the default (auto).
+    const main = { ...trunk, grounding: 'off' as const };
+    const deep = fixtures.branch('deep', {
+      parentBranchId: 'trunk',
+      branchPointNodeId: 'a1',
+      funding: 'credit',
+      model: 'c/d',
+    });
+    s.store.detail.set(fixtures.detail([reply], [main, deep]));
+    s.store.setRoute('t1', 'deep', null);
+    await s.store.followTangent('a1', 'Waves in water');
+    expect(s.createBranch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ funding: 'credit', model: 'c/d', grounding: 'auto' }),
+    );
+    // The check still forces its search, whatever the tangent's setting.
+    s.store.detail.set(fixtures.detail([reply], [main, { ...deep, grounding: 'always' }]));
+    await s.store.checkSources('a1');
+    expect(s.createBranch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: 'Checking sources',
+        funding: 'credit',
+        grounding: 'always',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(s.sendMessage).toHaveBeenLastCalledWith(
+        'side',
+        expect.objectContaining({ ground: 'required' }),
+        expect.any(AbortSignal),
+      ),
+    );
   });
 
   it('offers Check sources on an earlier thread’s reply where the open thread’s route can search: the check is a tangent on it', () => {

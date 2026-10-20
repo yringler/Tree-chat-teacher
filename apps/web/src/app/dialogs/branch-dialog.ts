@@ -235,14 +235,14 @@ export class BranchDialog implements OnInit {
     // The route tangents start on (the open thread's, `TreeStore.tangentRoute`), unless it
     // can't generate here: then the default route of a new conversation (a provider with a
     // key, else Tangent credit where it can pay or be bought), keeping its model where that
-    // route serves it. Web search as in the message's thread, as for a tangent from the box.
+    // route serves it. Web search as in that same thread, as for a tangent from the box.
     const base = this.store.tangentRoute(this.parent());
     const usable = !!base && this.store.account.routeState(base) === 'open';
     const start =
       this.state().route ?? startingRoute(base, usable, this.store.account.defaultProvider());
     this.route.set(start.providerId ? routeKey(start) : '');
     this.modelId.set(start.model);
-    this.grounding.set(this.parent()?.grounding ?? DEFAULT_GROUNDING_MODE);
+    this.grounding.set(base?.grounding ?? DEFAULT_GROUNDING_MODE);
     this.opened.set(this.fields());
   }
 

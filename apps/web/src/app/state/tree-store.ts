@@ -1,7 +1,7 @@
 import { computed, inject, Injectable } from '@angular/core';
 import { Router } from '@angular/router';
 import { branchesWithLinks, linkTarget } from '@tangent/core';
-import { type BranchFunding } from '@tangent/shared';
+import { DEFAULT_GROUNDING_MODE, type BranchFunding } from '@tangent/shared';
 import type {
   Branch,
   ComposerLead,
@@ -106,11 +106,12 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   // Branches
 
   /**
-   * The route a tangent from a message of `from` starts on: the open
-   * thread's, the one the bar under the message box shows, wherever on the
-   * path the message is, so who pays and which model answers are on screen
-   * before the first send. A read-only thread shows no bar and can't
-   * generate: `from`'s, as the server would pick.
+   * The thread a tangent from a message of `from` takes its route and web
+   * search from: the open thread, wherever on the path the message is. The
+   * bar under the message box shows its route, so who pays and which model
+   * answers are on screen before the first send, and the searches that payer
+   * pays for follow that same thread's setting. A read-only thread shows no
+   * bar and can't generate: `from`, as the server would pick.
    */
   tangentRoute(from: Branch | null): Branch | null {
     return this.readOnly() ? from : (this.selectedBranch() ?? from);
@@ -118,8 +119,14 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   protected override newBranchRoute(from: Branch | null): Partial<CreateBranchRequest> {
     const route = this.tangentRoute(from);
+    // Web search is named even when it is the default: a request naming none takes `from`'s.
     return route
-      ? { providerId: route.providerId, funding: route.funding, model: route.model }
+      ? {
+          providerId: route.providerId,
+          funding: route.funding,
+          model: route.model,
+          grounding: route.grounding ?? DEFAULT_GROUNDING_MODE,
+        }
       : {};
   }
 
