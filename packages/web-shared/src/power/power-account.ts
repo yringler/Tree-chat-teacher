@@ -135,7 +135,8 @@ export class PowerAccountStore {
   );
 
   /**
-   * The route a new conversation starts on, and the fallback of a new branch
+   * The route a new conversation starts on (in power, unless the user chose
+   * a Normal in Settings that can reply), and the fallback of a new branch
    * off one that can't generate (`startingRoute`): `pickDefaultRoute`, the
    * server's rule for a new tree. A provider with a key first; else Tangent credit while the
    * balance can pay; else the user's own OpenRouter (the first send asks for

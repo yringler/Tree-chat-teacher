@@ -31,6 +31,7 @@ export interface AppSettings {
   /**
    * What the Normal | Max switch (route bar, home page) and Compare use for
    * each tier; null = the suggested model of the tier (TierStore `choice`).
+   * A new conversation starts on a chosen Normal (TierStore `starting`).
    */
   tiers: Readonly<Record<ModelTier, ModelChoice | null>>;
   /**

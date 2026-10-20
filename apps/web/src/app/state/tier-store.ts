@@ -118,6 +118,27 @@ export class TierStore {
     );
   }
 
+  /**
+   * The route and model a new conversation starts on (the home page): your
+   * Normal from Settings while its route can generate (`openRoutes`) and
+   * allows the model, else the default route (`defaultProvider`) on its
+   * default model. Never the suggested Normal: that may be on a payer other
+   * than the default, and who pays is the user's to pick. Null until the
+   * default route is known.
+   */
+  starting(): ModelChoice | null {
+    const fallback = this.tree.account.defaultProvider();
+    if (!fallback) return null;
+    const normal = this.settings.settings().tiers.normal;
+    const p = normal ? this.tree.account.providerOf(normal) : undefined;
+    return normal &&
+      p &&
+      this.tree.account.openRoutes().includes(p) &&
+      isModelAllowed(p, normal.model)
+      ? choiceOn(p, normal.model)
+      : choiceOn(fallback, fallback.defaultModel);
+  }
+
   /** The tier `branch` replies on (its route and model are that tier's choice); null = another model. */
   tierOfBranch(branch: Pick<Branch, 'providerId' | 'funding' | 'model'>): ModelTier | null {
     for (const tier of TIERS) {
