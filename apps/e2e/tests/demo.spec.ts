@@ -609,13 +609,20 @@ test('power demo: "Ask about this" puts the words on the composer; the tangent s
   await quote.getByRole('button', { name: /^Don’t ask about/ }).click();
 
   // `b` puts selected words on the composer too; Shift+B opens the dialog with them.
+  // Each key waits for the selection to register (its float shows) with the box not focused,
+  // so it reaches the shortcuts rather than the box.
+  const asks = bar.getByRole('button', { name: 'Ask about this' });
   await body.click();
+  await expect(composer).not.toBeFocused();
   await selectText(body, 'off-key');
+  await expect(asks).toBeVisible();
   await page.keyboard.press('b');
   await expect(quote).toContainText('off-key');
   await expect(composer).toBeFocused();
   await page.keyboard.press('Escape');
+  await expect(composer).not.toBeFocused();
   await selectText(body, 'off-key');
+  await expect(asks).toBeVisible();
   await page.keyboard.press('Shift+B');
   await expect(dialog.getByRole('group', { name: 'Quote' })).toContainText('off-key');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
