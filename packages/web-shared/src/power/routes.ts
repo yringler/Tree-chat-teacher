@@ -29,26 +29,27 @@ export function routeSuffix(p: ProviderInfo, locked: boolean): string {
 }
 
 /**
- * The route and model a new branch starts on: its parent's, unless that one
- * can't generate here (`parentUsable` false: its funding needs the
+ * The route and model a new branch starts on: `base`, the one it would
+ * take (power: the open thread's; Canvas: its parent's), unless that one
+ * can't generate here (`baseUsable` false: its funding needs the
  * membership the user lacks, or its own key isn't saved in this browser);
  * then `fallback`, the default route of a new conversation, keeping the
- * parent's model where that route serves it. No fallback either: an empty
+ * base's model where that route serves it. No fallback either: an empty
  * route, which nothing can be sent on.
  */
 export function startingRoute(
-  parent: Pick<Branch, 'providerId' | 'funding' | 'model'> | null,
-  parentUsable: boolean,
+  base: Pick<Branch, 'providerId' | 'funding' | 'model'> | null,
+  baseUsable: boolean,
   fallback: ProviderInfo | null,
 ): { providerId: string; funding: BranchFunding; model: string } {
-  if (parent && parentUsable) {
-    return { providerId: parent.providerId, funding: parent.funding, model: parent.model };
+  if (base && baseUsable) {
+    return { providerId: base.providerId, funding: base.funding, model: base.model };
   }
   const keepModel =
-    !!parent && fallback?.id === parent.providerId && isModelAllowed(fallback, parent.model);
+    !!base && fallback?.id === base.providerId && isModelAllowed(fallback, base.model);
   return {
     providerId: fallback?.id ?? '',
     funding: fallback?.funding ?? 'own-key',
-    model: (keepModel ? parent.model : fallback?.defaultModel) ?? '',
+    model: (keepModel ? base.model : fallback?.defaultModel) ?? '',
   };
 }

@@ -339,6 +339,28 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.store.readOnly()).toBe(false);
   });
 
+  it('a tangent from a read-only thread’s path starts on its parent’s route: the open one can’t generate', async () => {
+    const s = setup();
+    await open(s, inactive());
+    // The main thread on Tangent credit; the open tangent off it on the user's own key.
+    s.store.detail.set(
+      fixtures.detail(tree().nodes, [
+        fixtures.branch('trunk', { title: 'Main thread', funding: 'credit', model: 'c/d' }),
+        fixtures.branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'n2' }),
+      ]),
+    );
+    s.store.setRoute('t1', 'side', null);
+    expect(s.store.readOnly()).toBe(true);
+    const createBranch = vi.fn(async (req: CreateBranchRequest) =>
+      fixtures.branch('new', { parentBranchId: 'trunk', branchPointNodeId: req.fromNodeId }),
+    );
+    Object.assign(s.api, { createBranch, sendMessage: vi.fn(), streamNode: vi.fn() });
+    await s.store.followTangent('n2', 'Twin primes');
+    expect(createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'openrouter', funding: 'credit', model: 'c/d' }),
+    );
+  });
+
   describe('a branch on the own key, with no key in this browser', () => {
     const noKey: ProviderInfo = { ...ownKey, available: false, keySource: null };
     const keyRequired = () =>
@@ -664,6 +686,9 @@ describe('TreeStore branching with a first message', () => {
       fromNodeId: 'a1',
       contextMode: 'path',
       anchorQuote: null,
+      providerId: 'openrouter',
+      funding: 'own-key',
+      model: 'a/b',
     });
     expect(s.go).toHaveBeenCalledWith('side');
     expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['side']);
@@ -683,6 +708,9 @@ describe('TreeStore branching with a first message', () => {
       'And particles?',
     );
     expect(s.createBranch).toHaveBeenCalledWith({
+      providerId: 'openrouter',
+      funding: 'own-key',
+      model: 'a/b',
       fromNodeId: 'a1',
       contextMode: 'summary',
       anchorQuote: 'a wave',
@@ -725,6 +753,45 @@ describe('TreeStore branching with a first message', () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+
+  it('a tangent starts on the open thread’s route, the one the bar under the box shows, even from an earlier thread’s message', async () => {
+    const s = open();
+    const deep = fixtures.branch('deep', {
+      parentBranchId: 'trunk',
+      branchPointNodeId: 'a1',
+      funding: 'credit',
+      model: 'c/d',
+    });
+    s.store.detail.set(fixtures.detail([reply], [trunk, deep]));
+    s.store.setRoute('t1', 'deep', null);
+    await s.store.askFrom('a1', 'Why does it bend?');
+    expect(s.createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'c/d',
+    });
+  });
+
+  it('offers Check sources on an earlier thread’s reply where the open thread’s route can search: the check is a tangent on it', () => {
+    const s = open();
+    const entry = (funding: 'own-key' | 'credit', webSearch: boolean) =>
+      fixtures.provider({ funding, webSearch, acceptsUserKey: funding === 'own-key' });
+    s.store.account.providers.set([entry('own-key', true), entry('credit', false)]);
+    const deep = fixtures.branch('deep', {
+      parentBranchId: 'trunk',
+      branchPointNodeId: 'a1',
+      funding: 'credit',
+    });
+    s.store.detail.set(fixtures.detail([reply], [trunk, deep]));
+    expect(s.store.canCheckSources('trunk')).toBe(true);
+    s.store.setRoute('t1', 'deep', null);
+    expect(s.store.canCheckSources('trunk')).toBe(false);
+    s.store.account.providers.set([entry('own-key', false), entry('credit', true)]);
+    expect(s.store.canCheckSources('trunk')).toBe(true);
   });
 
   it('a branch that cannot be created sends nothing (the caller keeps the text)', async () => {

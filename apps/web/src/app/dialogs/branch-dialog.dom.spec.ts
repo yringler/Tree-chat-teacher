@@ -28,8 +28,14 @@ const CREDIT: ProviderInfo = {
   funding: 'credit',
 };
 
-/** The branch dialog on reply a1 of an own-key trunk; `lapsed`: the membership it needs ended. */
-async function open(state: Partial<BranchDialogState> = {}, opts: { lapsed?: boolean } = {}) {
+/**
+ * The branch dialog on reply a1 of an own-key trunk; `lapsed`: the membership it needs ended;
+ * `inTangent`: open in a tangent off a1 on Tangent credit, so a1 is an earlier thread's.
+ */
+async function open(
+  state: Partial<BranchDialogState> = {},
+  opts: { lapsed?: boolean; inTangent?: boolean } = {},
+) {
   const api = {
     billing: vi.fn(async () => ({ availableMicros: 2_000_000 }) as BillingSummary),
   };
@@ -51,8 +57,17 @@ async function open(state: Partial<BranchDialogState> = {}, opts: { lapsed?: boo
               content: 'Light is a wave.\n\n<tangents>\n- Photons\n</tangents>',
             }),
           ],
-          [branch('trunk', { model: 'vendor/x' })],
+          [
+            branch('trunk', { model: 'vendor/x' }),
+            branch('deep', {
+              parentBranchId: 'trunk',
+              branchPointNodeId: 'a1',
+              funding: 'credit',
+              model: 'vendor/m',
+            }),
+          ],
         ),
+        opts.inTangent ? 'deep' : null,
       );
       TestBed.inject(UiStore).dialogs.open({ kind: 'branch', fromNodeId: 'a1', quote: null });
     },
@@ -74,7 +89,7 @@ describe('Tangent from here (power)', () => {
     expect(field(/Anchor quote/).value).toBe('a wave');
   });
 
-  it('creates the branch on the parent’s route with its first message, and closes', async () => {
+  it('creates the branch on the open thread’s route with its first message, and closes', async () => {
     const d = await open();
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Provider' }).value).toBe(
       'openrouter',
@@ -83,10 +98,31 @@ describe('Tangent from here (power)', () => {
     await d.user.type(field(/Starting message/), 'Why?');
     await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
     expect(d.store.startBranch).toHaveBeenCalledWith(
-      { fromNodeId: 'a1', contextMode: 'independent', anchorQuote: 'a wave', isPrivate: false },
+      {
+        fromNodeId: 'a1',
+        contextMode: 'independent',
+        anchorQuote: 'a wave',
+        providerId: 'openrouter',
+        funding: 'own-key',
+        model: 'vendor/x',
+        isPrivate: false,
+      },
       'Why?',
     );
     expect(d.ui.dialogs.get('branch')).toBeNull();
+  });
+
+  it('off an earlier thread’s message, starts on the route the bar under the box shows: the open thread’s', async () => {
+    const d = await open({}, { inTangent: true });
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Provider' }).value).toBe(
+      'openrouter@credit',
+    );
+    await d.user.type(field(/Starting message/), 'Why?');
+    await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
+    expect(d.store.startBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'openrouter', funding: 'credit', model: 'vendor/m' }),
+      'Why?',
+    );
   });
 
   it('makes nothing without a starting message: Create waits for one, Ctrl+Enter too', async () => {

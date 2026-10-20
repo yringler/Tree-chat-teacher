@@ -2,7 +2,7 @@ import { computed, inject, Injectable } from '@angular/core';
 import { Router } from '@angular/router';
 import { branchesWithLinks, linkTarget } from '@tangent/core';
 import { type BranchFunding } from '@tangent/shared';
-import type { Branch, NodeLink, ShareScope } from '@tangent/shared';
+import type { Branch, CreateBranchRequest, NodeLink, ShareScope } from '@tangent/shared';
 import {
   ApiClient,
   ComposerController,
@@ -96,9 +96,32 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   // Branches
 
-  /** Whether replies in `branchId` can be checked against web sources (its provider can search). */
+  /**
+   * The route a tangent from a message of `from` starts on: the open
+   * thread's, the one the bar under the message box shows, wherever on the
+   * path the message is, so who pays and which model answers are on screen
+   * before the first send. A read-only thread shows no bar and can't
+   * generate: `from`'s, as the server would pick.
+   */
+  tangentRoute(from: Branch | null): Branch | null {
+    return this.readOnly() ? from : (this.selectedBranch() ?? from);
+  }
+
+  protected override newBranchRoute(from: Branch | null): Partial<CreateBranchRequest> {
+    const route = this.tangentRoute(from);
+    return route
+      ? { providerId: route.providerId, funding: route.funding, model: route.model }
+      : {};
+  }
+
+  /**
+   * Whether replies in `branchId` can be checked against web sources: the
+   * route the check runs on can search. That is the open thread's, in place
+   * on its last reply or as a tangent from an earlier one (`tangentRoute`).
+   */
   canCheckSources(branchId: string): boolean {
-    const branch = this.index()?.branches.get(branchId);
+    const from = this.index()?.branches.get(branchId);
+    const branch = from ? this.tangentRoute(from) : null;
     if (!branch) return false;
     return this.account
       .providers()

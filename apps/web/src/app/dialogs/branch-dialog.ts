@@ -132,13 +132,14 @@ export class BranchDialog implements OnInit {
 
   ngOnInit(): void {
     this.quote.set(this.state().quote ?? '');
-    // The parent's route, unless it can't generate here: then the default route of a
-    // new conversation (a provider with a key, else Tangent credit where it can pay or
-    // be bought), keeping the parent's model where that route serves it.
-    const parent = this.parent();
-    const usable = !!parent && this.store.account.routeState(parent) === 'open';
+    // The route tangents start on (the open thread's, `TreeStore.tangentRoute`), unless it
+    // can't generate here: then the default route of a new conversation (a provider with a
+    // key, else Tangent credit where it can pay or be bought), keeping its model where that
+    // route serves it.
+    const base = this.store.tangentRoute(this.parent());
+    const usable = !!base && this.store.account.routeState(base) === 'open';
     const start =
-      this.state().route ?? startingRoute(parent, usable, this.store.account.defaultProvider());
+      this.state().route ?? startingRoute(base, usable, this.store.account.defaultProvider());
     this.route.set(start.providerId ? routeKey(start) : '');
     this.modelId.set(start.model);
   }
@@ -158,17 +159,13 @@ export class BranchDialog implements OnInit {
   protected async create(): Promise<void> {
     const first = this.firstMessage();
     if (this.saving() || !first) return;
-    const p = this.parent();
     this.saving.set(true);
     const quote = this.quote().trim();
-    const changedModel = !p || routeKey(p) !== this.route() || p.model !== this.modelId().trim();
     const req = {
       fromNodeId: this.state().fromNodeId,
       contextMode: this.mode(),
       anchorQuote: quote || null,
-      ...(changedModel && this.route()
-        ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
-        : {}),
+      ...(this.route() ? { ...parseRouteKey(this.route()), model: this.modelId().trim() } : {}),
       isPrivate: this.isPrivate(),
     };
     const branch = await this.store.startBranch(req, first);
