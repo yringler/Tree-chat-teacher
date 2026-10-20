@@ -8,7 +8,7 @@ import {
   type ProviderInfo,
   type UpdateBranchRequest,
 } from '@tangent/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type AppSettings, SettingsStore } from './settings-store';
 import { TierStore, tierOptions } from './tier-store';
 import { TreeStore } from './tree-store';
@@ -256,7 +256,17 @@ describe('TierStore tierOfBranch, available and usageFactor', () => {
   });
 });
 
+/** The screen's pointer hovers (a mouse) or doesn't (a touch screen). */
+function stubHover(hovers: boolean): void {
+  vi.stubGlobal('matchMedia', (q: string) => ({
+    matches: q === '(hover: hover)' ? hovers : !hovers,
+  }));
+}
+
 describe('TierStore switchTier', () => {
+  beforeEach(() => stubHover(true));
+  afterEach(() => vi.unstubAllGlobals());
+
   it('moves the branch onto the tier, says so and focuses the composer', async () => {
     const s = setup();
     vi.mocked(s.composer.focus).mockClear();
@@ -268,6 +278,15 @@ describe('TierStore switchTier', () => {
     });
     expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max');
     expect(s.composer.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the focus alone on a touch screen, so no keyboard pops up', async () => {
+    stubHover(false);
+    const s = setup();
+    vi.mocked(s.composer.focus).mockClear();
+    await expect(s.tiers.switchTier('b1', 'max')).resolves.toBe(true);
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max');
+    expect(s.composer.focus).not.toHaveBeenCalled();
   });
 
   it('sends the own key as such, and does nothing for an unknown branch', async () => {

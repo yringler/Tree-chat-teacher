@@ -12,6 +12,7 @@ import {
 } from '@tangent/shared';
 import {
   ComposerController,
+  pointerHovers,
   suggestionText,
   ToastStore,
   type SegmentedOption,
@@ -162,8 +163,9 @@ export class TierStore {
    * The Normal | Max switch: moves the branch onto the tier's choice, like
    * `TreeStore.switchToCredit` (every later send uses it). The notice names
    * the new route when the tier lives on another one (e.g. a branch on a
-   * provider without tiers moves to Tangent credit). Resolves true once the
-   * server has it.
+   * provider without tiers moves to Tangent credit). The message box takes
+   * the focus back only where that doesn't pop up an on-screen keyboard.
+   * Resolves true once the server has it.
    */
   async switchTier(branchId: string, tier: ModelTier): Promise<boolean> {
     const branch = this.tree.index()?.branches.get(branchId);
@@ -180,7 +182,7 @@ export class TierStore {
         ? ` (${this.tree.account.providerOf(target)?.label ?? target.providerId})`
         : '';
       this.toast.notify(`Replies now on ${TIER_LABELS[tier]}${where}`);
-      this.composer.focus();
+      if (pointerHovers()) this.composer.focus();
     }
     return ok;
   }

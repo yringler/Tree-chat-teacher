@@ -124,7 +124,7 @@ export function refocusesWhenEnabled(o: {
 }
 
 /** Focusing pops up the on-screen keyboard on touch devices, so only pointers that hover autofocus. */
-function hovers(): boolean {
+export function pointerHovers(): boolean {
   return matchMedia('(hover: hover)').matches;
 }
 
@@ -321,7 +321,7 @@ export class Composer {
       (fn) => destroyRef.onDestroy(fn),
     );
     afterNextRender(() => {
-      if (this.autofocus() && hovers()) this.box().nativeElement.focus();
+      if (this.autofocus() && pointerHovers()) this.box().nativeElement.focus();
     });
     // Captured, so a handler that stops the event can't hide the press.
     const press = (down: boolean) => () => (this.pressing = down);
@@ -347,7 +347,7 @@ export class Composer {
           disabled: this.disabled(),
           branchId: untracked(this.branchId),
           nothingFocused: document.activeElement === document.body,
-          hovers: hovers(),
+          hovers: pointerHovers(),
         })
       ) {
         queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true }));

@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { providerRouteKey, type TreeSummary } from '@tangent/shared';
-import { Icon, routeSuffix } from '@tangent/web-shared';
+import { Icon, pointerHovers, routeSuffix } from '@tangent/web-shared';
 import { treeTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -156,7 +156,7 @@ export class HomePage {
 
   constructor() {
     afterNextRender(() => {
-      if (matchMedia('(hover: hover)').matches) this.box()?.nativeElement.focus();
+      if (pointerHovers()) this.box()?.nativeElement.focus();
     });
   }
 
