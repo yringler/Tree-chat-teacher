@@ -987,6 +987,13 @@ app-android-app-banner {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
 }
 
+/* The pressed option's shadow would hide the focus ring, the only sign of where the arrow keys left the focus. */
+.segment.is-on:focus-visible {
+  box-shadow:
+    var(--focus),
+    0 1px 2px rgb(0 0 0 / 0.12);
+}
+
 .segment:disabled {
   cursor: default;
 }
