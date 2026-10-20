@@ -15,8 +15,6 @@ import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
 import {
   COMPOSER_PLACEHOLDERS,
-  composerExcerpt,
-  composerPlan,
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
   THREAD_ENDS,
@@ -26,6 +24,7 @@ import {
   Composer,
   ComposerController,
   ComposerQuote,
+  ComposerTarget,
   Icon,
   JumpToEnd,
   PendingQuote,
@@ -91,11 +90,6 @@ export class ChatPage implements OnDestroy {
   protected readonly threadEnds = THREAD_ENDS;
   /** Text selected inside one finished message: offers "Ask about this". */
   protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
-  /**
-   * What the composer's next message asks about, on a tangent made when it is
-   * sent: words "Ask about this" quoted, or a whole message (its Tangent ↳, `b`).
-   */
-  protected readonly lead = this.composer.lead;
   /** Where the lesson is scrolled; a reply being written is read from its first line. */
   protected readonly thread = new ThreadScroll({
     store: this.store,
@@ -130,36 +124,15 @@ export class ChatPage implements OnDestroy {
     return { label: from.snippet || connectionTitleOf(from.branch) };
   });
 
-  /**
-   * What the composer offers and where its tangent starts: the reply it is
-   * aimed at, else the focused reply of the open thread, else its last reply
-   * (`composerPlan`).
-   */
-  protected readonly plan = computed(() =>
-    composerPlan({
-      path: this.store.path(),
-      branchId: this.store.selectedBranchId(),
-      inTangent: this.store.selectedBranch()?.parentBranchId != null,
-      focusedId: this.store.focusedInPath()?.id ?? null,
-      lead: this.lead(),
-    }),
-  );
+  /** Where the message box sends, by the rule power's follows too (`ComposerTarget`). */
+  protected readonly box = new ComposerTarget({ store: this.store, thread: this.thread });
 
   /** Tangent ↳ and Next ➜ in place of Send, once there is a reply to go on a tangent from. */
-  protected readonly actions = computed(() => sendActions(this.plan().actions));
+  protected readonly actions = computed(() => sendActions(this.box.plan().actions));
 
   protected readonly placeholder = computed(() => {
-    const place = this.plan().place;
+    const place = this.box.plan().place;
     return place === 'start' ? 'What do you want to learn?' : COMPOSER_PLACEHOLDERS[place];
-  });
-
-  /**
-   * The opening words of the reply the composer's tangent starts at, for the
-   * open box to name when it may not be the one in view; a lead names itself.
-   */
-  protected readonly target = computed(() => {
-    const target = this.plan().target;
-    return target && !this.lead() ? this.excerptOf(target) : null;
   });
 
   /** The pool's refusal of a message in this branch (empty or a cap), shown above the composer. */
@@ -184,8 +157,6 @@ export class ChatPage implements OnDestroy {
       this.title.setTitle(t ? `${t} · ${BRAND}` : BRAND);
     });
 
-    this.composer.holdLead((nodeId) => this.store.index()?.nodes.has(nodeId) ?? false);
-
     // Tells the first-run walkthrough where the learner is: on the main thread
     // with Tangent ↳ and Next ➜ under a reply, or inside a tangent. Again when
     // its coach mark changes or a dialog closes (a replay, from the help), so
@@ -198,7 +169,9 @@ export class ChatPage implements OnDestroy {
       if (!b) return;
       const inTangent = b.parentBranchId !== null;
       const actionsShown =
-        this.plan().actions.length > 1 && !this.store.busy() && !this.funding.membershipBlocked();
+        this.box.plan().actions.length > 1 &&
+        !this.store.busy() &&
+        !this.funding.membershipBlocked();
       untracked(() => {
         if (inTangent) this.walkthrough.onEnteredTangent();
         else if (actionsShown) {
@@ -224,22 +197,6 @@ export class ChatPage implements OnDestroy {
   protected askAboutMessage(node: ChatNode): void {
     this.pendingAsk.clear();
     this.composer.aim({ nodeId: node.id, quote: null });
-  }
-
-  /** The opening words of message `nodeId`, for the composer to say what it asks about. */
-  protected excerptOf(nodeId: string): string {
-    return composerExcerpt(this.store.index()?.nodes.get(nodeId)?.content ?? '');
-  }
-
-  protected dropLead(): void {
-    this.composer.drop();
-    this.composer.focus();
-  }
-
-  /** The named target clicked: that reply comes into view. */
-  protected showTarget(): void {
-    const target = this.plan().target;
-    if (target) this.thread.toMessage(target);
   }
 
   /** Credit and the pool, and the own key ("Anthropic key") while it could reply. */
@@ -270,29 +227,11 @@ export class ChatPage implements OnDestroy {
   /** Tangent ↳ or Next ➜ pressed (or Enter / Ctrl+Enter) with the composer's text. */
   protected act({ id, text }: { id: string; text: string }): void {
     if (id === 'tangent') {
-      void this.goOnTangent(text);
+      void this.box.goOnTangent(text);
       return;
     }
     if (this.store.selectedBranch()?.parentBranchId === null) this.walkthrough.onRepliedOnTrunk();
-    this.send(text);
-  }
-
-  /** The message continues what is open (Send or Next ➜). */
-  protected send(content: string): void {
-    const id = this.store.selectedBranchId();
-    if (!id) return;
-    this.thread.pin();
-    if (this.store.focusedNodeId()) this.store.go(id, null, true);
-    void this.store.send(id, content);
-  }
-
-  /** The message starts a tangent from the composer's target, about the words on it if any. */
-  private async goOnTangent(content: string): Promise<void> {
-    const from = this.plan().target;
-    if (!from) return;
-    this.thread.pin();
-    // Kept on failure, to try again.
-    if (await this.store.askFrom(from, content, this.lead()?.quote ?? null)) this.composer.drop();
+    this.box.send(text);
   }
 
   /** The lesson's own instructions, offered only where the learner pays (the pool ignores them). */

@@ -126,22 +126,22 @@
             [busy]="store.streamingNode() !== null"
             [canCompare]="canCompare()"
             [actions]="actions()"
-            [target]="target()"
-            [nameTarget]="plan().nameTarget || thread.farFromEnd()"
-            (send)="send($event)"
+            [target]="box.target()"
+            [nameTarget]="box.plan().nameTarget || thread.farFromEnd()"
+            (send)="box.send($event)"
             (act)="act($event)"
             (openOptions)="tangentWithOptions($event.text)"
             (stop)="stop()"
             (compare)="compare($event)"
-            (showTarget)="showTarget()"
+            (showTarget)="box.showTarget()"
           >
             <!-- What the message asks about (words, or a whole message); dropping it leaves the focus in the box. -->
-            @if (lead(); as q) {
+            @if (box.lead(); as q) {
               <app-composer-quote
                 composerLead
                 [quote]="q.quote"
-                [excerpt]="excerptOf(q.nodeId)"
-                (dropped)="dropLead()"
+                [excerpt]="box.excerptOf(q.nodeId)"
+                (dropped)="box.dropLead()"
               />
             }
           </app-composer>

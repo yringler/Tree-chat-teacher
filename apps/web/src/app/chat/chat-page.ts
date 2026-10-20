@@ -10,18 +10,13 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import {
-  clip,
-  COMPOSER_PLACEHOLDERS,
-  composerExcerpt,
-  composerPlan,
-  type MembershipInfo,
-} from '@tangent/shared';
+import { clip, COMPOSER_PLACEHOLDERS, type MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
   Composer,
   ComposerController,
   ComposerQuote,
+  ComposerTarget,
   endpointTitle,
   Icon,
   JumpToEnd,
@@ -85,11 +80,6 @@ export class ChatPage implements OnDestroy {
    * is sent; Tangent ↳'s caret there sets that tangent up first).
    */
   protected readonly selection = new PendingQuote(() => this.quoteToAsk());
-  /**
-   * What the composer's next message asks about, in a new tangent: words
-   * "Ask about this" quoted, or a whole message (its Tangent ↳, `b`).
-   */
-  protected readonly lead = this.composer.lead;
   /** Where the conversation is scrolled. */
   protected readonly thread = new ThreadScroll({
     store: this.store,
@@ -100,42 +90,21 @@ export class ChatPage implements OnDestroy {
     },
   });
 
-  /**
-   * What the composer offers and where its tangent starts: the message it is
-   * aimed at, else the focused reply of the open thread, else its last reply
-   * (`composerPlan`, as in Learn).
-   */
-  protected readonly plan = computed(() =>
-    composerPlan({
-      path: this.store.path(),
-      branchId: this.store.selectedBranchId(),
-      inTangent: this.store.selectedBranch()?.parentBranchId != null,
-      focusedId: this.store.focusedInPath()?.id ?? null,
-      lead: this.lead(),
-    }),
-  );
+  /** Where the message box sends, by the rule Learn's follows too (`ComposerTarget`). */
+  protected readonly box = new ComposerTarget({ store: this.store, thread: this.thread });
 
   /**
    * Tangent ↳ and Next ➜ in place of Send, once there is a reply to go on a
    * tangent from; Tangent ↳'s caret opens Tangent from here.
    */
   protected readonly actions = computed(() =>
-    sendActions(this.plan().actions, { tangent: TANGENT_OPTIONS }),
+    sendActions(this.box.plan().actions, { tangent: TANGENT_OPTIONS }),
   );
 
   protected readonly placeholder = computed(() => {
     if (!this.store.selectedBranch()) return 'Message…';
-    const place = this.plan().place;
+    const place = this.box.plan().place;
     return place === 'start' ? 'Start the conversation…' : COMPOSER_PLACEHOLDERS[place];
-  });
-
-  /**
-   * The opening words of the reply the composer's tangent starts at, for the
-   * open box to name when it may not be the one in view; a lead names itself.
-   */
-  protected readonly target = computed(() => {
-    const target = this.plan().target;
-    return target && !this.lead() ? this.excerptOf(target) : null;
   });
 
   /** A message of the open branch that couldn't be sent: the composer takes it back. */
@@ -149,7 +118,8 @@ export class ChatPage implements OnDestroy {
    * use, it is idle, and the message continues it (not a lead's new tangent).
    */
   protected readonly canCompare = computed(
-    () => !this.store.busy() && !this.lead() && this.tiers.available(this.store.selectedBranch()),
+    () =>
+      !this.store.busy() && !this.box.lead() && this.tiers.available(this.store.selectedBranch()),
   );
 
   /** Pick mode, with what the message being linked from says (for the banner). */
@@ -182,8 +152,6 @@ export class ChatPage implements OnDestroy {
       const t = this.store.detail()?.tree.title;
       this.title.setTitle(t ? `${t} · Tangent` : 'Tangent');
     });
-
-    this.composer.holdLead((nodeId) => this.store.index()?.nodes.has(nodeId) ?? false);
   }
 
   ngOnDestroy(): void {
@@ -202,22 +170,6 @@ export class ChatPage implements OnDestroy {
     this.store.aimComposer(q);
   }
 
-  /** The opening words of message `nodeId`, for the composer to say what it asks about. */
-  protected excerptOf(nodeId: string): string {
-    return composerExcerpt(this.store.index()?.nodes.get(nodeId)?.content ?? '');
-  }
-
-  protected dropLead(): void {
-    this.composer.drop();
-    this.composer.focus();
-  }
-
-  /** The named target clicked: that reply comes into view. */
-  protected showTarget(): void {
-    const target = this.plan().target;
-    if (target) this.thread.toMessage(target);
-  }
-
   /** The quote under the selection, when it lies in one finished message and branches can be made. */
   private quoteToAsk(): MessageQuote | null {
     if (!this.store.account.canGenerate() || this.ui.dialogs.anyOpen()) return null;
@@ -233,29 +185,8 @@ export class ChatPage implements OnDestroy {
 
   /** Tangent ↳ or Next ➜ pressed (or Enter / Ctrl+Enter) with the composer's text. */
   protected act({ id, text }: { id: string; text: string }): void {
-    if (id === 'tangent') void this.goOnTangent(text);
-    else this.send(text);
-  }
-
-  /** The message continues what is open (Send or Next ➜). */
-  protected send(content: string): void {
-    const id = this.store.selectedBranchId();
-    if (!id) return;
-    this.thread.pin();
-    if (this.store.focusedNodeId()) this.store.focus(null);
-    void this.store.send(id, content);
-  }
-
-  /**
-   * The message starts a `path` tangent from the composer's target, quoting
-   * the lead's words if any; the lead stays on the box if the tangent can't
-   * be made.
-   */
-  private async goOnTangent(content: string): Promise<void> {
-    const from = this.plan().target;
-    if (!from) return;
-    this.thread.pin();
-    if (await this.store.askFrom(from, content, this.lead()?.quote ?? null)) this.composer.drop();
+    if (id === 'tangent') void this.box.goOnTangent(text);
+    else this.box.send(text);
   }
 
   /**
@@ -265,12 +196,12 @@ export class ChatPage implements OnDestroy {
    * the tangent, edited there or not; cancelling leaves the box as it was.
    */
   protected tangentWithOptions(text: string): void {
-    const from = this.plan().target;
+    const from = this.box.plan().target;
     if (!from) return;
     this.ui.dialogs.open({
       kind: 'branch',
       fromNodeId: from,
-      quote: this.lead()?.quote ?? null,
+      quote: this.box.lead()?.quote ?? null,
       message: text,
     });
   }

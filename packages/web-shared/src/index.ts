@@ -32,6 +32,7 @@ export {
   type PathEntry,
   type SendOptions,
 } from './conversation/conversation-store';
+export { ComposerTarget } from './conversation/composer-target';
 export { confirmDeleteMessage } from './conversation/delete-message';
 export { ThreadEnds, ThreadScroll, type ThreadScrollOptions } from './conversation/thread-scroll';
 export {
