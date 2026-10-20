@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import type { BillingSummary, ProviderInfo } from '@tangent/shared';
+import { ComposerController } from '@tangent/web-shared';
 import {
   branch,
   detail,
@@ -157,6 +158,22 @@ describe('Tangent from here (power)', () => {
       expect.anything(),
       'Why does it bend? So much?',
     );
+  });
+
+  it('opened from the message box, the box lets its text go once the tangent is made, edited here or not', async () => {
+    const d = await open({ message: 'Why does it bend?' });
+    const sent = vi.spyOn(TestBed.inject(ComposerController), 'sent');
+    await d.user.type(field(/Starting message/), ' So much?');
+    await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
+    expect(sent).toHaveBeenCalledWith('new', 'Why does it bend?');
+  });
+
+  it('opened elsewhere, it leaves the message box alone', async () => {
+    const d = await open();
+    const sent = vi.spyOn(TestBed.inject(ComposerController), 'sent');
+    await d.user.type(field(/Starting message/), 'Why?');
+    await d.user.click(screen.getByRole('button', { name: 'Create and ask' }));
+    expect(sent).not.toHaveBeenCalled();
   });
 
   it('Ctrl+Enter in any field creates and asks', async () => {

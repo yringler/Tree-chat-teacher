@@ -6,9 +6,15 @@ export interface BranchDialogState {
   fromNodeId: string;
   /** Text the user had selected inside the source message, if any. */
   quote: string | null;
-  /** What the message box held (Tangent ↳'s caret): the starting message starts as it. */
+  /**
+   * What the message box held (Tangent ↳'s caret): the starting message
+   * starts as it, and the box lets it go once the tangent is made.
+   */
   message?: string;
-  /** The route the tangent starts on (a reviewer's model), instead of the parent's. */
+  /**
+   * The route the tangent starts on (a reviewer's model), instead of the
+   * open thread's (`TreeStore.tangentRoute`).
+   */
   route?: { providerId: string; funding: BranchFunding; model: string };
 }
 

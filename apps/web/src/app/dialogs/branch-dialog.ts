@@ -16,7 +16,7 @@ import {
 } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
-import { Modal, startingRoute } from '@tangent/web-shared';
+import { ComposerController, Modal, startingRoute } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
@@ -24,7 +24,8 @@ import { ModePicker } from '../ui/mode-picker';
  * "Tangent from here": a tangent off any message, made with its first
  * message (typed here, starting from what the message box held when its
  * Tangent ↳ caret opened it), which it sends and opens. Cancelling makes
- * nothing. Titles come after the first reply (auto-titling).
+ * nothing, and leaves the box as it was. Titles come after the first reply
+ * (auto-titling).
  */
 @Component({
   selector: 'app-branch-dialog',
@@ -95,6 +96,7 @@ import { ModePicker } from '../ui/mode-picker';
 export class BranchDialog implements OnInit {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   readonly state = input.required<BranchDialogState>();
 
   protected readonly source = computed(
@@ -160,6 +162,12 @@ export class BranchDialog implements OnInit {
     };
     const branch = await this.store.startBranch(req, first);
     this.saving.set(false);
-    if (branch) this.close();
+    if (!branch) return;
+    // The box's text went into this tangent, edited here or not: the box,
+    // still holding it, lets it go, as for a message it sent itself. A first
+    // message the server then refuses comes back to the box (`unsentDrafts`).
+    const carried = this.state().message;
+    if (carried) this.composer.sent(branch.id, carried);
+    this.close();
   }
 }

@@ -261,9 +261,8 @@ export class ChatPage implements OnDestroy {
   /**
    * Tangent ↳'s caret (or Ctrl/Cmd+Shift+Enter): Tangent from here, from the
    * composer's target, with the lead's quote and what is typed as its
-   * starting message. The box lets the text go once that message reaches
-   * the server (`ComposerController.sent`), unless it was changed there;
-   * cancelling leaves the box as it was.
+   * starting message. The box lets the text go once the dialog has made
+   * the tangent, edited there or not; cancelling leaves the box as it was.
    */
   protected tangentWithOptions(text: string): void {
     const from = this.plan().target;

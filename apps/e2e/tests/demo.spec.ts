@@ -513,12 +513,13 @@ test('power demo: the message box goes on a tangent or goes on; Tangent ↳’s 
   await expect(composer).toHaveValue('What do lemons applaud?');
   // Ctrl+Shift+Enter in the box opens it too; Ctrl+Enter in any of its fields creates and asks.
   await composer.press('Control+Shift+Enter');
+  await starting.fill('What do lemons applaud, and why?');
   await dialog.getByRole('radio', { name: /Independent/ }).check();
   await page.keyboard.press('Control+Enter');
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator('.msg-user').last()).toContainText('What do lemons applaud?');
+  await expect(page.locator('.msg-user').last()).toContainText('What do lemons applaud, and why?');
   await expect(page.locator('.fork-divider.fork-current')).toContainText(/independent/i);
-  // The message box let the question go once it was asked.
+  // The message box let the question go once it was asked, though it was changed in the dialog.
   await expect(composer).toHaveValue('');
   await page.goBack();
   await expect.poll(() => page.url()).toBe(url);
