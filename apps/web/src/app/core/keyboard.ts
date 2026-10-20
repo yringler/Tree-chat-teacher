@@ -11,7 +11,6 @@ import {
 } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { selectionWithin } from './selection';
 
 export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+↑', '['], label: 'Parent thread (where this tangent started)' },
@@ -23,7 +22,10 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
     keys: ['b'],
     label: 'Put the selected words, else the focused (or latest) reply, on the message box',
   },
-  { keys: ['Shift+B'], label: 'Open Tangent from here for the focused (or latest) message' },
+  {
+    keys: ['Shift+B'],
+    label: 'Open Tangent from here for the selection, else the focused (or latest) message',
+  },
   { keys: ['v'], label: 'Review up to the focused (or latest) reply' },
   { keys: ['l'], label: 'Link the focused (or latest) message to another' },
   { keys: ['/'], label: 'Focus the composer' },
@@ -72,12 +74,15 @@ export class Keyboard {
       this.store.aimComposer(lead);
       return true;
     },
-    // Shift+B: the tangent's options first (context mode, route, quote).
+    // Shift+B: the tangent's options first (context mode, route, quote), from
+    // the message words are selected in, as `b` takes them, else the focused
+    // (or latest) one: selecting by dragging doesn't focus a message.
     B: () => {
-      const node = this.store.focusedInPath() ?? this.store.leaf();
-      if (!node || !this.store.account.canGenerate()) return false;
-      const body = document.getElementById(`msg-${node.id}`)?.querySelector('.msg-body') ?? null;
-      this.ui.dialogs.open({ kind: 'branch', fromNodeId: node.id, quote: selectionWithin(body) });
+      if (!this.store.account.canGenerate()) return false;
+      const words = this.selectedWords();
+      const fromNodeId = words?.nodeId ?? (this.store.focusedInPath() ?? this.store.leaf())?.id;
+      if (!fromNodeId) return false;
+      this.ui.dialogs.open({ kind: 'branch', fromNodeId, quote: words?.quote ?? null });
       return true;
     },
     v: () => {

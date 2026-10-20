@@ -125,6 +125,13 @@ describe('Power: keyboard', () => {
     expect(k.composer.lead()).toBeNull();
   });
 
+  it('Shift+B opens Tangent from here for the message words are selected in, focused or not', () => {
+    const k = setup();
+    selectWave();
+    k.press('B', { shiftKey: true });
+    expect(k.ui.dialogs.get('branch')).toEqual({ kind: 'branch', fromNodeId: 'a1', quote: 'wave' });
+  });
+
   it('the help lists b and Shift+B', () => {
     expect(SHORTCUTS).toContainEqual({
       keys: ['b'],
@@ -132,7 +139,7 @@ describe('Power: keyboard', () => {
     });
     expect(SHORTCUTS).toContainEqual({
       keys: ['Shift+B'],
-      label: 'Open Tangent from here for the focused (or latest) message',
+      label: 'Open Tangent from here for the selection, else the focused (or latest) message',
     });
   });
 
