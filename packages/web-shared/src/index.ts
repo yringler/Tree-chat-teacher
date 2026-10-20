@@ -108,7 +108,13 @@ export {
 export { AndroidAppBanner, AndroidAppNotice } from './ui/android-app-banner';
 export { BetaBanner } from './ui/beta-banner';
 export { Compare, type CompareCandidate } from './ui/compare';
-export { Composer, ComposerController, pointerHovers, type ComposerAction } from './ui/composer';
+export {
+  Composer,
+  ComposerController,
+  pointerHovers,
+  sendActions,
+  type ComposerAction,
+} from './ui/composer';
 export { ComposerQuote } from './ui/composer-quote';
 export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { ThreadEnds } from '@tangent/web-shared';
-import { appProviders, openTree } from '@tangent/web-shared/testing';
+import { ComposerController, ThreadEnds } from '@tangent/web-shared';
+import { appProviders, branch, detail, node, openTree } from '@tangent/web-shared/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { branchyLesson, learner } from '../learn.testing';
 import { LessonStore } from '../state/lesson-store';
@@ -61,6 +61,29 @@ describe('Learn: keyboard', () => {
     expect(k.press('End').defaultPrevented).toBe(false);
   });
 
+  it('b puts the focused reply on the message box, an earlier thread’s too, else the latest', () => {
+    const k = setup(branchyLesson(), 'side');
+    const composer = TestBed.inject(ComposerController);
+    expect(k.press('b').defaultPrevented).toBe(true);
+    expect(composer.lead()).toEqual({ nodeId: 'a2', quote: null });
+    k.store.setRoute('t1', 'side', 'a1');
+    k.press('b');
+    expect(composer.lead()).toEqual({ nodeId: 'a1', quote: null });
+  });
+
+  it('b with no finished reply to put there leaves the key alone', () => {
+    const streaming = detail(
+      [
+        node('u1', { role: 'user', content: 'What is light?' }),
+        node('a1', { parentId: 'u1', seq: 1, status: 'streaming', content: '' }),
+      ],
+      [branch('trunk', { title: 'Main thread' })],
+    );
+    const k = setup(streaming);
+    expect(k.press('b').defaultPrevented).toBe(false);
+    expect(TestBed.inject(ComposerController).lead()).toBeNull();
+  });
+
   it('? shows the shortcuts; behind a dialog the other keys wait', () => {
     const k = setup();
     k.press('?');
@@ -69,8 +92,12 @@ describe('Learn: keyboard', () => {
     expect(k.go).not.toHaveBeenCalled();
   });
 
-  it('the help lists Home and End', () => {
+  it('the help lists Home and End, and b', () => {
     expect(SHORTCUTS).toContainEqual({ keys: ['Home', 'End'], label: 'Start / end of the thread' });
+    expect(SHORTCUTS).toContainEqual({
+      keys: ['b'],
+      label: 'Put the focused (or latest) reply on the message box',
+    });
   });
 
   it('the help lists how the message box sends: Enter as a tangent, Ctrl+Enter as Next', () => {

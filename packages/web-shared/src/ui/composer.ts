@@ -13,6 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import type { ComposerLead, ComposerSend } from '@tangent/shared';
 import { Icon, type IconName } from './icon';
 
 /** What the controller can ask of one message box. */
@@ -31,12 +32,19 @@ export interface ComposerBox {
  * The app's message boxes (`Composer`), asked directly: take focus, take
  * text handed over from elsewhere, let a sent message go. A focus request
  * for a branch whose box isn't on the page yet (a lane just created) waits
- * for that box.
+ * for that box. It also holds what the page's one box is aimed at (`lead`).
  */
 @Injectable({ providedIn: 'root' })
 export class ComposerController {
   private readonly boxes = new Set<ComposerBox>();
   private pendingFocus: string | null = null;
+  private readonly aimed = signal<ComposerLead | null>(null);
+  /**
+   * What the page's one box is aimed at: a message, or words quoted from
+   * it, that its next message asks about on a tangent made when it is sent.
+   * The page drops it once the tangent is made or the view moves elsewhere.
+   */
+  readonly lead = this.aimed.asReadonly();
 
   /** A box on the page; the returned function takes it off. */
   attach(box: ComposerBox): () => void {
@@ -56,6 +64,17 @@ export class ComposerController {
     const box = this.find(branchId) ?? (branchId === null ? undefined : this.single());
     this.pendingFocus = box ? null : branchId;
     box?.focus();
+  }
+
+  /** Aims the box at `lead` and focuses it; what is typed stays. */
+  aim(lead: ComposerLead): void {
+    this.aimed.set(lead);
+    this.focus();
+  }
+
+  /** Takes the lead off the box; what is typed stays. */
+  drop(): void {
+    this.aimed.set(null);
   }
 
   /** Appends `text` to the current box's draft and focuses it (e.g. a review's corrections). */
@@ -144,6 +163,16 @@ export interface ComposerAction {
   primary: boolean;
 }
 
+/** The composer rule's ways to send (`composerPlan`) as the box's buttons, each tooltip naming its key. */
+export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
+  return sends.map((s) => ({
+    id: s.id,
+    label: s.label,
+    title: `${s.hint} (${s.primary ? 'Enter' : 'Ctrl+Enter'})`,
+    primary: s.primary,
+  }));
+}
+
 /**
  * Message box of every app. Enter sends, Shift+Enter inserts a newline;
  * Stop replaces Send while a reply streams; with `canCompare`, Compare beside
@@ -154,6 +183,10 @@ export interface ComposerAction {
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed. An element marked `composerLead`
  * goes in the box before the text (the words a message asks about, say).
+ * With `target`, the open box can name the reply a tangent from it starts
+ * at, in the same place: whether it does (`nameTarget`) is decided as the
+ * box opens and kept while it stays open, so the box doesn't change height
+ * under the user's typing.
  *
  * `is-open` on the form marks it focused, for styles that change its size
  * then. A press elsewhere takes the focus on pointerdown, but the box keeps
@@ -169,10 +202,25 @@ export interface ComposerAction {
       #form
       class="composer"
       [class.is-open]="open()"
-      (focusin)="open.set(true)"
+      (focusin)="onFocusIn($event, form)"
       (focusout)="onFocusOut($event, form)"
       (submit)="$event.preventDefault(); submit()"
     >
+      @if (open() && namesTarget() && target(); as from) {
+        <!-- Mousedown is cancelled, so the focus (and a phone's keyboard) stays in the box. -->
+        <span class="composer-lead">
+          <button
+            type="button"
+            class="composer-target"
+            title="Show the reply Tangent ↳ starts from"
+            (mousedown)="$event.preventDefault()"
+            (click)="showTarget.emit()"
+          >
+            <span aria-hidden="true">↳</span>
+            <span class="composer-target-text">from “{{ from }}”</span>
+          </button>
+        </span>
+      }
       <ng-content select="[composerLead]" />
       <label class="sr-only" [attr.for]="inputId()">{{ label() }}</label>
       <textarea
@@ -287,6 +335,10 @@ export class Composer {
   readonly canCompare = input(false);
   /** Buttons in place of Send, each sending the text its own way (`act`). */
   readonly actions = input<readonly ComposerAction[]>([]);
+  /** The opening words of the reply a tangent from the box starts at, for the box to name. */
+  readonly target = input<string | null>(null);
+  /** The box names `target` if this holds as it opens: the reply may not be the one in view. */
+  readonly nameTarget = input(false);
   readonly send = output<string>();
   /** An action fired with the trimmed text: like Send, the text stays until the message is in the tree. */
   readonly act = output<{ id: string; text: string }>();
@@ -295,10 +347,14 @@ export class Composer {
   readonly compare = output<string>();
   /** Every edit, for hosts that read the draft themselves. */
   readonly draft = output<string>();
+  /** The named target was clicked: the host shows that reply. */
+  readonly showTarget = output();
 
   protected readonly text = signal('');
   /** Focused, or a press that took the focus away hasn't ended yet (`is-open`). */
   protected readonly open = signal(false);
+  /** `nameTarget` as the box last opened. */
+  protected readonly namesTarget = signal(false);
   /** A pointer is down somewhere on the page. */
   private pressing = false;
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
@@ -353,6 +409,13 @@ export class Composer {
         queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true }));
       }
     });
+  }
+
+  /** Opens; coming from outside the box, it decides now whether to name the target. */
+  protected onFocusIn(e: FocusEvent, form: HTMLFormElement): void {
+    if (!(e.relatedTarget instanceof Node && form.contains(e.relatedTarget)))
+      this.namesTarget.set(this.nameTarget());
+    this.open.set(true);
   }
 
   /** Closes once the focus has left the form and any press that moved it has ended (and clicked). */

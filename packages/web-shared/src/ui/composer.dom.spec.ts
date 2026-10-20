@@ -190,6 +190,38 @@ describe('Composer', () => {
     });
   });
 
+  it('names the target in the open box if asked as it opens, and keeps that while it stays open', async () => {
+    const c = await composer({ target: 'A wave.', nameTarget: true });
+    const shown = vi.fn();
+    c.component.showTarget.subscribe(shown);
+    const named = () => screen.queryByRole('button', { name: 'from “A wave.”' });
+    // Closed, it names nothing.
+    c.box.blur();
+    await c.fixture.whenStable();
+    expect(named()).toBeNull();
+    await c.user.click(c.box);
+    expect(named()?.title).toBe('Show the reply Tangent ↳ starts from');
+    // Asked otherwise while open (the reader scrolled): the box keeps its height.
+    await c.set({ nameTarget: false });
+    await c.user.type(c.box, 'Why?');
+    expect(named()).not.toBeNull();
+    // Shown, with the focus left in the box.
+    await c.user.click(named()!);
+    expect(shown).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(c.box);
+    // Opened again, it asks again.
+    c.box.blur();
+    await c.fixture.whenStable();
+    expect(named()).toBeNull();
+    await c.user.click(c.box);
+    expect(named()).toBeNull();
+    // Nothing to name: no row, however it is asked.
+    await c.set({ target: null, nameTarget: true });
+    c.box.blur();
+    await c.user.click(c.box);
+    expect(screen.queryByRole('button', { name: /^from/ })).toBeNull();
+  });
+
   it('is open while focused, and stays open through a press elsewhere until it ends', async () => {
     const c = await composer();
     const form = c.box.closest('form')!;

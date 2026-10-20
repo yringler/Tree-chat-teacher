@@ -94,6 +94,16 @@ function selectWave(): void {
 
 const dock = () => composer()?.closest<HTMLElement>('.composer-dock') ?? document.body;
 
+/** `branchyLesson` with a second exchange in the tangent `side`: u2 a2, then u5 a5. */
+function longerSide(): TreeDetail {
+  const d = branchyLesson();
+  d.nodes.push(
+    node('u5', { parentId: 'a2', seq: 6, branchId: 'side', role: 'user', content: 'How so?' }),
+    node('a5', { parentId: 'u5', seq: 7, branchId: 'side', content: 'It comes in lumps.' }),
+  );
+  return d;
+}
+
 describe('Learn: the lesson page', () => {
   it.each([
     ['the own key', {}, true],
@@ -131,6 +141,67 @@ describe('Learn: the lesson page', () => {
     await p.user.click(within(dock()).getByRole('button', { name: 'Next ➜' }));
     expect(send).toHaveBeenCalledWith('trunk', 'And a particle?');
     expect(askFrom).toHaveBeenCalledTimes(1);
+  });
+
+  it('after opening a tangent at its start, Tangent ↳ goes from its first reply, not its last', async () => {
+    const p = await page(longerSide());
+    p.store.setRoute('t1', 'side', 'u2');
+    await p.fixture.whenStable();
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
+    await p.user.type(composer()!, 'How big?');
+    await p.user.click(within(dock()).getByRole('button', { name: 'Tangent ↳' }));
+    expect(askFrom).toHaveBeenCalledWith('a2', 'How big?', null);
+  });
+
+  it('names the reply Tangent ↳ goes from when it is not the last, and shows it on a click', async () => {
+    const p = await page(longerSide());
+    const view = layOutThread({
+      height: 3000,
+      view: 500,
+      at: { '.fork-current': 1200, '#msg-a2': 1400 },
+    });
+    composer()!.blur();
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    await p.user.click(composer()!);
+    const named = within(dock()).getByRole('button', { name: 'from “A particle.”' });
+    // Read on to the end, then back to where the tangent goes from.
+    view.scrollBy(2000);
+    await p.user.click(named);
+    expect(view.scrollTop).toBe(1400);
+    expect(document.activeElement).toBe(composer());
+  });
+
+  it('back up the path, Tangent ↳ goes from the reply left from; an earlier thread’s is context', async () => {
+    const p = await page(longerSide(), {}, 'side');
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
+    for (const [focus, from] of [
+      ['a2', 'a2'],
+      ['a1', 'a5'],
+    ] as const) {
+      p.store.setRoute('t1', 'side', focus);
+      await p.fixture.whenStable();
+      await p.user.type(composer()!, 'How big?{Enter}');
+      expect(askFrom).toHaveBeenLastCalledWith(from, 'How big?', null);
+      await p.user.clear(composer()!);
+    }
+  });
+
+  it('jumping to the end lets the focus go: Tangent ↳ goes from the last reply again', async () => {
+    const p = await page(longerSide());
+    const view = layOutThread({ height: 3000, view: 500, at: { '.fork-current': 1200 } });
+    p.store.setRoute('t1', 'side', 'u2');
+    await vi.waitFor(() => expect(view.scrollTop).toBe(1200));
+    await p.fixture.whenStable();
+    const focus = vi
+      .spyOn(p.store, 'focus')
+      .mockImplementation((id) => p.store.setRoute('t1', 'side', id));
+    await p.user.click(screen.getByRole('button', { name: 'Jump to the end' }));
+    expect(focus).toHaveBeenCalledWith(null);
+    await p.fixture.whenStable();
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('lumps'));
+    await p.user.type(composer()!, 'How big?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a5', 'How big?', null);
   });
 
   it('Learn runs one model: no tutor switch and no Compare, even where the provider lists more', async () => {

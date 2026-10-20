@@ -1,4 +1,5 @@
 import { inject, Injectable } from '@angular/core';
+import { replyToAim } from '@tangent/shared';
 import {
   ComposerController,
   dispatchShortcut,
@@ -15,6 +16,7 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+↓', ']'], label: 'Into the first tangent from here' },
   { keys: ['j', 'k'], label: 'Next / previous message' },
   { keys: ['Home', 'End'], label: 'Start / end of the thread' },
+  { keys: ['b'], label: 'Put the focused (or latest) reply on the message box' },
   { keys: ['/'], label: 'Focus the message box' },
   { keys: ['Enter'], label: 'Send as a tangent' },
   { keys: ['Ctrl+Enter'], label: 'Send as Next' },
@@ -35,6 +37,13 @@ export class Keyboard {
     // Taken only with a thread on screen; the start is the open tangent's.
     Home: () => this.threadEnds.toStart(),
     End: () => this.threadEnds.toEnd(),
+    // As the reply's own Tangent ↳: the next message asks about it in a new tangent.
+    b: () => {
+      const nodeId = replyToAim(this.store.path(), this.store.focusedInPath()?.id ?? null);
+      if (nodeId === null) return false;
+      this.composer.aim({ nodeId, quote: null });
+      return true;
+    },
     '/': () => this.composer.focus(),
   };
 

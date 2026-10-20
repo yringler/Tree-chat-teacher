@@ -5,7 +5,13 @@ import type { ConversationStore } from './conversation-store';
 export interface ThreadScrollOptions {
   readonly store: Pick<
     ConversationStore,
-    'selectedBranchId' | 'focusedInPath' | 'path' | 'firstNodeOf' | 'streamingNode' | 'live'
+    | 'selectedBranchId'
+    | 'focusedInPath'
+    | 'focus'
+    | 'path'
+    | 'firstNodeOf'
+    | 'streamingNode'
+    | 'live'
   >;
   /** The element the thread scrolls in (the page's `.messages`). */
   readonly scroller: () => HTMLElement | undefined;
@@ -67,7 +73,8 @@ export class ThreadEnds {
  * end, and the view follows the end while replies grow there, until the
  * reader scrolls away from it. `toStart` and `toEnd` go to either end on
  * request (the title, a tangent's current step in its path, the jump to the
- * end, `Home` and `End`).
+ * end, `Home` and `End`), and `toMessage` to one message (the reply the
+ * composer names).
  *
  * Made in a page's injection context: its effects live as long as the page.
  */
@@ -77,6 +84,9 @@ export class ThreadScroll {
 
   /** Counts the moves to another branch or message: a follow asked for before the last one is dropped. */
   private moves = 0;
+
+  /** The focused message the view was last placed for. */
+  private lastFocus: string | null = null;
 
   /** The end is far enough below to offer the jump to it. */
   private readonly far = signal(false);
@@ -100,7 +110,6 @@ export class ThreadScroll {
     });
 
     let lastBranch: string | null = null;
-    let lastFocus: string | null = null;
     effect(() => {
       const branchId = store.selectedBranchId();
       const focus = store.focusedInPath()?.id ?? null;
@@ -108,9 +117,9 @@ export class ThreadScroll {
       if (!branchId || count === 0) return;
       untracked(() => {
         const opened = branchId !== lastBranch;
-        const moved = opened || focus !== lastFocus;
+        const moved = opened || focus !== this.lastFocus;
         lastBranch = branchId;
-        lastFocus = focus;
+        this.lastFocus = focus;
         if (moved) {
           this.moves++;
           o.moved?.();
@@ -165,12 +174,35 @@ export class ThreadScroll {
     return true;
   }
 
-  /** Scrolls to the end and follows it from there, so a reply being written stays in view. */
+  /**
+   * Scrolls to the end and follows it from there, so a reply being written
+   * stays in view. A message focused earlier is let go, so the composer's
+   * tangent no longer starts from a reply the reader has moved on from. The
+   * view is already where it should be, so that is no move: what belongs to
+   * this place (the words on the composer, say) stays.
+   */
   toEnd(): boolean {
     const el = this.o.scroller();
     if (!el) return false;
     this.pinned = true;
     this.scroll(el, el.scrollHeight - el.clientHeight);
+    if (this.o.store.focusedInPath() !== null) {
+      this.lastFocus = null;
+      this.o.store.focus(null);
+    }
+    return true;
+  }
+
+  /** Scrolls message `nodeId` to the top of the view; false when it isn't on the page. */
+  toMessage(nodeId: string): boolean {
+    const el = this.o.scroller();
+    const msg = document.getElementById(`msg-${nodeId}`);
+    if (!el || !msg) return false;
+    this.pinned = false;
+    this.scroll(
+      el,
+      el.scrollTop + msg.getBoundingClientRect().top - el.getBoundingClientRect().top,
+    );
     return true;
   }
 
