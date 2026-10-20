@@ -9,20 +9,31 @@ import {
   render,
   signIn,
 } from '@tangent/web-shared/testing';
-import { screen } from '@testing-library/dom';
+import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { type AppSettings, SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { BranchSettings } from './branch-settings';
 import { DialogHost } from './dialog-host';
 import { TreeSettings } from './tree-settings';
 
+const HAIKU = 'anthropic/claude-haiku-5.5';
+const SONNET = 'anthropic/claude-sonnet-5.5';
+const PRO = 'deepseek/deepseek-v4-pro';
+
+/** Tangent credit, suggesting a Normal and a Max as the server lists them. */
 const CREDIT: ProviderInfo = provider({
   label: 'Tangent credit',
   acceptsUserKey: false,
   keySource: 'server',
   funding: 'credit',
+  models: [
+    { id: HAIKU, label: 'Normal (suggested)', tier: 'normal' },
+    { id: SONNET, label: 'Max (suggested)', tier: 'max' },
+  ],
+  defaultModel: HAIKU,
 });
 
 /** The trunk "Main thread" on Tangent credit, unless `over` says otherwise. */
@@ -44,11 +55,19 @@ function detail(): TreeDetail {
 
 const tree: Tree = detail().tree;
 
+/** A chip or button's text, its whitespace collapsed. */
+const text = (el: HTMLElement) => el.textContent?.replace(/\s+/g, ' ').trim();
+
 /**
  * `type` rendered with `inputs`, on tree t1 open at branch `side`, for a
- * member offered Tangent credit; saves answer with what they were sent.
+ * member offered Tangent credit, with the Normal and Max of `tiers`
+ * (Settings); saves answer with what they were sent.
  */
-async function open<T>(type: new () => T, inputs: Record<string, unknown> = {}) {
+async function open<T>(
+  type: new () => T,
+  inputs: Record<string, unknown> = {},
+  tiers?: AppSettings['tiers'],
+) {
   const api = {
     updateBranch: vi.fn(async (id: string, req: UpdateBranchRequest) => ({
       ...(id === 'side' ? side : branch()),
@@ -60,6 +79,7 @@ async function open<T>(type: new () => T, inputs: Record<string, unknown> = {}) 
     inputs,
     providers: powerProviders(TreeStore, api),
     setup: () => {
+      if (tiers) TestBed.inject(SettingsStore).update({ tiers });
       const store = TestBed.inject(TreeStore);
       signIn(store.account, { providers: [provider(), CREDIT], builtInCredit: true });
       openTree(store, detail(), 'side');
@@ -91,6 +111,38 @@ describe('Tangent settings', () => {
     await d.user.type(title, 'Waves');
     await d.user.click(screen.getByRole('button', { name: 'Save' }));
     expect(d.api.updateBranch).toHaveBeenCalledWith('side', { title: 'Waves' });
+  });
+
+  it('its model chips are your Normal and Max from Settings, each on the payer chosen with it', async () => {
+    // Normal is DeepSeek on your own OpenRouter key; the tangent is on Tangent credit.
+    const d = await open(
+      BranchSettings,
+      { branch: side },
+      { normal: { providerId: 'openrouter', funding: 'own-key', model: PRO }, max: null },
+    );
+    const chips = () => within(screen.getByRole('group', { name: 'Suggested models' }));
+    expect(chips().getAllByRole('button').map(text)).toEqual([
+      'Normal · deepseek-v4-pro · on OpenRouter',
+      'Max · claude-sonnet-5.5',
+      'claude-haiku-5.5',
+    ]);
+
+    await d.user.click(chips().getByRole('button', { name: /^Normal/ }));
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Provider' }).value).toBe(
+      'openrouter',
+    );
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Model' }).value).toBe(PRO);
+    expect(
+      chips()
+        .getByRole('button', { name: /^Normal/ })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+    await d.user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(d.api.updateBranch).toHaveBeenCalledWith('side', {
+      providerId: 'openrouter',
+      funding: 'own-key',
+      model: PRO,
+    });
   });
 
   it('on the main thread, is the main thread’s settings, with no delete', async () => {

@@ -125,7 +125,13 @@ export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
 export { Overlays } from './ui/overlays';
-export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';
+export {
+  modelChips,
+  ModelSuggestions,
+  suggestionText,
+  type ModelChip,
+  type SuggestionText,
+} from './ui/model-suggestions';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { RelatedLinks, type LinkNoteEdit } from './ui/related-links';
 export { NodePicker, type LinkPick } from './ui/node-picker';

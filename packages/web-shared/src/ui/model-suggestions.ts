@@ -18,31 +18,56 @@ export function suggestionText(m: ModelInfo): SuggestionText {
   return { name, id: id && comparable(id) !== comparable(name) ? id : null };
 }
 
+/** One chip of `ModelSuggestions`. */
+export interface ModelChip {
+  /** The model id it puts in the field. */
+  model: string;
+  text: SuggestionText;
+  /**
+   * The route it moves the field to, when not the field's own: its
+   * `routeKey`, and its label, which the chip shows (power's Normal and Max
+   * run on the payer chosen with them).
+   */
+  route?: { key: string; label: string };
+  /** It is what the field holds (`aria-pressed`). */
+  pressed: boolean;
+}
+
+/** A chip for each listed model, named by `suggestionText`; the one of the field's id (`value`) pressed. */
+export function modelChips(models: readonly ModelInfo[], value: string): ModelChip[] {
+  const id = value.trim();
+  return models.map((m) => ({ model: m.id, text: suggestionText(m), pressed: m.id === id }));
+}
+
 /**
- * The listed models of an `openModels` provider (OpenRouter, Tangent credit)
- * as a row of chips under its model id field, every one always in view and
- * one click from replacing the id: a `<datalist>` filters its options by the
+ * The models of an `openModels` provider (OpenRouter, Tangent credit) as a
+ * row of chips under its model id field, every one always in view and one
+ * click from replacing the id: a `<datalist>` filters its options by the
  * field's text, so with the default (Normal) id in the field it offered only
- * that one. The chip of the current id is pressed (`aria-pressed`).
+ * that one. The chip of the current pick is pressed (`aria-pressed`).
  */
 @Component({
   selector: 'app-model-suggestions',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (models().length > 0) {
+    @if (chips().length > 0) {
       <div class="model-suggestions" role="group" [attr.aria-label]="label()">
-        @for (m of models(); track m.id) {
-          @let t = text(m);
+        <!-- By position: a chip on another route may pick a model listed here too. -->
+        @for (c of chips(); track $index) {
           <button
             type="button"
             class="model-chip"
-            [attr.aria-pressed]="m.id === value().trim()"
-            [title]="m.id"
-            (click)="picked.emit(m.id)"
+            [attr.aria-pressed]="c.pressed"
+            [title]="c.route ? c.model + ' on ' + c.route.label : c.model"
+            (click)="picked.emit(c)"
           >
-            {{ t.name }}
-            @if (t.id) {
-              <span class="model-chip-id">· {{ t.id }}</span>
+            {{ c.text.name }}
+            @if (c.text.id) {
+              <span class="model-chip-id">· {{ c.text.id }}</span>
+            }
+            @if (c.route) {
+              <!-- Shown on phones too, which hide the id: who pays stays in view. -->
+              <span class="model-chip-route"> · on {{ c.route.label }}</span>
             }
           </button>
         }
@@ -51,11 +76,8 @@ export function suggestionText(m: ModelInfo): SuggestionText {
   `,
 })
 export class ModelSuggestions {
-  readonly models = input.required<readonly ModelInfo[]>();
-  /** The model id in the field. */
-  readonly value = input.required<string>();
+  readonly chips = input.required<readonly ModelChip[]>();
   /** The group's accessible name. */
   readonly label = input('Suggested models');
-  readonly picked = output<string>();
-  protected readonly text = suggestionText;
+  readonly picked = output<ModelChip>();
 }

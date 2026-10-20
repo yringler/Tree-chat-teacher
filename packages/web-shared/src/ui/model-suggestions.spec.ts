@@ -1,6 +1,6 @@
 import '@angular/compiler'; // JIT: the component module below is decorated.
 import { describe, expect, it } from 'vitest';
-import { suggestionText } from './model-suggestions';
+import { modelChips, suggestionText } from './model-suggestions';
 
 describe('suggestionText', () => {
   it('names a suggested model by its label without the note, and adds the id', () => {
@@ -38,5 +38,22 @@ describe('suggestionText', () => {
       name: 'vendor/model',
       id: null,
     });
+  });
+});
+
+describe('modelChips', () => {
+  it('names each listed model, and presses the one in the field', () => {
+    const models = [
+      { id: 'deepseek/deepseek-v4-pro', label: 'Normal (suggested)', tier: 'normal' as const },
+      { id: 'openai/gpt-5', label: 'GPT-5' },
+    ];
+    expect(modelChips(models, ' openai/gpt-5 ')).toEqual([
+      {
+        model: 'deepseek/deepseek-v4-pro',
+        text: { name: 'Normal', id: 'deepseek-v4-pro' },
+        pressed: false,
+      },
+      { model: 'openai/gpt-5', text: { name: 'GPT-5', id: null }, pressed: true },
+    ]);
   });
 });

@@ -7,8 +7,9 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
  * as a chip under it, against the real Worker: serve.mjs lists Normal
  * (`normal`, the default) and Max (`max`) as the built-in provider's models,
  * labelled "Normal (suggested)" and "Max (suggested)" on Tangent credit; the
- * chips drop the note. A `<datalist>` filtered its options by the field's
- * text, so with the default id in it only that model was offered.
+ * chips drop the note (power's are the user's Normal and Max, here the
+ * suggested ones). A `<datalist>` filtered its options by the field's text,
+ * so with the default id in it only that model was offered.
  */
 
 interface TreeDetail {

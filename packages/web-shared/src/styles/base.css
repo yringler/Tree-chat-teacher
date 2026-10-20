@@ -805,7 +805,8 @@ app-android-app-banner {
   color: var(--accent);
 }
 
-.model-chip-id {
+.model-chip-id,
+.model-chip-route {
   color: var(--fg-muted);
 }
 

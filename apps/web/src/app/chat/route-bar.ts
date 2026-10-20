@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { maxUsageNote, TIERS, type Branch, type ModelTier } from '@tangent/shared';
+import { maxUsageNote, TIER_LABELS, TIERS, type Branch, type ModelTier } from '@tangent/shared';
 import { Icon, Segmented } from '@tangent/web-shared';
 import { TierStore, tierOptions } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
@@ -10,7 +10,7 @@ export interface RouteView {
   branch: Branch;
   /** The provider entry's label ("OpenRouter", "Tangent credit"), else its id. */
   label: string;
-  /** The model's label where the provider lists it, else its id. */
+  /** The tier it replies on, by name ("Normal"), else its model (`TierStore.modelLabel`). */
   model: string;
   /** On the user's own key, with none saved in this browser (`TreeStore.keyMissing`). */
   missing: boolean;
@@ -117,14 +117,14 @@ export class RouteBar {
   protected readonly view = computed<RouteView | null>(() => {
     const branch = this.store.selectedBranch();
     if (!branch) return null;
-    const provider = this.store.account.providerOf(branch);
+    const tier = this.tiers.tierOfBranch(branch);
     return {
       branch,
-      label: provider?.label ?? branch.providerId,
-      model: provider?.models.find((m) => m.id === branch.model)?.label ?? branch.model,
+      label: this.store.account.providerOf(branch)?.label ?? branch.providerId,
+      model: tier ? TIER_LABELS[tier] : this.tiers.modelLabel(branch),
       missing: this.store.account.keyMissing(branch),
       tiers: this.tiers.available(branch),
-      tier: this.tiers.tierOfBranch(branch),
+      tier,
     };
   });
 

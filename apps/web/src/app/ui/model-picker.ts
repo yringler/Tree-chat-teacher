@@ -1,6 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, inject, model } from '@angular/core';
-import { parseRouteKey, providerRouteKey } from '@tangent/shared';
-import { modelHint, ModelSuggestions, routeSuffix } from '@tangent/web-shared';
+import { parseRouteKey, providerRouteKey, routeKey, TIER_LABELS, TIERS } from '@tangent/shared';
+import {
+  modelHint,
+  ModelSuggestions,
+  routeSuffix,
+  suggestionText,
+  type ModelChip,
+} from '@tangent/web-shared';
+import type { ModelChoice } from '../state/settings-store';
+import { modelText, sameChoice, TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 
 let uid = 0;
@@ -12,9 +20,9 @@ let uid = 0;
  * who pays for it, so the built-in endpoint shows twice in power, as the
  * user's OpenRouter and as Tangent credit.
  * A provider with `openModels` (OpenRouter, Tangent credit) takes any model
- * id it serves: a text field with its listed models as chips under it, all
- * in view and one click away (ModelSuggestions). Every other provider offers
- * a select of its listed models.
+ * id it serves: a text field with chips under it, all in view and one click
+ * away (ModelSuggestions): the user's Normal and Max, then its other listed
+ * models. Every other provider offers a select of its listed models.
  */
 @Component({
   selector: 'app-model-picker',
@@ -59,11 +67,7 @@ let uid = 0;
             [attr.aria-invalid]="hint() ? 'true' : null"
             [attr.aria-describedby]="hint() ? id + '-h' : null"
           />
-          <app-model-suggestions
-            [models]="models()"
-            [value]="modelId()"
-            (picked)="modelId.set($event)"
-          />
+          <app-model-suggestions [chips]="chips()" (picked)="pick($event)" />
           @if (hint(); as h) {
             <span class="field-error small" [id]="id + '-h'">{{ h }}</span>
           }
@@ -86,6 +90,7 @@ let uid = 0;
 })
 export class ModelPicker {
   protected readonly store = inject(TreeStore);
+  private readonly tiers = inject(TierStore);
   /** The picked route: a `routeKey` (provider id, `@credit` for Tangent credit). */
   readonly route = model.required<string>();
   readonly modelId = model.required<string>();
@@ -108,6 +113,43 @@ export class ModelPicker {
     this.models().some((m) => m.id === this.modelId()),
   );
   protected readonly hint = computed(() => modelHint(this.provider(), this.modelId()));
+
+  /**
+   * The chips of an open field: the user's Normal and Max first (TierStore
+   * `choice`: what the Normal | Max switch moves a thread to, each on the
+   * payer chosen with it, which the chip names when it isn't this field's),
+   * then the route's other listed models, where one the route suggests for a
+   * tier reads as its id, so "Normal" names only the user's Normal.
+   */
+  protected readonly chips = computed(() => {
+    const route = this.route();
+    const value = this.modelId().trim();
+    const tiers: ModelChoice[] = [];
+    const chips: ModelChip[] = [];
+    for (const tier of TIERS) {
+      const c = this.tiers.choice(tier, parseRouteKey(route));
+      if (!c || tiers.some((t) => sameChoice(t, c))) continue;
+      tiers.push(c);
+      const key = routeKey(c);
+      const label = this.store.account.providerOf(c)?.label ?? c.providerId;
+      chips.push({
+        model: c.model,
+        text: suggestionText({ id: c.model, label: TIER_LABELS[tier] }),
+        ...(key === route ? {} : { route: { key, label } }),
+        pressed: key === route && c.model === value,
+      });
+    }
+    for (const m of this.models()) {
+      if (tiers.some((t) => routeKey(t) === route && t.model === m.id)) continue;
+      chips.push({ model: m.id, text: modelText(m), pressed: m.id === value });
+    }
+    return chips;
+  });
+
+  protected pick(chip: ModelChip): void {
+    if (chip.route) this.route.set(chip.route.key);
+    this.modelId.set(chip.model);
+  }
 
   protected pickProvider(route: string): void {
     this.route.set(route);
