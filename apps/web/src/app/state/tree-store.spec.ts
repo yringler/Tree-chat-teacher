@@ -361,6 +361,26 @@ describe('TreeStore read-only power without a membership', () => {
     );
   });
 
+  it('a suggestion under a locked thread’s reply starts from a tangent that can reply, on its route', async () => {
+    const s = setup();
+    await open(s, inactive());
+    // The main thread on the lapsed own key; the open tangent off it on Tangent credit.
+    s.store.setRoute('t1', 'side', null);
+    expect(s.store.readOnly()).toBe(false);
+    const createBranch = vi.fn(async (req: CreateBranchRequest) =>
+      fixtures.branch('new', { parentBranchId: 'trunk', branchPointNodeId: req.fromNodeId }),
+    );
+    Object.assign(s.api, { createBranch, sendMessage: vi.fn(), streamNode: vi.fn() });
+    await expect(s.store.followTangent('n2', 'Twin primes')).resolves.not.toBeNull();
+    expect(createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'openrouter', funding: 'credit', model: 'c/d' }),
+    );
+    // From the read-only main thread itself, it would start on the locked own key.
+    s.store.setRoute('t1', null, null);
+    await expect(s.store.followTangent('n2', 'Mersenne primes')).resolves.toBeNull();
+    expect(createBranch).toHaveBeenCalledTimes(1);
+  });
+
   describe('a branch on the own key, with no key in this browser', () => {
     const noKey: ProviderInfo = { ...ownKey, available: false, keySource: null };
     const keyRequired = () =>

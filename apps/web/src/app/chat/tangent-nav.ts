@@ -51,8 +51,8 @@ export class TangentNav {
   readonly chainIds = input<ReadonlySet<string>>(new Set());
 
   protected readonly suggestions = computed(() => (this.finished() ? this.tangents() : []));
-  /** The message's branch can't generate (its funding needs the membership the user lacks). */
-  protected readonly locked = computed(() => this.store.nodeLocked(this.node().id));
+  /** A tangent from the message would start on a route the membership locks. */
+  protected readonly locked = computed(() => this.store.tangentLocked(this.node().id));
   protected readonly openTangent = (title: string) =>
     this.store.followTangent(this.node().id, title);
   protected readonly openBranch = (b: Branch) => this.store.openAtStart(b.id);

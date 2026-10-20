@@ -121,6 +121,21 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   }
 
   /**
+   * A tangent from message `nodeId` can't start: the route it would start on
+   * (`tangentRoute`) needs the membership the user lacks. Judged on that
+   * route rather than the message's thread, so a locked thread's reply
+   * above a tangent that can reply still offers its suggestions.
+   */
+  tangentLocked(nodeId: string): boolean {
+    const route = this.tangentRoute(this.branchOf(nodeId));
+    return !!route && this.account.routeLocked(route);
+  }
+
+  protected override canBranchFrom(nodeId: string): boolean {
+    return !this.tangentLocked(nodeId);
+  }
+
+  /**
    * A tangent from a message, or from words of it (its Tangent ↳, `b`): the
    * message box is aimed at it, and the tangent is made when the box's
    * message is sent. A read-only thread has no message box, so Tangent from

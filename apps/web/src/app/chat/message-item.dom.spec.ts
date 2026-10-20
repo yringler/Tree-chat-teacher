@@ -48,13 +48,13 @@ const LAPSED = membership({ status: 'inactive', subscriptionStatus: 'canceled' }
 const CREDIT = provider({ funding: 'credit', acceptsUserKey: false, keySource: 'server' });
 
 /**
- * Message `nodeId` of `d`, as power renders it. `lapsed`: the user's
- * membership ended, so the own-key trunk is read-only; `credit`: Tangent
- * credit can still generate.
+ * Message `nodeId` of `d`, as power renders it, with `branchId` open (the
+ * trunk by default). `lapsed`: the user's membership ended, so the own-key
+ * trunk is read-only; `credit`: Tangent credit can still generate.
  */
 async function message(
   nodeId: string,
-  opts: { d?: TreeDetail; lapsed?: boolean; credit?: boolean } = {},
+  opts: { d?: TreeDetail; lapsed?: boolean; credit?: boolean; branchId?: string } = {},
 ) {
   const d = opts.d ?? tree();
   const r = await render(MessageItem, {
@@ -67,7 +67,7 @@ async function message(
         builtInCredit: opts.credit,
         billing: opts.credit ? ({ availableMicros: 1_000_000, enabled: true } as never) : undefined,
       });
-      openTree(store, d);
+      openTree(store, d, opts.branchId ?? null);
     },
     inputs: { node: d.nodes.find((n) => n.id === nodeId) },
   });
@@ -250,6 +250,35 @@ describe('TangentNav: Dig deeper and Suggested tangents', () => {
       name: /^Open tangent: Photons/,
     });
     expect(photons.disabled).toBe(false);
+  });
+
+  it('from a tangent that can reply, a locked thread’s reply above offers its suggestions', async () => {
+    // The main thread on the lapsed own key; the open tangent, off a later reply, on Tangent credit.
+    const d = tree(
+      {},
+      {
+        nodes: [
+          node('u2', { role: 'user', parentId: 'a1', seq: 2, content: 'And then?' }),
+          node('a2', { parentId: 'u2', seq: 3, content: 'Then it spreads.' }),
+        ],
+        branches: [
+          branch('side', {
+            parentBranchId: 'trunk',
+            branchPointNodeId: 'a2',
+            title: 'Spreading',
+            funding: 'credit',
+          }),
+        ],
+      },
+    );
+    const m = await message('a1', { d, lapsed: true, credit: true, branchId: 'side' });
+    const diffraction = within(group('Dig deeper')).getByRole<HTMLButtonElement>('button', {
+      name: start('Diffraction'),
+    });
+    expect(diffraction.disabled).toBe(false);
+    const follow = vi.spyOn(m.store, 'followTangent').mockResolvedValue(null);
+    await m.user.click(diffraction);
+    expect(follow).toHaveBeenCalledWith('a1', 'Diffraction');
   });
 
   it('a reply still being written offers no suggestions yet', async () => {
