@@ -163,18 +163,25 @@ export interface ComposerAction {
   primary: boolean;
 }
 
-/** The composer rule's ways to send (`composerPlan`) as the box's buttons, each tooltip naming its key. */
-export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
+/**
+ * The composer rule's ways to send (`composerPlan`) as the box's buttons,
+ * each tooltip naming its key where a pointer `hovers`: on a touch screen
+ * Enter is a newline, and only the buttons send.
+ */
+export function sendActions(sends: readonly ComposerSend[], hovers: boolean): ComposerAction[] {
   return sends.map((s) => ({
     id: s.id,
     label: s.label,
-    title: `${s.hint} (${s.primary ? 'Enter' : 'Ctrl+Enter'})`,
+    title: hovers ? `${s.hint} (${s.primary ? 'Enter' : 'Ctrl+Enter'})` : s.hint,
     primary: s.primary,
   }));
 }
 
 /**
- * Message box of every app. Enter sends, Shift+Enter inserts a newline;
+ * Message box of every app. Enter sends, Shift+Enter inserts a newline; on
+ * a touch screen (no hover) a plain Enter inserts a newline too and only the
+ * buttons send: a phone's keyboard has no Shift+Enter, and a send there is
+ * then a tap on a button that says where the message goes.
  * Stop replaces Send while a reply streams; with `canCompare`, Compare beside
  * Send (or the actions) asks Normal and Max (the host opens its dialog). With
  * `actions`, their buttons replace Send, in the order given, and emit `act`:
@@ -228,7 +235,7 @@ export function sendActions(sends: readonly ComposerSend[]): ComposerAction[] {
         #box
         [id]="inputId()"
         rows="1"
-        enterkeyhint="send"
+        [attr.enterkeyhint]="touch ? 'enter' : 'send'"
         [placeholder]="placeholder()"
         [value]="text()"
         [disabled]="disabled()"
@@ -358,6 +365,8 @@ export class Composer {
   protected readonly namesTarget = signal(false);
   /** A pointer is down somewhere on the page. */
   private pressing = false;
+  /** No pointer hovers: a plain Enter is a newline, and the keyboard's key says so. */
+  protected readonly touch = !pointerHovers();
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
 
   constructor() {
@@ -450,12 +459,13 @@ export class Composer {
   }
 
   protected onKey(e: KeyboardEvent): void {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    const modified = e.ctrlKey || e.metaKey;
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && (modified || !this.touch)) {
       e.preventDefault();
       const actions = this.actions();
       const primary = actions.find((a) => a.primary) ?? actions[0];
       const other = actions.find((a) => a !== primary) ?? primary;
-      const action = e.ctrlKey || e.metaKey ? other : primary;
+      const action = modified ? other : primary;
       if (action) this.fire(action);
       else this.submit();
     }

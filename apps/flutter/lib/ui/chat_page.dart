@@ -1285,7 +1285,8 @@ class _SendAction {
 
 /// The message box. On the web, Enter sends (as the filled one of
 /// [actions]), Ctrl or Cmd+Enter sends as the other, and Shift+Enter starts
-/// a new line. The words it asks about ([lead]) sit before the text; with
+/// a new line; on a phone or tablet a plain Enter starts one too
+/// ([enterSends]). The words it asks about ([lead]) sit before the text; with
 /// the focus they take a row of their own, and the box grows to three
 /// lines. Without a lead, the open box can name the reply its tangent
 /// starts from ([target]) in the same row, when [namesTarget] holds. With
@@ -1328,17 +1329,22 @@ class _Composer extends StatelessWidget {
         event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.numpadEnter;
     final keyboard = HardwareKeyboard.instance;
-    if (!kIsWeb ||
-        event is! KeyDownEvent ||
+    final modified = keyboard.isControlPressed || keyboard.isMetaPressed;
+    if (event is! KeyDownEvent ||
         !enter ||
         keyboard.isShiftPressed ||
-        controller.value.composing.isValid) {
+        controller.value.composing.isValid ||
+        !enterSends(
+          web: kIsWeb,
+          platform: defaultTargetPlatform,
+          modified: modified,
+        )) {
       return KeyEventResult.ignored;
     }
     final action = sentByEnter(
       actions,
       primary: (a) => a.primary,
-      modified: keyboard.isControlPressed || keyboard.isMetaPressed,
+      modified: modified,
     );
     (action?.onPressed ?? onSend)();
     return KeyEventResult.handled;

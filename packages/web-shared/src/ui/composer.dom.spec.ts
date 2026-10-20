@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { screen } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '../testing';
 import { Composer, ComposerController, type ComposerAction } from './composer';
 
@@ -18,9 +18,15 @@ async function composer(inputs: Record<string, unknown> = {}) {
 
 const button = (name: string) => screen.getByRole<HTMLButtonElement>('button', { name });
 
+const actions: readonly ComposerAction[] = [
+  { id: 'tangent', label: 'Tangent ↳', title: 'Explore on the side', primary: true },
+  { id: 'next', label: 'Next ➜', icon: 'next', title: 'Keeps the lesson moving', primary: false },
+];
+
 describe('Composer', () => {
   it('sends the trimmed text on Enter, and keeps it until the message is in the tree', async () => {
     const c = await composer();
+    expect(c.box.getAttribute('enterkeyhint')).toBe('send');
     expect(button('Send').disabled).toBe(true);
     await c.user.type(c.box, '  Why is the sky blue?  ');
     expect(button('Send').disabled).toBe(false);
@@ -96,17 +102,6 @@ describe('Composer', () => {
   });
 
   describe('with actions in place of Send', () => {
-    const actions: readonly ComposerAction[] = [
-      { id: 'tangent', label: 'Tangent ↳', title: 'Explore on the side', primary: true },
-      {
-        id: 'next',
-        label: 'Next ➜',
-        icon: 'next',
-        title: 'Keeps the lesson moving',
-        primary: false,
-      },
-    ];
-
     it('shows one button per action, marked for the walkthrough, and no Send', async () => {
       await composer({ actions });
       expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
@@ -206,6 +201,34 @@ describe('Composer', () => {
       await c.user.keyboard('{Control>}{Enter}{/Control}');
       expect(c.send).toHaveBeenCalledTimes(2);
       expect(c.act).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('on a touch screen (no hover)', () => {
+    beforeEach(() =>
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(hover: none)' })),
+    );
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('Enter starts a new line and only the buttons send; Ctrl or Cmd+Enter still sends', async () => {
+      const c = await composer({ actions });
+      expect(c.box.getAttribute('enterkeyhint')).toBe('enter');
+      await c.user.type(c.box, 'Line one{Enter}Line two');
+      expect(c.box.value).toBe('Line one\nLine two');
+      expect(c.act).not.toHaveBeenCalled();
+      await c.user.keyboard('{Control>}{Enter}{/Control}');
+      expect(c.act).toHaveBeenLastCalledWith({ id: 'next', text: 'Line one\nLine two' });
+      await c.user.click(button('Tangent ↳'));
+      expect(c.act).toHaveBeenLastCalledWith({ id: 'tangent', text: 'Line one\nLine two' });
+      expect(c.act).toHaveBeenCalledTimes(2);
+    });
+
+    it('with the plain Send too', async () => {
+      const c = await composer();
+      await c.user.type(c.box, 'Line one{Enter}Line two');
+      expect(c.send).not.toHaveBeenCalled();
+      await c.user.click(button('Send'));
+      expect(c.send).toHaveBeenCalledExactlyOnceWith('Line one\nLine two');
     });
   });
 

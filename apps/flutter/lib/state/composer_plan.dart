@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../api/models.dart';
 
 // What the message box offers once there is a reply, and the reply a tangent
@@ -92,6 +94,21 @@ T? sentByEnter<T>(
   final other = actions.where((a) => a != filled).firstOrNull ?? filled;
   return modified ? other : filled;
 }
+
+/// Whether Enter, alone or with Ctrl or Cmd ([modified]), sends from the box
+/// ([sentByEnter] says which way) rather than starting a new line. Only in a
+/// browser: a native keyboard's Enter is the box's new line
+/// (`TextInputAction.newline`). In a browser on a phone or tablet a plain
+/// Enter is a new line too, and only the buttons send, as on the web's touch
+/// screens: its keyboard has no Shift+Enter.
+bool enterSends({
+  required bool web,
+  required TargetPlatform platform,
+  required bool modified,
+}) =>
+    web &&
+    (modified ||
+        (platform != TargetPlatform.android && platform != TargetPlatform.iOS));
 
 String? _implicitTarget(List<ChatNode> own, String? focusedId) {
   final focused = _finishedReplyAt(

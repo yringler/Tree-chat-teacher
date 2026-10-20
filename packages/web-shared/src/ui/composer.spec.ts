@@ -1,4 +1,5 @@
 import '@angular/compiler'; // JIT: the component in the same module.
+import type { ComposerSend } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ComposerController,
@@ -125,16 +126,17 @@ describe('Composer helpers', () => {
     expect(lanes.release).not.toHaveBeenCalled();
   });
 
-  it("makes the rule's ways to send buttons, each tooltip naming its key", () => {
-    expect(
-      sendActions([
-        { id: 'tangent', label: 'Tangent ↳', hint: 'Explore.', primary: true },
-        { id: 'next', label: 'Next ➜', hint: 'Go on.', primary: false },
-      ]),
-    ).toEqual([
+  it("makes the rule's ways to send buttons, each tooltip naming its key where a pointer hovers", () => {
+    const sends: ComposerSend[] = [
+      { id: 'tangent', label: 'Tangent ↳', hint: 'Explore.', primary: true },
+      { id: 'next', label: 'Next ➜', hint: 'Go on.', primary: false },
+    ];
+    expect(sendActions(sends, true)).toEqual([
       { id: 'tangent', label: 'Tangent ↳', title: 'Explore. (Enter)', primary: true },
       { id: 'next', label: 'Next ➜', title: 'Go on. (Ctrl+Enter)', primary: false },
     ]);
+    // On a touch screen Enter is a newline: only the buttons send.
+    expect(sendActions(sends, false).map((a) => a.title)).toEqual(['Explore.', 'Go on.']);
   });
 
   it('lets a sent draft go only where the box clears on send, and only unedited', () => {

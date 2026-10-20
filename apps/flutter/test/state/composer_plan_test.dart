@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/state/composer_plan.dart';
@@ -191,6 +192,40 @@ void main() {
       expect(sent(aimed, modified: true), ComposerSendId.tangent);
       expect(sent(onMain(path: const [])), isNull);
       expect(sent(onMain(path: const []), modified: true), isNull);
+    });
+  });
+
+  group('enterSends', () {
+    bool sends(
+      TargetPlatform platform, {
+      bool web = true,
+      bool modified = false,
+    }) => enterSends(web: web, platform: platform, modified: modified);
+
+    test('in a browser on a computer, Enter and Ctrl or Cmd+Enter send', () {
+      for (final p in [
+        TargetPlatform.linux,
+        TargetPlatform.macOS,
+        TargetPlatform.windows,
+      ]) {
+        expect(sends(p), isTrue, reason: '$p');
+        expect(sends(p, modified: true), isTrue, reason: '$p');
+      }
+    });
+
+    test('on a phone or tablet, Enter starts a new line and only the buttons '
+        'send; Ctrl or Cmd+Enter still sends', () {
+      for (final p in [TargetPlatform.android, TargetPlatform.iOS]) {
+        expect(sends(p), isFalse, reason: '$p');
+        expect(sends(p, modified: true), isTrue, reason: '$p');
+      }
+    });
+
+    test('a native keyboard never sends: its Enter is a new line', () {
+      for (final p in TargetPlatform.values) {
+        expect(sends(p, web: false), isFalse, reason: '$p');
+        expect(sends(p, web: false, modified: true), isFalse, reason: '$p');
+      }
     });
   });
 }
