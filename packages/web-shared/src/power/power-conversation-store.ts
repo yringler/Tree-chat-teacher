@@ -5,6 +5,7 @@ import {
   type Branch,
   type CommitCandidateResponse,
   type MeResponse,
+  type ProviderInfo,
 } from '@tangent/shared';
 import { addBlockedSend, type BlockedSend } from '../billing/key-missing';
 import { ApiError } from '../core/api-client';
@@ -93,8 +94,8 @@ export abstract class PowerConversationStore<
   /** Nothing waits for a key any more: the keys dialog closes. */
   protected abstract keysSettled(): void;
 
-  /** `branch` now replies on Tangent credit, on the model labelled `modelLabel`. */
-  protected abstract movedToCredit(branch: Branch, modelLabel: string): void;
+  /** `branch` now replies on Tangent credit (`credit`), on `model`, which the app names. */
+  protected abstract movedToCredit(branch: Branch, credit: ProviderInfo, model: string): void;
 
   /**
    * "Continue with Tangent credit" on a read-only branch: moves it onto
@@ -114,7 +115,7 @@ export abstract class PowerConversationStore<
       funding: 'credit',
       model,
     });
-    if (ok) this.movedToCredit(branch, credit.models.find((m) => m.id === model)?.label ?? model);
+    if (ok) this.movedToCredit(branch, credit, model);
     return ok;
   }
 

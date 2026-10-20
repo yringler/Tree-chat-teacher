@@ -8,7 +8,8 @@ import {
   type ModelChip,
 } from '@tangent/web-shared';
 import type { ModelChoice } from '../state/settings-store';
-import { modelText, sameChoice, TierStore } from '../state/tier-store';
+import { modelText } from '../state/model-text';
+import { sameChoice, TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 
 let uid = 0;

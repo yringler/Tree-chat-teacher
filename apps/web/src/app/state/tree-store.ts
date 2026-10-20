@@ -7,6 +7,7 @@ import type {
   ComposerLead,
   CreateBranchRequest,
   NodeLink,
+  ProviderInfo,
   ShareScope,
 } from '@tangent/shared';
 import {
@@ -17,6 +18,7 @@ import {
   SidebarState,
   ToastStore,
 } from '@tangent/web-shared';
+import { modelName } from './model-text';
 import { generationLimits, SettingsStore } from './settings-store';
 import { threadTitle } from './thread-title';
 import { UiStore } from './ui-store';
@@ -243,8 +245,10 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     this.ui.dialogs.close('keys');
   }
 
-  protected override movedToCredit(branch: Branch, modelLabel: string): void {
-    this.toast.notify(`“${threadTitle(branch)}” now uses Tangent credit (${modelLabel})`);
+  protected override movedToCredit(branch: Branch, credit: ProviderInfo, model: string): void {
+    this.toast.notify(
+      `“${threadTitle(branch)}” now uses Tangent credit (${modelName(credit, model)})`,
+    );
     this.composer.focus();
   }
 

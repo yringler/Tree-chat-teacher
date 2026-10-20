@@ -293,6 +293,38 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.toasts.toasts()[0]?.text).toBe('“Main thread” now uses Tangent credit (a/b)');
   });
 
+  it('names the model it moves to as power does: a tier label isn’t your Normal', async () => {
+    const s = setup();
+    const haiku = 'anthropic/claude-haiku-5.5';
+    // Credit offers only its suggested Normal, so the main thread moves onto that.
+    s.api.providers.mockResolvedValue([
+      ownKey,
+      {
+        ...credit,
+        openModels: false,
+        models: [{ id: haiku, label: 'Normal (suggested)', tier: 'normal' }],
+        defaultModel: haiku,
+      },
+    ]);
+    await s.store.init(me({ membership: inactive() }));
+    s.store.detail.set(tree());
+    s.store.setRoute('t1', null, null);
+    const updateBranch = vi.fn(async (id: string, req: UpdateBranchRequest) => ({
+      ...tree().branches.find((b) => b.id === id)!,
+      ...req,
+    }));
+    Object.assign(s.api, { updateBranch });
+    await expect(s.store.switchToCredit('trunk')).resolves.toBe(true);
+    expect(updateBranch).toHaveBeenCalledWith('trunk', {
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: haiku,
+    });
+    expect(s.toasts.toasts()[0]?.text).toBe(
+      '“Main thread” now uses Tangent credit (claude-haiku-5.5)',
+    );
+  });
+
   it('a lapsed member out of credit on a credit branch: a 402 payment_required toasts to /billing, nothing turns read-only', async () => {
     const s = setup();
     s.api.billing.mockResolvedValue(empty);

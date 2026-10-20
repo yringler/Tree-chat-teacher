@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { plainText } from '@tangent/shared';
-import { parseReview, parseRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
+import { parseReview, parseRouteKey, routeKey } from '@tangent/shared';
 import { copyText } from '../core/selection';
 import {
   ComposerController,
@@ -21,6 +21,7 @@ import {
 } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
 import { threadTitle } from '../state/thread-title';
+import { TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ModelPicker } from '../ui/model-picker';
@@ -49,7 +50,7 @@ const EXCERPT_CHARS = 280;
         @if (review(); as r) {
           <div class="review-head">
             <span class="small"
-              >Reviewed by <strong>{{ labelOf(r, r.model) }}</strong></span
+              >Reviewed by <strong>{{ tiers.modelLabel(r) }}</strong></span
             >
             <app-review-verdict
               [accuracy]="parsed().accuracy"
@@ -106,7 +107,7 @@ const EXCERPT_CHARS = 280;
                   (click)="switchBranch()"
                 >
                   <app-icon name="refresh" /> Continue this thread with
-                  {{ labelOf(r, r.model) }}
+                  {{ tiers.modelLabel(r) }}
                 </button>
               }
               <button
@@ -115,7 +116,7 @@ const EXCERPT_CHARS = 280;
                 [disabled]="acting()"
                 (click)="branchWithReviewer()"
               >
-                <app-icon name="tangent" /> Tangent here with {{ labelOf(r, r.model) }}…
+                <app-icon name="tangent" /> Tangent here with {{ tiers.modelLabel(r) }}…
               </button>
               <button type="button" class="icon-btn" aria-label="Copy review" (click)="copy()">
                 <app-icon name="copy" [size]="14" />
@@ -157,6 +158,8 @@ export class ReviewDialog implements OnInit {
   protected readonly store = inject(TreeStore);
   protected readonly reviews = inject(ReviewStore);
   protected readonly ui = inject(UiStore);
+  /** Names models as power does: "Normal" and "Max" are only the user's tiers. */
+  protected readonly tiers = inject(TierStore);
   private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
@@ -210,11 +213,6 @@ export class ReviewDialog implements OnInit {
     }
   }
 
-  protected labelOf(route: { providerId: string; funding?: BranchFunding }, model: string): string {
-    const p = this.store.account.providerOf(route);
-    return p?.models.find((m) => m.id === model)?.label ?? model;
-  }
-
   protected run(): void {
     const c = this.choice();
     if (c) void this.reviews.start(this.nodeId(), c);
@@ -224,7 +222,7 @@ export class ReviewDialog implements OnInit {
     const r = this.review();
     if (!r) return;
     this.composer.insert(
-      `A reviewer (${this.labelOf(r, r.model)}) checked your earlier answer and ` +
+      `A reviewer (${this.tiers.modelLabel(r)}) checked your earlier answer and ` +
         `flagged the following. Please correct course where they are right:\n\n${this.parsed().body}`,
     );
     this.close();
@@ -242,7 +240,7 @@ export class ReviewDialog implements OnInit {
     });
     this.acting.set(false);
     if (ok) {
-      this.toast.notify(`“${threadTitle(b)}” now uses ${this.labelOf(r, r.model)}`);
+      this.toast.notify(`“${threadTitle(b)}” now uses ${this.tiers.modelLabel(r)}`);
       if (b.id !== this.store.selectedBranchId()) this.store.go(b.id);
       this.close();
     }

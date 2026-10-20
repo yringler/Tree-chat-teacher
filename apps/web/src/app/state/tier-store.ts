@@ -7,18 +7,16 @@ import {
   tierModel,
   type Branch,
   type BranchFunding,
-  type ModelInfo,
   type ModelTier,
   type ProviderInfo,
 } from '@tangent/shared';
 import {
   ComposerController,
   pointerHovers,
-  suggestionText,
   ToastStore,
   type SegmentedOption,
-  type SuggestionText,
 } from '@tangent/web-shared';
+import { modelName } from './model-text';
 import { type ModelChoice, SettingsStore } from './settings-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
@@ -50,18 +48,6 @@ export function tierOptions(maxNote: string): SegmentedOption[] {
         ? `${TIER_LABELS.max}: the strongest model. ${maxNote}`
         : `${TIER_LABELS.normal}: clear, thorough answers`,
   }));
-}
-
-/**
- * What a listed model is called in power, where "Normal" and "Max" name only
- * the user's tiers (TierStore `choice`): `suggestionText`, or its id where
- * the label only names a tier ("Max (suggested)" reads "claude-sonnet-5.5").
- */
-export function modelText(m: ModelInfo): SuggestionText {
-  const text = suggestionText(m);
-  return TIERS.some((t) => TIER_LABELS[t] === text.name)
-    ? { name: text.id ?? m.id, id: null }
-    : text;
 }
 
 /**
@@ -175,10 +161,9 @@ export class TierStore {
     return !!normal && !!max && !sameChoice(normal, max);
   }
 
-  /** What a choice's model is called on its route (`modelText`), or its id where it isn't listed. */
+  /** What a choice's model is called on its route (`modelName`). */
   modelLabel(choice: ModelChoice): string {
-    const m = this.tree.account.providerOf(choice)?.models.find((x) => x.id === choice.model);
-    return m ? modelText(m).name : choice.model;
+    return modelName(this.tree.account.providerOf(choice), choice.model);
   }
 
   private open(p: ProviderInfo | null | undefined): p is ProviderInfo {
