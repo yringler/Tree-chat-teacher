@@ -128,8 +128,15 @@ class MessageView extends StatelessWidget {
             children: [
               label,
               const Spacer(),
-              if (complete)
-                Tooltip(
+              // Laid out while the reply is written too, so the header is as
+              // tall before the button shows as after, and the text below
+              // doesn't move as the learner reads it.
+              Visibility(
+                visible: complete,
+                maintainSize: true,
+                maintainAnimation: true,
+                maintainState: true,
+                child: Tooltip(
                   message: 'Go on a tangent about this message',
                   // Small, so the row stays about as tall as its label.
                   child: TextButton(
@@ -143,6 +150,7 @@ class MessageView extends StatelessWidget {
                     child: Text(tangentAction.label),
                   ),
                 ),
+              ),
             ],
           ),
           if (streaming && status != null)

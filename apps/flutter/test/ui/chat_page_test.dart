@@ -143,7 +143,8 @@ void main() {
     expect(find.textContaining('tangents', findRichText: true), findsNothing);
     expect(find.text(suggestedTangentsLabel), findsNothing);
     // Its own Tangent ↳ waits for the whole reply.
-    expect(replyTangent('a1'), findsNothing);
+    expect(replyTangent('a1').hitTestable(), findsNothing);
+    expect(find.bySemanticsLabel(tangentAction.label), findsNothing);
 
     await emit(
       tester,
@@ -159,7 +160,8 @@ void main() {
       ),
     );
     await settle(tester);
-    expect(replyTangent('a1'), findsOneWidget);
+    expect(replyTangent('a1').hitTestable(), findsOneWidget);
+    expect(find.bySemanticsLabel(tangentAction.label), findsOneWidget);
     expect(action(tangentAction.label), findsOneWidget);
     expect(action(replyAction.label), findsOneWidget);
     expect(find.text(suggestedTangentsLabel), findsOneWidget);
@@ -178,6 +180,49 @@ void main() {
     expect(api.sends.last.content, 'Spring tides');
     expect(find.text('Main thread'), findsOneWidget);
   });
+
+  testWidgets(
+    'a reply’s text stays put as the reply finishes and gains its Tangent ↳',
+    (tester) async {
+      await pumpApp(tester, api, location: '/t/t1');
+      await sendTyped(tester, 'Why tides?');
+      await start(tester);
+      await emit(
+        tester,
+        const DeltaEvent(nodeId: 'a1', text: 'The **moon** pulls the sea.'),
+      );
+      final text = find
+          .descendant(
+            of: message('a1'),
+            matching: find.textContaining('pulls the sea', findRichText: true),
+          )
+          .first;
+      double below() =>
+          tester.getTopLeft(text).dy - tester.getTopLeft(message('a1')).dy;
+      final streaming = below();
+
+      await emit(
+        tester,
+        DoneEvent(
+          node: node(
+            'a1',
+            branch: 'trunk',
+            seq: 1,
+            role: Role.assistant,
+            content: reply,
+          ),
+          branch: trunk,
+        ),
+      );
+      await settle(tester);
+      expect(replyTangent('a1'), findsOneWidget);
+      expect(below(), streaming);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.linux,
+    }),
+  );
 
   testWidgets('a tangent asked in its own words is listed and opens', (
     tester,
