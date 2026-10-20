@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { CONTINUE_MESSAGE, isCutOffReply, isStoppedReply, type ChatNode } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
+import { UiStore } from '../state/ui-store';
 
 /** Why a reply isn't whole: cut off at its length limit (with "Continue"), stopped, or failed. */
 @Component({
@@ -20,8 +21,14 @@ import { TreeStore } from '../state/tree-store';
           </button>
         } @else {
           <span class="muted small"
-            >To get the rest, ask the model to continue (Settings → Reply length raises the
-            limit).</span
+            >To get the rest, ask the model to continue (<button
+              type="button"
+              class="link-btn"
+              (click)="openLimit($event)"
+            >
+              Settings → Reply length
+            </button>
+            raises the limit).</span
           >
         }
       </div>
@@ -40,6 +47,7 @@ import { TreeStore } from '../state/tree-store';
 })
 export class MessageStatus {
   private readonly store = inject(TreeStore);
+  private readonly ui = inject(UiStore);
   readonly node = input.required<ChatNode>();
 
   /** A reply cut off at its length limit (stored as an error that keeps its text). */
@@ -56,6 +64,12 @@ export class MessageStatus {
       this.store.account.canGenerate()
     );
   });
+
+  /** Settings, at the limit the reply reached. */
+  protected openLimit(e: Event): void {
+    e.stopPropagation();
+    this.ui.dialogs.open({ kind: 'settings', section: 'output-cap' });
+  }
 
   /** Asks the model to go on from where the cut-off reply ended (it is in the context). */
   protected continueReply(e: Event): void {

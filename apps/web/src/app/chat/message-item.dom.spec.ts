@@ -392,13 +392,18 @@ describe('MessageStatus: a reply that is not whole', () => {
     m.store.sending.set(new Set(['trunk']));
     await m.fixture.whenStable();
     const alert = screen.getByRole('alert');
-    expect(within(alert).queryByRole('button')).toBeNull();
+    expect(within(alert).queryByRole('button', { name: 'Continue' })).toBeNull();
     expect(alert.textContent).toContain('ask the model to continue');
+    // And where the limit is raised: Settings, opened there.
+    await m.user.click(within(alert).getByRole('button', { name: 'Settings → Reply length' }));
+    expect(m.ui.dialogs.list()).toEqual([{ kind: 'settings', section: 'output-cap' }]);
   });
 
   it('a locked branch offers no Continue', async () => {
     await message('a1', { d: tree(cutOff), lapsed: true, credit: true });
-    expect(within(screen.getByRole('alert')).queryByRole('button')).toBeNull();
+    expect(
+      within(screen.getByRole('alert')).queryByRole('button', { name: 'Continue' }),
+    ).toBeNull();
   });
 
   it('failed: says so with the error; stopped: says only that', async () => {

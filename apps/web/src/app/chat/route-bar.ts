@@ -21,12 +21,12 @@ export interface RouteView {
 }
 
 /**
- * Under the message box: the Normal | Max switch (TierStore; "Configure"
- * opens Settings, where each tier's model is chosen) with what Max costs
- * while it is on, then what the open branch replies on (provider, who pays,
- * model), as a button to where that and web search can be changed at any
- * point of the conversation: Tangent settings in a tangent, and on the main
- * thread Conversation settings, at its replies. A branch's route is where it
+ * Under the message box: the Normal | Max switch (TierStore; "Edit Normal
+ * and Max…" opens Settings there, where each tier's model is chosen) with
+ * what Max costs while it is on, then what the open branch replies on
+ * (provider, who pays, model), as a button to where that and web search can
+ * be changed at any point of the conversation: Tangent settings in a
+ * tangent, and on the main thread Conversation settings, at its replies. A branch's route is where it
  * starts, and every send uses its current one.
  * On the user's own key with none saved in this browser (another device, or
  * it expired), it says so before anything is sent, with one click to
@@ -69,10 +69,10 @@ export interface RouteView {
           <button
             type="button"
             class="link-btn small"
-            title="Choose the models of Normal and Max (Settings)"
-            (click)="ui.dialogs.open({ kind: 'settings' })"
+            title="Choose the model of each, in Settings"
+            (click)="ui.dialogs.open({ kind: 'settings', section: 'tiers' })"
           >
-            Configure
+            {{ editTiers }}
           </button>
         }
         @if (r.missing) {
@@ -107,6 +107,8 @@ export class RouteBar {
   protected readonly ui = inject(UiStore);
   private readonly tiers = inject(TierStore);
   protected readonly switching = signal(false);
+  /** In the tiers' own words (`TIER_LABELS`). */
+  protected readonly editTiers = `Edit ${TIER_LABELS.normal} and ${TIER_LABELS.max}…`;
 
   /** What Max uses compared with Normal, for the open branch's routes. */
   protected readonly maxNote = computed(() =>

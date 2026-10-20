@@ -2,12 +2,12 @@ import { TestBed } from '@angular/core/testing';
 import type { SettingsResponse, UpdateSettingsRequest } from '@tangent/shared';
 import { ApiError } from '@tangent/web-shared';
 import { powerProviders, render, signIn } from '@tangent/web-shared/testing';
-import { screen } from '@testing-library/dom';
+import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
-import { UiStore } from '../state/ui-store';
+import { type SettingsSection, UiStore } from '../state/ui-store';
 import { DialogHost } from './dialog-host';
 import { SettingsDialog } from './settings-dialog';
 
@@ -27,15 +27,21 @@ async function loading() {
   return { ...r, api };
 }
 
-/** Settings opened on the dialog stack, the prompt loaded; `update` answers a save of it. */
-async function opened(update: (req: UpdateSettingsRequest) => Promise<SettingsResponse>) {
+/**
+ * Settings opened on the dialog stack (at `section`), the prompt loaded;
+ * `update` answers a save of it.
+ */
+async function opened(
+  update: (req: UpdateSettingsRequest) => Promise<SettingsResponse>,
+  section?: SettingsSection,
+) {
   const api = { settings: vi.fn(async () => SAVED), updateSettings: vi.fn(update) };
   const r = await render(DialogHost, {
     providers: powerProviders(TreeStore, api),
     setup: () => signIn(TestBed.inject(TreeStore).account),
   });
   const dialogs = TestBed.inject(UiStore).dialogs;
-  dialogs.open({ kind: 'settings' });
+  dialogs.open(section ? { kind: 'settings', section } : { kind: 'settings' });
   await r.fixture.whenStable();
   const prompt = await vi.waitFor(() => {
     const box = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Default system prompt' });
@@ -57,6 +63,23 @@ describe('Settings', () => {
     await loading();
     const heading = screen.getByRole('heading', { name: 'Settings' });
     await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+  });
+
+  it('opened at Normal and Max (the bar under the message box), scrolls there and focuses its first choice', async () => {
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+    await opened(async () => SAVED, 'tiers');
+    const tiers = screen.getByRole('group', { name: 'Normal & Max' });
+    expect(document.activeElement).toBe(
+      within(tiers).getByRole('checkbox', { name: 'Normal: use the suggested model' }),
+    );
+    expect(scrolled.mock.contexts).toContain(tiers);
+    scrolled.mockRestore();
+  });
+
+  it('opened at the reply length (a reply cut off at it), focuses its choice', async () => {
+    await opened(async () => SAVED, 'output-cap');
+    const length = screen.getByRole('group', { name: 'Reply length' });
+    expect(document.activeElement).toBe(within(length).getByRole('radio', { name: /^Auto/ }));
   });
 
   it('saves all or nothing: when the prompt can’t be saved, nothing is, and it says why under the box', async () => {

@@ -96,6 +96,14 @@ describe('RouteBar', () => {
     expect(TestBed.inject(UiStore).dialogs.list()).toEqual([{ kind: 'branch-settings' }]);
   });
 
+  it('“Edit Normal and Max…” opens Settings at Normal and Max', async () => {
+    await routeChip();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Edit Normal and Max…' }));
+    expect(TestBed.inject(UiStore).dialogs.list()).toEqual([
+      { kind: 'settings', section: 'tiers' },
+    ]);
+  });
+
   it('names your Normal (Settings) when the thread is on it', async () => {
     expect(await chip(PRO)).toBe('Tangent credit · Normal');
   });

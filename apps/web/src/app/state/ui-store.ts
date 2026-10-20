@@ -44,10 +44,17 @@ export interface LinkReturn {
 }
 
 /**
- * A dialog of the power app, with what it was opened with. `tree-settings`:
- * Conversation settings, `section` the part to open at; `keys`: Keys &
- * credit, `provider` preselecting the provider to enter a key for; `help`:
- * How tangents work; `review`:
+ * The parts of Settings a control elsewhere opens it at: `tiers`, the models
+ * of Normal and Max (the bar under the message box); `output-cap`, the reply
+ * length (a reply cut off at it).
+ */
+export type SettingsSection = 'tiers' | 'output-cap';
+
+/**
+ * A dialog of the power app, with what it was opened with. `tree-settings`
+ * and `settings`: Conversation settings and Settings, `section` the part to
+ * open at; `keys`: Keys & credit, `provider` preselecting the provider to
+ * enter a key for; `help`: How tangents work; `review`:
  * the review of one assistant message; `compare`: Normal and Max answer
  * `content` at the leaf of `branchId`, and the user keeps one (the message
  * stays in the composer until a pick commits).
@@ -60,7 +67,7 @@ export type Dialog =
   | { kind: 'shortcuts' }
   | { kind: 'help' }
   | { kind: 'keys'; provider: string | null }
-  | { kind: 'settings' }
+  | { kind: 'settings'; section?: SettingsSection }
   | { kind: 'account' }
   | { kind: 'review'; nodeId: string }
   | { kind: 'compare'; branchId: string; content: string }

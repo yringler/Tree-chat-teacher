@@ -49,10 +49,12 @@ export class Modal implements OnDestroy {
    */
   readonly focusHeading = input(false);
   /**
-   * The part of the dialog the user asked to open it at (e.g. a section,
-   * `tabindex="-1"`): it takes the focus on open, on a touch screen too,
-   * which scrolls it into view. Never a text field, whose focus would pop up
-   * the on-screen keyboard.
+   * The part of the dialog the user asked to open it at: it takes the focus
+   * on open, on a touch screen too, which scrolls it into view. A section
+   * with `tabindex="-1"` takes the focus itself; any other is scrolled to its
+   * top and hands the focus to its first choice (a checkbox, the checked
+   * radio, a select or a button). Never a text field, whose focus would pop
+   * up the on-screen keyboard.
    */
   readonly openAt = input<HTMLElement | null>(null);
   readonly closed = output();
@@ -64,22 +66,33 @@ export class Modal implements OnDestroy {
   constructor() {
     afterNextRender(() => {
       const el = this.host.nativeElement;
+      const heading = el.querySelector<HTMLElement>('.modal-head h2');
+      // Usable: not disabled, nor hidden by the layout (e.g. Compare's tab bar
+      // on a wide screen).
+      const usable = (c: HTMLElement) =>
+        !c.matches(':disabled') && (typeof c.checkVisibility !== 'function' || c.checkVisibility());
       const at = this.openAt();
-      if (at) {
+      if (at?.hasAttribute('tabindex')) {
         at.focus();
+        return;
+      }
+      if (at) {
+        // Its top in view, where its name is, rather than just the choice.
+        at.scrollIntoView({ block: 'start' });
+        const choices = at.querySelectorAll<HTMLElement>(
+          'input[type=checkbox], input[type=radio]:checked, select, button',
+        );
+        (Array.from(choices).find(usable) ?? heading)?.focus({ preventScroll: true });
         return;
       }
       // Where no pointer hovers (a touch screen), focusing a field pops up the
       // on-screen keyboard over the dialog, and focusing a control further
       // down scrolls the sheet: the heading takes the focus there.
       if (this.focusHeading() || !pointerHovers()) {
-        el.querySelector<HTMLElement>('.modal-head h2')?.focus();
+        heading?.focus();
         return;
       }
-      // The first usable control: not disabled, nor hidden by the layout (e.g.
-      // Compare's tab bar on a wide screen); else the Close button.
-      const usable = (c: HTMLElement) =>
-        !c.matches(':disabled') && (typeof c.checkVisibility !== 'function' || c.checkVisibility());
+      // The first usable control, else the Close button.
       const controls = el.querySelectorAll<HTMLElement>(
         '.modal-body input, .modal-body textarea, .modal-body select, .modal-body button',
       );

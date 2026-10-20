@@ -3,9 +3,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  type ElementRef,
+  ElementRef,
   inject,
   Injector,
+  input,
   type OnInit,
   signal,
   viewChild,
@@ -26,7 +27,7 @@ import { ReviewStore } from '../state/review-store';
 import { type ModelChoice, SettingsStore } from '../state/settings-store';
 import { TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
-import { UiStore } from '../state/ui-store';
+import { type SettingsSection, UiStore } from '../state/ui-store';
 import { ApiClient, errorMessage, Modal, ToastStore } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { InputLimitSetting } from '../ui/input-limit-setting';
@@ -48,14 +49,15 @@ interface TierRow {
  * App-wide preferences, one section per feature. The default system prompt
  * is saved to the account (server-side, `/api/settings`); the reviewer and
  * the models of Normal and Max, the reply length and the input limit are
- * saved in this browser.
+ * saved in this browser. Opened at a section (`section`), it shows that one
+ * and focuses its first choice; else it opens at its top.
  */
 @Component({
   selector: 'app-settings-dialog',
   imports: [Modal, ModelPicker, OutputCapSetting, InputLimitSetting],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Settings" [focusHeading]="true" (closed)="close()">
+    <app-modal heading="Settings" [focusHeading]="true" [openAt]="openAt()" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); save()">
         <fieldset class="settings-section">
           <legend>Default system prompt</legend>
@@ -142,7 +144,7 @@ interface TierRow {
           }
         </fieldset>
 
-        <fieldset class="settings-section">
+        <fieldset class="settings-section" #tiers>
           <legend>Normal &amp; Max</legend>
           <p class="muted small">
             The Normal | Max switch under the message box uses these, and Compare asks both. Each
@@ -204,6 +206,23 @@ export class SettingsDialog implements OnInit {
   private readonly ui = inject(UiStore);
   private readonly toast = inject(ToastStore);
   private readonly injector = inject(Injector);
+  /** Where it opens: at that section, else at its top. */
+  readonly section = input<SettingsSection | null>(null);
+  private readonly tiersSection = viewChild.required<ElementRef<HTMLElement>>('tiers');
+  private readonly outputCapSection = viewChild.required<OutputCapSetting, ElementRef<HTMLElement>>(
+    OutputCapSetting,
+    { read: ElementRef },
+  );
+  protected readonly openAt = computed(() => {
+    switch (this.section()) {
+      case 'tiers':
+        return this.tiersSection().nativeElement;
+      case 'output-cap':
+        return this.outputCapSection().nativeElement;
+      case null:
+        return null;
+    }
+  });
 
   protected readonly tierRows: readonly TierRow[] = TIERS.map((tier) => ({
     tier,

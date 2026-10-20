@@ -81,7 +81,7 @@ import { TreeSettings } from './tree-settings';
           }
         }
         @case ('settings') {
-          <app-settings-dialog />
+          <app-settings-dialog [section]="d.section ?? null" />
         }
         @case ('account') {
           <app-account-dialog />
