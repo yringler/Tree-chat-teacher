@@ -11,7 +11,7 @@ import {
 import { screen } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { SettingsStore } from '../state/settings-store';
+import { loadSettings } from '../state/settings-store.testing';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { RouteBar } from './route-bar';
@@ -41,7 +41,7 @@ async function chip(model: string): Promise<string | undefined> {
   await render(RouteBar, {
     providers: powerProviders(TreeStore, {}),
     setup: () => {
-      TestBed.inject(SettingsStore).update({
+      loadSettings({
         tiers: { normal: { providerId: 'openrouter', funding: 'credit', model: PRO }, max: null },
       });
       const store = TestBed.inject(TreeStore);
@@ -60,6 +60,7 @@ async function routeChip(at: string | null = null) {
   await render(RouteBar, {
     providers: powerProviders(TreeStore, {}),
     setup: () => {
+      loadSettings();
       const store = TestBed.inject(TreeStore);
       signIn(store.account, { providers: [provider(), CREDIT], builtInCredit: true });
       openTree(

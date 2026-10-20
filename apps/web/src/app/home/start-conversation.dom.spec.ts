@@ -4,7 +4,8 @@ import { billing, powerProviders, provider, render, signIn } from '@tangent/web-
 import { screen } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { type AppSettings, SettingsStore } from '../state/settings-store';
+import type { AppSettings } from '../state/settings-store';
+import { loadSettings } from '../state/settings-store.testing';
 import { TreeStore } from '../state/tree-store';
 import { HomePage } from './home-page';
 
@@ -55,7 +56,7 @@ async function home(
   await render(HomePage, {
     providers: powerProviders(TreeStore, api),
     setup: async () => {
-      if (tiers) TestBed.inject(SettingsStore).update({ tiers });
+      loadSettings(tiers ? { tiers } : {});
       const store = TestBed.inject(TreeStore);
       signIn(store.account, { providers, builtInCredit: true });
       await store.account.refreshBilling();

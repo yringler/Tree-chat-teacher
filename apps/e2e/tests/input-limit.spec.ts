@@ -5,7 +5,7 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
  * Power's input limit (Settings → Input limit), against the real Worker: on
  * the user's own key (the offline fake provider, a 200,000-token window), the
  * setting shows the model's default and the chosen limit in words and pages
- * as it is edited, is kept in the browser, rides along with every send and
+ * as it is edited, is kept with the account, rides along with every send and
  * with the Context panel's preview, Compare's candidates and reviews, and its
  * over-limit choice decides whether the oldest messages are summarized or
  * dropped.
@@ -93,7 +93,9 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toHaveCount(0);
 
-  // Kept in this browser across a reload.
+  // Kept with the account: what another device reads, and what the page shows after a reload.
+  const kept = await request.get('/api/settings', { headers });
+  expect(await kept.json()).toMatchObject({ maxInputTokens: 3000, inputOverflow: 'truncate' });
   await page.reload();
   ({ dialog, section } = await openSettings(page));
   await expect(

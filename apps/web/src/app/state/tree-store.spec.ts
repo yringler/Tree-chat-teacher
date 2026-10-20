@@ -11,6 +11,7 @@ import type {
   NodeLink,
   PoolStatusResponse,
   ProviderInfo,
+  SettingsResponse,
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
@@ -78,6 +79,7 @@ function setup() {
     me: vi.fn(async (): Promise<MeResponse> => me()),
     providers: vi.fn(async (): Promise<ProviderInfo[]> => []),
     listTrees: vi.fn(async (): Promise<TreeSummary[]> => []),
+    settings: vi.fn(async (): Promise<SettingsResponse> => fixtures.accountSettings()),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
     billing: vi.fn(async (): Promise<BillingSummary> => summary),
     poolStatus: vi.fn(async () => ({ enabled: false }) as PoolStatusResponse),
@@ -512,7 +514,7 @@ describe('TreeStore read-only power without a membership', () => {
       s.sendMessage.mockImplementation(async () => fixtures.stream([]));
       await expect(s.store.account.saveKey('openrouter', 'sk-or-1')).resolves.toBe(true);
       s.store.resumeAfterKey('openrouter');
-      expect(s.sendMessage).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => expect(s.sendMessage).toHaveBeenCalledTimes(2));
       expect(s.sendMessage).toHaveBeenLastCalledWith(
         'trunk',
         { content: 'Why primes?' },
@@ -524,7 +526,7 @@ describe('TreeStore read-only power without a membership', () => {
 
     it('sends the reply limit set in Settings; Auto sends none', async () => {
       const s = await openNoKey();
-      s.settings.update({ maxOutputTokens: 16_384 });
+      s.settings.settings.update((v) => ({ ...v, maxOutputTokens: 16_384 }));
       try {
         await s.store.send('trunk', 'Why primes?');
         expect(s.sendMessage).toHaveBeenLastCalledWith(
@@ -533,7 +535,7 @@ describe('TreeStore read-only power without a membership', () => {
           expect.any(AbortSignal),
         );
       } finally {
-        s.settings.update({ maxOutputTokens: null });
+        s.settings.settings.update((v) => ({ ...v, maxOutputTokens: null }));
       }
       await s.store.send('trunk', 'Why primes?');
       expect(s.sendMessage).toHaveBeenLastCalledWith(
@@ -545,7 +547,11 @@ describe('TreeStore read-only power without a membership', () => {
 
     it('sends the input limit and the over-limit choice set in Settings', async () => {
       const s = await openNoKey();
-      s.settings.update({ maxInputTokens: 60_000, inputOverflow: 'truncate' });
+      s.settings.settings.update((v) => ({
+        ...v,
+        maxInputTokens: 60_000,
+        inputOverflow: 'truncate',
+      }));
       try {
         await s.store.send('trunk', 'Why primes?');
         expect(s.sendMessage).toHaveBeenLastCalledWith(
@@ -554,8 +560,57 @@ describe('TreeStore read-only power without a membership', () => {
           expect.any(AbortSignal),
         );
       } finally {
-        s.settings.update({ maxInputTokens: null, inputOverflow: 'compact' });
+        s.settings.settings.update((v) => ({
+          ...v,
+          maxInputTokens: null,
+          inputOverflow: 'compact',
+        }));
       }
+    });
+
+    /** `openNoKey`, but with the settings still loading: `settings` answers their load. */
+    function openLoading(settings: () => Promise<SettingsResponse>) {
+      const s = setup();
+      s.api.providers.mockResolvedValue([noKey, credit]);
+      s.api.settings.mockImplementation(settings);
+      const init = s.store.init(me()).catch(() => undefined);
+      s.store.detail.set(tree());
+      s.store.setRoute('t1', null, null);
+      const sendMessage = vi.fn(
+        async (_b: string, _req: unknown, _signal: AbortSignal): Promise<Response> => {
+          throw keyRequired();
+        },
+      );
+      Object.assign(s.api, { sendMessage, streamNode: vi.fn() });
+      return { ...s, init, sendMessage };
+    }
+
+    it("a send before the settings have loaded waits for them, and carries the user's limits", async () => {
+      let answer = (_res: SettingsResponse): void => undefined;
+      const s = openLoading(() => new Promise((resolve) => (answer = resolve)));
+      const sent = s.store.send('trunk', 'Why primes?');
+      await new Promise((resolve) => setTimeout(resolve));
+      expect(s.sendMessage).not.toHaveBeenCalled();
+      answer(fixtures.accountSettings({ maxOutputTokens: 4096 }));
+      await sent;
+      expect(s.sendMessage).toHaveBeenCalledExactlyOnceWith(
+        'trunk',
+        { content: 'Why primes?', maxOutputTokens: 4096 },
+        expect.any(AbortSignal),
+      );
+    });
+
+    it("a send whose settings can't load fails and keeps its text; the next one loads them", async () => {
+      const s = openLoading(async () => {
+        throw new ApiError(0, 'network', 'Network error');
+      });
+      await s.init;
+      await expect(s.store.send('trunk', 'Why primes?')).resolves.toBe(false);
+      expect(s.sendMessage).not.toHaveBeenCalled();
+      expect(s.store.unsentDrafts().get('trunk')).toBe('Why primes?');
+      s.api.settings.mockImplementation(async () => fixtures.accountSettings());
+      await s.store.send('trunk', 'Why primes?');
+      expect(s.sendMessage).toHaveBeenCalledOnce();
     });
 
     it('closing the dialog sends nothing and leaves the text for the composer', async () => {

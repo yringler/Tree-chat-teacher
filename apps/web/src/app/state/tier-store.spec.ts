@@ -93,6 +93,7 @@ function setup(
       ...DEFAULT_SETTINGS,
       tiers: opts.tiers ?? DEFAULT_SETTINGS.tiers,
     }),
+    loaded: signal(true),
   };
   const injector = Injector.create({
     providers: [
@@ -190,6 +191,17 @@ describe('TierStore choice', () => {
     });
     s.providers.set([anthropic, entry('credit')]);
     expect(s.tiers.choice('max', branch())?.model).toBe(SONNET);
+  });
+
+  it('resolves nothing until the settings have loaded, so no suggestion shows first', () => {
+    const s = setup();
+    s.settings.loaded.set(false);
+    expect(s.tiers.choice('normal', branch())).toBeNull();
+    expect(s.tiers.available(branch())).toBe(false);
+    expect(s.tiers.starting()).toBeNull();
+    s.settings.loaded.set(true);
+    expect(s.tiers.choice('normal', branch())).not.toBeNull();
+    expect(s.tiers.starting()).not.toBeNull();
   });
 
   it('is null when no route lists the tier', () => {

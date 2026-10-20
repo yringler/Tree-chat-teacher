@@ -48,7 +48,7 @@ export function effectiveOutputCap(
  * models, whose hidden thinking counts against the cap; a preset or a custom
  * number replaces it. Bound with `[(value)]` and `[(invalid)]` (a custom
  * number out of range: `value` keeps the last valid one); the dialog saves
- * it, and projects where (under the name).
+ * it.
  */
 @Component({
   selector: 'app-output-cap-setting',
@@ -56,7 +56,6 @@ export function effectiveOutputCap(
   template: `
     <fieldset class="settings-section">
       <legend>Reply limit</legend>
-      <ng-content />
       <p class="muted small">
         A hard stop: a reply that reaches it is cut off. Models that reason spend part of it on
         hidden thinking, so a low limit can leave a reply empty, and that thinking is still paid

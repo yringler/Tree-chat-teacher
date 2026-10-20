@@ -22,7 +22,7 @@ import { DOC_STYLE } from './page-styles.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '19 October 2026';
+export const LEGAL_UPDATED = '20 October 2026';
 
 /** A long-form public page (the legal pages, `/pool`), cacheable for five minutes. */
 export function docResponse(
@@ -419,13 +419,13 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         </li>
       </ul>
       <p>
-        The apps also keep a few preferences in your browser's local storage (such as "remember me",
-        how Learn replies are paid for, and the default reviewer model). The phone app has no
-        cookies: it keeps its sign-in token in the device's secure storage until you sign out. While
-        you sign in, Learn keeps the email address a code went to (in local storage, or the phone's
-        secure storage) until you sign in or the code expires, so it can ask for that code again.
-        The sign-in page loads Cloudflare Turnstile, which checks that you're human. There are no
-        analytics, advertising or tracking cookies.
+        The apps also keep a few preferences in your browser's local storage (such as "remember me"
+        and how Learn replies are paid for). The phone app has no cookies: it keeps its sign-in
+        token in the device's secure storage until you sign out. While you sign in, Learn keeps the
+        email address a code went to (in local storage, or the phone's secure storage) until you
+        sign in or the code expires, so it can ask for that code again. The sign-in page loads
+        Cloudflare Turnstile, which checks that you're human. There are no analytics, advertising or
+        tracking cookies.
       </p>
 
       <h2>How long we keep it</h2>

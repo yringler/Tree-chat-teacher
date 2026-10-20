@@ -16,6 +16,7 @@ import {
 import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { loadSettings } from '../state/settings-store.testing';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ChatPage } from './chat-page';
@@ -74,6 +75,7 @@ async function page(opts: { branchId?: string; lapsed?: boolean; d?: TreeDetail 
   const r = await render(ChatPage, {
     providers: powerProviders(TreeStore, {}),
     setup: () => {
+      loadSettings();
       const store = TestBed.inject(TreeStore);
       signIn(store.account, {
         membership: opts.lapsed

@@ -105,7 +105,8 @@ export class ReviewStore {
     });
     let finished = false;
     try {
-      // The reply limit and input limit, as a send carries them.
+      // The reply limit and input limit, as a send carries them, once they are known.
+      await this.settings.load();
       const res = await this.api.reviewNode(
         nodeId,
         { ...choice, ...generationLimits(this.settings.settings()) },

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import type { Branch, UpdateBranchRequest } from '@tangent/shared';
-import { ToastStore } from '@tangent/web-shared';
+import type { Branch, UpdateBranchRequest, UpdateSettingsRequest } from '@tangent/shared';
+import { ApiError, ToastStore } from '@tangent/web-shared';
 import * as fixtures from '@tangent/web-shared/testing';
 import {
   node,
@@ -15,6 +15,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ReviewStore } from '../state/review-store';
 import { type ModelChoice, SettingsStore } from '../state/settings-store';
+import { loadSettings } from '../state/settings-store.testing';
 import { TreeStore } from '../state/tree-store';
 import { ReviewDialog } from './review-dialog';
 
@@ -56,12 +57,19 @@ async function open(
 ) {
   const api = {
     updateBranch: vi.fn(async (_id: string, req: UpdateBranchRequest) => ({ ...trunk, ...req })),
+    // The account answers with the settings as saved: Normal as set below, and the reviewer.
+    updateSettings: vi.fn(async (req: UpdateSettingsRequest) =>
+      fixtures.accountSettings({
+        tiers: { normal: { providerId: 'openrouter', funding: 'credit', model: PRO }, max: null },
+        reviewer: req.reviewer ?? null,
+      }),
+    ),
   };
   const r = await render(ReviewDialog, {
     inputs: { nodeId: 'a1' },
     providers: powerProviders(TreeStore, api),
     setup: () => {
-      TestBed.inject(SettingsStore).update({
+      loadSettings({
         tiers: { normal: { providerId: 'openrouter', funding: 'credit', model: PRO }, max: null },
         reviewer,
       });
@@ -148,6 +156,7 @@ describe('Review up to here', () => {
     await d.user.click(screen.getByRole('button', { name: 'Review again' }));
     const sonnet = { providerId: 'openrouter', funding: 'credit', model: SONNET };
     expect(d.started).toHaveBeenCalledExactlyOnceWith('a1', sonnet);
+    expect(d.api.updateSettings).toHaveBeenCalledExactlyOnceWith({ reviewer: sonnet });
     expect(d.settings.settings().reviewer).toEqual(sonnet);
     expect(defaultNote()).toBe('Your default: claude-sonnet-5.5 on Tangent credit.');
   });
@@ -169,7 +178,9 @@ describe('Review up to here', () => {
     expect(defaultNote()).toBe('Your default: claude-sonnet-5.5 on Tangent credit.');
 
     await d.user.click(defaultBox());
-    expect(d.settings.settings().reviewer).toBeNull();
+    expect(d.api.updateSettings).toHaveBeenCalledExactlyOnceWith({ reviewer: null });
+    await vi.waitFor(() => expect(d.settings.settings().reviewer).toBeNull());
+    expect(defaultBox().checked).toBe(false);
     await d.user.click(screen.getByRole('button', { name: 'Review' }));
     expect(d.started).toHaveBeenCalledExactlyOnceWith('a1', sonnet);
     expect(d.settings.settings().reviewer).toBeNull();
@@ -204,9 +215,22 @@ describe('Review up to here', () => {
   it('a review on another model leaves the default alone', async () => {
     const sonnet = { providerId: 'openrouter', funding: 'credit' as const, model: SONNET };
     const d = await open(HAIKU);
-    d.settings.update({ reviewer: sonnet });
+    d.settings.settings.update((v) => ({ ...v, reviewer: sonnet }));
     await d.user.click(screen.getByRole('button', { name: 'Review again' }));
     expect(d.started).toHaveBeenCalledOnce();
     expect(d.settings.settings().reviewer).toEqual(sonnet);
+  });
+  it('a default that can’t be saved says so, and the box shows the saved one again', async () => {
+    const d = await open(HAIKU);
+    d.api.updateSettings.mockRejectedValueOnce(new ApiError(0, 'network', 'Network error'));
+    await d.user.click(defaultBox());
+    await vi.waitFor(() =>
+      expect(d.toasts.toasts().map((t) => t.text)).toEqual([
+        "Couldn't save your default reviewer: Network error",
+      ]),
+    );
+    expect(defaultBox().checked).toBe(false);
+    expect(defaultBox().disabled).toBe(false);
+    expect(d.settings.settings().reviewer).toBeNull();
   });
 });

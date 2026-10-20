@@ -14,7 +14,8 @@ import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { Keyboard } from '../core/keyboard';
-import { type AppSettings, SettingsStore } from '../state/settings-store';
+import type { AppSettings } from '../state/settings-store';
+import { loadSettings } from '../state/settings-store.testing';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { BranchSettings } from './branch-settings';
@@ -86,7 +87,7 @@ async function open<T>(
     inputs,
     providers: powerProviders(TreeStore, api),
     setup: () => {
-      if (tiers) TestBed.inject(SettingsStore).update({ tiers });
+      loadSettings(tiers ? { tiers } : {});
       const store = TestBed.inject(TreeStore);
       signIn(store.account, { providers: [provider(), CREDIT], builtInCredit: true });
       openTree(store, detail(), at);

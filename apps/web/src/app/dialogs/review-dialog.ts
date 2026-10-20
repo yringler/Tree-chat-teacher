@@ -12,6 +12,7 @@ import { parseReview, parseRouteKey, routeKey } from '@tangent/shared';
 import { copyText } from '../core/selection';
 import {
   ComposerController,
+  errorMessage,
   Icon,
   MarkdownService,
   Modal,
@@ -20,7 +21,7 @@ import {
   TypesetMath,
 } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
-import { type ModelChoice, SettingsStore } from '../state/settings-store';
+import { type ModelChoice, savedChoice, SettingsStore } from '../state/settings-store';
 import { threadTitle } from '../state/thread-title';
 import { sameChoice, TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
@@ -137,8 +138,8 @@ let uid = 0;
                     type="checkbox"
                     [attr.aria-describedby]="id + '-default'"
                     [checked]="isDefault()"
-                    [disabled]="!c.providerId || !c.model"
-                    (change)="setDefault(box.checked)"
+                    [disabled]="!c.providerId || !c.model || savingDefault()"
+                    (change)="setDefault(box)"
                     #box
                   />
                   Use as my default reviewer
@@ -182,6 +183,8 @@ export class ReviewDialog implements OnInit {
   protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly acting = signal(false);
+  /** "Use as my default reviewer" is being saved. */
+  protected readonly savingDefault = signal(false);
   protected readonly id = `rv${++uid}`;
 
   protected readonly node = computed(() => this.store.index()?.nodes.get(this.nodeId()) ?? null);
@@ -264,14 +267,25 @@ export class ReviewDialog implements OnInit {
   }
 
   /**
-   * "Use as my default reviewer", saved as it is toggled, like the label
-   * says, so closing keeps it: ticked, the picked model becomes the default;
-   * unticked, the default goes back to the thread's provider's.
+   * "Use as my default reviewer", saved to the account as it is toggled,
+   * like the label says, so closing keeps it: ticked, the picked model
+   * becomes the default; unticked, the default goes back to the thread's
+   * provider's. The box waits for the save; one that fails says so, and the
+   * box shows the saved default again.
    */
-  protected setDefault(on: boolean): void {
+  protected async setDefault(box: HTMLInputElement): Promise<void> {
     const c = this.choice();
-    if (on && c?.providerId && c.model) this.settings.update({ reviewer: c });
-    else if (!on && this.isDefault()) this.settings.update({ reviewer: null });
+    const reviewer = box.checked && c?.providerId && c.model ? savedChoice(c) : null;
+    if (!reviewer && !this.isDefault()) return;
+    this.savingDefault.set(true);
+    try {
+      await this.settings.save({ reviewer });
+    } catch (err) {
+      this.toast.notify(`Couldn't save your default reviewer: ${errorMessage(err)}`, 'error');
+    } finally {
+      this.savingDefault.set(false);
+      box.checked = this.isDefault();
+    }
   }
 
   private payer(c: ModelChoice): string {

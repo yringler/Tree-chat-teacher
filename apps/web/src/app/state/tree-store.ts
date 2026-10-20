@@ -6,6 +6,7 @@ import type {
   Branch,
   ComposerLead,
   CreateBranchRequest,
+  MeResponse,
   NodeLink,
   ProviderInfo,
   ShareScope,
@@ -63,6 +64,11 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   /** A review of a reply in `branch`: the branch's summaries and the reviewer both need an open route. */
   canReview(branch: { funding?: BranchFunding } | null): boolean {
     return !!branch && !this.account.routeLocked(branch) && this.account.canGenerate();
+  }
+
+  /** With the account and the conversations, the account's Settings (`SettingsStore`). */
+  override async init(me: MeResponse): Promise<void> {
+    await Promise.all([super.init(me), this.appSettings.load()]);
   }
 
   // Routing
@@ -219,8 +225,13 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   // Messages and streams
 
-  /** The reply limit and input limit the user set (Settings), else nothing: the server's defaults. */
-  protected override sendExtras(): ReturnType<typeof generationLimits> {
+  /**
+   * The reply limit and input limit the user set (Settings), else nothing:
+   * the server's defaults. A send before the settings have loaded waits for
+   * them, so it never goes with limits other than the user's.
+   */
+  protected override async sendExtras(): Promise<ReturnType<typeof generationLimits>> {
+    await this.appSettings.load();
     return generationLimits(this.appSettings.settings());
   }
 

@@ -68,15 +68,17 @@ export class TierStore {
   /**
    * The provider and model of `tier`, for a message in `branch` (null = a new
    * conversation): the saved choice (Settings) while its route is usable and
-   * allows the model, else the suggested one (`suggested`). Null when none.
-   * `picks` stands in for the saved choices: the Settings dialog's, before
-   * they are saved.
+   * allows the model, else the suggested one (`suggested`). Null when none,
+   * and until the settings have loaded: the suggestion could be other than
+   * the user's choice, so the switch and Compare wait for it. `picks` stands
+   * in for the saved choices: the Settings dialog's, before they are saved.
    */
   choice(
     tier: ModelTier,
     branch?: TierRoute | null,
     picks: AppSettings['tiers'] = this.settings.settings().tiers,
   ): ModelChoice | null {
+    if (!this.settings.loaded()) return null;
     const saved = picks[tier];
     if (saved) {
       const p = this.tree.account.providerOf(saved);
@@ -118,12 +120,13 @@ export class TierStore {
    * balance can pay (`creditCanPay`), as the default route asks: credit that
    * could only be bought would answer the first send with a 402. Never the
    * suggested Normal: that may be on a payer other than the default, and who
-   * pays is the user's to pick. Null until the default route is known.
+   * pays is the user's to pick. Null until the default route and the
+   * settings are known.
    */
   starting(): ModelChoice | null {
     const account = this.tree.account;
     const fallback = account.defaultProvider();
-    if (!fallback) return null;
+    if (!fallback || !this.settings.loaded()) return null;
     const normal = this.settings.settings().tiers.normal;
     const p = normal ? account.providerOf(normal) : undefined;
     const canReply =

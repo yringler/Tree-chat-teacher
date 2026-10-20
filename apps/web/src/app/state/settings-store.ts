@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import {
   DEFAULT_INPUT_OVERFLOW,
   MAX_REQUESTED_INPUT_TOKENS,
@@ -8,7 +8,11 @@ import {
   type BranchFunding,
   type InputOverflow,
   type ModelTier,
+  type SettingsModelChoice,
+  type SettingsResponse,
+  type UpdateSettingsRequest,
 } from '@tangent/shared';
+import { ApiClient } from '@tangent/web-shared';
 
 /**
  * A provider + model pair, as stored in settings, with who pays for it
@@ -21,9 +25,9 @@ export interface ModelChoice {
 }
 
 /**
- * App-wide preferences. Add new settings here with a default; `read` drops
- * anything malformed field by field, so older or hand-edited data never
- * breaks the app.
+ * Power's Settings, kept with the account (`/api/settings`), so every
+ * device has the same. The server checks each value and answers the default
+ * for one that no longer validates.
  */
 export interface AppSettings {
   /**
@@ -61,40 +65,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   inputOverflow: DEFAULT_INPUT_OVERFLOW,
 };
 
-const STORAGE_KEY = 'tangent.settings';
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null;
-}
-
-function parseChoice(v: unknown): ModelChoice | null {
-  if (!isRecord(v)) return null;
-  const { providerId, model, funding } = v;
-  if (typeof providerId !== 'string' || !providerId || typeof model !== 'string' || !model)
-    return null;
-  const choice: ModelChoice = { providerId, model };
-  if (funding === 'credit' || funding === 'own-key') choice.funding = funding;
-  return choice;
-}
-
-export function parseSettings(raw: string | null): AppSettings {
-  if (!raw) return DEFAULT_SETTINGS;
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-  if (!isRecord(value)) return DEFAULT_SETTINGS;
-  // Settings saved before the tiers existed have none: both suggested.
-  const tiers = isRecord(value['tiers']) ? value['tiers'] : {};
+/** A choice as the account stores it, which names who pays (absent here means the user's own key). */
+export function savedChoice(choice: ModelChoice): SettingsModelChoice {
   return {
-    ...DEFAULT_SETTINGS,
-    reviewer: parseChoice(value['reviewer']),
-    tiers: { normal: parseChoice(tiers['normal']), max: parseChoice(tiers['max']) },
-    maxOutputTokens: parseOutputTokens(value['maxOutputTokens']),
-    maxInputTokens: parseInputTokens(value['maxInputTokens']),
-    inputOverflow: value['inputOverflow'] === 'truncate' ? 'truncate' : DEFAULT_INPUT_OVERFLOW,
+    providerId: choice.providerId,
+    funding: choice.funding ?? 'own-key',
+    model: choice.model,
   };
 }
 
@@ -135,30 +111,68 @@ export function generationLimits(settings: AppSettings): {
   };
 }
 
+/** The account's default system prompt: as saved (null = the built-in one), and the built-in one. */
+export interface SavedPrompt {
+  saved: string | null;
+  builtIn: string;
+}
+
 /**
- * Preferences kept in this browser's localStorage. Nothing here is secret
- * (API keys live in the sealed cookie), and the server never needs them:
- * each request names its provider/model explicitly.
+ * Power's Settings and default system prompt, as the account keeps them.
+ * `TreeStore.init` loads them; until then `settings` holds the defaults and
+ * `loaded` is false, so what sends with them waits for `load()` and what
+ * shows them (Normal and Max) shows nothing yet rather than the defaults.
  */
 @Injectable({ providedIn: 'root' })
 export class SettingsStore {
-  readonly settings = signal<AppSettings>(this.read());
+  private readonly api = inject(ApiClient);
+  readonly settings = signal<AppSettings>(DEFAULT_SETTINGS);
+  readonly prompt = signal<SavedPrompt>({ saved: null, builtIn: '' });
+  readonly loaded = signal(false);
+  private loading: Promise<void> | null = null;
+  /** The saves in flight, one after another, so their answers apply in the order they were made. */
+  private saves: Promise<void> = Promise.resolve();
 
-  update(patch: Partial<AppSettings>): void {
-    const next = { ...this.settings(), ...patch };
-    this.settings.set(next);
+  /** Loads the settings once; after a failed load the next call tries again. */
+  load(): Promise<void> {
+    if (this.loaded()) return Promise.resolve();
+    this.loading ??= this.fetch();
+    return this.loading;
+  }
+
+  /**
+   * Saves the fields `request` names, all or none, and takes the account's
+   * answer, which also brings what another device saved since. Rejects when
+   * the server refuses or can't be reached; nothing changes then.
+   */
+  async save(request: UpdateSettingsRequest): Promise<void> {
+    const run = this.saves.then(async () => {
+      // A load answering after the save would put the old values back.
+      await this.load();
+      this.apply(await this.api.updateSettings(request));
+    });
+    this.saves = run.catch(() => undefined);
+    await run;
+  }
+
+  private async fetch(): Promise<void> {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // Storage unavailable (private mode, blocked): keep the in-memory value.
+      this.apply(await this.api.settings());
+    } catch (err) {
+      this.loading = null;
+      throw err;
     }
   }
 
-  private read(): AppSettings {
-    try {
-      return parseSettings(localStorage.getItem(STORAGE_KEY));
-    } catch {
-      return DEFAULT_SETTINGS;
-    }
+  private apply(res: SettingsResponse): void {
+    this.settings.set({
+      reviewer: res.reviewer,
+      tiers: res.tiers,
+      maxOutputTokens: res.maxOutputTokens,
+      maxInputTokens: res.maxInputTokens,
+      inputOverflow: res.inputOverflow,
+    });
+    this.prompt.set({ saved: res.systemPrompt, builtIn: res.defaultSystemPrompt });
+    this.loaded.set(true);
   }
 }
