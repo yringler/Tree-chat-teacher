@@ -5,6 +5,8 @@
  */
 import type { ChatNode } from './domain.js';
 import { REPLY_ACTION, TANGENT_ACTION } from './tangent-help.js';
+import { splitTangents } from './tangents.js';
+import { plainText } from './text.js';
 
 /** A message as the rule reads it. */
 export type ComposerMessage = Pick<ChatNode, 'id' | 'branchId' | 'role' | 'status'>;
@@ -55,6 +57,18 @@ export const COMPOSER_PLACEHOLDERS: Readonly<Record<Exclude<ComposerPlace, 'star
   tangent: 'Ask anything in this tangent…',
   main: 'Ask anything…',
 };
+
+/** How many characters of a message the composer names it by. */
+const EXCERPT_CHARS = 60;
+
+/**
+ * The opening words of a message, as the composer names it: the message
+ * it is aimed at, or the reply its tangent starts at. Plain text, without
+ * a reply's tangents block.
+ */
+export function composerExcerpt(content: string): string {
+  return plainText(splitTangents(content).body, { max: EXCERPT_CHARS });
+}
 
 export interface ComposerPlan {
   /** The reply a tangent from the box starts at; null: there is none, and the message continues the open thread. */

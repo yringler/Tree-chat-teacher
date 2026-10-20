@@ -526,8 +526,9 @@ test('power demo: ask your own question under a reply, inline or through the tan
   await expect.poll(() => page.url()).toBe(url);
   await expect(field).toHaveValue('');
 
-  // "Tangent ↳": a starting message instead of a title; Ctrl+Enter creates and asks.
-  await reply.getByRole('button', { name: 'Tangent ↳' }).click();
+  // Shift+B on the reply: a starting message instead of a title; Ctrl+Enter creates and asks.
+  await reply.locator('.msg-body').click();
+  await page.keyboard.press('Shift+B');
   await expect(dialog).toBeVisible();
   await noTitle(dialog);
   const starting = dialog.getByRole('textbox', { name: /Starting message/ });
@@ -571,6 +572,15 @@ test('power demo: "Ask about this" puts the words on the composer; the tangent s
   await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
   expect(page.url()).toBe(url);
 
+  // A message's own Tangent ↳ puts the whole message there the same way.
+  await reply.getByRole('button', { name: 'Tangent ↳' }).click();
+  await expect(quote).toContainText('Tangent from “');
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveAttribute('placeholder', 'Ask about this…');
+  await quote.getByRole('button', { name: 'Don’t go on this tangent' }).click();
+  await expect(quote).toHaveCount(0);
+  expect(page.url()).toBe(url);
+
   // Asked, the tangent starts with the question, quoting the words.
   await selectText(body, 'a careful hamster in disguise');
   await bar.getByRole('button', { name: 'Ask about this' }).click();
@@ -594,10 +604,15 @@ test('power demo: "Ask about this" puts the words on the composer; the tangent s
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(page.url()).toBe(url);
 
-  // `b` on the focused message with a selection in it still opens the dialog with it.
+  // `b` puts selected words on the composer too; Shift+B opens the dialog with them.
   await body.click();
   await selectText(body, 'off-key');
   await page.keyboard.press('b');
+  await expect(quote).toContainText('off-key');
+  await expect(composer).toBeFocused();
+  await page.keyboard.press('Escape');
+  await selectText(body, 'off-key');
+  await page.keyboard.press('Shift+B');
   await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('off-key');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);

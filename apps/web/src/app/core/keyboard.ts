@@ -1,8 +1,10 @@
 import { inject, Injectable } from '@angular/core';
+import { replyToAim, type ComposerLead } from '@tangent/shared';
 import {
   ComposerController,
   dispatchShortcut,
   pathKeys,
+  selectedMessageQuote,
   ThreadEnds,
   TextSizeStore,
   type ShortcutHelp,
@@ -17,7 +19,11 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+↓', ']'], label: 'First tangent from here' },
   { keys: ['j', 'k'], label: 'Next / previous message' },
   { keys: ['Home', 'End'], label: 'Start / end of the thread' },
-  { keys: ['b'], label: 'Tangent from the focused message' },
+  {
+    keys: ['b'],
+    label: 'Put the selected words, else the focused (or latest) reply, on the message box',
+  },
+  { keys: ['Shift+B'], label: 'Open Tangent from here for the focused (or latest) message' },
   { keys: ['v'], label: 'Review up to the focused (or latest) reply' },
   { keys: ['l'], label: 'Link the focused (or latest) message to another' },
   { keys: ['/'], label: 'Focus the composer' },
@@ -49,9 +55,20 @@ export class Keyboard {
     // Taken only with a thread on screen; the start is the open tangent's.
     Home: () => this.threadEnds.toStart(),
     End: () => this.threadEnds.toEnd(),
+    // As a message's Tangent ↳: the next message asks about it in a new tangent.
     b: () => {
-      const node = this.store.focusedInPath() ?? this.store.leaf();
       // Nothing to branch onto without a route to generate on (power is read-only).
+      if (!this.store.account.canGenerate()) return false;
+      const lead = this.selectedWords() ?? this.replyLead();
+      if (!lead) return false;
+      // The words are on the box now: the selection's "Ask about this" would only offer them again.
+      if (lead.quote) window.getSelection()?.removeAllRanges();
+      this.store.aimComposer(lead);
+      return true;
+    },
+    // Shift+B: the tangent's options first (context mode, route, quote).
+    B: () => {
+      const node = this.store.focusedInPath() ?? this.store.leaf();
       if (!node || !this.store.account.canGenerate()) return false;
       const body = document.getElementById(`msg-${node.id}`)?.querySelector('.msg-body') ?? null;
       this.ui.dialogs.open({ kind: 'branch', fromNodeId: node.id, quote: selectionWithin(body) });
@@ -88,6 +105,19 @@ export class Keyboard {
     '-': this.onTree(() => this.textSize.decrease()),
     '0': this.onTree(() => this.textSize.reset()),
   };
+
+  /** Words selected in one finished message of the thread on screen, as "Ask about this" takes them. */
+  private selectedWords(): ComposerLead | null {
+    const found = selectedMessageQuote(document.querySelector('.messages'), window.getSelection());
+    const node = found ? this.store.index()?.nodes.get(found.nodeId) : undefined;
+    return found && node?.status === 'complete' ? found : null;
+  }
+
+  /** The focused message's finished reply, else the latest (`replyToAim`). */
+  private replyLead(): ComposerLead | null {
+    const nodeId = replyToAim(this.store.path(), this.store.focusedInPath()?.id ?? null);
+    return nodeId === null ? null : { nodeId, quote: null };
+  }
 
   handle(e: KeyboardEvent): void {
     dispatchShortcut(e, {

@@ -77,6 +77,20 @@ export class ComposerController {
     this.aimed.set(null);
   }
 
+  /**
+   * The calling page holds the lead (call it in the page's injection
+   * context): it goes when the page does, and once `has` no longer finds its
+   * message (deleted, or another conversation open), since the box can't
+   * ask about a message that isn't there.
+   */
+  holdLead(has: (nodeId: string) => boolean): void {
+    effect(() => {
+      const lead = this.aimed();
+      if (lead && !has(lead.nodeId)) untracked(() => this.drop());
+    });
+    inject(DestroyRef).onDestroy(() => this.drop());
+  }
+
   /** Appends `text` to the current box's draft and focuses it (e.g. a review's corrections). */
   insert(text: string): void {
     this.find(null)?.insert(text);

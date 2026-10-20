@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CONTINUE_MESSAGE, type ChatNode, type TreeDetail } from '@tangent/shared';
-import { ToastStore } from '@tangent/web-shared';
+import { ComposerController, ToastStore } from '@tangent/web-shared';
 import {
   branch,
   detail,
@@ -99,10 +99,33 @@ describe('MessageItem: a finished reply', () => {
     expect(screen.queryByRole('button', { name: 'Delete message' })).toBeNull();
   });
 
-  it('Tangent ↳ opens the tangent dialog on it', async () => {
+  it('Tangent ↳ puts it on the message box, and says so', async () => {
     const m = await message('a1');
+    const tangent = button('Tangent ↳');
+    expect(tangent.title).toBe('Tangent from here: put this message on the message box (b)');
+    await m.user.click(tangent);
+    expect(TestBed.inject(ComposerController).lead()).toEqual({ nodeId: 'a1', quote: null });
+    expect(m.ui.dialogs.list()).toEqual([]);
+  });
+
+  it('Tangent ↳ with words of it selected puts those words on the message box', async () => {
+    const m = await message('a1');
+    const text = screen.getByText('Light is a wave.').firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 11);
+    range.setEnd(text, 15);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    await m.user.click(button('Tangent ↳'));
+    expect(TestBed.inject(ComposerController).lead()).toEqual({ nodeId: 'a1', quote: 'wave' });
+    expect(window.getSelection()!.isCollapsed).toBe(true);
+  });
+
+  it('on a read-only thread, which has no message box, Tangent ↳ opens Tangent from here', async () => {
+    const m = await message('a1', { lapsed: true, credit: true });
     await m.user.click(button('Tangent ↳'));
     expect(m.ui.dialogs.get('branch')).toEqual({ kind: 'branch', fromNodeId: 'a1', quote: null });
+    expect(TestBed.inject(ComposerController).lead()).toBeNull();
   });
 
   it('Copy copies the reply without its tangents, and says so', async () => {

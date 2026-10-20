@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { REPLY_ACTION, type TreeDetail } from '@tangent/shared';
+import { ApiClient, ComposerController } from '@tangent/web-shared';
 import {
   branch,
   detail,
@@ -85,6 +86,10 @@ async function page(opts: { branchId?: string; lapsed?: boolean; d?: TreeDetail 
 }
 
 const composer = () => screen.queryByRole<HTMLTextAreaElement>('textbox', { name: 'Message' });
+const dock = () => composer()?.closest<HTMLElement>('.composer-dock') ?? document.body;
+/** Message `nodeId`'s own Tangent ↳. */
+const tangentOf = (nodeId: string) =>
+  within(document.getElementById(`msg-${nodeId}`)!).getByRole('button', { name: 'Tangent ↳' });
 
 /** Selects "wave" in reply a1 ("A wave."), as the user would. */
 function selectWave(): void {
@@ -241,6 +246,55 @@ describe('ChatPage', () => {
     await p.user.type(composer()!, 'And?{Enter}');
     expect(send).toHaveBeenCalledWith('trunk', 'And?');
     expect(startBranch).not.toHaveBeenCalled();
+  });
+
+  it("a message's own Tangent ↳ puts it on the composer; the tangent is made when it is sent", async () => {
+    const p = await page();
+    const startBranch = vi.spyOn(p.store, 'startBranch');
+    await p.user.click(tangentOf('a1'));
+    expect(startBranch).not.toHaveBeenCalled();
+    within(dock()).getByText('Tangent from “A wave.”');
+    expect(composer()?.placeholder).toBe('Ask about this…');
+    expect(document.activeElement).toBe(composer());
+    expect(screen.getByRole('button', { name: 'Send message' }).title).toBe(
+      'Ask in a new tangent about this message',
+    );
+    expect(screen.queryByRole('button', { name: 'Compare Normal and Max' })).toBeNull();
+    // Dropped, it leaves nothing behind.
+    await p.user.click(within(dock()).getByRole('button', { name: 'Don’t go on this tangent' }));
+    expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
+    expect(composer()?.placeholder).toBe('Continue this thread…');
+    // Asked, the tangent starts with the question, about the whole message.
+    await p.user.click(tangentOf('a1'));
+    const askFrom = vi.spyOn(p.store, 'askFrom').mockResolvedValue(branch('new'));
+    await p.user.type(composer()!, 'Of what?{Enter}');
+    expect(askFrom).toHaveBeenCalledWith('a1', 'Of what?', null);
+    await p.fixture.whenStable();
+    expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
+  });
+
+  it('a message deleted from under the composer goes off it, as it does when the page goes', async () => {
+    const d = tree();
+    d.nodes.push(
+      node('u2', { parentId: 'a1', seq: 2, role: 'user', content: 'Of what?' }),
+      node('a2', { parentId: 'u2', seq: 3, content: 'Of fields.' }),
+    );
+    const p = await page({ d });
+    await p.user.click(tangentOf('a2'));
+    within(dock()).getByText('Tangent from “Of fields.”');
+    Object.assign(TestBed.inject(ApiClient), {
+      deleteMessage: vi.fn(async () => ({ treeId: 't1', branchIds: [], nodeIds: ['u2', 'a2'] })),
+    });
+    await p.store.deleteMessage('u2');
+    await p.fixture.whenStable();
+    expect(within(dock()).queryByText(/Tangent from/)).toBeNull();
+    expect(composer()?.placeholder).toBe('Continue this thread…');
+
+    await p.user.click(tangentOf('a1'));
+    const lead = TestBed.inject(ComposerController).lead;
+    expect(lead()).toEqual({ nodeId: 'a1', quote: null });
+    p.fixture.destroy();
+    expect(lead()).toBeNull();
   });
 
   it('the header names the open thread: the main thread is not called a tangent', async () => {

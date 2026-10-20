@@ -15,11 +15,10 @@ import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
 import {
   COMPOSER_PLACEHOLDERS,
+  composerExcerpt,
   composerPlan,
   MAIN_THREAD_BACK,
   MAIN_THREAD_LABEL,
-  plainText,
-  splitTangents,
   THREAD_ENDS,
   type ChatNode,
 } from '@tangent/shared';
@@ -50,9 +49,6 @@ import { MessageItem } from './message-item';
 import { FUNDING_OPTIONS, ownKeyOption, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
-
-/** How much of a whole message the composer shows when its message asks about it. */
-const EXCERPT_CHARS = 60;
 
 /** `/t/:treeId[/b/:branchId]`: the lesson, one branch at a time. */
 @Component({
@@ -188,14 +184,7 @@ export class ChatPage implements OnDestroy {
       this.title.setTitle(t ? `${t} · ${BRAND}` : BRAND);
     });
 
-    // A message deleted from under the composer takes the lead with it: the
-    // box can't ask about a message that isn't there.
-    effect(() => {
-      const lead = this.lead();
-      if (lead && !this.store.index()?.nodes.has(lead.nodeId)) {
-        untracked(() => this.composer.drop());
-      }
-    });
+    this.composer.holdLead((nodeId) => this.store.index()?.nodes.has(nodeId) ?? false);
 
     // Tells the first-run walkthrough where the learner is: on the main thread
     // with Tangent ↳ and Next ➜ under a reply, or inside a tangent. Again when
@@ -222,7 +211,6 @@ export class ChatPage implements OnDestroy {
 
   ngOnDestroy(): void {
     this.pendingAsk.destroy();
-    this.composer.drop();
   }
 
   /** Puts the selected words on the composer; the tangent is made when it is sent. */
@@ -240,8 +228,7 @@ export class ChatPage implements OnDestroy {
 
   /** The opening words of message `nodeId`, for the composer to say what it asks about. */
   protected excerptOf(nodeId: string): string {
-    const content = this.store.index()?.nodes.get(nodeId)?.content ?? '';
-    return plainText(splitTangents(content).body, { max: EXCERPT_CHARS });
+    return composerExcerpt(this.store.index()?.nodes.get(nodeId)?.content ?? '');
   }
 
   protected dropLead(): void {

@@ -2,7 +2,13 @@ import { computed, inject, Injectable } from '@angular/core';
 import { Router } from '@angular/router';
 import { branchesWithLinks, linkTarget } from '@tangent/core';
 import { type BranchFunding } from '@tangent/shared';
-import type { Branch, CreateBranchRequest, NodeLink, ShareScope } from '@tangent/shared';
+import type {
+  Branch,
+  ComposerLead,
+  CreateBranchRequest,
+  NodeLink,
+  ShareScope,
+} from '@tangent/shared';
 import {
   ApiClient,
   ComposerController,
@@ -112,6 +118,20 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     return route
       ? { providerId: route.providerId, funding: route.funding, model: route.model }
       : {};
+  }
+
+  /**
+   * A tangent from a message, or from words of it (its Tangent ↳, `b`): the
+   * message box is aimed at it, and the tangent is made when the box's
+   * message is sent. A read-only thread has no message box, so Tangent from
+   * here opens instead, where a route that can reply is picked.
+   */
+  aimComposer(lead: ComposerLead): void {
+    if (this.readOnly()) {
+      this.ui.dialogs.open({ kind: 'branch', fromNodeId: lead.nodeId, quote: lead.quote });
+    } else {
+      this.composer.aim(lead);
+    }
   }
 
   /**

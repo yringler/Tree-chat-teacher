@@ -131,9 +131,14 @@
             (stop)="stop()"
             (compare)="compare($event)"
           >
-            <!-- The words the message asks about; dropping them leaves the focus in the box. -->
-            @if (quote(); as q) {
-              <app-composer-quote composerLead [quote]="q.quote" (dropped)="dropQuote()" />
+            <!-- What the message asks about (words, or a whole message); dropping it leaves the focus in the box. -->
+            @if (lead(); as q) {
+              <app-composer-quote
+                composerLead
+                [quote]="q.quote"
+                [excerpt]="excerptOf(q.nodeId)"
+                (dropped)="dropLead()"
+              />
             }
           </app-composer>
           <!-- The branch's provider, payer and model: changeable before any send. -->

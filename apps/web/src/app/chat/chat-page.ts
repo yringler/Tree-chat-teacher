@@ -6,12 +6,17 @@ import {
   ElementRef,
   inject,
   type OnDestroy,
-  signal,
   viewChild,
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import { clip, REPLY_ACTION, type MembershipInfo } from '@tangent/shared';
+import {
+  clip,
+  composerExcerpt,
+  REPLY_ACTION,
+  type ComposerLead,
+  type MembershipInfo,
+} from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
   Composer,
@@ -77,28 +82,32 @@ export class ChatPage implements OnDestroy {
    * quote filled in.
    */
   protected readonly selection = new PendingQuote(() => this.quoteToAsk());
-  /** Words "Ask about this" put on the composer: the next message asks about them in a new tangent. */
-  protected readonly quote = signal<MessageQuote | null>(null);
+  /**
+   * What the composer's next message asks about, in a new tangent: words
+   * "Ask about this" quoted, or a whole message (its Tangent ↳, `b`).
+   */
+  protected readonly lead = this.composer.lead;
   /** Where the conversation is scrolled. */
   protected readonly thread = new ThreadScroll({
     store: this.store,
     scroller: () => this.scroller()?.nativeElement,
     moved: () => {
       this.selection.clear();
-      this.quote.set(null);
+      this.composer.drop();
     },
   });
 
   /**
    * The composer continues the open branch; asking about something new is a
    * branch ("Ask your own question…" under the reply, "Ask about this" on a
-   * selection), so the box says what it does rather than inviting every question.
+   * selection, a message's Tangent ↳), so the box says what it does rather
+   * than inviting every question.
    */
   protected readonly placeholder = computed(() => {
     const b = this.store.selectedBranch();
     if (!b) return 'Message…';
     if (this.store.path().length === 0) return 'Start the conversation…';
-    if (this.quote()) return 'Ask about this…';
+    if (this.lead()) return 'Ask about this…';
     // A new branch without messages: the next one starts it.
     if (this.store.emptyBranch()) return 'Ask your question…';
     return 'Continue this thread…';
@@ -111,7 +120,12 @@ export class ChatPage implements OnDestroy {
   protected readonly sendTitle = computed(() => {
     const b = this.store.selectedBranch();
     if (!b || this.store.path().length === 0) return null;
-    if (this.quote()) return 'Ask in a new tangent about the quoted words';
+    const lead = this.lead();
+    if (lead) {
+      return lead.quote
+        ? 'Ask in a new tangent about the quoted words'
+        : 'Ask in a new tangent about this message';
+    }
     const hint = b.parentBranchId ? REPLY_ACTION.hintInTangent : REPLY_ACTION.hint;
     return `${REPLY_ACTION.label}: ${hint}`;
   });
@@ -133,10 +147,10 @@ export class ChatPage implements OnDestroy {
 
   /**
    * Compare is offered: Normal and Max are two models the open branch can
-   * use, it is idle, and the message continues it (not a quote's new tangent).
+   * use, it is idle, and the message continues it (not a lead's new tangent).
    */
   protected readonly canCompare = computed(
-    () => !this.store.busy() && !this.quote() && this.tiers.available(this.store.selectedBranch()),
+    () => !this.store.busy() && !this.lead() && this.tiers.available(this.store.selectedBranch()),
   );
 
   /** Pick mode, with what the message being linked from says (for the banner). */
@@ -169,6 +183,8 @@ export class ChatPage implements OnDestroy {
       const t = this.store.detail()?.tree.title;
       this.title.setTitle(t ? `${t} · Tangent` : 'Tangent');
     });
+
+    this.composer.holdLead((nodeId) => this.store.index()?.nodes.has(nodeId) ?? false);
   }
 
   ngOnDestroy(): void {
@@ -183,12 +199,16 @@ export class ChatPage implements OnDestroy {
     }
     this.selection.clear();
     window.getSelection()?.removeAllRanges();
-    this.quote.set(q);
-    this.composer.focus();
+    this.composer.aim(q);
   }
 
-  protected dropQuote(): void {
-    this.quote.set(null);
+  /** The opening words of message `nodeId`, for the composer to say what it asks about. */
+  protected excerptOf(nodeId: string): string {
+    return composerExcerpt(this.store.index()?.nodes.get(nodeId)?.content ?? '');
+  }
+
+  protected dropLead(): void {
+    this.composer.drop();
     this.composer.focus();
   }
 
@@ -213,9 +233,9 @@ export class ChatPage implements OnDestroy {
   }
 
   protected send(content: string): void {
-    const q = this.quote();
-    if (q) {
-      void this.askQuoted(q, content);
+    const lead = this.lead();
+    if (lead) {
+      void this.askAboutLead(lead, content);
       return;
     }
     const id = this.store.selectedBranchId();
@@ -225,10 +245,13 @@ export class ChatPage implements OnDestroy {
     void this.store.send(id, content);
   }
 
-  /** The message starts a `path` tangent about the quoted words; they stay on the composer if it can't be made. */
-  private async askQuoted(q: MessageQuote, content: string): Promise<void> {
+  /**
+   * The message starts a `path` tangent from the lead, quoting its words if
+   * any; the lead stays on the box if the tangent can't be made.
+   */
+  private async askAboutLead(lead: ComposerLead, content: string): Promise<void> {
     this.thread.pin();
-    if (await this.store.askFrom(q.nodeId, content, q.quote)) this.quote.set(null);
+    if (await this.store.askFrom(lead.nodeId, content, lead.quote)) this.composer.drop();
   }
 
   /** Compare: Normal and Max answer the message in a dialog; the text stays until one is kept. */

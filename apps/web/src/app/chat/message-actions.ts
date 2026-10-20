@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { TANGENT_ACTION, type ChatNode } from '@tangent/shared';
+import type { ChatNode } from '@tangent/shared';
 import { confirmDeleteMessage, Icon, ToastStore } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
 import { TreeStore } from '../state/tree-store';
@@ -17,7 +17,7 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
   linked: 'Already linked',
 };
 
-/** A message's header buttons: Branch from here, Review, Link, Copy, Delete (the user's); "Link here" in pick mode. */
+/** A message's header buttons: Tangent ↳, Review, Link, Copy, Delete (the user's); "Link here" in pick mode. */
 @Component({
   selector: 'app-message-actions',
   imports: [Icon],
@@ -42,8 +42,8 @@ const PICK_LABELS: Readonly<Record<PickState, string>> = {
           type="button"
           class="btn btn-ghost btn-sm msg-tangent"
           (mousedown)="captureSelection()"
-          (click)="branch($event)"
-          [title]="tangentTitle"
+          (click)="aim($event)"
+          title="Tangent from here: put this message on the message box (b)"
         >
           Tangent ↳
         </button>
@@ -93,10 +93,9 @@ export class MessageActions {
   protected readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   private readonly toast = inject(ToastStore);
-  protected readonly tangentTitle = `Tangent from here (b): ${TANGENT_ACTION.hint}`;
 
   readonly node = input.required<ChatNode>();
-  /** The rendered message, whose selected text "Tangent ↳" quotes. */
+  /** The rendered message, whose selected words "Tangent ↳" puts on the message box. */
   readonly body = input.required<HTMLElement>();
   /** What Copy copies (the reply without its tangents block). */
   readonly text = input.required<string>();
@@ -122,11 +121,17 @@ export class MessageActions {
     this.pendingQuote = selectionWithin(this.body());
   }
 
-  protected branch(e: Event): void {
+  /**
+   * The message, or the words selected in it, on the message box, which
+   * takes the focus (and a phone's keyboard comes up), since the user asked.
+   */
+  protected aim(e: Event): void {
     e.stopPropagation();
     const quote = this.pendingQuote ?? selectionWithin(this.body());
     this.pendingQuote = null;
-    this.ui.dialogs.open({ kind: 'branch', fromNodeId: this.node().id, quote });
+    // The words are on the box now: the selection's "Ask about this" would only offer them again.
+    if (quote) window.getSelection()?.removeAllRanges();
+    this.store.aimComposer({ nodeId: this.node().id, quote });
   }
 
   protected openReview(e: Event): void {

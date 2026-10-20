@@ -47,8 +47,9 @@ In power, Learn and the Flutter and phone apps, opening a tangent shows it from 
 ## The power app
 
 - **Replying** in the message box (**Send**, whose tooltip reads **Next ➜**) continues the thread on screen; on a phone or tablet `Enter` starts a new line and only **Send** sends. Anything new is meant to be a tangent, a click away.
-- **Ask about this:** select text in a finished message and **Ask about this** appears above the message box. It puts the words on the message box ("Ask about this…"), focused: your next message asks about them in a new tangent that quotes them (**Compare** waits until then), and **×** takes them off. Its gear (**More**) opens **Tangent from here** with the quote filled in. Selecting and pressing `b` opens that dialog too.
-- **Tangent ↳**, on any message, opens **Tangent from here**: quote highlighted text, write the starting message (`Ctrl`/`Cmd+Enter` creates and asks), pick a context mode, provider and model. It starts on the route the bar under the message box shows, or on a new conversation's default where that one can't reply in this browser. A tangent starts with its first message, so **Create and ask** waits for one, and cancelling makes nothing. There is no title field: a tangent is named after its first reply; rename it in **Tangent settings** or in the outline.
+- **Ask about this:** select text in a finished message and **Ask about this** appears above the message box. It puts the words on the message box ("Ask about this…"), focused: your next message asks about them in a new tangent that quotes them (**Compare** waits until then), and **×** takes them off. Its gear (**More**) opens **Tangent from here** with the quote filled in. Selecting and pressing `b` puts the words on the message box too; `Shift+B` opens the dialog with them.
+- **Tangent ↳**, on any message, puts that message on the message box ("Tangent from “…”"), or the words you highlighted in it, and focuses the box: your next message asks about it in a new tangent, and **×** takes it off. `b` does the same for the focused (or latest) reply. On a thread the membership locks, which has no message box, it opens **Tangent from here** instead.
+- **Tangent from here** (`Shift+B` on the focused message) sets a tangent up before it starts: quote highlighted text, write the starting message (`Ctrl`/`Cmd+Enter` creates and asks), pick a context mode, provider and model. It starts on the route the bar under the message box shows, or on a new conversation's default where that one can't reply in this browser. A tangent starts with its first message, so **Create and ask** waits for one, and cancelling makes nothing. There is no title field: a tangent is named after its first reply; rename it in **Tangent settings** or in the outline.
 - **Context modes** decide what the model sees in a tangent:
   - `path`: everything its parent saw, plus the tangent's own messages;
   - `summary`: a summary of the parent's conversation;
@@ -74,22 +75,23 @@ In power, Learn and the Flutter and phone apps, opening a tangent shows it from 
 
 ### Keyboard shortcuts
 
-| Keys              | Action                                                   |
-| ----------------- | -------------------------------------------------------- |
-| `Alt+↑` or `[`    | Parent thread (where this tangent started)               |
-| `Alt+←` / `Alt+→` | Previous / next tangent                                  |
-| `Alt+↓` or `]`    | First tangent from here                                  |
-| `j` / `k`         | Next / previous message                                  |
-| `Home` / `End`    | Start / end of the thread                                |
-| `b`               | Tangent from the focused message                         |
-| `v`               | Review up to the focused (or latest) reply               |
-| `l`               | Link the focused (or latest) message to another          |
-| `/`               | Focus the message box                                    |
-| `i`               | Context Inspector                                        |
-| `+` / `-`         | Larger / smaller conversation text                       |
-| `0`               | Reset the text size                                      |
-| `?`               | Show all shortcuts                                       |
-| `Esc`             | Close dialogs and panels, stop picking a message to link |
+| Keys              | Action                                                                         |
+| ----------------- | ------------------------------------------------------------------------------ |
+| `Alt+↑` or `[`    | Parent thread (where this tangent started)                                     |
+| `Alt+←` / `Alt+→` | Previous / next tangent                                                        |
+| `Alt+↓` or `]`    | First tangent from here                                                        |
+| `j` / `k`         | Next / previous message                                                        |
+| `Home` / `End`    | Start / end of the thread                                                      |
+| `b`               | Put the selected words, else the focused (or latest) reply, on the message box |
+| `Shift+B`         | Open Tangent from here for the focused (or latest) message                     |
+| `v`               | Review up to the focused (or latest) reply                                     |
+| `l`               | Link the focused (or latest) message to another                                |
+| `/`               | Focus the message box                                                          |
+| `i`               | Context Inspector                                                              |
+| `+` / `-`         | Larger / smaller conversation text                                             |
+| `0`               | Reset the text size                                                            |
+| `?`               | Show all shortcuts                                                             |
+| `Esc`             | Close dialogs and panels, stop picking a message to link                       |
 
 ### Without a membership
 

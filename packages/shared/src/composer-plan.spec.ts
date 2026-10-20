@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  composerExcerpt,
   composerPlan,
   replyToAim,
   type ComposerFacts,
@@ -177,5 +178,14 @@ describe('replyToAim', () => {
     expect(
       replyToAim([...MAIN, question('u5'), reply('a5', 'trunk', 'streaming')], null),
     ).toBeNull();
+  });
+});
+
+describe('composerExcerpt', () => {
+  it("names a message by its opening words, as plain text, without a reply's tangents", () => {
+    expect(composerExcerpt('**Light** is a wave.\n\n<tangents>\n- Photons\n</tangents>')).toBe(
+      'Light is a wave.',
+    );
+    expect(composerExcerpt('word '.repeat(20))).toBe(`${'word '.repeat(11)}word…`);
   });
 });

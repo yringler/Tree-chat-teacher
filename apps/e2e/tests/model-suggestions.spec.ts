@@ -76,11 +76,12 @@ test('every suggested model stays in view under the model id, in power and Canva
 }) => {
   const treeId = await setUp(page, baseURL!);
 
-  // Power: Tangent ↳ on a reply.
+  // Power: Tangent from here on a reply (Shift+B).
   await page.goto(`/t/${treeId}`);
   const reply = page.locator('.msg-assistant').first();
   await expect(reply).toBeVisible();
-  await reply.getByRole('button', { name: 'Tangent ↳' }).click();
+  await reply.locator('.msg-body').click();
+  await page.keyboard.press('Shift+B');
   const dialog = page.getByRole('dialog', { name: 'Tangent from here' });
   await dialog
     .getByRole('combobox', { name: 'Provider' })
