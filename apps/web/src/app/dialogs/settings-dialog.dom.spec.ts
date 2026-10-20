@@ -80,6 +80,25 @@ describe('Settings', () => {
     expect(s.prompt.value).toBe('Be brief.');
   });
 
+  it('brings the save error into view from Save at the bottom, ties it to the box, and leaves the focus', async () => {
+    const s = await opened(async () => {
+      throw new ApiError(503, 'network', 'The server could not be reached.');
+    });
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+    await s.user.type(s.prompt, 'Be brief.');
+    const save = screen.getByRole('button', { name: 'Save' });
+    await s.user.click(save);
+    await s.fixture.whenStable();
+    const alert = screen.getByRole('alert');
+    await vi.waitFor(() => expect(scrolled.mock.contexts).toContain(alert));
+    expect(scrolled).toHaveBeenLastCalledWith({ block: 'nearest' });
+    expect(s.prompt.getAttribute('aria-invalid')).toBe('true');
+    expect(s.prompt.getAttribute('aria-describedby')).toBe(alert.id);
+    // Focusing the box would raise a phone's keyboard.
+    expect(document.activeElement).toBe(save);
+    scrolled.mockRestore();
+  });
+
   it('once the prompt is saved, saves the rest and closes', async () => {
     const s = await opened(async (req) => ({ ...SAVED, systemPrompt: req.systemPrompt ?? null }));
     await s.user.type(s.prompt, 'Be brief.');

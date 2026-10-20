@@ -1,10 +1,14 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
+  type ElementRef,
   inject,
+  Injector,
   type OnInit,
   signal,
+  viewChild,
   type WritableSignal,
 } from '@angular/core';
 import {
@@ -27,6 +31,8 @@ import { ApiClient, errorMessage, Modal, ToastStore } from '@tangent/web-shared'
 import { ModelPicker } from '../ui/model-picker';
 import { InputLimitSetting } from '../ui/input-limit-setting';
 import { OutputCapSetting, type OutputCapModel } from '../ui/output-cap-setting';
+
+let uid = 0;
 
 /** One tier in the "Normal & Max" section: the suggested model, or the user's own pick. */
 interface TierRow {
@@ -79,12 +85,16 @@ interface TierRow {
                 placeholder="Empty: use the built-in prompt"
                 [disabled]="!promptLoaded()"
                 [value]="systemPrompt()"
+                [attr.aria-invalid]="saveError() ? true : null"
+                [attr.aria-describedby]="saveError() ? saveErrorId : null"
                 (input)="systemPrompt.set(sp.value)"
                 #sp
               ></textarea>
             </label>
             @if (saveError(); as err) {
-              <p class="field-error small" role="alert">Couldn't save it: {{ err }}</p>
+              <p class="field-error small" role="alert" [id]="saveErrorId" #saveErrorLine>
+                Couldn't save it: {{ err }}
+              </p>
             }
             <div class="settings-buttons">
               <button
@@ -193,6 +203,7 @@ export class SettingsDialog implements OnInit {
   private readonly tiers = inject(TierStore);
   private readonly ui = inject(UiStore);
   private readonly toast = inject(ToastStore);
+  private readonly injector = inject(Injector);
 
   protected readonly tierRows: readonly TierRow[] = TIERS.map((tier) => ({
     tier,
@@ -237,6 +248,8 @@ export class SettingsDialog implements OnInit {
   protected readonly promptError = signal<string | null>(null);
   /** Why the last Save couldn't save the prompt, shown under its box. */
   protected readonly saveError = signal<string | null>(null);
+  protected readonly saveErrorId = `settings-save-error-${++uid}`;
+  private readonly saveErrorLine = viewChild<ElementRef<HTMLElement>>('saveErrorLine');
   protected readonly saving = signal(false);
   /** What saving the editor would store: blank, or the built-in text unchanged, is the built-in prompt. */
   private readonly promptToSave = computed(() => {
@@ -341,6 +354,13 @@ export class SettingsDialog implements OnInit {
         this.savedPrompt.set(res.systemPrompt);
       } catch (err) {
         this.saveError.set(errorMessage(err));
+        // Save is at the bottom of a dialog taller than the screen, the error
+        // under the prompt near its top. The focus stays: moving it to the box
+        // would raise a phone's keyboard.
+        afterNextRender(
+          () => this.saveErrorLine()?.nativeElement.scrollIntoView({ block: 'nearest' }),
+          { injector: this.injector },
+        );
         return; // keep the dialog (and the edits) open
       } finally {
         this.saving.set(false);
