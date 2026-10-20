@@ -50,3 +50,40 @@ String formatMicros(int micros) {
   );
   return '$sign\$$whole.${(cents % 100).toString().padLeft(2, '0')}';
 }
+
+/// [text] cut to at most [max] characters, ending in `…` when cut. Counts
+/// code points, so an emoji is never split in half, and drops the
+/// whitespace the cut leaves before the ellipsis (`clip` in
+/// packages/shared/src/text.ts).
+String clip(String text, int max) {
+  final chars = text.runes;
+  if (chars.length <= max) return text;
+  final kept = String.fromCharCodes(chars.take(max < 1 ? 0 : max - 1));
+  return '${kept.trimRight()}…';
+}
+
+/// Markdown as single-line plain text: code-fence lines, heading, quote and
+/// list markers, emphasis and inline-code characters go (a code block's
+/// text stays); links and images become their text, autolinks their URL;
+/// whitespace collapses. With [max], clipped ([clip]). The same text as
+/// `plainText` in packages/shared/src/text.ts, so a reply is named the same
+/// way on the web.
+String plainText(String markdown, {int? max}) {
+  String group1(Match m) => m[1] ?? '';
+  final text = markdown
+      .replaceAll(RegExp(r'^[ \t]*(```|~~~)[^\n]*$', multiLine: true), ' ')
+      .replaceAllMapped(RegExp(r'!?\[([^\]]*)\]\([^)]*\)'), group1)
+      .replaceAllMapped(RegExp(r'<((?:https?|mailto):[^>\s]*)>'), group1)
+      .replaceAll(RegExp(r'^[ \t]*>[ \t]?', multiLine: true), '')
+      .replaceAll(RegExp(r'^[ \t]{0,3}#{1,6}[ \t]+', multiLine: true), '')
+      .replaceAll(
+        RegExp(r'^[ \t]*(?:[-+*]|\d+[.)])[ \t]+', multiLine: true),
+        '',
+      )
+      .replaceAll(RegExp(r'[*`]+|~~'), '')
+      .replaceAllMapped(RegExp(r'(^|[^\p{L}\p{N}])_+', unicode: true), group1)
+      .replaceAll(RegExp(r'_+(?=[^\p{L}\p{N}]|$)', unicode: true), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return max == null ? text : clip(text, max);
+}

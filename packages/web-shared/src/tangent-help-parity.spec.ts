@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import {
+  COMPOSER_PLACEHOLDERS,
   DEFAULT_BRANCH_TITLE_PREFIX,
   DIG_DEEPER_LABEL,
   HELP_ANALOGY,
@@ -23,9 +24,10 @@ import { describe, expect, it } from 'vitest';
 
 /*
  * The Flutter app can't import @tangent/shared, so it keeps a copy of the
- * tangent help words (packages/shared/src/tangent-help.ts) and the headings
- * of a reply's tangents footer (tangents.ts). This checks the copy has every
- * string verbatim. A new export of tangent-help.ts goes in COPY too. It also
+ * tangent help words (packages/shared/src/tangent-help.ts), the message
+ * box's placeholders (composer-plan.ts) and the headings of a reply's
+ * tangents footer (tangents.ts). This checks the copy has every string
+ * verbatim. A new export of tangent-help.ts goes in COPY too. It also
  * checks the default tangent title prefix, which Flutter strips from titles
  * as Learn web does.
  */
@@ -35,6 +37,7 @@ const DART = 'apps/flutter/lib/ui/tangent_help_copy.dart';
 const OUTLINE = 'apps/flutter/lib/ui/lesson_outline.dart';
 
 const COPY = {
+  COMPOSER_PLACEHOLDERS,
   DIG_DEEPER_LABEL,
   HELP_ANALOGY,
   HELP_DEFAULT,
