@@ -126,7 +126,7 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
 
         <div class="form-actions">
           @if (branch().parentBranchId) {
-            <button type="button" class="btn btn-danger btn-left" (click)="remove()">
+            <button type="button" class="btn btn-danger-ghost btn-left" (click)="remove()">
               <app-icon name="trash" /> Delete tangent
             </button>
           }

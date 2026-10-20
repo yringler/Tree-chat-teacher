@@ -54,7 +54,7 @@ export function confirmDeleteTree(title: string): boolean {
           ></textarea>
         </label>
         <div class="form-actions">
-          <button type="button" class="btn btn-danger btn-left" (click)="remove()">
+          <button type="button" class="btn btn-danger-ghost btn-left" (click)="remove()">
             <app-icon name="trash" /> Delete conversation
           </button>
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>

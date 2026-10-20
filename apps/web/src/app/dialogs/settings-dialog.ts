@@ -89,7 +89,7 @@ interface TierRow {
             <div class="settings-buttons">
               <button
                 type="button"
-                class="btn btn-ghost btn-sm"
+                class="btn btn-sm"
                 [disabled]="!promptLoaded()"
                 title="Copy the built-in prompt into the box, to edit it"
                 (click)="useDefault()"
@@ -98,7 +98,7 @@ interface TierRow {
               </button>
               <button
                 type="button"
-                class="btn btn-ghost btn-sm"
+                class="btn btn-sm"
                 [disabled]="!promptLoaded() || systemPrompt() === ''"
                 title="Empty the box: conversations without their own prompt use the built-in one"
                 (click)="systemPrompt.set('')"
@@ -119,14 +119,16 @@ interface TierRow {
           </p>
           @if (custom()) {
             <app-model-picker [(route)]="route" [(modelId)]="modelId" />
-            <button type="button" class="btn btn-ghost btn-sm" (click)="custom.set(false)">
-              Use the tangent's provider default instead
-            </button>
+            <div class="settings-buttons">
+              <button type="button" class="btn btn-sm" (click)="custom.set(false)">
+                Use the tangent's provider default instead
+              </button>
+            </div>
           } @else {
             <p class="small">Now: the default model of the tangent's own provider.</p>
-            <button type="button" class="btn btn-ghost btn-sm" (click)="customize()">
-              Choose a model
-            </button>
+            <div class="settings-buttons">
+              <button type="button" class="btn btn-sm" (click)="customize()">Choose a model</button>
+            </div>
           }
         </fieldset>
 

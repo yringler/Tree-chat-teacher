@@ -158,11 +158,6 @@
   align-items: center;
 }
 
-.seg-source {
-  font-family: inherit;
-  font-size: inherit;
-}
-
 .seg-text,
 .rendered pre {
   margin: 6px 0 0;

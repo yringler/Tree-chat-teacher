@@ -469,18 +469,19 @@ hr {
   color: var(--accent);
 }
 
+/* An action that reads as a link in its sentence: the text's own font and size, underlined. */
 .link-btn {
   border: 0;
   background: none;
   padding: 0 2px;
   color: var(--accent);
   cursor: pointer;
-  font-family: var(--mono);
-  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .link-btn:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 /* Badges */
@@ -603,6 +604,13 @@ hr {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* Phones: fields side by side clip what they hold (a model id), so a row of fields stacks. */
+@media (max-width: 559px) {
+  .field-row:has(> .field) {
+    flex-direction: column;
+  }
 }
 
 input[type='text'],
@@ -2067,7 +2075,6 @@ app-node-picker {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: inherit;
   font-size: 0.9rem;
 }
 
@@ -2275,8 +2282,6 @@ app-node-picker {
   display: inline-block;
   cursor: pointer;
   list-style: none;
-  font-family: inherit;
-  font-size: inherit;
 }
 
 .membership-code > summary::-webkit-details-marker {
