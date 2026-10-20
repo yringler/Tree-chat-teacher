@@ -38,6 +38,8 @@ import { ExportMenu } from './export-menu';
               <button
                 type="button"
                 class="btn btn-ghost btn-sm"
+                aria-label="Share…"
+                title="Share a read-only link"
                 (click)="ui.dialogs.open({ kind: 'share' })"
               >
                 <app-icon name="share" /> <span class="hide-narrow">Share…</span>

@@ -15,6 +15,8 @@ import { ScopePicker } from '../ui/scope-picker';
       <button
         type="button"
         class="btn btn-ghost btn-sm"
+        aria-label="Export"
+        title="Download as Markdown, HTML or a JSON backup"
         aria-haspopup="true"
         aria-controls="export-menu"
         [attr.aria-expanded]="ui.exportMenuOpen()"

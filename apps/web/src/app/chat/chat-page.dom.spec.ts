@@ -418,6 +418,17 @@ describe('ChatPage', () => {
     ).toBeNull();
   });
 
+  it('on a narrow screen, where only their icons show, the header’s buttons keep their names', async () => {
+    const p = await page({ branchId: 'side' });
+    const header = p.host.querySelector<HTMLElement>('.chat-head')!;
+    // What .hide-narrow does below 860px (layout.css).
+    for (const text of header.querySelectorAll<HTMLElement>('.hide-narrow'))
+      text.style.display = 'none';
+    expect(within(header).queryAllByRole('button', { name: (name) => !name.trim() })).toEqual([]);
+    for (const name of ['Tangent settings', 'Share…', 'Export', 'Conversation settings'])
+      expect(within(header).getByRole('button', { name })).toBeTruthy();
+  });
+
   it('inside a tangent the header says tangent', async () => {
     await page({ branchId: 'side' });
     expect(screen.getByRole('button', { name: /^Link this tangent/ })).toBeTruthy();
