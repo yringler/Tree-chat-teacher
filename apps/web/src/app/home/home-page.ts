@@ -10,7 +10,14 @@ import {
 import { RouterLink } from '@angular/router';
 import { sameChoice, TierStore, tierOptions } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
-import { Composer, Icon, readOnlyText, Segmented, SidebarToggle } from '@tangent/web-shared';
+import {
+  Composer,
+  Icon,
+  ImportButton,
+  readOnlyText,
+  Segmented,
+  SidebarToggle,
+} from '@tangent/web-shared';
 import {
   maxUsageNote,
   parseRouteKey,
@@ -20,7 +27,6 @@ import {
   type TreeSummary,
 } from '@tangent/shared';
 import { confirmDeleteTree } from '../dialogs/tree-settings';
-import { ImportButton } from '../ui/import-button';
 import { ModelPicker } from '../ui/model-picker';
 
 /**

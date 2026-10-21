@@ -2,9 +2,8 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { threadTitle } from '../state/thread-title';
 import { TreeStore } from '../state/tree-store';
 import { HELP_TITLE } from '@tangent/shared';
-import { KeysDialog, Modal, TangentHelp } from '@tangent/web-shared';
+import { AccountDialog, KeysDialog, Modal, TangentHelp } from '@tangent/web-shared';
 import { UiStore } from '../state/ui-store';
-import { AccountDialog } from './account-dialog';
 import { BranchDialog } from './branch-dialog';
 import { BranchSettings } from './branch-settings';
 import { CompareDialog } from './compare-dialog';
@@ -84,7 +83,7 @@ import { TreeSettings } from './tree-settings';
           <app-settings-dialog [section]="d.section ?? null" />
         }
         @case ('account') {
-          <app-account-dialog />
+          <app-account-dialog (closed)="ui.dialogs.close('account')" />
         }
         @case ('shortcuts') {
           <app-shortcuts-help />
