@@ -61,7 +61,7 @@ export type Dialog =
   | ({ kind: 'branch' } & BranchDialogState)
   | ({ kind: 'branch-settings' } & BranchSettingsState)
   | { kind: 'help' }
-  | { kind: 'delete-account' }
+  | { kind: 'account' }
   | ({ kind: 'link' } & LinkDialogState);
 
 const EXPERIMENTAL_KEY = 'tangent.canvas.experimental-ack';
@@ -77,7 +77,6 @@ function storedAck(): boolean {
 /** View state that is not part of the URL: dialogs, the lineage toggle, collapsed lanes. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
-  readonly menuOpen = signal(false);
   /** The open dialogs (`Dialog`), top-most last. */
   readonly dialogs = new Overlays<Dialog>();
   /** The "experimental" notice until it is dismissed (remembered in this browser). */
@@ -154,10 +153,6 @@ export class UiStore {
       return true;
     }
     if (this.dialogs.closeTop()) return true;
-    if (this.menuOpen()) {
-      this.menuOpen.set(false);
-      return true;
-    }
     if (this.linkPick()) {
       this.linkPick.set(null);
       return true;

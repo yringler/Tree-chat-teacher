@@ -6,6 +6,7 @@ import {
   AuthService,
   BetaBanner,
   DEMO_MODE,
+  SidebarState,
   Toasts,
 } from '@tangent/web-shared';
 import { DEMO_SIGNUP_URL } from './brand';
@@ -13,19 +14,20 @@ import { Keyboard } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DialogHost } from './dialogs/dialog-host';
 import { AppHeader } from './shell/app-header';
+import { CanvasSidebar } from './shell/canvas-sidebar';
 import { CanvasStore } from './state/canvas-store';
 import { UiStore } from './state/ui-store';
 
 /** The canvas shell, served under /canvas/. */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, AppHeader, BetaBanner, DialogHost, Toasts],
+  imports: [RouterOutlet, AppHeader, BetaBanner, CanvasSidebar, DialogHost, Toasts],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loginPage) {
       <router-outlet />
     } @else {
-      <div class="shell">
+      <div class="shell" [class.drawer-open]="sidebar.drawerOpen()">
         <app-header />
         @if (demo) {
           <p class="banner banner-demo" role="note">
@@ -62,13 +64,21 @@ import { UiStore } from './state/ui-store';
             }
           </p>
         }
-        <main class="shell-main">
-          @if (ready()) {
-            <router-outlet />
-          } @else {
-            <p class="muted center pad" aria-busy="true">Loading…</p>
+        <div class="shell-body">
+          <aside class="sidebar" id="sidebar" aria-label="Conversations">
+            <app-canvas-sidebar />
+          </aside>
+          @if (sidebar.drawerOpen()) {
+            <div class="scrim" (click)="sidebar.drawerOpen.set(false)"></div>
           }
-        </main>
+          <main class="shell-main">
+            @if (ready()) {
+              <router-outlet />
+            } @else {
+              <p class="muted center pad" aria-busy="true">Loading…</p>
+            }
+          </main>
+        </div>
       </div>
       <app-dialog-host />
     }
@@ -79,6 +89,7 @@ import { UiStore } from './state/ui-store';
 })
 export class App {
   protected readonly ui = inject(UiStore);
+  protected readonly sidebar = inject(SidebarState);
   protected readonly keyboard = inject(Keyboard);
   protected readonly store = inject(CanvasStore);
   private readonly auth = inject(AuthService);

@@ -31,6 +31,7 @@ import { LayoutStore, MAX_ZOOM, MIN_ZOOM } from '../layout/layout-store';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { Connectors } from './connectors';
+import { confirmDeleteTree } from './delete-lane';
 import { CrossLinkGlyphs, CrossLinks } from './cross-links';
 import { Lane } from './lane';
 import { LinkPopover } from './link-popover';
@@ -436,7 +437,7 @@ export class CanvasPage implements OnDestroy {
   protected deleteTree(): void {
     const d = this.store.detail();
     if (!d) return;
-    if (!confirm(`Delete “${treeTitle(d.tree.title)}” with all its lanes?`)) return;
+    if (!confirmDeleteTree(treeTitle(d.tree.title))) return;
     void this.store.deleteTree(d.tree.id);
   }
 }

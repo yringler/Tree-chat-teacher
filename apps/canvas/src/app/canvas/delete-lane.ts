@@ -21,3 +21,8 @@ export async function confirmDeleteLane(store: CanvasStore, branchId: string): P
   if (!question || !confirm(question)) return false;
   return store.deleteBranch(branchId);
 }
+
+/** Asks before a whole conversation is deleted (`title` as shown). */
+export function confirmDeleteTree(title: string): boolean {
+  return confirm(`Delete “${title}” with all its lanes?`);
+}

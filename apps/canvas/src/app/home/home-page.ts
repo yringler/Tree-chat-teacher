@@ -12,6 +12,7 @@ import {
 import { RouterLink } from '@angular/router';
 import { providerRouteKey, type TreeSummary } from '@tangent/shared';
 import { enterSends, Icon, pointerHovers, routeSuffix } from '@tangent/web-shared';
+import { confirmDeleteTree } from '../canvas/delete-lane';
 import { treeTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -196,7 +197,7 @@ export class HomePage {
   }
 
   protected remove(t: TreeSummary): void {
-    if (!confirm(`Delete “${treeTitle(t.title)}” with all its lanes?`)) return;
+    if (!confirmDeleteTree(treeTitle(t.title))) return;
     void this.store.deleteTree(t.id);
   }
 }
