@@ -499,7 +499,8 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         </li>
         <li>
           <strong>Deletion:</strong> delete single conversations at any time, or your whole account
-          from the account menu in any of the apps ("Delete account"), or at{' '}
+          in any of the apps ("Delete account": under Account in the sidebar in Power and Canvas, in
+          the account menu in Learn and the phone app), or at{' '}
           <a href="/delete-account">/delete-account</a>, which asks you to sign in first. That
           deletes your account, which Power, Learn and Canvas share, with every conversation, share
           link and setting, your sign-in methods and sessions, and your customer record at Polar
@@ -573,7 +574,7 @@ function TermsOfService(props: { info: LegalInfo }) {
       <p>
         You sign in with an email address you control, Google, GitHub or a passkey. You are
         responsible for what happens under your account; tell us at {contact} if you think someone
-        else has access to it. You can delete your account at any time from the account menu.
+        else has access to it. You can delete your account at any time from any of the apps.
       </p>
 
       <h2>3. AI-generated content</h2>
