@@ -193,15 +193,14 @@
   margin-bottom: 8px;
 }
 
+/* A .card, which is display: block, so the heading spaces itself from the form. */
 .new-tree {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   padding: 18px;
 }
 
 .new-tree h2 {
   font-size: 1.1rem;
+  margin-bottom: 10px;
 }
 
 .new-tree-actions {
