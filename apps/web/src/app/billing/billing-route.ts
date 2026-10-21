@@ -13,7 +13,7 @@ import { BillingPage, SidebarToggle } from '@tangent/web-shared';
   imports: [BillingPage, SidebarToggle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <header class="page-head only-narrow">
+    <header class="page-head">
       <app-sidebar-toggle />
     </header>
     <app-billing-page homePath="/" homeLabel="Conversations" billingPath="/billing" />

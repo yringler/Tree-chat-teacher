@@ -12,9 +12,6 @@
   </div>
 } @else {
   <div class="canvas-bar">
-    <a routerLink="/" class="icon-btn" aria-label="All conversations" title="All conversations">
-      <app-icon name="back" />
-    </a>
     <h1 class="canvas-title" [attr.title]="treeTitle()">{{ treeTitle() }}</h1>
     <span class="canvas-stats muted small">
       {{ laneCount() }} {{ laneCount() === 1 ? 'lane' : 'lanes' }}

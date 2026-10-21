@@ -48,4 +48,32 @@ describe('Power: the sidebar', () => {
         .map((b) => b.getAttribute('aria-label')),
     ).toEqual(['Rename Particles']);
   });
+
+  it('lists the account entries under the conversations, Shares and Billing as its own routes', async () => {
+    await render(Sidebar, {
+      providers: powerProviders(TreeStore, {}),
+      setup: () => {
+        const store = TestBed.inject(TreeStore);
+        signIn(store.account);
+        store.treesLoaded.set(true);
+      },
+    });
+    const foot = document.querySelector<HTMLElement>('.sidebar-foot');
+    expect(foot).not.toBeNull();
+    expect([...foot!.querySelectorAll('a, button')].map((el) => el.textContent?.trim())).toEqual([
+      'Shares',
+      'Keys',
+      'Billing',
+      'Import backup',
+      'Settings',
+      'How tangents work',
+      'Account',
+    ]);
+    expect(within(foot!).getByRole('link', { name: 'Shares' }).getAttribute('href')).toBe(
+      '/shares',
+    );
+    expect(within(foot!).getByRole('link', { name: 'Billing' }).getAttribute('href')).toBe(
+      '/billing',
+    );
+  });
 });

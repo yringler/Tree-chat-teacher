@@ -11,6 +11,10 @@ app-root {
   height: 100dvh;
 }
 
+.app.sidebar-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .brand {
   display: inline-flex;
   align-items: center;
@@ -41,15 +45,6 @@ app-root {
   border-radius: 50%;
   background: var(--ok);
   flex: none;
-}
-
-.sidebar-foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
 }
 
 .main {

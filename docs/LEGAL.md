@@ -29,7 +29,7 @@ Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania,
 
 | Item                                                                            | Status          | Where                                               |
 | ------------------------------------------------------------------------------- | --------------- | --------------------------------------------------- |
-| In-app "Delete account" (Power: Account dialog; Learn and Canvas: account menu) | done            | `packages/web-shared/src/account/delete-account.ts` |
+| In-app "Delete account" (Power and Canvas: Account dialog; Learn: account menu) | done            | `packages/web-shared/src/account/delete-account.ts` |
 | In-app "Delete account" in the Flutter and phone apps (account menu)            | done            | `apps/flutter/lib/ui/delete_account_dialog.dart`    |
 | `DELETE /api/account`, confirmed by retyping the email, same-origin only        | done            | `apps/worker/src/auth/delete-account.ts`            |
 | `/delete-account`: public page (app stores), what goes and stays; signs in      | done            | `http/delete-account-page.tsx`                      |

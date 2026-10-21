@@ -2738,6 +2738,13 @@ app-node-picker {
   display: none;
 }
 
+/* Wide screens: the sidebar the user hid (SidebarState.hidden); each app drops its column. */
+@media (min-width: 861px) {
+  .sidebar-hidden .sidebar {
+    display: none;
+  }
+}
+
 .scrim {
   display: none;
 }
@@ -2767,6 +2774,10 @@ app-node-picker {
 
   .only-narrow {
     display: inline-flex;
+  }
+
+  .only-wide {
+    display: none;
   }
 }
 
@@ -2805,6 +2816,82 @@ app-node-picker {
   margin: 1px 4px 1px 2px;
   padding: 2px 6px;
   font-size: 0.88rem;
+}
+
+/* The account entries under power's and Canvas's sidebar (power/sidebar-foot.ts). */
+.sidebar-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+/* A titled part of a dialog: power's Settings, the Account dialog. */
+.settings-section {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.settings-section legend {
+  margin-bottom: 4px;
+  padding: 0;
+  font-weight: 600;
+}
+
+/* A setting's helper sits under its name, as a projected tag does, not a paragraph away. */
+.settings-section > legend + p {
+  margin-top: 0;
+}
+
+/* Account dialog: who is signed in, with sign-out beside it (power/account-dialog.ts) */
+
+.account-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+
+.account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  color: var(--fg-muted);
+}
+
+.account-who {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.account-email {
+  overflow-wrap: anywhere;
+}
+
+.account-sign-out {
+  margin-left: auto;
+}
+
+.account-sign-out:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /*

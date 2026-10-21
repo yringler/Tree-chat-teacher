@@ -10,6 +10,7 @@ import {
   API_HEADERS,
   BILLING_SUMMARY_LISTENER,
   provideAppPaths,
+  provideSidebar,
   provideTextSize,
 } from '@tangent/web-shared';
 import { routes } from './app.routes';
@@ -24,6 +25,7 @@ export const appConfig: ApplicationConfig = {
     provideAppPaths({ home: '/learn/', login: '/learn/login' }),
     // The lesson's text size ("Aa"), kept apart from the other apps'.
     provideTextSize('tangent.learn.chatFontScale'),
+    provideSidebar('tangent.learn.sidebarHidden'),
     // Every API call is in Learn mode, paying as they chose.
     {
       provide: API_HEADERS,

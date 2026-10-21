@@ -17,7 +17,10 @@ const PATHS = {
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z',
   signOut: 'M9 4H5v16h4M16 8l4 4-4 4M20 12H9',
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
-  key: 'M14.5 9.5a4 4 0 1 0-4 4M10.5 13.5L4 20M6 18l2 2M8 16l2 2',
+  // Lucide's `key` (ISC licence): a whole ring on a shaft with one tooth.
+  key: 'M15.5 7.5l2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4M21 2l-9.6 9.6M13 15.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z',
+  // Lucide's `credit-card` (ISC licence).
+  creditCard: 'M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM2 10h20',
   branch:
     'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
   tangent: 'M4 4v7a4 4 0 0 0 4 4h12M15 10l5 5-5 5',
@@ -29,6 +32,7 @@ const PATHS = {
   download: 'M12 3v12M7 10l5 5 5-5M4 21h16',
   upload: 'M12 21V9M7 14l5-5 5 5M4 3h16',
   panel: 'M3 4h18v16H3zM15 4v16',
+  panelLeft: 'M3 4h18v16H3zM9 4v16',
   help: 'M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.5',
   stop: 'M7 7h10v10H7z',
   send: 'M5 12h14M13 6l6 6-6 6',

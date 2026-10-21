@@ -1,13 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, forwardRef, inject } from '@angular/core';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { ChangeDetectionStrategy, Component, forwardRef, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import type { OutlineItem } from '@tangent/core/tree';
 import { HELP_TITLE, type TreeSummary } from '@tangent/shared';
 import {
   ConversationSidebar,
-  DEMO_MODE,
   Icon,
   Logo,
   ModeSwitch,
+  PowerSidebarFoot,
   SidebarBadges,
   SidebarHost,
   SidebarState,
@@ -17,7 +17,6 @@ import { confirmDeleteTree } from '../dialogs/tree-settings';
 import { threadTitle } from '../state/thread-title';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { ImportButton } from '../ui/import-button';
 import { ModeBadge } from '../ui/mode-badge';
 
 /** Power's sidebar: the shared conversation sidebar, with the brand on top and the account below. */
@@ -27,12 +26,11 @@ import { ModeBadge } from '../ui/mode-badge';
     ConversationSidebar,
     SidebarBadges,
     RouterLink,
-    RouterLinkActive,
     Icon,
-    ImportButton,
     Logo,
     ModeSwitch,
     ModeBadge,
+    PowerSidebarFoot,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [{ provide: SidebarHost, useExisting: forwardRef(() => Sidebar) }],
@@ -70,70 +68,27 @@ import { ModeBadge } from '../ui/mode-badge';
       </ng-template>
 
       <div class="sidebar-foot" sidebarFoot>
-        <!-- The demo has no shares, keys, billing or account: nothing is published or signed in. -->
-        @if (!demo) {
-          @if (store.account.me()?.sharing) {
-            <a
-              routerLink="/shares"
-              routerLinkActive="is-current"
-              class="btn btn-ghost"
-              (click)="close()"
-            >
-              <app-icon name="share" /> Shares
-            </a>
-          }
+        <app-power-sidebar-foot
+          [ownPages]="true"
+          [exitUrl]="exitUrl"
+          (keys)="ui.dialogs.open({ kind: 'keys', provider: null })"
+          (openAccount)="ui.dialogs.open({ kind: 'account' })"
+        >
           <button
             type="button"
             class="btn btn-ghost"
-            [attr.title]="keyTitle()"
-            (click)="ui.dialogs.open({ kind: 'keys', provider: null }); close()"
+            (click)="ui.dialogs.open({ kind: 'settings' }); close()"
           >
-            <app-icon name="key" />
-            {{ store.account.me()?.builtInCredit ? 'Keys & credit' : 'Keys' }}
-            @if (store.account.keyStatus()?.hasKey) {
-              <span class="dot-key" aria-label="Your key is stored"></span>
-            }
+            <app-icon name="gear" /> Settings
           </button>
-          <a
-            routerLink="/billing"
-            routerLinkActive="is-current"
-            class="btn btn-ghost"
-            (click)="close()"
-          >
-            Billing
-          </a>
-          <!-- The operator's accounts only (ADMIN_USER_IDS); a separate app, so a full page load. -->
-          @if (store.account.me()?.isAdmin) {
-            <a href="/admin/" class="btn btn-ghost"><app-icon name="lock" /> Admin</a>
-          }
-        }
-        <app-import-button />
-        <button
-          type="button"
-          class="btn btn-ghost"
-          (click)="ui.dialogs.open({ kind: 'settings' }); close()"
-        >
-          <app-icon name="gear" /> Settings
-        </button>
-        <button
-          type="button"
-          class="btn btn-ghost"
-          (click)="ui.dialogs.open({ kind: 'help' }); close()"
-        >
-          <app-icon name="help" /> {{ helpTitle }}
-        </button>
-        @if (demo) {
-          <a class="btn btn-ghost" [href]="exitUrl"><app-icon name="user" /> Leave the demo</a>
-        } @else {
           <button
             type="button"
             class="btn btn-ghost"
-            [attr.title]="store.account.me()?.email ?? 'Account'"
-            (click)="ui.dialogs.open({ kind: 'account' }); close()"
+            (click)="ui.dialogs.open({ kind: 'help' }); close()"
           >
-            <app-icon name="user" /> Account
+            <app-icon name="help" /> {{ helpTitle }}
           </button>
-        }
+        </app-power-sidebar-foot>
       </div>
     </app-conversation-sidebar>
   `,
@@ -143,16 +98,9 @@ export class Sidebar extends SidebarHost {
   readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
   private readonly sidebar = inject(SidebarState);
-  protected readonly demo = inject(DEMO_MODE);
   /** The public landing page. */
   protected readonly exitUrl = '/welcome';
   protected readonly helpTitle = HELP_TITLE;
-  protected readonly keyTitle = computed(() => {
-    const ids = this.store.account.keyStatus()?.providers ?? [];
-    if (ids.length === 0) return 'API keys: none of your own stored';
-    const labels = ids.map((id) => this.store.account.providerMap().get(id)?.label ?? id);
-    return `API keys: yours for ${labels.join(', ')}`;
-  });
 
   readonly words = {
     newTree: 'New conversation',

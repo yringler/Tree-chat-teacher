@@ -1,8 +1,12 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { Icon, readBackupFile } from '@tangent/web-shared';
-import { TreeStore } from '../state/tree-store';
+import { readBackupFile } from '../core/backup-file';
+import { Icon } from '../ui/icon';
+import { PowerConversationStore } from './power-conversation-store';
 
-/** "Import backup" button: file input → validate → POST /api/import → open the new tree. */
+/**
+ * "Import backup" button, in power and Canvas: file input → validate → POST
+ * /api/import → open the new tree.
+ */
 @Component({
   selector: 'app-import-button',
   imports: [Icon],
@@ -15,7 +19,7 @@ import { TreeStore } from '../state/tree-store';
   `,
 })
 export class ImportButton {
-  private readonly store = inject(TreeStore);
+  private readonly store = inject(PowerConversationStore);
   protected readonly busy = signal(false);
 
   protected async pick(input: HTMLInputElement): Promise<void> {

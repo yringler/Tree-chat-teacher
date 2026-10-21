@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { inject, Injectable, InjectionToken, type Provider, signal } from '@angular/core';
 import type { OutlineItem } from '@tangent/core/tree';
 import type { TreeSummary } from '@tangent/shared';
 import type { ConversationStore } from '../conversation/conversation-store';
@@ -40,11 +40,30 @@ export abstract class SidebarHost {
   abstract openBranch(item: OutlineItem): void;
 }
 
+/**
+ * The localStorage key an app keeps "sidebar hidden" under, so hiding it in
+ * Canvas, where the map wants the width, leaves power's and Learn's alone.
+ * Power uses the default; the other apps provide theirs with `provideSidebar`.
+ */
+export const SIDEBAR_HIDDEN_KEY = new InjectionToken<string>('SIDEBAR_HIDDEN_KEY');
+
+/** Provides the app's "sidebar hidden" key (see SIDEBAR_HIDDEN_KEY). */
+export function provideSidebar(hiddenKey: string): Provider {
+  return { provide: SIDEBAR_HIDDEN_KEY, useValue: hiddenKey };
+}
+
 /** The sidebar's view state, outside the URL. */
 @Injectable({ providedIn: 'root' })
 export class SidebarState {
+  private readonly hiddenKey =
+    inject(SIDEBAR_HIDDEN_KEY, { optional: true }) ?? 'tangent.sidebarHidden';
   /** Narrow screens: the sidebar is a drawer, open over the page. */
   readonly drawerOpen = signal(false);
+  /**
+   * Wide screens: the user hid the sidebar to give the page its width. Kept in
+   * this browser; narrow screens ignore it, since there the sidebar is a drawer.
+   */
+  readonly hidden = signal(this.readHidden());
   /** Outline items the user collapsed (by branch id). */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
 
@@ -55,5 +74,24 @@ export class SidebarState {
       else next.add(branchId);
       return next;
     });
+  }
+
+  toggleHidden(): void {
+    const hidden = !this.hidden();
+    this.hidden.set(hidden);
+    try {
+      if (hidden) localStorage.setItem(this.hiddenKey, '1');
+      else localStorage.removeItem(this.hiddenKey);
+    } catch {
+      // Storage unavailable (private mode, blocked): keep the in-memory value.
+    }
+  }
+
+  private readHidden(): boolean {
+    try {
+      return localStorage.getItem(this.hiddenKey) === '1';
+    } catch {
+      return false;
+    }
   }
 }

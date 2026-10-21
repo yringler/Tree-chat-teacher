@@ -1,24 +1,30 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, type OnInit, signal } from '@angular/core';
 import {
-  AccountId,
-  AuthService,
-  DeleteAccount,
-  Icon,
-  Modal,
-  ToastStore,
-  type PasskeyInfo,
-} from '@tangent/web-shared';
-import { TreeStore } from '../state/tree-store';
-import { UiStore } from '../state/ui-store';
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  type OnInit,
+  output,
+  signal,
+} from '@angular/core';
+import { AccountId } from '../account/account-id';
+import { DeleteAccount } from '../account/delete-account';
+import { AuthService, type PasskeyInfo } from '../core/auth';
+import { Icon } from '../ui/icon';
+import { Modal } from '../ui/modal';
+import { ToastStore } from '../ui/toasts';
+import { PowerConversationStore } from './power-conversation-store';
 
-/** Who is signed in (with their account ID), passkeys, sign-out, legal pages, account deletion. */
+/**
+ * Who is signed in (with their account ID), passkeys, sign-out, legal pages,
+ * account deletion: power's and Canvas's Account, opened from the sidebar.
+ */
 @Component({
   selector: 'app-account-dialog',
   imports: [Modal, Icon, DatePipe, DeleteAccount, AccountId],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Account" (closed)="close()">
+    <app-modal heading="Account" (closed)="closed.emit()">
       @if (store.account.me(); as me) {
         @if (me.devMode) {
           <p class="notice">Sign-in is disabled on this server (DEV_ALLOW_NO_AUTH).</p>
@@ -111,10 +117,11 @@ import { UiStore } from '../state/ui-store';
   `,
 })
 export class AccountDialog implements OnInit {
-  protected readonly store = inject(TreeStore);
-  private readonly ui = inject(UiStore);
+  protected readonly store = inject(PowerConversationStore);
   private readonly toast = inject(ToastStore);
   private readonly auth = inject(AuthService);
+
+  readonly closed = output();
 
   protected readonly passkeys = signal<PasskeyInfo[] | null>(null);
   protected readonly busy = signal(false);
@@ -122,10 +129,6 @@ export class AccountDialog implements OnInit {
 
   ngOnInit(): void {
     if (!this.store.account.me()?.devMode) void this.reload();
-  }
-
-  protected close(): void {
-    this.ui.dialogs.close('account');
   }
 
   protected async add(name: string): Promise<void> {

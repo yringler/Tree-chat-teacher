@@ -82,55 +82,35 @@
   background: var(--ok);
 }
 
-.menu-anchor {
-  position: relative;
-}
-
-.menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  z-index: 30;
-  min-width: 220px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
-}
-
-.menu-label {
-  margin: 4px 10px 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.menu-item {
-  display: block;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--fg);
-  font-size: 0.95rem;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.menu-item:hover {
-  background: var(--bg-hover);
-}
-
-.menu-item-danger {
-  color: var(--danger);
+/* Below the header: the sidebar (a drawer on narrow screens) beside the page. */
+.shell-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .shell-main {
-  flex: 1;
+  min-width: 0;
   min-height: 0;
+}
+
+.sidebar-hidden .shell-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Wide screens: the header carries the brand, so the sidebar's head (its Close button) goes. */
+@media (min-width: 861px) {
+  .sidebar-head {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .shell-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .banner {
@@ -217,13 +197,14 @@
   margin-bottom: 8px;
 }
 
+/* A .card, which is display: block, so the heading spaces itself from the form. */
 .new-tree {
-  gap: 10px;
   padding: 18px;
 }
 
 .new-tree h2 {
   font-size: 1.1rem;
+  margin-bottom: 10px;
 }
 
 .new-tree-actions {

@@ -1,7 +1,11 @@
 @if (loginPage) {
   <router-outlet />
 } @else {
-  <div class="app" [class.drawer-open]="sidebar.drawerOpen()">
+  <div
+    class="app"
+    [class.drawer-open]="sidebar.drawerOpen()"
+    [class.sidebar-hidden]="sidebar.hidden()"
+  >
     <aside class="sidebar" id="sidebar" aria-label="Conversations">
       <app-sidebar />
     </aside>

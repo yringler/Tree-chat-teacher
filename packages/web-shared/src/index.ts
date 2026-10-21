@@ -43,6 +43,9 @@ export {
 } from './power/power-account';
 export { PowerConversationStore, type PowerApi } from './power/power-conversation-store';
 export { creditFeeSentence, KeysDialog } from './power/keys-dialog';
+export { AccountDialog } from './power/account-dialog';
+export { ImportButton } from './power/import-button';
+export { PowerSidebarFoot } from './power/sidebar-foot';
 export { modelHint, routeSuffix, startingRoute } from './power/routes';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
@@ -83,7 +86,7 @@ export {
 // The conversation sidebar (power and Learn)
 export { ConversationSidebar } from './nav/sidebar';
 export { SidebarBadges, type BadgeContext } from './nav/outline-item';
-export { SidebarHost, SidebarState, type SidebarWords } from './nav/sidebar-host';
+export { provideSidebar, SidebarHost, SidebarState, type SidebarWords } from './nav/sidebar-host';
 export { SidebarToggle } from './nav/sidebar-toggle';
 
 // Server-sent events

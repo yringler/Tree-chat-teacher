@@ -1,18 +1,17 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { KeysDialog } from '@tangent/web-shared';
+import { AccountDialog, KeysDialog } from '@tangent/web-shared';
 import { laneTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { BranchDialog } from './branch-dialog';
 import { BranchSettings } from './branch-settings';
-import { DeleteAccountDialog } from './delete-account-dialog';
 import { HelpDialog } from './help-dialog';
 import { LinkDialog } from './link-dialog';
 
 /** Renders the dialogs the UiStore says are open, the top-most last. */
 @Component({
   selector: 'app-dialog-host',
-  imports: [BranchDialog, BranchSettings, DeleteAccountDialog, HelpDialog, KeysDialog, LinkDialog],
+  imports: [AccountDialog, BranchDialog, BranchSettings, HelpDialog, KeysDialog, LinkDialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- In stack order: the dialog opened last is on top, and Escape closes it. -->
@@ -42,8 +41,8 @@ import { LinkDialog } from './link-dialog';
         @case ('help') {
           <app-help-dialog />
         }
-        @case ('delete-account') {
-          <app-delete-account-dialog />
+        @case ('account') {
+          <app-account-dialog (closed)="ui.dialogs.close('account')" />
         }
       }
     }
