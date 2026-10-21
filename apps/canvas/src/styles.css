@@ -96,6 +96,10 @@
   min-height: 0;
 }
 
+.sidebar-hidden .shell-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* Wide screens: the header carries the brand, so the sidebar's head (its Close button) goes. */
 @media (min-width: 861px) {
   .sidebar-head {

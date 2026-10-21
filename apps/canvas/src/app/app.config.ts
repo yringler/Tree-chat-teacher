@@ -4,7 +4,12 @@ import {
   provideZonelessChangeDetection,
 } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
-import { PowerConversationStore, provideAppPaths, provideTextSize } from '@tangent/web-shared';
+import {
+  PowerConversationStore,
+  provideAppPaths,
+  provideSidebar,
+  provideTextSize,
+} from '@tangent/web-shared';
 import { routes } from './app.routes';
 import { CanvasStore } from './state/canvas-store';
 
@@ -21,6 +26,7 @@ export const appConfig: ApplicationConfig = {
     provideAppPaths({ home: '/canvas/', login: '/canvas/login' }),
     // The cards' text size ("Aa"), kept apart from the other apps'.
     provideTextSize('tangent.canvas.chatFontScale'),
+    provideSidebar('tangent.canvas.sidebarHidden'),
     // The shared power dialogs (Keys & credit) work on the canvas's store.
     { provide: PowerConversationStore, useExisting: CanvasStore },
     provideRouter(

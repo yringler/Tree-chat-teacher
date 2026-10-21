@@ -86,7 +86,7 @@ export {
 // The conversation sidebar (power and Learn)
 export { ConversationSidebar } from './nav/sidebar';
 export { SidebarBadges, type BadgeContext } from './nav/outline-item';
-export { SidebarHost, SidebarState, type SidebarWords } from './nav/sidebar-host';
+export { provideSidebar, SidebarHost, SidebarState, type SidebarWords } from './nav/sidebar-host';
 export { SidebarToggle } from './nav/sidebar-toggle';
 
 // Server-sent events

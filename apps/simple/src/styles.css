@@ -177,6 +177,10 @@ body {
   min-height: 0;
 }
 
+.sidebar-hidden .shell-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* The sidebar keeps the app's compact type, not the lesson's reading size. */
 .sidebar {
   font-size: 15px;

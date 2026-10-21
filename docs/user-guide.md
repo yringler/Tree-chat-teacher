@@ -1,6 +1,6 @@
 # Using Tangent
 
-Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in the power app's sidebar and Learn's and Canvas's headers) moves between them.
+Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in the power app's sidebar and Learn's and Canvas's headers) moves between them. On a wide screen the left-panel button in the header hides the sidebar to give the page the whole width, and shows it again; each app remembers your choice in this browser.
 
 - **Power** (`/`): every control. Your own API keys, or Tangent credit where it is sold.
 - **Learn** (`/learn/`): a tutor with nothing to configure.

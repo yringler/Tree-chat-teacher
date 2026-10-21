@@ -32,6 +32,7 @@ const PATHS = {
   download: 'M12 3v12M7 10l5 5 5-5M4 21h16',
   upload: 'M12 21V9M7 14l5-5 5 5M4 3h16',
   panel: 'M3 4h18v16H3zM15 4v16',
+  panelLeft: 'M3 4h18v16H3zM9 4v16',
   help: 'M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.5',
   stop: 'M7 7h10v10H7z',
   send: 'M5 12h14M13 6l6 6-6 6',

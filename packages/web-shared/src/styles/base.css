@@ -2738,6 +2738,13 @@ app-node-picker {
   display: none;
 }
 
+/* Wide screens: the sidebar the user hid (SidebarState.hidden); each app drops its column. */
+@media (min-width: 861px) {
+  .sidebar-hidden .sidebar {
+    display: none;
+  }
+}
+
 .scrim {
   display: none;
 }
@@ -2767,6 +2774,10 @@ app-node-picker {
 
   .only-narrow {
     display: inline-flex;
+  }
+
+  .only-wide {
+    display: none;
   }
 }
 

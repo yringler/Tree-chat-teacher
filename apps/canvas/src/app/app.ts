@@ -27,7 +27,11 @@ import { UiStore } from './state/ui-store';
     @if (loginPage) {
       <router-outlet />
     } @else {
-      <div class="shell" [class.drawer-open]="sidebar.drawerOpen()">
+      <div
+        class="shell"
+        [class.drawer-open]="sidebar.drawerOpen()"
+        [class.sidebar-hidden]="sidebar.hidden()"
+      >
         <app-header />
         @if (demo) {
           <p class="banner banner-demo" role="note">
