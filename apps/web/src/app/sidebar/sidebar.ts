@@ -100,7 +100,7 @@ import { ModeBadge } from '../ui/mode-badge';
             class="btn btn-ghost"
             (click)="close()"
           >
-            Billing
+            <app-icon name="creditCard" /> Billing
           </a>
           <!-- The operator's accounts only (ADMIN_USER_IDS); a separate app, so a full page load. -->
           @if (store.account.me()?.isAdmin) {
