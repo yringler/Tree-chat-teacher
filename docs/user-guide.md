@@ -1,6 +1,6 @@
 # Using Tangent
 
-Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in the power app's sidebar, Learn's header and the canvas bar) moves between them.
+Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in the power app's sidebar and Learn's and Canvas's headers) moves between them.
 
 - **Power** (`/`): every control. Your own API keys, or Tangent credit where it is sold.
 - **Learn** (`/learn/`): a tutor with nothing to configure.
@@ -131,6 +131,7 @@ An import into Learn is adapted so it can be continued there: threads on a provi
 
 A view of the same conversations: anything started in power or Learn opens on the canvas and the other way round.
 
+- **The sidebar** (the menu button on a phone) lists your conversations, and under the open one its lanes, nested under the one each starts from: pick one to move the canvas to it. Rename a lane by double-clicking it, or delete it from its trash. Below are **Shares** and **Billing** (power's pages), **Keys**, **Import backup** and **Account** (sign out, passkeys, delete account).
 - **Every thread is a lane** on one pannable, zoomable surface, a tangent's lane hanging to the right of the message it starts from. The curve's stroke shows its context mode (solid `path`, dashed `summary`, dash-dot `message`, dotted `independent`).
 - **Every lane has its own message box and streams on its own;** the bar counts how many are writing.
 - **Tangent from here, in variants:** the tangent button opens one lane or several at once, each with its own mode and model, and the starting message they all start with ("Every context mode" asks the same question three ways).
@@ -142,7 +143,7 @@ A view of the same conversations: anything started in power or Learn opens on th
 - **Delete** one of your messages, with everything after it in its lane and the lanes started from those, from the trash on its card.
 - **Aa** in the bar sets the cards' text size (`+`, `-` and `0` zoom the canvas).
 
-There is no reviewer, share, export or settings editor on the canvas; use the power app for those.
+There is no reviewer, share dialog, export or settings editor on the canvas; use the power app for those.
 
 ## The demos
 
