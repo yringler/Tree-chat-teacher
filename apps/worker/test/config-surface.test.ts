@@ -118,9 +118,12 @@ describe('wrangler.jsonc env.sandbox', () => {
       for (const value of pick(sandbox)) expect(pick(wrangler)).not.toContain(value);
   });
 
-  it('sets every var production sets, but POLAR_SERVER', () => {
-    // POLAR_SERVER's default is the Polar sandbox.
-    const expected = Object.keys(shippedVars()).filter((name) => name !== 'POLAR_SERVER');
+  it('sets every var production sets, but POLAR_SERVER, plus SHARING', () => {
+    // POLAR_SERVER's default is the Polar sandbox; sharing opens on the sandbox before production.
+    const expected = [
+      ...Object.keys(shippedVars()).filter((name) => name !== 'POLAR_SERVER'),
+      'SHARING',
+    ];
     expect(Object.keys(shippedVars('sandbox')).sort()).toEqual(expected.sort());
   });
 
