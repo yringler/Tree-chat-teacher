@@ -13,20 +13,9 @@ import '../test_driver/screen_api.dart';
 
 /// Store screenshots, rendered headlessly by `flutter test` on the scripted
 /// backend of test_driver/screen_api.dart: no emulator, no status bar, the
-/// same pixels on every run. `pnpm --filter @tangent/flutter screenshots`
-/// writes them to `store/screenshots/<device>/<screen>.png` as opaque 24-bit
-/// PNGs, which is what Google Play takes.
-///
-/// Every device is 9:16, inside Play's 2:1 limit and at least 1080 px on its
-/// short side, so each one can be featured.
-const _devices = {
-  // A 420 dpi phone (Pixel 7-class): 411 × 731 dp.
-  'phone': _Device(Size(1080, 1920), 2.625),
-  // A 7-inch tablet: 600 dp wide, the width Material calls medium.
-  'tablet-7': _Device(Size(1080, 1920), 1.8),
-  // A 10-inch tablet (Pixel Tablet-class): 800 dp wide.
-  'tablet-10': _Device(Size(1440, 2560), 1.8),
-};
+/// same pixels on every run, as opaque 24-bit PNGs, which is what Google
+/// Play takes. play_store_screenshots_test.dart is the entry point, with the
+/// devices; `pnpm --filter @tangent/flutter screenshots` runs it.
 
 /// The screens shot on every device: a [screenLocations] name, and what to
 /// do there once it has settled.
@@ -47,17 +36,22 @@ final _screens = <String, (String, Future<void> Function(WidgetTester))>{
 
 Future<void> _nothing(WidgetTester tester) async {}
 
-class _Device {
-  const _Device(this.physicalSize, this.devicePixelRatio);
+class Device {
+  const Device(this.physicalSize, this.devicePixelRatio);
 
   final Size physicalSize;
   final double devicePixelRatio;
 }
 
-void main() {
+/// A test for every screen on every one of [devices], each saving its shot
+/// to [path], given the device's name and the screen's.
+void shootScreens({
+  required Map<String, Device> devices,
+  required String Function(String device, String screen) path,
+}) {
   setUpAll(_loadAppFonts);
 
-  for (final MapEntry(key: device, value: spec) in _devices.entries) {
+  for (final MapEntry(key: device, value: spec) in devices.entries) {
     for (final MapEntry(key: name, value: (screen, act)) in _screens.entries) {
       testWidgets('$device/$name', (tester) async {
         tester.view
@@ -78,7 +72,7 @@ void main() {
           await _settle(tester);
           await act(tester);
           await _settle(tester);
-          await _save(tester, 'store/screenshots/$device/$name.png');
+          await _save(tester, path(device, name));
         } finally {
           debugDisableShadows = true;
         }
