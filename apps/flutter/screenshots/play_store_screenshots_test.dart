@@ -2,7 +2,7 @@ import 'package:flutter/painting.dart';
 
 import 'store_screenshots.dart';
 
-/// Google Play's screenshots, to `store/screenshots/<device>/<screen>.png`.
+/// Google Play's screenshots, to `store/screenshots/<device>/<shot>.png`.
 /// Every one is 9:16, inside Play's 2:1 limit and at least 1080 px on its
 /// short side, so each one can be featured.
 const _devices = {
@@ -16,5 +16,5 @@ const _devices = {
 
 void main() => shootScreens(
   devices: _devices,
-  path: (device, screen) => 'store/screenshots/$device/$screen.png',
+  path: (device, shot) => 'store/screenshots/$device/$shot.png',
 );

@@ -67,9 +67,9 @@ type and take screenshots.
 screenshots headlessly, with no emulator: `flutter test` lays the app out at
 a phone's and two tablets' sizes on the scripted backend in
 `test_driver/screen_api.dart`, and writes opaque 9:16 PNGs to
-`store/screenshots/<device>/` (not committed). The screens are listed in
-`screenshots/store_screenshots.dart` and the devices in
-`screenshots/play_store_screenshots_test.dart`.
+`store/screenshots/<device>/` (not committed). The screens, in the order
+both stores show them, are listed in `test_driver/store_screens.dart`, and
+Play's devices in `screenshots/play_store_screenshots_test.dart`.
 
 The icons on every platform come from `assets/icon/` (the brand mark at
 1024px); `dart run flutter_launcher_icons` regenerates them after a change.
