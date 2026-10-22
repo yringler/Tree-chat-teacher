@@ -6,59 +6,33 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:tangent/app.dart';
-import 'package:tangent/ui/help.dart';
-import 'package:tangent/ui/tangent_help_copy.dart';
 
 import '../test_driver/screen_api.dart';
+import '../test_driver/store_screens.dart';
 
 /// Store screenshots, rendered headlessly by `flutter test` on the scripted
 /// backend of test_driver/screen_api.dart: no emulator, no status bar, the
-/// same pixels on every run. `pnpm --filter @tangent/flutter screenshots`
-/// writes them to `store/screenshots/<device>/<screen>.png` as opaque 24-bit
-/// PNGs, which is what Google Play takes.
-///
-/// Every device is 9:16, inside Play's 2:1 limit and at least 1080 px on its
-/// short side, so each one can be featured.
-const _devices = {
-  // A 420 dpi phone (Pixel 7-class): 411 × 731 dp.
-  'phone': _Device(Size(1080, 1920), 2.625),
-  // A 7-inch tablet: 600 dp wide, the width Material calls medium.
-  'tablet-7': _Device(Size(1080, 1920), 1.8),
-  // A 10-inch tablet (Pixel Tablet-class): 800 dp wide.
-  'tablet-10': _Device(Size(1440, 2560), 1.8),
-};
+/// same pixels on every run, as opaque 24-bit PNGs, which is what Google
+/// Play takes. play_store_screenshots_test.dart is the entry point, with the
+/// devices; `pnpm --filter @tangent/flutter screenshots` runs it.
 
-/// The screens shot on every device: a [screenLocations] name, and what to
-/// do there once it has settled.
-final _screens = <String, (String, Future<void> Function(WidgetTester))>{
-  'lessons': ('help', _nothing),
-  'lesson-reply': ('lesson-reply', _nothing),
-  'in-tangent': ('in-tangent', _nothing),
-  'back-on-trunk': ('back-on-trunk', _nothing),
-  'walkthrough-1': ('coach1', _nothing),
-  'walkthrough-2': ('coach2', _nothing),
-  'walkthrough-3': (
-    'coach3',
-    (tester) => tester.tap(find.text(mainThreadLabel).first),
-  ),
-  'help': ('lesson-reply', (tester) => tester.tap(find.byType(HelpButton))),
-  'tangents': ('tangents', (tester) => tester.tap(find.byTooltip('Tangents'))),
-};
-
-Future<void> _nothing(WidgetTester tester) async {}
-
-class _Device {
-  const _Device(this.physicalSize, this.devicePixelRatio);
+class Device {
+  const Device(this.physicalSize, this.devicePixelRatio);
 
   final Size physicalSize;
   final double devicePixelRatio;
 }
 
-void main() {
+/// A test for every one of [storeShots] on every one of [devices], each
+/// saving its shot to [path], given the device's name and the shot's.
+void shootScreens({
+  required Map<String, Device> devices,
+  required String Function(String device, String shot) path,
+}) {
   setUpAll(_loadAppFonts);
 
-  for (final MapEntry(key: device, value: spec) in _devices.entries) {
-    for (final MapEntry(key: name, value: (screen, act)) in _screens.entries) {
+  for (final MapEntry(key: device, value: spec) in devices.entries) {
+    for (final (:name, :screen, :action, :shows) in storeShots) {
       testWidgets('$device/$name', (tester) async {
         tester.view
           ..physicalSize = spec.physicalSize
@@ -76,9 +50,10 @@ void main() {
             ),
           );
           await _settle(tester);
-          await act(tester);
+          await _act(tester, action);
           await _settle(tester);
-          await _save(tester, 'store/screenshots/$device/$name.png');
+          expect(find.text(shows), findsWidgets);
+          await _save(tester, path(device, name));
         } finally {
           debugDisableShadows = true;
         }
@@ -86,6 +61,13 @@ void main() {
     }
   }
 }
+
+/// Does [action] with flutter_test's finders.
+Future<void> _act(WidgetTester tester, ShotAction action) => switch (action) {
+  NoAction() => Future.value(),
+  TapText(:final text) => tester.tap(find.text(text).first),
+  TapTooltip(:final message) => tester.tap(find.byTooltip(message)),
+};
 
 /// Lets the scripted backend answer, the images decode and every
 /// animation finish.

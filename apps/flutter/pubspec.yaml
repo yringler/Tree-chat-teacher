@@ -63,7 +63,7 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
   # The fake web view in test/ui/turnstile_native_test.dart.
   webview_flutter_platform_interface: ^2.15.1
-  # Flattens screenshots/store_screenshots_test.dart's shots to opaque PNGs.
+  # Flattens screenshots/store_screenshots.dart's shots to opaque PNGs.
   image: ^4.5.0
 
 # For information on the generic Dart part of this file, see the

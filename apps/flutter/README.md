@@ -67,8 +67,36 @@ type and take screenshots.
 screenshots headlessly, with no emulator: `flutter test` lays the app out at
 a phone's and two tablets' sizes on the scripted backend in
 `test_driver/screen_api.dart`, and writes opaque 9:16 PNGs to
-`store/screenshots/<device>/` (not committed). The devices and screens are
-listed at the top of `screenshots/store_screenshots_test.dart`.
+`store/screenshots/<device>/` (not committed). The screens, in the order
+both stores show them, are listed in `test_driver/store_screens.dart`, and
+Play's devices in `screenshots/play_store_screenshots_test.dart`.
+
+The App Store screenshots are taken on iOS simulators, so they have the iOS
+status bar, at 9:41:
+
+```sh
+cd ios && bundle exec fastlane screenshots   # about 6 minutes
+```
+
+fastlane's `screenshots` lane (`ios/fastlane/Fastfile`) boots an iPhone 17
+Pro Max (6.9") on iOS 26 and an iPad Pro 13-inch (M4) on iPadOS 18, the two
+sizes App Store Connect requires, and runs `flutter drive` on each:
+`test_driver/store_app_test.dart` steps the app (`test_driver/store_app.dart`,
+on the same scripted backend as the Play shots) through the same screens and
+shoots each with `xcrun simctl io`. It needs no account or network, and writes
+opaque PNGs to `ios/fastlane/screenshots/en-US/` (not committed), named
+`<device>-<nn>-<shot>.png` so deliver uploads them in order. Xcode needs those
+two simulators and the iOS 26 and 18 runtimes ([why 18](../../docs/DEFERRED.md#the-flutter-app-appsflutter)).
+The iPad's status bar shows the date the shots were taken beside the time.
+
+To replace the screenshots of the version being prepared in App Store
+Connect with them, and change nothing else (no binary, metadata, version or
+submission), with the API key of [App Store Connect](#app-store-connect):
+
+```sh
+cd ios && APP_STORE_CONNECT_KEY_ID=… APP_STORE_CONNECT_ISSUER_ID=… \
+  APP_STORE_CONNECT_KEY_PATH=path/to/key.p8 bundle exec fastlane upload_screenshots
+```
 
 The icons on every platform come from `assets/icon/` (the brand mark at
 1024px); `dart run flutter_launcher_icons` regenerates them after a change.
