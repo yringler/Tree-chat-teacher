@@ -235,7 +235,7 @@
         "POLAR_MEMBERSHIP_PRODUCT_ID": "c311f9b3-b604-42bd-86a7-12239eb9cbd2",
         "ANNUAL_FEE_ENABLED": "true",
         "POOL_ENABLED": "true",
-        "MAX_USERS": "50",
+        "MAX_USERS": "5",
         "BUILT_IN_BACKENDS": "anthropic,openrouter",
         // Sharing opens here first, to try it before production (its MODERATION_API_KEY is set).
         "SHARING": "everyone",
