@@ -89,6 +89,15 @@ opaque PNGs to `ios/fastlane/screenshots/en-US/` (not committed), named
 two simulators and the iOS 26 and 18 runtimes ([why 18](../../docs/DEFERRED.md#the-flutter-app-appsflutter)).
 The iPad's status bar shows the date the shots were taken beside the time.
 
+To replace the screenshots of the version being prepared in App Store
+Connect with them, and change nothing else (no binary, metadata, version or
+submission), with the API key of [App Store Connect](#app-store-connect):
+
+```sh
+cd ios && APP_STORE_CONNECT_KEY_ID=… APP_STORE_CONNECT_ISSUER_ID=… \
+  APP_STORE_CONNECT_KEY_PATH=path/to/key.p8 bundle exec fastlane upload_screenshots
+```
+
 The icons on every platform come from `assets/icon/` (the brand mark at
 1024px); `dart run flutter_launcher_icons` regenerates them after a change.
 
