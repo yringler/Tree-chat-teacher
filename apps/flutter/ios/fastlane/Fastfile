@@ -1,0 +1,39 @@
+default_platform(:ios)
+
+platform :ios do
+  # Signs the archive that `flutter build ipa --no-codesign` leaves and uploads it to TestFlight.
+  # Apple signs it with a cloud-managed distribution certificate, so no machine needs the
+  # certificate or a profile: the App Store Connect API key (an Admin key, which cloud signing
+  # needs) is all it takes, the same on a laptop and on CI.
+  desc "Sign build/ios/archive/Runner.xcarchive and upload it to TestFlight"
+  lane :testflight do
+    key_id = ENV.fetch("APP_STORE_CONNECT_KEY_ID")
+    issuer_id = ENV.fetch("APP_STORE_CONNECT_ISSUER_ID")
+    key_path = File.expand_path(ENV.fetch("APP_STORE_CONNECT_KEY_PATH"))
+
+    api_key = app_store_connect_api_key(key_id: key_id, issuer_id: issuer_id, key_filepath: key_path)
+
+    build_app(
+      skip_build_archive: true,
+      archive_path: "../build/ios/archive/Runner.xcarchive",
+      export_method: "app-store",
+      export_options: {
+        # Runner's DEVELOPMENT_TEAM: an export takes no team from the archive or the Appfile.
+        teamID: "25U5MTYA8U",
+        signingStyle: "automatic",
+        # The build number is the one flutter build gave the archive.
+        manageAppVersionAndBuildNumber: false
+      },
+      export_xcargs: [
+        "-allowProvisioningUpdates",
+        "-authenticationKeyPath #{key_path.shellescape}",
+        "-authenticationKeyID #{key_id.shellescape}",
+        "-authenticationKeyIssuerID #{issuer_id.shellescape}"
+      ].join(" "),
+      output_directory: "../build/ios/ipa"
+    )
+
+    # Processing takes a while and the upload is done by then; waiting would only bill the minutes.
+    upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
+  end
+end

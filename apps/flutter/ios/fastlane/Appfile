@@ -1,0 +1,2 @@
+# Runner's PRODUCT_BUNDLE_IDENTIFIER.
+app_identifier("com.tangentailearning.tangent")

@@ -191,6 +191,46 @@ Then run the workflow with a track. A new personal developer account may
 have to run a closed test before production unlocks; Play Console shows the
 requirement.
 
-iOS isn't set up. The Apple Developer membership exists; it still needs a macOS
-runner with Xcode, and a signing certificate and provisioning profile on the
-runner.
+## iOS
+
+The **iOS build** workflow (`.github/workflows/ios.yml`) builds the app and
+uploads it to TestFlight when you start it: Actions tab → **iOS build** →
+**Run workflow**, with **base-url** the Tangent deployment the app talks to.
+The run number is the build number. App Store Connect processes a build for
+up to half an hour after the run ends, then it shows under TestFlight and you
+can test it or submit it for review there.
+
+The run builds an unsigned archive (`flutter build ipa --no-codesign`) and
+fastlane's `testflight` lane (`ios/fastlane/Fastfile`) exports and uploads it.
+Apple signs the export with a cloud-managed distribution certificate, so no
+certificate or profile is stored anywhere; the App Store Connect API key is
+all the run needs. It runs on a macOS runner, which a private repository pays
+for by the minute.
+
+To release from your Mac instead, with Xcode signed in to the team and
+Ruby from `ios/.ruby-version`:
+
+```sh
+flutter build ipa --no-codesign --build-number=<higher than the last upload>
+cd ios && bundle install
+APP_STORE_CONNECT_KEY_ID=… APP_STORE_CONNECT_ISSUER_ID=… APP_STORE_CONNECT_KEY_PATH=path/to/key.p8 \
+  bundle exec fastlane testflight
+```
+
+`flutter build ipa` alone makes a signed `.ipa` you can upload with Apple's
+Transporter app.
+
+### App Store Connect
+
+1. **Create the app.** In App Store Connect → Apps → **+** → New App, with
+   the bundle ID `com.tangentailearning.tangent`. The first signed build
+   registers the bundle ID, if it isn't in the list yet.
+2. **Create the API key.** Users and Access → Integrations → App Store Connect
+   API → Team Keys → **+**, with the **Admin** role: cloud signing works only
+   with an Admin key. Download the `.p8`; Apple offers it once. Note the key
+   ID and, above the list, the issuer ID.
+3. **GitHub environment.** Settings → Environments → **New environment**
+   named `app-store`, with the **variables** `APP_STORE_CONNECT_KEY_ID` and
+   `APP_STORE_CONNECT_ISSUER_ID` and the **secret**
+   `APP_STORE_CONNECT_PRIVATE_KEY` (the `.p8` file's whole text). Add yourself
+   as a **required reviewer** to approve every upload, if you like.
