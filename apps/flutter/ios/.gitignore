@@ -36,3 +36,4 @@ Runner/GeneratedPluginRegistrant.*
 # What a fastlane run writes.
 fastlane/README.md
 fastlane/report.xml
+fastlane/screenshots/

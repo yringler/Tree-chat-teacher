@@ -36,4 +36,66 @@ platform :ios do
     # Processing takes a while and the upload is done by then; waiting would only bill the minutes.
     upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
   end
+
+  # The simulators shot, by the file name prefix, and the iOS release each runs (its newest
+  # installed runtime): the sizes App Store Connect requires (6.9" iPhone, 1320 × 2868; 13" iPad,
+  # 2064 × 2752), which it scales down for the others. The iPad is on iPadOS 18 because 26 draws
+  # its window-resize grabber in the corner of every app, and neither simctl nor a
+  # SpringBoard default turns that off.
+  SCREENSHOT_DEVICES = {
+    "iphone" => ["iPhone 17 Pro Max", "iOS-26"],
+    "ipad" => ["iPad Pro 13-inch (M4)", "iOS-18"]
+  }.freeze
+
+  SCREENSHOTS_DIR = File.expand_path("screenshots/en-US", __dir__)
+
+  # The status bar's clock, as a full ISO date: simctl sets the date from it too on the devices
+  # that take one, though iPadOS 18's status bar keeps showing today's date beside the time.
+  # simctl parses it only with milliseconds and shows it in the simulator's time zone, the Mac's,
+  # so it carries the Mac's offset.
+  SCREENSHOT_TIME = Time.local(2026, 1, 9, 9, 41).strftime("%Y-%m-%dT%H:%M:%S.000%:z")
+
+  # Runs test_driver/store_app_test.dart on each simulator: the app on its scripted backend,
+  # shot with `simctl io` under a fixed status bar. Needs no account and no network.
+  desc "Take the App Store screenshots on the simulators into fastlane/screenshots/en-US"
+  lane :screenshots do
+    flutter_dir = File.expand_path("../..", __dir__)
+    FileUtils.rm_rf(SCREENSHOTS_DIR)
+    FileUtils.mkdir_p(SCREENSHOTS_DIR)
+
+    SCREENSHOT_DEVICES.each do |prefix, (name, release)|
+      udid, was_booted = screenshot_simulator(name, release)
+      sh("xcrun", "simctl", "bootstatus", udid, "-b", log: false)
+      sh("xcrun", "simctl", "status_bar", udid, "override",
+         "--time", SCREENSHOT_TIME, "--dataNetwork", "wifi", "--wifiMode", "active", "--wifiBars", "3",
+         "--cellularMode", "active", "--cellularBars", "4", "--operatorName", "",
+         # Charged draws a charging bolt; discharging at 100 is a plain full battery.
+         "--batteryState", "discharging", "--batteryLevel", "100")
+      begin
+        Dir.chdir(flutter_dir) do
+          sh({ "SCREENSHOT_UDID" => udid, "SCREENSHOT_DIR" => SCREENSHOTS_DIR, "SCREENSHOT_PREFIX" => prefix },
+             "flutter", "drive", "--target", "test_driver/store_app.dart", "-d", udid)
+        end
+      ensure
+        sh("xcrun", "simctl", "status_bar", udid, "clear")
+        sh("xcrun", "simctl", "shutdown", udid) unless was_booted
+      end
+    end
+    UI.success("Screenshots in #{SCREENSHOTS_DIR}")
+  end
+
+  # The simulator called `name` on the newest installed runtime of `release` ("iOS-26"), and
+  # whether it was already running (then it is left running).
+  def screenshot_simulator(name, release)
+    devices = JSON.parse(sh("xcrun", "simctl", "list", "devices", "available", "--json", log: false))["devices"]
+    runtime = devices.keys
+                     .select { |r| r.include?("SimRuntime.#{release}-") && devices[r].any? { |d| d["name"] == name } }
+                     .max_by { |r| r[/iOS-([\d-]+)/, 1].split("-").map(&:to_i) }
+    unless runtime
+      UI.user_error!("No #{name} simulator on #{release}: add the runtime and the simulator in " \
+                     "Xcode's Settings > Components and Devices and Simulators")
+    end
+    device = devices[runtime].find { |d| d["name"] == name }
+    [device["udid"], device["state"] == "Booted"]
+  end
 end

@@ -71,6 +71,24 @@ a phone's and two tablets' sizes on the scripted backend in
 both stores show them, are listed in `test_driver/store_screens.dart`, and
 Play's devices in `screenshots/play_store_screenshots_test.dart`.
 
+The App Store screenshots are taken on iOS simulators, so they have the iOS
+status bar, at 9:41:
+
+```sh
+cd ios && bundle exec fastlane screenshots   # about 6 minutes
+```
+
+fastlane's `screenshots` lane (`ios/fastlane/Fastfile`) boots an iPhone 17
+Pro Max (6.9") on iOS 26 and an iPad Pro 13-inch (M4) on iPadOS 18, the two
+sizes App Store Connect requires, and runs `flutter drive` on each:
+`test_driver/store_app_test.dart` steps the app (`test_driver/store_app.dart`,
+on the same scripted backend as the Play shots) through the same screens and
+shoots each with `xcrun simctl io`. It needs no account or network, and writes
+opaque PNGs to `ios/fastlane/screenshots/en-US/` (not committed), named
+`<device>-<nn>-<shot>.png` so deliver uploads them in order. Xcode needs those
+two simulators and the iOS 26 and 18 runtimes ([why 18](../../docs/DEFERRED.md#the-flutter-app-appsflutter)).
+The iPad's status bar shows the date the shots were taken beside the time.
+
 The icons on every platform come from `assets/icon/` (the brand mark at
 1024px); `dart run flutter_launcher_icons` regenerates them after a change.
 
