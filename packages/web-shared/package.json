@@ -19,15 +19,15 @@
     "coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@better-auth/passkey": "1.7.7",
+    "@better-auth/passkey": "1.7.11",
     "@floating-ui/dom": "1.8.0",
     "@tangent/core": "workspace:*",
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",
-    "better-auth": "1.7.7",
+    "better-auth": "1.7.11",
     "dompurify": "^3.4.17",
     "katex": "^0.19.0",
-    "mermaid": "^12.1.0",
+    "mermaid": "^12.2.0",
     "txtgen": "^3.0.7"
   },
   "peerDependencies": {
@@ -44,10 +44,10 @@
     "@angular/platform-browser": "^22.2.2",
     "@angular/router": "^22.2.2",
     "@testing-library/dom": "10.4.2",
-    "@testing-library/user-event": "14.6.7",
+    "@testing-library/user-event": "14.6.8",
     "@types/trusted-types": "^2.0.7",
     "@vitest/coverage-v8": "~4.1.11",
-    "happy-dom": "21.0.1",
+    "happy-dom": "21.0.3",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "typescript": "~6.0.3",

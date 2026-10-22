@@ -16,23 +16,23 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@better-auth/passkey": "1.7.7",
+    "@better-auth/passkey": "1.7.11",
     "@polar-sh/sdk": "1.0.2",
     "@tangent/core": "workspace:*",
     "@tangent/providers": "workspace:*",
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",
-    "better-auth": "1.7.7",
+    "better-auth": "1.7.11",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.13",
     "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.4.3",
+    "@cloudflare/vitest-plugin": "^1.4.5",
     "@vitest/coverage-istanbul": "~4.1.11",
     "drizzle-kit": "^0.31.11",
     "typescript": "~6.0.3",
     "vitest": "~4.1.11",
-    "wrangler": "^4.149.0"
+    "wrangler": "^4.151.2"
   }
 }
