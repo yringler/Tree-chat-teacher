@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.3",
-    "@vitest/coverage-istanbul": "~4.1.11",
+    "@vitest/coverage-istanbul": "~5.0.5",
     "drizzle-kit": "^0.31.11",
     "typescript": "~6.0.3",
     "vitest": "~4.1.11",
