@@ -1,0 +1,87 @@
+# Builds the Flutter app (apps/flutter) for iOS and uploads it to TestFlight. It runs only when
+# someone presses "Run workflow" on the Actions tab. fastlane signs the build in the cloud with the
+# App Store Connect API key from the app-store environment (apps/flutter/README.md, "iOS"), so no
+# certificate or profile is stored anywhere.
+name: iOS build
+
+on:
+  workflow_dispatch:
+    inputs:
+      base-url:
+        description: The Tangent deployment the app talks to.
+        type: string
+        default: https://tangentailearning.com
+
+permissions:
+  contents: read
+
+jobs:
+  testflight:
+    name: Upload to TestFlight
+    runs-on: macos-26
+    # macOS minutes are billed at several times Linux's, so a stuck run ends early.
+    timeout-minutes: 30
+    # The key lives in the app-store environment, so its protection rules (a required reviewer, if
+    # one is set) decide when a run gets it.
+    environment: app-store
+    defaults:
+      run:
+        working-directory: apps/flutter
+    steps:
+      - name: Check the App Store Connect settings
+        env:
+          KEY_ID: ${{ vars.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ vars.APP_STORE_CONNECT_ISSUER_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        working-directory: .
+        run: |
+          if [ -z "$KEY_ID" ] || [ -z "$ISSUER_ID" ] || [ -z "$PRIVATE_KEY" ]; then
+            echo "::error::Set the APP_STORE_CONNECT_KEY_ID and APP_STORE_CONNECT_ISSUER_ID variables and the APP_STORE_CONNECT_PRIVATE_KEY secret on the app-store environment."
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # flutter-action reads a version only from pubspec.yaml or an FVM file, so the step reads the
+      # one apps/flutter/.flutter-version pins.
+      - id: flutter-version
+        run: echo "version=$(cat .flutter-version)" >> "$GITHUB_OUTPUT"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+          cache: true
+          pub-cache: true
+      # The Ruby in ios/.ruby-version, with the gems in ios/Gemfile.lock installed and cached.
+      - uses: ruby/setup-ruby@v1
+        with:
+          working-directory: apps/flutter/ios
+          bundler-cache: true
+      # Unsigned: fastlane signs the archive when it exports it. The run number is the build number,
+      # which App Store Connect needs to grow with every upload of a version.
+      - name: Build the archive
+        env:
+          BASE_URL: ${{ inputs.base-url }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: flutter build ipa --release --no-codesign --build-number="$BUILD_NUMBER" --dart-define=TANGENT_BASE_URL="$BASE_URL"
+      # The key reaches the file through the environment, never through the script's text.
+      - name: Write the API key
+        env:
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: printf '%s\n' "$PRIVATE_KEY" > "$RUNNER_TEMP/app-store-connect.p8"
+      - name: Sign and upload
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ vars.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ vars.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_PATH: ${{ runner.temp }}/app-store-connect.p8
+        working-directory: apps/flutter/ios
+        run: bundle exec fastlane testflight
+      - name: Summary
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          {
+            echo "### TestFlight"
+            echo
+            echo "Build $BUILD_NUMBER is uploaded. App Store Connect processes it before it shows under TestFlight, usually within half an hour, and emails when it's ready."
+          } >> "$GITHUB_STEP_SUMMARY"
