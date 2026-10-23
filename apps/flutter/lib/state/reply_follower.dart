@@ -3,40 +3,44 @@ import 'dart:async';
 import '../api/models.dart';
 import '../api/reply_stream.dart';
 
+/// What a [ReplyFollower] asks of the lesson it follows replies for, which
+/// keeps the nodes and shows them.
+abstract interface class ReplyHost {
+  /// The lesson's nodes, as shown.
+  Iterable<ChatNode> get nodes;
+
+  /// Shows an event of [replyId]'s stream (null until a send's `start`).
+  void apply(StreamEvent event, String? replyId);
+
+  /// Shows [replyId] failed with [message]: its stream ended while it is
+  /// still shown being written.
+  void markFailed(String replyId, String message);
+
+  /// Says why a send was refused, or a reply's stream gave up.
+  void report(Object error);
+
+  /// Reads the lesson again from the server, and shows it through [nodes];
+  /// throws when it can't.
+  Future<void> reload();
+
+  /// A reply's stream ended, and whatever that called for is done.
+  void changed();
+}
+
 /// The replies a lesson follows while they are written: which ones, and
-/// what happens when a reply's stream ends. Each event goes to [onEvent];
-/// the owner keeps the nodes, and shows them through [nodes].
+/// what happens when a reply's stream ends. Its [ReplyHost] shows them.
 class ReplyFollower {
   ReplyFollower({
     required this._transport,
-    required this.onEvent,
-    required this.nodes,
-    required this.onError,
-    required this.reload,
-    required this.onEnded,
+    required this._host,
     this._delay = Future<void>.delayed,
     this._policy = const ReconnectPolicy(),
   });
 
   final ReplyTransport _transport;
+  final ReplyHost _host;
   final Delay _delay;
   final ReconnectPolicy _policy;
-
-  /// An event of [replyId]'s stream (null until a send's `start`).
-  final void Function(StreamEvent event, String? replyId) onEvent;
-
-  /// The lesson's nodes, as the owner shows them.
-  final Iterable<ChatNode> Function() nodes;
-
-  /// Why a send was refused, or a reply's stream gave up.
-  final void Function(Object error) onError;
-
-  /// Reads the lesson again from the server, and shows it through [nodes];
-  /// throws when it can't.
-  final Future<void> Function() reload;
-
-  /// A reply's stream ended, and whatever that called for is done.
-  final void Function() onEnded;
 
   final _streams = <ReplyStream>{};
 
@@ -91,7 +95,7 @@ class ReplyFollower {
       ),
       send: (
         branchId: branchId,
-        known: {for (final node in nodes()) node.id},
+        known: {for (final node in _host.nodes) node.id},
         accept: accept,
       ),
     );
@@ -104,7 +108,7 @@ class ReplyFollower {
       stream
           .run((event) {
             if (event is StartEvent) send?.accept(true);
-            onEvent(event, stream.replyId);
+            _host.apply(event, stream.replyId);
           })
           .then((outcome) => _ended(stream, outcome, send)),
     );
@@ -121,7 +125,7 @@ class ReplyFollower {
     var started = false;
     switch (outcome) {
       case ReplyRefused(:final error):
-        onError(error);
+        _host.report(error);
       case ReplyLost(:final error, replyId: null)
           when send != null && error is ApiException && error.status == 0:
         started = await _recoverSend(send, error);
@@ -130,12 +134,15 @@ class ReplyFollower {
       case ReplyLost(:final error) when id != null && _isStreaming(id):
         await _recoverReply(id, error);
       case ReplyLost(:final error):
-        onError(error);
+        _host.report(error);
+      // An error event that names no reply still ends the one followed.
+      case ReplyErrored(:final event) when id != null && _isStreaming(id):
+        _host.markFailed(id, event.message);
       case ReplyDone() || ReplyErrored() || ReplyCancelled():
     }
     if (_disposed) return;
     send?.accept(started);
-    onEnded();
+    _host.changed();
   }
 
   /// Reads the lesson again to show what the server has of [replyId], whose
@@ -146,7 +153,7 @@ class ReplyFollower {
   Future<void> _recoverReply(String replyId, Object error) async {
     if (!_recovered.add(replyId)) return _giveUp(replyId, error);
     try {
-      await reload();
+      await _host.reload();
     } on Object catch (reloadError) {
       if (!_disposed) _giveUp(replyId, reloadError);
       return;
@@ -156,11 +163,9 @@ class ReplyFollower {
   }
 
   void _giveUp(String replyId, Object error) {
-    onError(error);
-    onEvent(
-      ErrorEvent(nodeId: replyId, message: connectionLostText, node: null),
-      replyId,
-    );
+    _host
+      ..report(error)
+      ..markFailed(replyId, connectionLostText);
   }
 
   /// Reads the lesson again after [send] was lost before its reply started:
@@ -170,25 +175,25 @@ class ReplyFollower {
   /// being written are followed either way. Answers whether it did.
   Future<bool> _recoverSend(_Send send, Object error) async {
     try {
-      await reload();
+      await _host.reload();
     } on Object catch (reloadError) {
-      if (!_disposed) onError(reloadError);
+      if (!_disposed) _host.report(reloadError);
       return false;
     }
     if (_disposed) return false;
-    followAll(nodes());
-    final arrived = nodes().any(
+    followAll(_host.nodes);
+    final arrived = _host.nodes.any(
       (node) =>
           node.branchId == send.branchId &&
           node.role == Role.user &&
           !send.known.contains(node.id),
     );
-    if (!arrived) onError(error);
+    if (!arrived) _host.report(error);
     return arrived;
   }
 
   /// Whether [replyId] is still shown being written.
-  bool _isStreaming(String replyId) => nodes().any(
+  bool _isStreaming(String replyId) => _host.nodes.any(
     (node) => node.id == replyId && node.status == NodeStatus.streaming,
   );
 

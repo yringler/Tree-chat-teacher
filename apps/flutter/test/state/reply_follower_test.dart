@@ -20,46 +20,60 @@ final done = DoneEvent(
   branch: branch('trunk'),
 );
 
-void main() {
-  late FakeTangentApi api;
-  late ReplyFollower follower;
+/// A [ReplyHost] that shows [shown] and logs what it is asked, in order.
+class FakeHost implements ReplyHost {
+  final log = <String>[];
 
-  /// What the follower reported, in order.
-  late List<String> log;
-
-  /// The nodes the owner shows.
-  late List<ChatNode> shown;
+  /// The nodes it shows.
+  List<ChatNode> shown = [];
 
   /// What reading the lesson again does.
-  late Future<void> Function() reloading;
+  Future<void> Function() reloading = () async {};
 
-  /// The last event given.
-  StreamEvent? lastEvent;
+  @override
+  Iterable<ChatNode> get nodes => shown;
+
+  @override
+  void apply(StreamEvent event, String? replyId) =>
+      log.add('${event.runtimeType} $replyId');
+
+  @override
+  void markFailed(String replyId, String message) =>
+      log.add('failed $replyId: $message');
+
+  @override
+  void report(Object error) => log.add('error $error');
+
+  @override
+  Future<void> reload() {
+    log.add('reload');
+    return reloading();
+  }
+
+  @override
+  void changed() => log.add('changed');
+}
+
+void main() {
+  late FakeTangentApi api;
+  late FakeHost host;
+  late ReplyFollower follower;
+
+  /// What the follower asked of its host, in order.
+  late List<String> log;
 
   ReplyFollower make({ReconnectPolicy policy = const ReconnectPolicy()}) =>
       ReplyFollower(
         transport: api,
-        onEvent: (event, replyId) {
-          lastEvent = event;
-          log.add('${event.runtimeType} $replyId');
-        },
-        nodes: () => shown,
-        onError: (error) => log.add('error $error'),
-        reload: () {
-          log.add('reload');
-          return reloading();
-        },
-        onEnded: () => log.add('ended'),
+        host: host,
         delay: (_) async {},
         policy: policy,
       );
 
   setUp(() {
     api = FakeTangentApi();
-    log = [];
-    shown = [];
-    reloading = () async {};
-    lastEvent = null;
+    host = FakeHost();
+    log = host.log;
     follower = make();
   });
 
@@ -85,7 +99,12 @@ void main() {
         ..add(const DeltaEvent(nodeId: 'a1', text: 'The moon'))
         ..add(done);
       await pumpEventQueue();
-      expect(log, ['StartEvent a1', 'DeltaEvent a1', 'DoneEvent a1', 'ended']);
+      expect(log, [
+        'StartEvent a1',
+        'DeltaEvent a1',
+        'DoneEvent a1',
+        'changed',
+      ]);
     });
 
     test(
@@ -101,7 +120,7 @@ void main() {
         expect(follower.sending, isFalse);
         expect(log, hasLength(2));
         expect(log.first, startsWith('error ApiException(402'));
-        expect(log.last, 'ended');
+        expect(log.last, 'changed');
       },
     );
 
@@ -156,8 +175,21 @@ void main() {
       follower.follow('a1');
       api.resumes.single.controller.add(done);
       await pumpEventQueue();
-      expect(log, ['DoneEvent a1', 'ended']);
+      expect(log, ['DoneEvent a1', 'changed']);
     });
+
+    test(
+      'a reply an error event ends without naming it is marked failed',
+      () async {
+        host.shown = [reply('a1')];
+        follower.follow('a1');
+        api.resumes.single.controller.add(
+          const ErrorEvent(nodeId: null, message: 'Boom', node: null),
+        );
+        await pumpEventQueue();
+        expect(log, ['ErrorEvent a1', 'failed a1: Boom', 'changed']);
+      },
+    );
 
     test('a reply no longer shown being written is not reloaded', () async {
       follower = make(policy: const ReconnectPolicy(maxReconnects: 0));
@@ -168,7 +200,7 @@ void main() {
       expect(log, [
         'StartEvent a1',
         'error ApiException(0 network: Connection lost)',
-        'ended',
+        'changed',
       ]);
     });
   });
@@ -176,7 +208,7 @@ void main() {
   group('a reply lost while shown being written', () {
     setUp(() {
       follower = make(policy: const ReconnectPolicy(maxReconnects: 1));
-      shown = [reply('a1')];
+      host.shown = [reply('a1')];
     });
 
     /// Sends a message and loses its reply after `start`, and its one
@@ -196,52 +228,48 @@ void main() {
     ];
 
     test('is read again, with no notice when it has ended', () async {
-      reloading = () async =>
-          shown = [reply('a1', status: NodeStatus.complete)];
+      host.reloading = () async =>
+          host.shown = [reply('a1', status: NodeStatus.complete)];
       await sendAndLose();
-      expect(log, ['StartEvent a1', 'reload', 'ended']);
+      expect(log, ['StartEvent a1', 'reload', 'changed']);
       expect(followedAgain(), isEmpty);
     });
 
     test('is followed again while the server still writes it', () async {
-      reloading = () async => shown = [reply('a1'), reply('a2')];
+      host.reloading = () async => host.shown = [reply('a1'), reply('a2')];
       await sendAndLose();
       expect(followedAgain(), ['a1']);
-      expect(log, ['StartEvent a1', 'reload', 'ended']);
+      expect(log, ['StartEvent a1', 'reload', 'changed']);
 
       api.resumes.last.controller.add(done);
       await pumpEventQueue();
-      expect(log.skip(3), ['DoneEvent a1', 'ended']);
+      expect(log.skip(3), ['DoneEvent a1', 'changed']);
     });
 
-    test('is marked failed when lost again, without reading it again', () async {
-      await sendAndLose();
-      await api.resumes.last.controller.close();
-      await pumpEventQueue();
-      expect(log, [
-        'StartEvent a1',
-        'reload',
-        'ended',
-        'error ApiException(0 network: Connection lost)',
-        'ErrorEvent a1',
-        'ended',
-      ]);
-      expect(
-        lastEvent,
-        isA<ErrorEvent>()
-            .having((e) => e.nodeId, 'nodeId', 'a1')
-            .having((e) => e.node, 'node', isNull)
-            .having(
-              (e) => e.message,
-              'message',
-              'Connection lost. Open the lesson again to see the final reply.',
-            ),
-      );
-      expect(followedAgain(), ['a1']);
-    });
+    test(
+      'is marked failed when lost again, without reading it again',
+      () async {
+        await sendAndLose();
+        await api.resumes.last.controller.close();
+        await pumpEventQueue();
+        expect(log, [
+          'StartEvent a1',
+          'reload',
+          'changed',
+          'error ApiException(0 network: Connection lost)',
+          'failed a1: $connectionLostText',
+          'changed',
+        ]);
+        expect(
+          connectionLostText,
+          'Connection lost. Open the lesson again to see the final reply.',
+        );
+        expect(followedAgain(), ['a1']);
+      },
+    );
 
     test('is marked failed when the lesson cannot be read again', () async {
-      reloading = () async => throw const ApiException(
+      host.reloading = () async => throw const ApiException(
         status: 0,
         code: 'network',
         message: 'offline',
@@ -251,8 +279,8 @@ void main() {
         'StartEvent a1',
         'reload',
         'error ApiException(0 network: offline)',
-        'ErrorEvent a1',
-        'ended',
+        'failed a1: $connectionLostText',
+        'changed',
       ]);
       expect(followedAgain(), isEmpty);
     });
@@ -263,12 +291,12 @@ void main() {
 
     setUp(() {
       // A message from before the send isn't taken for it.
-      shown = [node('u0', branch: 'trunk', seq: 0)];
+      host.shown = [node('u0', branch: 'trunk', seq: 0)];
     });
 
     test('is read again, and is sending until then', () async {
       final read = Completer<void>();
-      reloading = () => read.future;
+      host.reloading = () => read.future;
       final accepted = follower.send('trunk', 'Why tides?');
       await api.sends.single.controller.close();
       await pumpEventQueue();
@@ -282,24 +310,27 @@ void main() {
 
     test('completes with true when its message reached the server, and '
         'follows the replies still being written', () async {
-      reloading = () async =>
-          shown = [...shown, asked, reply('a1'), reply('a9')];
+      host.reloading = () async =>
+          host.shown = [...host.shown, asked, reply('a1'), reply('a9')];
       final accepted = follower.send('trunk', 'Why tides?');
       await api.sends.single.controller.close();
       expect(await accepted, isTrue);
       await pumpEventQueue();
-      expect(log, ['reload', 'ended']);
+      expect(log, ['reload', 'changed']);
       expect([for (final r in api.resumes) r.target], ['a1', 'a9']);
     });
 
     test('completes with true when its reply has already ended too', () async {
-      reloading = () async =>
-          shown = [...shown, asked, reply('a1', status: NodeStatus.complete)];
+      host.reloading = () async => host.shown = [
+        ...host.shown,
+        asked,
+        reply('a1', status: NodeStatus.complete),
+      ];
       final accepted = follower.send('trunk', 'Why tides?');
       await api.sends.single.controller.close();
       expect(await accepted, isTrue);
       await pumpEventQueue();
-      expect(log, ['reload', 'ended']);
+      expect(log, ['reload', 'changed']);
       expect(api.resumes, isEmpty);
     });
 
@@ -313,14 +344,14 @@ void main() {
         expect(log, hasLength(3));
         expect(log.first, 'reload');
         expect(log[1], contains('The reply ended before it started'));
-        expect(log.last, 'ended');
+        expect(log.last, 'changed');
       },
     );
 
     test(
       'completes with false and reports why the lesson cannot be read',
       () async {
-        reloading = () async => throw const ApiException(
+        host.reloading = () async => throw const ApiException(
           status: 0,
           code: 'network',
           message: 'offline',
@@ -332,7 +363,7 @@ void main() {
         expect(log, [
           'reload',
           'error ApiException(0 network: offline)',
-          'ended',
+          'changed',
         ]);
       },
     );
@@ -364,9 +395,9 @@ void main() {
 
     test('reports nothing when a reload it waits on ends after', () async {
       follower = make(policy: const ReconnectPolicy(maxReconnects: 0));
-      shown = [reply('a1')];
+      host.shown = [reply('a1')];
       final read = Completer<void>();
-      reloading = () => read.future;
+      host.reloading = () => read.future;
       unawaited(follower.send('trunk', 'Why tides?'));
       api.sends.single.controller.add(start);
       await api.sends.single.controller.close();
@@ -382,7 +413,7 @@ void main() {
 
     test('reports nothing when a reload it waits on fails after', () async {
       final read = Completer<void>();
-      reloading = () => read.future;
+      host.reloading = () => read.future;
       final accepted = follower.send('trunk', 'Why tides?');
       var settled = false;
       unawaited(accepted.then((_) => settled = true));

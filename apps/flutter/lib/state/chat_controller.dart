@@ -34,14 +34,7 @@ class ChatController extends ChangeNotifier {
   String? _requestedBranchId;
   bool _disposed = false;
 
-  late final _replies = ReplyFollower(
-    transport: api,
-    onEvent: _apply,
-    nodes: () => _nodes.values,
-    onError: _fail,
-    reload: _reload,
-    onEnded: _notify,
-  );
+  late final _replies = ReplyFollower(transport: api, host: _ReplyHost(this));
 
   bool _loading = true;
   bool get loading => _loading;
@@ -333,9 +326,8 @@ class ChatController extends ChangeNotifier {
           if (!_nodes.containsKey(node.id)) break;
           _nodes[node.id] = node;
           _status.remove(node.id);
-        } else if (nodeId ?? replyId case final id?) {
-          // An error naming no node still ends the reply its stream follows.
-          _markFailed(id, message);
+        } else if (nodeId != null) {
+          _markFailed(nodeId, message);
         }
     }
     _notify();
@@ -402,4 +394,33 @@ class ChatController extends ChangeNotifier {
     _replies.dispose();
     super.dispose();
   }
+}
+
+/// The lesson its [ReplyFollower] shows replies in.
+class _ReplyHost implements ReplyHost {
+  _ReplyHost(this._chat);
+
+  final ChatController _chat;
+
+  @override
+  Iterable<ChatNode> get nodes => _chat._nodes.values;
+
+  @override
+  void apply(StreamEvent event, String? replyId) =>
+      _chat._apply(event, replyId);
+
+  @override
+  void markFailed(String replyId, String message) {
+    _chat._markFailed(replyId, message);
+    _chat._notify();
+  }
+
+  @override
+  void report(Object error) => _chat._fail(error);
+
+  @override
+  Future<void> reload() => _chat._reload();
+
+  @override
+  void changed() => _chat._notify();
 }
