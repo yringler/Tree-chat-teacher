@@ -48,8 +48,8 @@ export {
  * as "Tangent credit", with any OpenRouter model allowed
  * (`builtInPowerConfig`), in a registry of its own. Learn also runs this
  * config on the user's own OpenRouter key, unmetered (registries.ts `registryFor`).
- * Learn has one model, Normal; Max is power's (docs/DECISIONS.md says why).
- * On the user's own Anthropic key, Learn runs power's Anthropic endpoint on
+ * Learn replies on Normal, or on Max where the learner chose it in their
+ * reply settings (`LearnProfile.reply`). On the user's own Anthropic key, Learn runs power's Anthropic endpoint on
  * a fixed pair of models instead (`LEARN_ANTHROPIC_REPLY_MODEL`,
  * provider-configs.ts `learnKeyConfig`).
  */
@@ -79,16 +79,17 @@ export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 export const SIMPLE_MAX_OUTPUT_TOKENS = BUILT_IN_MAX_OUTPUT_TOKENS;
 
 /**
- * The built-in provider's config, as Learn uses it: Learn's one model,
- * Normal (`LEARN_NORMAL_MODEL`), with its request settings
- * (`LEARN_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`; empty ones are
- * the default model's evaluated settings, `withTierDefaults`), whoever pays
- * (credit or the learner's own key). With a `BUILT_IN_PROVIDER` override,
- * every model it lists but those tagged `tier: "max"`, which are power's.
+ * The built-in provider's config, as Learn uses it, whoever pays (credit or
+ * the learner's own key): Normal (`LEARN_NORMAL_MODEL`), its default, with
+ * its request settings (`LEARN_NORMAL_EFFORT`, `_REPLY_TOKENS`,
+ * `_PROVIDER_ORDER`; empty ones are the default model's evaluated settings,
+ * `withTierDefaults`), and Max (`POWER_MAX_MODEL`) at the model's own
+ * defaults, which a reply runs on only where the learner chose Max
+ * (`RouteResolver.runnable`). With a `BUILT_IN_PROVIDER` override, every
+ * model it lists.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
-  const config = builtInConfig(env);
-  return { ...config, models: config.models.filter((m) => m.tier !== 'max') };
+  return builtInConfig(env);
 }
 
 /**

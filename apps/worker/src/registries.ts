@@ -15,6 +15,7 @@ import { createProviderRegistry, decorateProvider } from '@tangent/providers';
 import {
   DEFAULT_SYSTEM_PROMPT,
   type BranchFunding,
+  type LearnReplySettings,
   type LlmProvider,
   type ProviderConfig,
   type ProviderInfo,
@@ -249,6 +250,12 @@ export interface ChatServiceOptions extends ServiceScope {
   apiKeys?: UserApiKeys;
   /** Where the usage meter parks its background work (built-in provider calls). */
   defer?: Defer;
+  /**
+   * The learner's reply settings for a Learn send (`LearnProfile.reply`),
+   * read once by the route so the gate, the hold and the reply agree.
+   * Ignored by power and on the pool, whose model and limits are fixed.
+   */
+  learnReply?: LearnReplySettings;
 }
 
 /** Last resort when a caller has no `waitUntil`: the work still runs, failures are logged. */
@@ -371,6 +378,7 @@ export function chatService(
           customPrompt: account.payer !== 'pool',
           // On credit a summary's input is capped as a reply's is.
           ...(operatorPaid ? { summaryMaxInputTokens: simpleMaxInputTokens(env) } : {}),
+          ...(opts.learnReply ? { reply: opts.learnReply } : {}),
         };
   } else {
     // Power: own keys unmetered; Tangent credit, every call metered.

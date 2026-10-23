@@ -198,6 +198,8 @@ describe("Learn's Normal with request settings", () => {
         maxOutputTokens: 12_000,
         providerOrder: ['deepseek'],
       },
+      // Max, which a learner can choose, at the model's own defaults.
+      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max' },
     ]);
     // Power's suggestions and Tangent credit, Normal and Max, don't take them (the user picks there).
     expect(suggestedModels(tuned()).every((m) => !('effort' in m))).toBe(true);
@@ -246,6 +248,7 @@ describe("Learn's Normal with request settings", () => {
         maxOutputTokens: 16_384,
         providerOrder: HAIKU_PINNED,
       },
+      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max' },
     ]);
     expect(DEFAULT_LEARN_NORMAL_MODEL).toBe('anthropic/claude-haiku-5.5');
     const normal = await sentBody(config, { model: DEFAULT_LEARN_NORMAL_MODEL });
@@ -257,7 +260,10 @@ describe("Learn's Normal with request settings", () => {
 
   it("ask another model with its own defaults: the default model's settings stay with it", async () => {
     const config = simpleProviderConfig(deployed({ LEARN_NORMAL_MODEL: 'minimax/minimax-m3' }));
-    expect(config.models).toEqual([{ id: 'minimax/minimax-m3', label: 'Normal', tier: 'normal' }]);
+    expect(config.models).toEqual([
+      { id: 'minimax/minimax-m3', label: 'Normal', tier: 'normal' },
+      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max' },
+    ]);
     const body = await sentBody(config, { model: 'minimax/minimax-m3' });
     expect(body).not.toHaveProperty('reasoning');
     expect(body).not.toHaveProperty('provider');

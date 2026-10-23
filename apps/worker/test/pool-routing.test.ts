@@ -208,6 +208,22 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     expect(await rows(u.poolId)).toHaveLength(1);
   });
 
+  it("ignores the learner's reply settings: the pool model at the pool's cap", async () => {
+    const u = await poolReadyUser();
+    await ok(
+      await u.client.call('/api/settings', {
+        method: 'PATCH',
+        json: { learn: { tier: 'max', replyLength: 'veryLong' } },
+        learn: 'pool',
+      }),
+    );
+    const { trunk } = await createTree(u, 'pool');
+    const res = await send(u, trunk.id, `Explain primes ${ECHO}`, { learn: 'pool' });
+    const sent = echoed(replyText(parseSse(await res.text())));
+    expect(sent.model).toBe('normal');
+    expect(sent.maxOutputTokens).toBe(String(POOL_MAX_OUTPUT));
+  });
+
   it("a stored system node (e.g. imported) never joins the pool's locked prompt", async () => {
     const u = await poolReadyUser({ env: { POOL_SYSTEM_PROMPT: 'LOCKED POOL PROMPT' } });
     const { trunk } = await createTree(u, 'pool');
@@ -641,7 +657,7 @@ describe('routes that never generate, on a pool header', () => {
       await u.client.call('/api/providers', { learn: 'pool' }),
     );
     expect(providers.map((p) => [p.id, p.defaultModel, p.models.map((m) => m.id)])).toEqual([
-      ['openrouter', 'max', ['max', 'normal']],
+      ['openrouter', 'max', ['max', 'normal', 'strong']],
     ]);
     const { trunk } = await createTree(u, 'pool');
     expect(trunk.model).toBe('max');

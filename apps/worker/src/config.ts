@@ -204,7 +204,7 @@ export const POOL_ACCOUNT_ID = 'pool';
 
 // ---- The hosted models: the owner's pick, which the open pool runs too
 
-/** Learn's one model, and power's Normal (`LEARN_NORMAL_MODEL`). */
+/** Learn's Normal, and power's (`LEARN_NORMAL_MODEL`). */
 export const DEFAULT_LEARN_NORMAL_MODEL = 'anthropic/claude-haiku-5.5';
 /** Power's Max, the stronger model it suggests (`POWER_MAX_MODEL`). */
 export const DEFAULT_POWER_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
@@ -571,7 +571,7 @@ export interface AppConfig {
     maxInputTokens: number;
   };
   learn: {
-    /** `LEARN_NORMAL_MODEL`: Learn's one model, and power's Normal. */
+    /** `LEARN_NORMAL_MODEL`: Normal, in Learn and power. */
     normalModel: string;
     normal: TierRequestConfig;
     /** `LEARN_SYSTEM_PROMPT`; null = DEFAULT_SYSTEM_PROMPT. */

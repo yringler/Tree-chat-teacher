@@ -317,6 +317,11 @@ export class ChatService {
     return this.replier.canSearch(branch);
   }
 
+  /** Whether `providerId` lists `model` as its Max (`ModelInfo.tier`). */
+  isMaxModel(providerId: string, model: string): boolean {
+    return this.routes.isMaxModel(providerId, model);
+  }
+
   prepareReview(
     nodeId: string,
     request: ReviewRequest,

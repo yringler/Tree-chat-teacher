@@ -1,9 +1,10 @@
 import type { ModelInfo, ModelTier } from './provider.js';
 
 /**
- * Normal and Max: the two model tiers power offers. Normal is the everyday
- * default; Max is a stronger model that costs many times as much. Learn has
- * one model, Normal. A model says which tier it is through `ModelInfo.tier`,
+ * Normal and Max: the two model tiers. Normal is the everyday default; Max
+ * is a stronger model that costs many times as much. Power switches between
+ * them per conversation; Learn uses Max only where the learner chose it in
+ * their reply settings (learn-reply.ts). A model says which tier it is through `ModelInfo.tier`,
  * so clients never match on labels, and every user-facing word about tiers
  * comes from this file so the Worker's pages and power phrase it the same way.
  */

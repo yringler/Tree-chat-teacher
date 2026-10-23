@@ -32,7 +32,7 @@ export interface Offer {
   searchAboutOneCent: boolean;
   /** Automatic web searches a user may run per UTC day on credit (`GROUNDING_AUTO_DAILY_CAP`); 0 = no cap. */
   searchDailyCap: number;
-  /** The label of power's Max on Tangent credit (`LearnOffer.powerMax`); Learn has one model. */
+  /** The label of power's Max on Tangent credit (`LearnOffer.powerMax`). */
   powerMax: string | null;
   /** Who power mode takes the user's own keys for, and which can search (`ownKeyProviders`). */
   providers: { id: string; label: string; search: boolean }[];

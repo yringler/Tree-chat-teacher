@@ -6,7 +6,12 @@ import {
   type HeldCandidate,
   type PreparedReview,
 } from '@tangent/core';
-import { API_ROUTES, type Branch, type CandidateEvent } from '@tangent/shared';
+import {
+  API_ROUTES,
+  type Branch,
+  type CandidateEvent,
+  type LearnReplySettings,
+} from '@tangent/shared';
 import { Hono } from 'hono';
 import { assertCanGenerate } from '../billing/gate.js';
 import { assertCreditCovers, replyHoldMicros } from '../billing/service.js';
@@ -35,9 +40,11 @@ async function creditReplyHold(
   keys: OpenKeys | null,
   branch: Branch,
   limits: GenerationLimits,
+  learnReply: LearnReplySettings | undefined,
 ): Promise<CreditReplyHold> {
   // Built for the account the gate settled on, as the send will run.
-  const budget = await chatOf(c, keys, true).routeBudget(branch, branch.model, limits);
+  const chat = chatOf(c, keys, true, learnReply);
+  const budget = await chat.routeBudget(branch, branch.model, limits);
   return {
     providerId: branch.providerId,
     model: branch.model,
@@ -78,8 +85,12 @@ export function generationRoutes(): Hono<AppBindings> {
   api.post('/branches/:branchId/messages', validateJson(sendMessage), async (c) => {
     const keys = await keysOf(c);
     const req = c.req.valid('json');
-    const chat = chatOf(c, keys);
-    // The route and model the send runs on: Learn's own where the branch names one it can't run.
+    // Learn's reply settings, read once here: the gate, the hold and the reply all use them.
+    const learnReply =
+      c.var.account.mode === 'simple' ? await chatOf(c, keys).learnReplySettings() : undefined;
+    const chat = chatOf(c, keys, false, learnReply);
+    // The route and model the send runs on: Learn's own (its tier's model) whatever the
+    // branch names.
     const branch = chat.runnableBranch(await chat.getOwnedBranch(c.req.param('branchId')));
     // The route is the Durable Object's only way in, so this gate covers it. On the
     // pool, the Durable Object reserves the reply before writing any node.
@@ -105,13 +116,16 @@ export function generationRoutes(): Hono<AppBindings> {
       maxInputTokens,
       inputOverflow,
     });
+    // On the pool the settings don't apply: its model, prompt and limits are fixed.
+    const reply = isPoolFunded(account) ? undefined : learnReply;
     const body: SessionSendBody = {
       ...rest,
       ...limits,
       account,
       ...(keys ? { sealedKeys: keys.sealed } : {}),
+      ...(reply ? { learnReply: reply } : {}),
       ...(callPayer(account, branch.funding) === 'credit'
-        ? { creditReply: await creditReplyHold(c, keys, branch, limits) }
+        ? { creditReply: await creditReplyHold(c, keys, branch, limits, reply) }
         : {}),
     };
     return treeSession(c.env, branch.treeId).send(branch.id, body);
@@ -135,6 +149,9 @@ export function generationRoutes(): Hono<AppBindings> {
     let chat = chatOf(c, keys);
     const node = await chat.getOwnedNode(c.req.param('nodeId'));
     const branch = chat.runnableBranch(await chat.getOwnedBranch(node.branchId));
+    // In Learn, Max is the learner's reply setting, never a model a review names.
+    if (c.var.account.mode === 'simple' && chat.isMaxModel(branch.providerId, req.model))
+      throw new ValidationError("A review can't run on Max");
     // The client picks the reviewer model here, so the allowlist is what bounds it.
     // The review is metered iff the reviewer is on Tangent credit (its funding). The
     // context is resolved like a send on the node's branch, so missing summaries are
@@ -178,6 +195,9 @@ export function generationRoutes(): Hono<AppBindings> {
     if (learn && route.providerId !== branch.providerId)
       throw new ValidationError("Compare runs on the lesson's own provider");
     if (learn) route.funding = branch.funding;
+    // In Learn, Max is the learner's reply setting, never a model a candidate names.
+    if (learn && chat.isMaxModel(branch.providerId, req.model))
+      throw new ValidationError("Compare can't run on Max");
     // The client picks the model, so the allowlist is what bounds it (Learn: its one model).
     // The context is resolved like a send on the branch, so missing summaries are
     // generated on the branch's route: its credit is checked too. Never on the pool (403).

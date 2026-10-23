@@ -874,22 +874,17 @@ describe('Learn has one model; Max is power’s', () => {
     expect(after.branches[0]).toMatchObject({ model: 'strong', funding: 'credit' });
   });
 
-  it('Learn lists only Normal and refuses a request that picks Max; power lists both', async () => {
+  it('Learn lists Normal and Max, and stays on Normal until the learner chooses Max', async () => {
     const u = await newUser(tiered());
     await grant(u);
     const learn = await ok<ProviderInfo[]>(await u.call('/api/providers', { learn: 'credit' }));
     expect(learn.map((p) => [p.id, p.defaultModel, p.models.map((m) => m.id)])).toEqual([
-      ['openrouter', 'normal', ['normal']],
-    ]);
-    const power = await ok<ProviderInfo[]>(await u.call('/api/providers'));
-    expect(power.find((p) => p.id === 'openrouter')?.models.map((m) => [m.id, m.tier])).toEqual([
-      ['normal', 'normal'],
-      ['big', 'max'],
+      ['openrouter', 'normal', ['normal', 'big']],
     ]);
 
     const { trunk, assistant } = await treeWithNodes(u, 'credit');
     expect(trunk.model).toBe('normal');
-    // A branch moved to Max in Learn stays on Normal.
+    // A branch moved to Max in Learn stays on Normal: the tier is the learner's setting.
     const patched = await ok<Branch>(
       await u.call(`/api/branches/${trunk.id}`, {
         method: 'PATCH',
@@ -898,7 +893,7 @@ describe('Learn has one model; Max is power’s', () => {
       }),
     );
     expect(patched.model).toBe('normal');
-    // Generating on Max is refused.
+    // Compare and reviews run on the lesson's own model, never on a Max they name.
     for (const [path, init] of [
       [
         `/api/branches/${trunk.id}/candidates`,
@@ -913,6 +908,57 @@ describe('Learn has one model; Max is power’s', () => {
       expect(res.status, path).toBe(400);
     }
     expect(await usageRows(u.learn.accountId)).toBe(0);
+  });
+
+  it("replies on Max, held and billed as Max, once the learner chooses it; power doesn't change", async () => {
+    // On the suites' bindings, as the send runs in the tree's Durable Object: Max is `strong`.
+    const u = await newUser();
+    await grant(u);
+    const saved = await ok<SettingsResponse>(
+      await u.call('/api/settings', {
+        method: 'PATCH',
+        json: { learn: { tier: 'max', replyLength: 'veryLong' } },
+        learn: 'credit',
+      }),
+    );
+    expect(saved.learn).toEqual({ tier: 'max', replyLength: 'veryLong' });
+    const { trunk } = await treeWithNodes(u, 'credit');
+    const sent = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(sent.status).toBe(200);
+    const events = parseSse(await sent.text());
+    expect(events.at(-1), JSON.stringify(events.at(-1))).toMatchObject({ type: 'done' });
+    const start = events[0] as Extract<StreamEvent, { type: 'start' }>;
+    expect(start.assistantNode).toMatchObject({ providerId: 'openrouter', model: 'strong' });
+    const rows = await env.DB.prepare(
+      "SELECT model FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .all<{ model: string }>();
+    expect(rows.results.map((r) => r.model)).toEqual(['strong']);
+    // The stored branch stays on Normal.
+    const after = await ok<TreeDetail>(
+      await u.call(`/api/trees/${trunk.treeId}`, { learn: 'credit' }),
+    );
+    expect(after.branches[0]?.model).toBe('max');
+
+    // Power keeps its own routes: Learn settings, even saved on its account, don't reach it.
+    await ok<SettingsResponse>(
+      await u.call('/api/settings', { method: 'PATCH', json: { learn: { tier: 'max' } } }),
+    );
+    const power = await treeWithNodes(u, undefined, { ...CREDIT, model: 'normal' });
+    const powerSent = await u.call(`/api/branches/${power.trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+    });
+    const powerStart = parseSse(await powerSent.text())[0] as Extract<
+      StreamEvent,
+      { type: 'start' }
+    >;
+    expect(powerStart.assistantNode).toMatchObject({ model: 'normal' });
   });
 });
 

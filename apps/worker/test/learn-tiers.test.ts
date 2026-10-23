@@ -1,5 +1,5 @@
-// The built-in provider's models: Learn's one model, Normal; power's Normal and Max, tagged with
-// their `tier`; the env vars, the background model, and the Max usage factor `/api/providers` sends.
+// The built-in provider's models: Normal and Max in Learn (Max where the learner chooses it) and in
+// power, tagged with their `tier`; the env vars, the background model, and the Max usage factor `/api/providers` sends.
 import { MAX_USAGE_FACTOR_FALLBACK, usageFactorOf, type ProviderInfo } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
@@ -41,7 +41,7 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
 const HAIKU_PINNED = ['anthropic'];
 
 describe("the built-in provider's models", () => {
-  it('Learn has one model, Normal, with the request settings the model eval picked', () => {
+  it('Learn has Normal, with the request settings the model eval picked, and Max', () => {
     const config = simpleProviderConfig(deployed());
     expect(config.defaultModel).toBe(DEFAULT_LEARN_NORMAL_MODEL);
     expect(config.models).toEqual([
@@ -53,16 +53,19 @@ describe("the built-in provider's models", () => {
         maxOutputTokens: 16_384,
         providerOrder: HAIKU_PINNED,
       },
+      // At the model's own defaults: Normal's settings were evaluated for Normal.
+      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max' },
     ]);
     expect(DEFAULT_POWER_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
     // The background model is no tier, but today it is Normal's model, asked differently.
     expect(DEFAULT_BACKGROUND_MODEL).toBe(DEFAULT_LEARN_NORMAL_MODEL);
   });
 
-  it('LEARN_NORMAL_MODEL and POWER_MAX_MODEL choose them; power has one model when they are the same', () => {
+  it('LEARN_NORMAL_MODEL and POWER_MAX_MODEL choose them; there is one model when they are the same', () => {
     const e = deployed({ LEARN_NORMAL_MODEL: 'a/normal', POWER_MAX_MODEL: 'b/max' });
     expect(simpleProviderConfig(e).models.map((m) => [m.id, m.tier])).toEqual([
       ['a/normal', 'normal'],
+      ['b/max', 'max'],
     ]);
     expect(builtInPowerConfig(e).models.map((m) => [m.id, m.tier])).toEqual([
       ['a/normal', 'normal'],
@@ -93,7 +96,7 @@ describe("the built-in provider's models", () => {
     ).toBe('none');
   });
 
-  it('a BUILT_IN_PROVIDER override: its models name their own tiers, Max is power’s; its background model', () => {
+  it('a BUILT_IN_PROVIDER override: its models name their own tiers; its background model', () => {
     const override = (models: object[], fast = '') =>
       deployed({
         BACKGROUND_MODEL: fast,
@@ -121,10 +124,11 @@ describe("the built-in provider's models", () => {
       { id: 'b', label: 'B' },
       { id: 'm', label: 'M', tier: 'max' },
     ]);
-    // Learn drops the Max models; power keeps every one.
+    // Learn and power both list every one.
     expect(simpleProviderConfig(named).models.map((m) => [m.id, m.tier])).toEqual([
       ['a', 'normal'],
       ['b', undefined],
+      ['m', 'max'],
     ]);
     expect(builtInPowerConfig(named).models.map((m) => [m.id, m.tier])).toEqual([
       ['a', 'normal'],
