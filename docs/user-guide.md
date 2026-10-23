@@ -29,7 +29,7 @@ Every conversation has a **main thread**, and any message can start a **tangent*
 
 ## How Tangent answers
 
-Both apps answer with the same built-in system prompt (in power, unless you set your own): it answers the question asked, directly and in depth, and never quizzes you. Whatever you don't follow, you go on a tangent into. Every substantive reply ends with suggested tangents in two groups under it. Clicking any of them opens a tangent titled after it and asks it, so you can follow one, come back, and try another:
+Both apps answer with the same built-in system prompt (in power, unless you set your own): it answers the question asked, directly and in depth, and never quizzes you. Whatever you don't follow, you go on a tangent into. Every substantive reply ends with up to six suggested tangents in two groups under it. Clicking any of them opens a tangent titled after it and asks it, so you can follow one, come back, and try another:
 
 - **Dig deeper**: the questions you might ask next about what the reply explained, going further into it.
 - **Suggested tangents**: related topics further out, worth exploring on the side.

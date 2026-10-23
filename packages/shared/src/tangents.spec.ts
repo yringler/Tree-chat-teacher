@@ -99,15 +99,29 @@ describe('splitTangents', () => {
     ]);
   });
 
-  it('caps each kind on its own: 3 deeper, 6 tangent', () => {
+  it('keeps at most 3 deeper and 6 in all, the first offered', () => {
     const lines = [
       ...Array.from({ length: 5 }, (_, i) => `- [deeper] C${i} — r`),
       ...Array.from({ length: 8 }, (_, i) => `- [tangent] T${i} — r`),
     ].join('\n');
     const { tangents } = splitTangents(`<tangents>\n${lines}\n</tangents>`);
+    expect(tangents).toHaveLength(6);
     const { deeper: next, tangent } = groupTangents(tangents);
     expect(next.map((t) => t.title)).toEqual(['C0', 'C1', 'C2']);
-    expect(tangent.map((t) => t.title)).toEqual(['T0', 'T1', 'T2', 'T3', 'T4', 'T5']);
+    expect(tangent.map((t) => t.title)).toEqual(['T0', 'T1', 'T2']);
+    // Tangents offered first fill the 6 before a deeper one comes.
+    const late = [
+      ...Array.from({ length: 7 }, (_, i) => `- [tangent] T${i} — r`),
+      '- [deeper] C0 — r',
+    ].join('\n');
+    expect(splitTangents(`<tangents>\n${late}\n</tangents>`).tangents.map((t) => t.title)).toEqual([
+      'T0',
+      'T1',
+      'T2',
+      'T3',
+      'T4',
+      'T5',
+    ]);
   });
 
   it('drops a title repeated under the other kind: the first one wins', () => {

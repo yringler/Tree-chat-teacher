@@ -11,8 +11,8 @@
  *   - [tangent] Title — why it's worth following
  *   </tangents>
  *
- * which the apps turn into "Dig deeper" and "Suggested tangents" buttons
- * (under the reply's "Your tangents") and keep out of the rendered reply;
+ * which the apps turn into at most six "Dig deeper" and "Suggested tangents"
+ * buttons (under the reply's "Your tangents") and keep out of the rendered reply;
  * shares and exports show them as plain lists. The
  * block stays in the stored message (and so in later context), so the model
  * sees what it already offered. The tag lives in the text rather than in a
@@ -65,7 +65,11 @@ const SEPARATOR_RE = /\s+[—–-]\s+|\s*—\s*|:\s+/;
 /** Kind tag; [dig deeper], [continue] and [next] are taken as deeper because models paraphrase the tag. */
 const KIND_RE = /^\[(deeper|dig deeper|continue|next|tangent)\]\s*/i;
 const MAX_DEEPER = 3;
-const MAX_TANGENTS = 6;
+/**
+ * The most suggestions of both kinds a reply shows, the first offered: past
+ * six, a footer of choices stops being a choice and buries the reply.
+ */
+const MAX_SUGGESTIONS = 6;
 const MAX_TITLE_CHARS = 200;
 
 function unwrap(text: string): string {
@@ -133,15 +137,15 @@ export function splitTangents(content: string): SplitTangents {
   const tangents: Tangent[] = [];
   // Keyed across both kinds: a title offered twice keeps its first kind.
   const seen = new Set<string>();
-  const count: Record<TangentKind, number> = { deeper: 0, tangent: 0 };
+  let deeper = 0;
   for (const line of inside.split(/\r?\n/)) {
+    if (tangents.length >= MAX_SUGGESTIONS) break;
     const t = parseTangentLine(line);
     if (!t) continue;
     const key = t.title.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    if (count[t.kind] >= (t.kind === 'deeper' ? MAX_DEEPER : MAX_TANGENTS)) continue;
-    count[t.kind]++;
+    if (t.kind === 'deeper' && deeper++ >= MAX_DEEPER) continue;
     tangents.push(t);
   }
   const body = after.trim() === '' ? before.trimEnd() : `${before.trimEnd()}\n\n${after.trim()}`;

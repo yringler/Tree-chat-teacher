@@ -82,7 +82,10 @@ final _kindRe = RegExp(
   caseSensitive: false,
 );
 const _maxDeeper = 3;
-const _maxTangents = 6;
+
+/// The most suggestions of both kinds a reply shows, the first offered: past
+/// six, a footer of choices stops being a choice and buries the reply.
+const _maxSuggestions = 6;
 const _maxTitleChars = 200;
 
 String _unwrap(String text) => text
@@ -162,14 +165,13 @@ SplitTangents splitTangents(String content) {
   final tangents = <Tangent>[];
   // Keyed across both kinds: a title offered twice keeps its first kind.
   final seen = <String>{};
-  final count = {TangentKind.deeper: 0, TangentKind.tangent: 0};
+  var deeper = 0;
   for (final line in inside.split(_newline)) {
+    if (tangents.length >= _maxSuggestions) break;
     final tangent = parseTangentLine(line);
     if (tangent == null) continue;
     if (!seen.add(tangent.title.toLowerCase())) continue;
-    final cap = tangent.kind == TangentKind.deeper ? _maxDeeper : _maxTangents;
-    if (count[tangent.kind]! >= cap) continue;
-    count[tangent.kind] = count[tangent.kind]! + 1;
+    if (tangent.kind == TangentKind.deeper && deeper++ >= _maxDeeper) continue;
     tangents.add(tangent);
   }
   final body = after.trim().isEmpty
