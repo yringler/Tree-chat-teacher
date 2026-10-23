@@ -99,9 +99,11 @@ export interface ReplyLengthWords {
  * Each length's words, the one place to tune them: the instructions are
  * built from it (`replyLengthInstructions`). A range is leeway, not a quota:
  * a simple question comes in under it and a hard one runs toward the top.
- * The reply's output cap doesn't change with the length (5,000 words is
- * about 6,700 tokens, inside a reasoning model's cap); on a model that
- * doesn't reason a very long reply may end cut off, and Continue picks it up.
+ * Normal and Long share a reasoning model's reply cap; Very long gets a
+ * larger one (`LEARN_VERY_LONG_OUTPUT_TOKENS`), since Max at high effort can
+ * think for over 11k tokens before 5,000 words (about 6,700 tokens). On a
+ * model that doesn't reason a very long reply may end cut off, and Continue
+ * picks it up.
  */
 export const REPLY_LENGTH_WORDS: Readonly<Record<LearnReplyLength, ReplyLengthWords>> = {
   normal: { min: 0, target: 500, max: 750 },

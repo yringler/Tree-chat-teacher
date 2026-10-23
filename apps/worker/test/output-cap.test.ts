@@ -112,6 +112,14 @@ describe('the built-in provider’s bounds', () => {
       reasoningOutputTokens: 16_384,
       maxInputTokens: simpleMaxInputTokens(env),
     });
+    // Learn's Very long alone gets more room: Max thinks at high effort before a chapter.
+    for (const replyLength of ['normal', 'long'] as const)
+      expect(simpleChatSettings(env, 'openrouter', replyLength).reasoningOutputTokens).toBe(16_384);
+    expect(simpleChatSettings(env, 'openrouter', 'veryLong')).toMatchObject({
+      reservedOutputTokens: 4096,
+      reasoningOutputTokens: 32_768,
+      maxInputTokens: simpleMaxInputTokens(env),
+    });
     const pool = await resolvePoolParams(env, null);
     expect(poolChatSettings(pool)).toMatchObject({
       reservedOutputTokens: pool.maxOutputTokens,

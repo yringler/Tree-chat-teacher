@@ -69,7 +69,8 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
     models: [
       { id: 'max', label: 'Default' },
       { id: 'normal', label: 'Normal', tier: 'normal' },
-      { id: 'strong', label: 'Max', tier: 'max' },
+      // A reasoning model with room for Learn's Very long cap, as the deployed Max.
+      { id: 'strong', label: 'Max', tier: 'max', reasoning: true, maxOutputTokens: 64_000 },
     ],
     // `[echo-request]` in a message makes the reply echo the request's model, output cap
     // and system prompt (the pool tests check what was really sent upstream).

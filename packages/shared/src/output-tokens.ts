@@ -21,9 +21,18 @@ export const REASONING_MAX_OUTPUT_TOKENS = 32_000;
 /**
  * The most output one call on the built-in provider (Learn, power's Tangent
  * credit) asks for, whatever power's setting says: with the input cap it
- * bounds the cost of any one metered call.
+ * bounds the cost of any one metered call. The one exception is a Learn
+ * reply of length Very long, bounded by LEARN_VERY_LONG_OUTPUT_TOKENS.
  */
 export const BUILT_IN_MAX_OUTPUT_TOKENS = REASONING_REPLY_OUTPUT_TOKENS;
+/**
+ * The output cap of a Learn reply of length Very long, thinking and answer
+ * together. Very long runs on Max at high effort, which can think for over
+ * 11k tokens before a chapter of a few thousand words, so
+ * BUILT_IN_MAX_OUTPUT_TOKENS would cut it off. Its credit hold is sized from
+ * this cap, so it is about twice a Long reply's on Max.
+ */
+export const LEARN_VERY_LONG_OUTPUT_TOKENS = 32_768;
 /** Output cap of a summary or a title. */
 export const AUX_OUTPUT_TOKENS = 1024;
 /** Output cap of a summary or a title on a reasoning model. */

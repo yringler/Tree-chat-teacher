@@ -212,10 +212,12 @@ export function chatSettingsFor(
   env: AppEnv,
   account: AccountContext,
   scope: ServiceScope = {},
+  learnReply?: LearnReplySettings,
 ): ChatSettings {
   const pool = poolScope(account, scope);
   if (pool) return poolChatSettings(pool);
-  if (account.mode === 'simple') return simpleChatSettings(env, learnOwnKey(account));
+  if (account.mode === 'simple')
+    return simpleChatSettings(env, learnOwnKey(account), learnReply?.replyLength);
   const { summaryProviderId, summaryModel, autoTitle } = appConfig(env).power;
   // A summary provider is looked up among the own-key routes only (ChatService), so
   // summaries of branches on the user's own keys never cost credit.
@@ -402,7 +404,7 @@ export function chatService(
     accountId: account.id,
     providers,
     profile,
-    settings: chatSettingsFor(env, account, scope),
+    settings: chatSettingsFor(env, account, scope, opts.learnReply),
     defaultSystemPrompt: defaultSystemPromptFor(env, account, scope),
     groundingAllowance: groundingAllowance(env, account),
     // Failures the service recovers from on its own, as structured log lines.

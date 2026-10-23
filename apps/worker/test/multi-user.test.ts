@@ -1,5 +1,7 @@
 import {
+  BUILT_IN_MAX_OUTPUT_TOKENS,
   DEFAULT_SYSTEM_PROMPT,
+  LEARN_VERY_LONG_OUTPUT_TOKENS,
   type ApiError,
   type BillingSummary,
   type Branch,
@@ -21,7 +23,8 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
-import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import { creditNeeded, replyHoldMicros, USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import { simpleMaxInputTokens } from '../src/simple-mode.js';
 import { rememberCustomer } from '../src/billing/payments/customers.js';
 import { createApp } from '../src/app.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
@@ -788,6 +791,82 @@ describe('Learn mode on paid credit', () => {
       .bind(u.learn.accountId)
       .first<{ node_id: string | null; status: string }>();
     expect(row).toEqual({ node_id: start.assistantNode.id, status: 'settled' });
+  });
+
+  it('gives Very long a 32,768-token cap and holds it at that cap; Long keeps 16,384; power is unchanged', async () => {
+    // Max (`strong`) reasons and allows more than Very long's cap, as the deployed Max does
+    // (bindings.ts); here it is priced like Sonnet, so the holds are far apart.
+    const e = authEnv({
+      POOL_ENABLED: 'false',
+      MODEL_PRICES: JSON.stringify({
+        normal: { in: 10_000, out: 10_000, context: 1_048_576 },
+        max: { in: 10_000, out: 10_000, context: 1_048_576 },
+        strong: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+      }),
+    });
+    const u = await newUser(e);
+    const { trunk } = await treeWithNodes(u, 'credit');
+    const save = async (learn: Record<string, string>) =>
+      ok<SettingsResponse>(
+        await u.call('/api/settings', { method: 'PATCH', json: { learn }, learn: 'credit' }),
+      );
+    const send = () =>
+      u.call(`/api/branches/${trunk.id}/messages`, {
+        method: 'POST',
+        json: { content: 'Explain primes [echo-request]' },
+        learn: 'credit',
+      });
+    /** The model and output cap the fake was sent, which it echoes. */
+    const echoed = async (res: Response) => {
+      const text = await res.text();
+      expect(res.status, text).toBe(200);
+      const reply = parseSse(text)
+        .map((ev) => (ev.type === 'delta' ? ev.text : ''))
+        .join('');
+      return /^ECHO model=(\S+) maxOutputTokens=(\S+) /.exec(reply)?.slice(1);
+    };
+    /** The 402 of a send the balance can't cover: what it says the reply needs. */
+    const needs = async () => {
+      const res = await send();
+      expect(res.status).toBe(402);
+      return ((await res.json()) as ApiError).error.message;
+    };
+    const holdAt = async (maxOutputTokens: number) =>
+      creditNeeded(
+        await replyHoldMicros(e, 'strong', {
+          maxInputTokens: simpleMaxInputTokens(e),
+          maxOutputTokens,
+        }),
+      ).message;
+
+    // A balance above the minimum but under either hold: each 402 names its hold, the whole
+    // input budget plus the reply's cap at Max's price.
+    await grant(u.learn.accountId, 100_000);
+    await save({ tier: 'normal', replyLength: 'veryLong' });
+    expect(await needs()).toBe(await holdAt(LEARN_VERY_LONG_OUTPUT_TOKENS));
+    await save({ tier: 'max', replyLength: 'long' });
+    expect(await needs()).toBe(await holdAt(BUILT_IN_MAX_OUTPUT_TOKENS));
+    expect(await holdAt(LEARN_VERY_LONG_OUTPUT_TOKENS)).not.toBe(
+      await holdAt(BUILT_IN_MAX_OUTPUT_TOKENS),
+    );
+
+    // Covered: each reply is sent with the cap it was held at.
+    await grant(u.learn.accountId, 2_000_000);
+    expect(await echoed(await send())).toEqual(['strong', '16384']);
+    await save({ tier: 'normal', replyLength: 'veryLong' });
+    expect(await echoed(await send())).toEqual(['strong', '32768']);
+
+    // Power on Tangent credit keeps its bound, whatever Learn saved.
+    const power = await treeWithNodes(u, undefined, {
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'strong',
+    });
+    const powerSent = await u.call(`/api/branches/${power.trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes [echo-request]', maxOutputTokens: 32_768 },
+    });
+    expect(await echoed(powerSent)).toEqual(['strong', '16384']);
   });
 
   it('is hidden without billing: credit falls back to the own-key mode', async () => {

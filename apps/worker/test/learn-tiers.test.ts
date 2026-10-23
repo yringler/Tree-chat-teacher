@@ -1,6 +1,11 @@
 // The built-in provider's models: Normal and Max in Learn (Max where the learner chooses it) and in
 // power, tagged with their `tier`; the env vars, the background model, and the Max usage factor `/api/providers` sends.
-import { MAX_USAGE_FACTOR_FALLBACK, usageFactorOf, type ProviderInfo } from '@tangent/shared';
+import {
+  LEARN_VERY_LONG_OUTPUT_TOKENS,
+  MAX_USAGE_FACTOR_FALLBACK,
+  usageFactorOf,
+  type ProviderInfo,
+} from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_MODEL_PRICES } from '../src/config.js';
@@ -53,9 +58,22 @@ describe("the built-in provider's models", () => {
         maxOutputTokens: 16_384,
         providerOrder: HAIKU_PINNED,
       },
-      // At the model's own defaults: Normal's settings were evaluated for Normal.
-      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max' },
+      // Max's own: high effort, and room for Very long's cap (`DEFAULT_TIER_REQUESTS.max`).
+      {
+        id: DEFAULT_POWER_MAX_MODEL,
+        label: 'Max',
+        tier: 'max',
+        effort: 'high',
+        maxOutputTokens: LEARN_VERY_LONG_OUTPUT_TOKENS,
+      },
     ]);
+    expect(LEARN_VERY_LONG_OUTPUT_TOKENS).toBe(32_768);
+    // Power asks Max as the user sets it, within its own bound.
+    expect(builtInPowerConfig(deployed()).models.at(-1)).toEqual({
+      id: DEFAULT_POWER_MAX_MODEL,
+      label: 'Max (suggested)',
+      tier: 'max',
+    });
     expect(DEFAULT_POWER_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
     // The background model is no tier, but today it is Normal's model, asked differently.
     expect(DEFAULT_BACKGROUND_MODEL).toBe(DEFAULT_LEARN_NORMAL_MODEL);
@@ -67,6 +85,12 @@ describe("the built-in provider's models", () => {
       ['a/normal', 'normal'],
       ['b/max', 'max'],
     ]);
+    // A moved tier starts from its model's own defaults: no effort, no cap of its own.
+    expect(simpleProviderConfig(e).models.at(-1)).toEqual({
+      id: 'b/max',
+      label: 'Max',
+      tier: 'max',
+    });
     expect(builtInPowerConfig(e).models.map((m) => [m.id, m.tier])).toEqual([
       ['a/normal', 'normal'],
       ['b/max', 'max'],

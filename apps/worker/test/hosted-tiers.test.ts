@@ -7,6 +7,7 @@
 import { createProviderRegistry } from '@tangent/providers';
 import {
   BUILT_IN_MAX_OUTPUT_TOKENS,
+  LEARN_VERY_LONG_OUTPUT_TOKENS,
   type GenerateRequest,
   type ProviderConfig,
 } from '@tangent/shared';
@@ -101,6 +102,11 @@ describe('tier config vars', () => {
       normal: {
         model: 'anthropic/claude-haiku-5.5',
         request: { effort: 'high', maxOutputTokens: 16_384, providerOrder: HAIKU_PINNED },
+      },
+      // Max has no vars: Learn asks it at high effort, with room for Very long's 32,768 tokens.
+      max: {
+        model: 'anthropic/claude-sonnet-5.5',
+        request: { effort: 'high', maxOutputTokens: 32_768, providerOrder: [] },
       },
     });
   });
@@ -198,8 +204,14 @@ describe("Learn's Normal with request settings", () => {
         maxOutputTokens: 12_000,
         providerOrder: ['deepseek'],
       },
-      // Max, which a learner can choose, at the model's own defaults.
-      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max' },
+      // Max, which a learner can choose, with its own settings: Normal's vars don't reach it.
+      {
+        id: DEFAULT_POWER_MAX_MODEL,
+        label: 'Max',
+        tier: 'max',
+        effort: 'high',
+        maxOutputTokens: LEARN_VERY_LONG_OUTPUT_TOKENS,
+      },
     ]);
     // Power's suggestions and Tangent credit, Normal and Max, don't take them (the user picks there).
     expect(suggestedModels(tuned()).every((m) => !('effort' in m))).toBe(true);
@@ -248,7 +260,13 @@ describe("Learn's Normal with request settings", () => {
         maxOutputTokens: 16_384,
         providerOrder: HAIKU_PINNED,
       },
-      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max' },
+      {
+        id: DEFAULT_POWER_MAX_MODEL,
+        label: 'Max',
+        tier: 'max',
+        effort: 'high',
+        maxOutputTokens: LEARN_VERY_LONG_OUTPUT_TOKENS,
+      },
     ]);
     expect(DEFAULT_LEARN_NORMAL_MODEL).toBe('anthropic/claude-haiku-5.5');
     const normal = await sentBody(config, { model: DEFAULT_LEARN_NORMAL_MODEL });
@@ -258,11 +276,31 @@ describe("Learn's Normal with request settings", () => {
     });
   });
 
+  it('ask Max (Sonnet) at high effort, sent explicitly, with room for a Very long reply', async () => {
+    const config = simpleProviderConfig(deployed());
+    const max = await sentBody(config, {
+      model: DEFAULT_POWER_MAX_MODEL,
+      maxOutputTokens: LEARN_VERY_LONG_OUTPUT_TOKENS,
+    });
+    expect(max).toMatchObject({ reasoning: { effort: 'high' }, max_tokens: 32_768 });
+    expect(max).not.toHaveProperty('provider');
+    const registry = createProviderRegistry([config], { secrets: {} });
+    expect(registry.get(config.id)!.capabilities(DEFAULT_POWER_MAX_MODEL).maxOutputTokens).toBe(
+      32_768,
+    );
+  });
+
   it("ask another model with its own defaults: the default model's settings stay with it", async () => {
     const config = simpleProviderConfig(deployed({ LEARN_NORMAL_MODEL: 'minimax/minimax-m3' }));
     expect(config.models).toEqual([
       { id: 'minimax/minimax-m3', label: 'Normal', tier: 'normal' },
-      { id: DEFAULT_POWER_MAX_MODEL, label: 'Max', tier: 'max' },
+      {
+        id: DEFAULT_POWER_MAX_MODEL,
+        label: 'Max',
+        tier: 'max',
+        effort: 'high',
+        maxOutputTokens: LEARN_VERY_LONG_OUTPUT_TOKENS,
+      },
     ]);
     const body = await sentBody(config, { model: 'minimax/minimax-m3' });
     expect(body).not.toHaveProperty('reasoning');
