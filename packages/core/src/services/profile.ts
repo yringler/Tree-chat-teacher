@@ -1,4 +1,4 @@
-import type { DefaultRouteFacts, ProviderRegistry } from '@tangent/shared';
+import type { DefaultRouteFacts, LearnReplySettings, ProviderRegistry } from '@tangent/shared';
 import type { TokenEstimator } from '../tokens.js';
 
 /**
@@ -54,6 +54,13 @@ export interface LearnProfile {
    * the learner's own key.
    */
   summaryMaxInputTokens?: number;
+  /**
+   * The learner's reply settings, read once by the Worker for a send: the
+   * tier its replies run on (`RouteResolver.runnable`) and the length they
+   * are asked for (`Replier`). Absent: Normal, and no length asked, as for
+   * every service that doesn't reply (summaries and titles never use them).
+   */
+  reply?: LearnReplySettings;
 }
 
 /**

@@ -1,6 +1,7 @@
 import {
   CHECK_SOURCES_INSTRUCTIONS,
   GROUNDING_INSTRUCTIONS,
+  REPLY_LENGTH_INSTRUCTIONS,
   REVIEW_ACCURACY_LABEL,
   REVIEW_ACCURACY_VALUES,
   REVIEW_RECOMMENDATION_LABEL,
@@ -83,6 +84,19 @@ export function replyInstructions(text: string): string {
 }
 
 /**
+ * A reply's instructions after the history, in one `replyInstructions`
+ * block: its length (Learn's setting) then its grounding, either absent.
+ * Undefined when it has neither.
+ */
+export function turnInstructionsOf(
+  length: string | null,
+  grounding: string | null,
+): string | undefined {
+  const parts = [length, grounding].filter((p): p is string => p !== null);
+  return parts.length > 0 ? replyInstructions(parts.join('\n\n')) : undefined;
+}
+
+/**
  * The most UTF-8 bytes a rendered prompt adds to a plan's segment texts,
  * for a plan of at most `sections` system, summary and anchor segments:
  * their headings, tags and separators, the continuation message, the system
@@ -99,10 +113,10 @@ export function renderOverheadBytes(sections: number): number {
     utf8Bytes(`${SUMMARY_HEADING}${SEPARATOR}`) + separator,
     utf8Bytes(quotedAnchor('')) + separator,
   );
+  const lengths = [null, ...Object.values(REPLY_LENGTH_INSTRUCTIONS)];
+  const groundings = [null, GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS];
   const instructions = Math.max(
-    ...[GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
-      utf8Bytes(replyInstructions(t)),
-    ),
+    ...lengths.flatMap((l) => groundings.map((g) => utf8Bytes(turnInstructionsOf(l, g) ?? ''))),
   );
   const perPrompt = utf8Bytes(CONTINUATION_MESSAGE) + separator + instructions + separator;
   return Math.max(0, sections) * perSection + perPrompt;

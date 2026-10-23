@@ -1,4 +1,9 @@
-import { DEFAULT_SYSTEM_PROMPT } from '@tangent/shared';
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  REPLY_LENGTH_INSTRUCTIONS,
+  type LearnReplyLength,
+} from '@tangent/shared';
+import { replyInstructions } from '../../src/context/render.js';
 import { describe, expect, it } from 'vitest';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
 import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
@@ -165,5 +170,66 @@ describe("Power's system prompt", () => {
     const s = setup();
     const { tree } = await s.powerWith('').createTree({});
     expect(await systemSent(s.powerProvider, s.powerWith(''), tree.trunkBranchId)).toBeNull();
+  });
+});
+
+describe("Learn's reply length", () => {
+  /** Learn with `replyLength` saved, on the same account as `s`. */
+  function lengthService(replyLength: LearnReplyLength) {
+    const repos = createMemoryRepositories();
+    const provider = new ScriptedProvider('openrouter');
+    const service = (profile: GenerationProfile) =>
+      new ChatService({
+        repos,
+        providers: registryOf(provider),
+        profile,
+        defaultSystemPrompt: 'TUTOR',
+        settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
+      });
+    const reply = { tier: 'normal', replyLength } as const;
+    return {
+      provider,
+      learn: service({ kind: 'learn', customPrompt: true, reply }),
+      pool: service({
+        kind: 'pool',
+        model: 'm1',
+        systemPrompt: 'POOL',
+        estimateTokens: (text: string) => text.length,
+        anchorQuoteMaxChars: 1000,
+      }),
+    };
+  }
+
+  it('asks a longer reply for its length after the history, never in the system prompt', async () => {
+    const s = lengthService('veryLong');
+    const { tree } = await s.learn.createTree({});
+    await send(s.learn, tree.trunkBranchId, 'hi');
+    const call = s.provider.chatCalls().at(-1);
+    expect(call?.turnInstructions).toBe(replyInstructions(REPLY_LENGTH_INSTRUCTIONS.veryLong));
+    expect(call?.system).toBe('TUTOR');
+  });
+
+  it('asks nothing for Normal, nor on the pool', async () => {
+    const normal = lengthService('normal');
+    const { tree } = await normal.learn.createTree({});
+    await send(normal.learn, tree.trunkBranchId, 'hi');
+    expect(normal.provider.chatCalls().at(-1)?.turnInstructions).toBeUndefined();
+    const long = lengthService('long');
+    const lesson = await long.learn.createTree({});
+    await send(long.pool, lesson.tree.trunkBranchId, 'hi');
+    expect(long.provider.chatCalls().at(-1)?.turnInstructions).toBeUndefined();
+  });
+
+  it("doesn't change the reply's output cap", async () => {
+    const caps = await Promise.all(
+      (['normal', 'long', 'veryLong'] as const).map(async (length) => {
+        const s = lengthService(length);
+        const { tree } = await s.learn.createTree({});
+        await send(s.learn, tree.trunkBranchId, 'hi');
+        return s.provider.chatCalls().at(-1)?.maxOutputTokens;
+      }),
+    );
+    expect(caps[0]).toBeDefined();
+    expect(new Set(caps).size).toBe(1);
   });
 });

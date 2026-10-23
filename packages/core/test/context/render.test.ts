@@ -1,6 +1,7 @@
 import {
   CHECK_SOURCES_INSTRUCTIONS,
   GROUNDING_INSTRUCTIONS,
+  REPLY_LENGTH_INSTRUCTIONS,
   type ContextPlan,
   type ContextSegment,
   type SummaryRequest,
@@ -18,6 +19,7 @@ import {
   renderPlan,
   replyInstructions,
   SUMMARY_HEADING,
+  turnInstructionsOf,
 } from '../../src/context/render.js';
 import { estimateTokensUtf8, MESSAGE_OVERHEAD_TOKENS, utf8Bytes } from '../../src/tokens.js';
 import { Fixture, resolveAll } from './fixtures.js';
@@ -266,9 +268,10 @@ suite('renderOverheadBytes', () => {
   /** What rendering `segments` (with the longest reply instructions after them) adds to their text. */
   function addedBytes(segments: ContextSegment[], options: { supportsSystemPrompt: boolean }) {
     const out = renderPlan(plan(segments), options);
+    // A very long reply that must check sources: the longest pair.
     const instructions = Math.max(
       ...[GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
-        utf8Bytes(replyInstructions(t)),
+        utf8Bytes(turnInstructionsOf(REPLY_LENGTH_INSTRUCTIONS.veryLong, t) ?? ''),
       ),
     );
     let sent = (out.system === null ? 0 : utf8Bytes(out.system)) + 2 + instructions;
@@ -482,5 +485,14 @@ suite('replyInstructions (grounding)', () => {
       focus: null,
     } as unknown as SummaryRequest);
     expect(prompt.system).toContain('Keep cited sources as Markdown links');
+  });
+});
+
+suite('turnInstructionsOf', () => {
+  it('puts the length before the grounding in one block, and is undefined with neither', () => {
+    expect(turnInstructionsOf(null, null)).toBeUndefined();
+    expect(turnInstructionsOf(null, 'G')).toBe(replyInstructions('G'));
+    expect(turnInstructionsOf('L', null)).toBe(replyInstructions('L'));
+    expect(turnInstructionsOf('L', 'G')).toBe(replyInstructions('L\n\nG'));
   });
 });

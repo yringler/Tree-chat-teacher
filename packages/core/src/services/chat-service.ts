@@ -149,7 +149,12 @@ export class ChatService {
       paysPerRequest(profile) ? deps.providers : null,
     );
     this.resolver = new ContextResolver(ctx, profile);
-    this.replier = new Replier(ctx, this.resolver, deps.groundingAllowance);
+    this.replier = new Replier(
+      ctx,
+      this.resolver,
+      deps.groundingAllowance,
+      profile.kind === 'learn' ? (profile.reply?.replyLength ?? 'normal') : 'normal',
+    );
     const titler = new Titler(ctx);
     this.sends = new SendService(ctx, this.resolver, this.replier, titler);
     this.reviews = new ReviewService(ctx, this.resolver);
