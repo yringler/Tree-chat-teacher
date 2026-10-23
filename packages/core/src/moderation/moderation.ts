@@ -44,6 +44,9 @@ export type ModerationVerdict =
 export const BLOCK_THRESHOLDS: Readonly<Partial<Record<ModerationCategory, number>>> = {
   'illicit/violent': 0.5,
   violence: 0.8,
+  // Only a share is refused: the owner can still export the conversation and publish it themselves.
+  sexual: 0.5,
+  'violence/graphic': 0.5,
   'self-harm/instructions': 0.5,
   'hate/threatening': 0.5,
   'harassment/threatening': 0.6,
