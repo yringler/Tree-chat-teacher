@@ -4,8 +4,8 @@ import { ReplySettings } from '../state/reply-settings';
 import { UiStore } from '../state/ui-store';
 
 /**
- * Above the composer while an advanced setting isn't the default ("Max ·
- * Very long"), so a learner who changed one sees it each time they write,
+ * Above the composer while an advanced setting isn't the default ("Very
+ * long · Max", "⚠️ Long"), so a learner who changed one sees it each time they write,
  * and nothing while every one is. Muted, with why, while the open pool pays
  * and they don't apply. Opens Advanced settings; it never resets anything
  * itself. Not a live region: it is there to be seen, not announced.

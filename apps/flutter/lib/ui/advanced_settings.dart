@@ -6,6 +6,7 @@ import '../api/models.dart';
 import '../state/app_scope.dart';
 import '../state/learn_reply.dart';
 import '../state/reply_settings_controller.dart';
+import 'theme.dart';
 
 /// Opens Advanced settings: a bottom sheet on a phone, a dialog on a wider
 /// screen, as "How tangents work" does.
@@ -40,7 +41,10 @@ Future<void> showAdvancedSettings(BuildContext context) {
 /// The model replies run on (Normal or Max) and how long they may run,
 /// each saved as it is picked, as on the web. While the open pool pays,
 /// neither applies, so both are disabled with why; on an Anthropic key the
-/// model is fixed, so its choice is too.
+/// model is fixed, so its choice is too. The model shows the tier replies
+/// run on ([effectiveLearnTier]): while Very long is picked it is Max,
+/// locked, saying a shorter length unlocks it; the saved tier comes back
+/// with that length.
 class AdvancedSettings extends StatefulWidget {
   const AdvancedSettings({super.key});
 
@@ -75,6 +79,12 @@ class _AdvancedSettingsState extends State<AdvancedSettings> {
         final settings = replies.settings;
         final pool = replies.pool;
         final fixed = replies.fixedModel;
+        final maxRequired = replyLengthRequiresMax[settings.replyLength]!;
+        final warnLong = warnsLongOnNormal(
+          settings,
+          pool: pool,
+          fixedModel: fixed,
+        );
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -91,9 +101,11 @@ class _AdvancedSettingsState extends State<AdvancedSettings> {
               ),
             Text('Model', style: theme.textTheme.titleSmall),
             if (fixed)
-              Text(learnReplyFixedModelNote, style: theme.textTheme.bodySmall),
+              Text(learnReplyFixedModelNote, style: theme.textTheme.bodySmall)
+            else if (maxRequired)
+              Text(learnReplyMaxRequiredNote, style: theme.textTheme.bodySmall),
             RadioGroup<ModelTier>(
-              groupValue: settings.tier,
+              groupValue: effectiveLearnTier(settings),
               onChanged: (tier) {
                 if (tier == null) return;
                 unawaited(_save(replies, () => replies.save(tier: tier)));
@@ -103,7 +115,7 @@ class _AdvancedSettingsState extends State<AdvancedSettings> {
                   for (final tier in ModelTier.values)
                     RadioListTile<ModelTier>(
                       value: tier,
-                      enabled: !pool && !fixed,
+                      enabled: !pool && !fixed && !maxRequired,
                       contentPadding: EdgeInsets.zero,
                       title: Text(tierLabels[tier]!),
                       subtitle: Text(tierHints[tier]!),
@@ -134,6 +146,29 @@ class _AdvancedSettingsState extends State<AdvancedSettings> {
                 ],
               ),
             ),
+            if (warnLong)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ExcludeSemantics(
+                      child: Text(
+                        '$learnReplyWarningMark ',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        learnReplyLongWarning,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: TangentColors.of(context).warn,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Text(replyLengthFootnote, style: theme.textTheme.bodySmall),
             if (_error case final error?)
               Padding(
@@ -167,8 +202,8 @@ class _AdvancedSettingsState extends State<AdvancedSettings> {
   }
 }
 
-/// Above the composer while an Advanced setting isn't the default ("Max ·
-/// Very long"), so a learner who changed one sees it each time they write,
+/// Above the composer while an Advanced setting isn't the default ("Very
+/// long · Max", "⚠️ Long"), so a learner who changed one sees it each time they write,
 /// and nothing while every one is. Muted, with why, while the open pool
 /// pays. Opens Advanced settings; it never resets anything itself, and it
 /// isn't announced as it appears (no live region).

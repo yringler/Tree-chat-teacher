@@ -988,6 +988,12 @@ app-related-links.connections {
   gap: 2px;
 }
 
+/* Advanced settings: Long on Normal is allowed, with this under the lengths. */
+.reply-warning {
+  margin: 0;
+  color: var(--warn);
+}
+
 /* Which own key replies run on, under "Use my own API key". */
 .key-choice > legend {
   padding: 0;

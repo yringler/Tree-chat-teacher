@@ -124,15 +124,28 @@ describe('Learn: the lesson page', () => {
     const { user } = await page(lesson(), {
       billing: billing(),
       chosen: 'credit',
-      replies: { tier: 'max', replyLength: 'veryLong' },
+      replies: { tier: 'normal', replyLength: 'veryLong' },
     });
+    // Very long runs on Max, so the chip says so whatever tier is saved.
     const chip = within(dock()).getByRole('button', {
-      name: 'Advanced settings: Max model, very long replies. Change',
+      name: 'Advanced settings: very long replies, Max model (required for very long replies). Change',
     });
-    expect(chip.textContent).toContain('Max · Very long');
+    expect(chip.textContent).toContain('Very long · Max');
     expect(chip.getAttribute('aria-live')).toBeNull();
     await user.click(chip);
     expect(TestBed.inject(UiStore).dialogs.list()).toEqual([{ kind: 'advanced-settings' }]);
+  });
+
+  it('warns on the chip of Long on Normal', async () => {
+    await page(lesson(), {
+      billing: billing(),
+      chosen: 'credit',
+      replies: { tier: 'normal', replyLength: 'long' },
+    });
+    const chip = within(dock()).getByRole('button', {
+      name: /^Advanced settings: long replies\. On the Normal model, long replies are more likely/,
+    });
+    expect(chip.textContent).toContain('⚠️ Long');
   });
 
   it('mutes the chip, saying why, while the open pool pays', async () => {

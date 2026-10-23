@@ -1,5 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import type { SettingsResponse, UpdateSettingsRequest } from '@tangent/shared';
+import {
+  DEFAULT_LEARN_REPLY,
+  type SettingsResponse,
+  type UpdateSettingsRequest,
+} from '@tangent/shared';
 import { ToastStore } from '@tangent/web-shared';
 import { accountSettings, appProviders, billing, render } from '@tangent/web-shared/testing';
 import { screen } from '@testing-library/dom';
@@ -51,6 +55,31 @@ describe('Advanced settings', () => {
     expect(screen.getByText(/costs about 20 times as much/)).toBeTruthy();
   });
 
+  it('locks the model on Max while Very long is picked, until a shorter length is', async () => {
+    const { api, replies, user } = await open({ ...credit, replies: DEFAULT_LEARN_REPLY });
+    await user.click(radio(/^Very long/));
+    expect(screen.getByText(/Uses the Max model for accuracy/)).toBeTruthy();
+    // Saved as picked: Max follows from the length.
+    expect(api.updateSettings).toHaveBeenLastCalledWith({ learn: { replyLength: 'veryLong' } });
+    expect(replies.settings()).toEqual({ tier: 'normal', replyLength: 'veryLong' });
+    expect(radio(/^Max/).checked).toBe(true);
+    expect(radio(/^Max/).disabled).toBe(true);
+    expect(radio(/^Normal Quick/).disabled).toBe(true);
+    expect(screen.getByText(/Very long replies need Max. Pick a shorter length/)).toBeTruthy();
+
+    await user.click(radio(/^Long/));
+    expect(radio(/^Normal Quick/).checked).toBe(true);
+    expect(radio(/^Normal Quick/).disabled).toBe(false);
+    expect(screen.queryByText(/Very long replies need Max/)).toBeNull();
+  });
+
+  it('warns of Long on Normal, until Max is picked', async () => {
+    const { user } = await open({ ...credit, replies: { tier: 'normal', replyLength: 'long' } });
+    expect(screen.getByText(/long replies are more likely to have accuracy issues/)).toBeTruthy();
+    await user.click(radio(/^Max/));
+    expect(screen.queryByText(/more likely to have accuracy issues/)).toBeNull();
+  });
+
   it('goes back to the defaults in one save', async () => {
     const { api, replies, user } = await open({
       ...credit,
@@ -88,5 +117,16 @@ describe('Advanced settings', () => {
     expect(screen.getByText(/always uses the stronger model/)).toBeTruthy();
     expect(radio(/^Max/).disabled).toBe(true);
     expect(radio(/^Very long/).disabled).toBe(false);
+  });
+
+  it('neither locks nor warns on an Anthropic key, whose one model is the stronger', async () => {
+    await open({
+      chosen: 'own-key',
+      chosenKey: 'anthropic',
+      savedKeys: ['anthropic'],
+      learnProviders: ['openrouter', 'anthropic'],
+      replies: { tier: 'normal', replyLength: 'long' },
+    });
+    expect(screen.queryByText(/more likely to have accuracy issues/)).toBeNull();
   });
 });

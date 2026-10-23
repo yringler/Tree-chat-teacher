@@ -127,10 +127,10 @@ void main() {
         );
         await pumpApp(tester, api, location: '/t/t1');
         expect(chip(), findsOneWidget);
-        expect(find.text('Max · Very long'), findsOneWidget);
+        expect(find.text('Very long · Max'), findsOneWidget);
         expect(
           find.bySemanticsLabel(
-            'Advanced settings: Max model, very long replies. Change',
+            'Advanced settings: very long replies, Max model (required for very long replies). Change',
           ),
           findsOneWidget,
         );
@@ -151,6 +151,86 @@ void main() {
         );
       },
     );
+
+    /// The model option labelled [label] in Advanced settings.
+    RadioListTile<ModelTier> model(WidgetTester tester, String label) =>
+        tester.widget<RadioListTile<ModelTier>>(
+          find.widgetWithText(RadioListTile<ModelTier>, label),
+        );
+
+    ModelTier? modelShown(WidgetTester tester) => tester
+        .widget<RadioGroup<ModelTier>>(find.byType(RadioGroup<ModelTier>))
+        .groupValue;
+
+    testWidgets(
+      'locks the model on Max while Very long is picked, until a shorter length is',
+      (tester) async {
+        api.settingsAnswer = const Settings(
+          walkthroughDoneAt: '2026-01-01T00:00:00.000Z',
+          learn: LearnReplySettings(replyLength: ReplyLength.veryLong),
+        );
+        await pumpApp(tester, api, location: '/t/t1');
+        expect(find.text('Very long · Max'), findsOneWidget);
+        await tester.tap(chip());
+        await settle(tester);
+        expect(
+          find.textContaining('Uses the Max model for accuracy'),
+          findsOneWidget,
+        );
+        expect(modelShown(tester), ModelTier.max);
+        expect(model(tester, 'Max').enabled, isFalse);
+        expect(model(tester, 'Normal').enabled, isFalse);
+        expect(
+          find.text(
+            'Very long replies need Max. Pick a shorter length to choose Normal.',
+          ),
+          findsOneWidget,
+        );
+
+        await tester.ensureVisible(find.text('A few pages, in sections.'));
+        await tester.tap(find.text('A few pages, in sections.'));
+        await settle(tester);
+        expect(api.learnReplySaves.single, (null, ReplyLength.long));
+        expect(modelShown(tester), ModelTier.normal);
+        expect(model(tester, 'Normal').enabled, isTrue);
+        expect(find.textContaining('Very long replies need Max'), findsNothing);
+        // Long on Normal is allowed, with a warning.
+        expect(
+          find.textContaining('more likely to have accuracy issues'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('warns of Long on Normal on the chip and in the settings', (
+      tester,
+    ) async {
+      api.settingsAnswer = const Settings(
+        walkthroughDoneAt: '2026-01-01T00:00:00.000Z',
+        learn: LearnReplySettings(replyLength: ReplyLength.long),
+      );
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(find.text('⚠️ Long'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(
+          RegExp(r'^Advanced settings: long replies\. On the Normal model'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(chip());
+      await settle(tester);
+      expect(
+        find.textContaining('more likely to have accuracy issues'),
+        findsOneWidget,
+      );
+      await tester.tap(find.textContaining('A stronger model for hard topics'));
+      await settle(tester);
+      expect(api.learnReplySaves.single, (ModelTier.max, null));
+      expect(
+        find.textContaining('more likely to have accuracy issues'),
+        findsNothing,
+      );
+    });
   });
 
   testWidgets('an empty lesson asks what to learn', (tester) async {

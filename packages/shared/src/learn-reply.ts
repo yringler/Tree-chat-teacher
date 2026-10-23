@@ -54,7 +54,8 @@ export const REPLY_LENGTH_LABELS: Readonly<Record<LearnReplyLength, string>> = {
 export const REPLY_LENGTH_HINTS: Readonly<Record<LearnReplyLength, string>> = {
   normal: 'A page or so. Short questions still get short answers.',
   long: 'A few pages, in sections.',
-  veryLong: 'About a chapter, in sections. Works best with Max.',
+  veryLong:
+    'About a chapter, in sections. Uses the Max model for accuracy (about 20× the cost of Normal).',
 };
 
 /** The line under each model tier in Learn's settings. */
@@ -69,6 +70,17 @@ export const REPLY_LENGTH_FOOTNOTE =
 
 /** Shown in the settings, and as the chip's note, while replies are paid from the open pool. */
 export const LEARN_REPLY_POOL_NOTE = 'Not used for free replies';
+
+/** Under the model choice while a length that requires Max (`LENGTH_REQUIRES_MAX`) locks it on Max. */
+export const LEARN_REPLY_MAX_REQUIRED_NOTE =
+  'Very long replies need Max. Pick a shorter length to choose Normal.';
+
+/** Marks a warning in the settings and on the chip; left out of what a screen reader says. */
+export const LEARN_REPLY_WARNING_MARK = '⚠️';
+
+/** Under the length group, after the mark, while `warnsLongOnNormal`. */
+export const LEARN_REPLY_LONG_WARNING =
+  'On the Normal model, long replies are more likely to have accuracy issues. Consider switching to Max.';
 
 /** Shown in place of the model choice on the learner's own Anthropic key, which has one model. */
 export const LEARN_REPLY_FIXED_MODEL_NOTE = 'Your Anthropic key always uses the stronger model.';
@@ -135,7 +147,7 @@ The learner chose ${REPLY_LENGTH_LABELS[length].toLowerCase()} replies: ${range}
 
 /** What the composer shows while a setting isn't the default (`learnReplyIndicator`). */
 export interface LearnReplyIndicator {
-  /** The non-default settings, e.g. "Max · Very long". */
+  /** The settings that differ from the default, as they apply, e.g. "Very long · Max" or "Max · Long". */
   label: string;
   /** Replies don't use them now (the open pool pays): the chip is muted and says why. */
   off: boolean;
@@ -154,35 +166,61 @@ export interface LearnReplyContext {
 }
 
 /**
- * The composer chip for `settings`: null when every setting that could
- * apply is the default, so a learner who changed one always sees it next to
- * where they type.
+ * Whether to warn that Long runs on Normal: allowed, but less accurate than
+ * on Max. Not where the length doesn't apply (the pool) or the model can't
+ * be chosen (an own key with one model).
+ */
+export function warnsLongOnNormal(
+  settings: LearnReplySettings,
+  context: LearnReplyContext,
+): boolean {
+  return (
+    settings.replyLength === 'long' &&
+    effectiveLearnTier(settings) === 'normal' &&
+    !context.pool &&
+    !context.fixedModel
+  );
+}
+
+/**
+ * The composer chip for `settings`, as they apply (`effectiveLearnTier`):
+ * null when every setting that could apply is the default, so a learner who
+ * changed one always sees it next to where they type. A length that
+ * requires Max names it after itself ("Very long · Max").
  */
 export function learnReplyIndicator(
   settings: LearnReplySettings,
   context: LearnReplyContext,
 ): LearnReplyIndicator | null {
-  const max = settings.tier === 'max' && !context.fixedModel;
+  const max = effectiveLearnTier(settings) === 'max' && !context.fixedModel;
   const long = settings.replyLength !== 'normal';
   if (!max && !long) return null;
-  const label = [
-    max ? TIER_LABELS.max : null,
-    long ? REPLY_LENGTH_LABELS[settings.replyLength] : null,
-  ]
-    .filter((p): p is string => p !== null)
-    .join(' · ');
-  const spoken = [
-    max ? 'Max model' : null,
-    long ? `${REPLY_LENGTH_LABELS[settings.replyLength].toLowerCase()} replies` : null,
-  ]
-    .filter((p): p is string => p !== null)
-    .join(', ');
+  const required = LENGTH_REQUIRES_MAX[settings.replyLength];
+  const warn = warnsLongOnNormal(settings, context);
+  const lengthLabel = REPLY_LENGTH_LABELS[settings.replyLength];
+  const lengthSpoken = `${lengthLabel.toLowerCase()} replies`;
+  const tierPart = max
+    ? {
+        label: TIER_LABELS.max,
+        spoken: required ? `Max model (required for ${lengthSpoken})` : 'Max model',
+      }
+    : null;
+  const lengthPart = long
+    ? {
+        label: warn ? `${LEARN_REPLY_WARNING_MARK} ${lengthLabel}` : lengthLabel,
+        spoken: lengthSpoken,
+      }
+    : null;
+  const parts = (required ? [lengthPart, tierPart] : [tierPart, lengthPart]).filter(
+    (p): p is { label: string; spoken: string } => p !== null,
+  );
   const note = context.pool ? LEARN_REPLY_POOL_NOTE : null;
+  const spoken = parts.map((p) => p.spoken).join(', ');
   return {
-    label,
+    label: parts.map((p) => p.label).join(' · '),
     off: context.pool,
     note,
-    ariaLabel: `Advanced settings: ${spoken}${note ? `, ${note.toLowerCase()}` : ''}. Change`,
+    ariaLabel: `Advanced settings: ${spoken}${note ? `, ${note.toLowerCase()}` : ''}.${warn ? ` ${LEARN_REPLY_LONG_WARNING}` : ''} Change`,
   };
 }
 

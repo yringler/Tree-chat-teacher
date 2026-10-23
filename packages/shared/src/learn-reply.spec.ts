@@ -5,8 +5,12 @@ import {
   effectiveLearnTier,
   LEARN_REPLY_LENGTHS,
   LENGTH_REQUIRES_MAX,
+  LEARN_REPLY_LONG_WARNING,
   LEARN_REPLY_POOL_NOTE,
+  LEARN_REPLY_WARNING_MARK,
   learnReplyIndicator,
+  REPLY_LENGTH_HINTS,
+  warnsLongOnNormal,
   REPLY_LENGTH_WORDS,
   replyLengthInstructions,
   type LearnReplyContext,
@@ -28,12 +32,34 @@ describe('learnReplyIndicator', () => {
       note: null,
       ariaLabel: 'Advanced settings: Max model. Change',
     });
-    expect(learnReplyIndicator({ tier: 'normal', replyLength: 'long' }, paid)?.label).toBe('Long');
-    expect(learnReplyIndicator({ tier: 'max', replyLength: 'veryLong' }, paid)).toEqual({
-      label: 'Max · Very long',
+    expect(learnReplyIndicator({ tier: 'max', replyLength: 'long' }, paid)).toEqual({
+      label: 'Max · Long',
       off: false,
       note: null,
-      ariaLabel: 'Advanced settings: Max model, very long replies. Change',
+      ariaLabel: 'Advanced settings: Max model, long replies. Change',
+    });
+  });
+
+  it('shows Very long on Max, the model it needs, whatever tier is saved', () => {
+    const veryLong = {
+      label: 'Very long · Max',
+      off: false,
+      note: null,
+      ariaLabel:
+        'Advanced settings: very long replies, Max model (required for very long replies). Change',
+    };
+    expect(learnReplyIndicator({ tier: 'max', replyLength: 'veryLong' }, paid)).toEqual(veryLong);
+    expect(learnReplyIndicator({ tier: 'normal', replyLength: 'veryLong' }, paid)).toEqual(
+      veryLong,
+    );
+  });
+
+  it('warns of Long on Normal, and says why to a screen reader', () => {
+    expect(learnReplyIndicator({ tier: 'normal', replyLength: 'long' }, paid)).toEqual({
+      label: '⚠️ Long',
+      off: false,
+      note: null,
+      ariaLabel: `Advanced settings: long replies. ${LEARN_REPLY_LONG_WARNING} Change`,
     });
   });
 
@@ -46,13 +72,47 @@ describe('learnReplyIndicator', () => {
       note: LEARN_REPLY_POOL_NOTE,
       ariaLabel: 'Advanced settings: Max model, long replies, not used for free replies. Change',
     });
+    // No warning where the length isn't used.
+    expect(
+      learnReplyIndicator(
+        { tier: 'normal', replyLength: 'long' },
+        { pool: true, fixedModel: false },
+      ),
+    ).toMatchObject({ label: 'Long', off: true });
   });
 
   it('leaves out Max on a key with one model, where it changes nothing', () => {
     const fixed = { pool: false, fixedModel: true };
     expect(learnReplyIndicator({ tier: 'max', replyLength: 'normal' }, fixed)).toBeNull();
-    expect(learnReplyIndicator({ tier: 'max', replyLength: 'veryLong' }, fixed)?.label).toBe(
-      'Very long',
+    expect(learnReplyIndicator({ tier: 'normal', replyLength: 'veryLong' }, fixed)).toEqual({
+      label: 'Very long',
+      off: false,
+      note: null,
+      ariaLabel: 'Advanced settings: very long replies. Change',
+    });
+    // Its one model is the stronger one: no warning for Long.
+    expect(learnReplyIndicator({ tier: 'normal', replyLength: 'long' }, fixed)?.label).toBe('Long');
+  });
+});
+
+describe('warnsLongOnNormal', () => {
+  it('warns only of Long on Normal, where the model can be chosen and the length applies', () => {
+    expect(warnsLongOnNormal({ tier: 'normal', replyLength: 'long' }, paid)).toBe(true);
+    expect(warnsLongOnNormal({ tier: 'max', replyLength: 'long' }, paid)).toBe(false);
+    expect(warnsLongOnNormal({ tier: 'normal', replyLength: 'normal' }, paid)).toBe(false);
+    expect(warnsLongOnNormal({ tier: 'normal', replyLength: 'veryLong' }, paid)).toBe(false);
+    expect(
+      warnsLongOnNormal({ tier: 'normal', replyLength: 'long' }, { pool: false, fixedModel: true }),
+    ).toBe(false);
+    expect(
+      warnsLongOnNormal({ tier: 'normal', replyLength: 'long' }, { pool: true, fixedModel: false }),
+    ).toBe(false);
+  });
+
+  it('says what Very long costs, and what Long risks on Normal', () => {
+    expect(REPLY_LENGTH_HINTS.veryLong).toMatch(/Uses the Max model .*20× the cost of Normal/);
+    expect(`${LEARN_REPLY_WARNING_MARK} ${LEARN_REPLY_LONG_WARNING}`).toBe(
+      '⚠️ On the Normal model, long replies are more likely to have accuracy issues. Consider switching to Max.',
     );
   });
 });
