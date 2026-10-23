@@ -71,7 +71,7 @@ class ReplyFollower {
 
   /// Sends [content] on [branchId] and follows its reply. Completes with
   /// true once the server has started the reply, and false when the stream
-  /// ended first (refused, or lost).
+  /// ended first (refused, or lost) and the message didn't reach the server.
   Future<bool> send(String branchId, String content) {
     final accepted = Completer<bool>();
     _unstarted++;
@@ -89,34 +89,42 @@ class ReplyFollower {
         delay: _delay,
         policy: _policy,
       ),
-      accept: accept,
+      send: (
+        branchId: branchId,
+        known: {for (final node in nodes()) node.id},
+        accept: accept,
+      ),
     );
     return accepted.future;
   }
 
-  void _run(ReplyStream stream, {void Function(bool started)? accept}) {
+  void _run(ReplyStream stream, {_Send? send}) {
     _streams.add(stream);
     unawaited(
       stream
           .run((event) {
-            if (event is StartEvent) accept?.call(true);
+            if (event is StartEvent) send?.accept(true);
             onEvent(event, stream.replyId);
           })
-          .then((outcome) => _ended(stream, outcome, accept)),
+          .then((outcome) => _ended(stream, outcome, send)),
     );
   }
 
   Future<void> _ended(
     ReplyStream stream,
     ReplyOutcome outcome,
-    void Function(bool started)? accept,
+    _Send? send,
   ) async {
     _streams.remove(stream);
     if (_disposed) return;
     final id = stream.replyId;
+    var started = false;
     switch (outcome) {
       case ReplyRefused(:final error):
         onError(error);
+      case ReplyLost(:final error, replyId: null)
+          when send != null && error is ApiException && error.status == 0:
+        started = await _recoverSend(send, error);
       // The stream reconnects itself, so a reply still shown being written
       // when it ends was given up on.
       case ReplyLost(:final error) when id != null && _isStreaming(id):
@@ -126,7 +134,7 @@ class ReplyFollower {
       case ReplyDone() || ReplyErrored() || ReplyCancelled():
     }
     if (_disposed) return;
-    accept?.call(false);
+    send?.accept(started);
     onEnded();
   }
 
@@ -155,6 +163,30 @@ class ReplyFollower {
     );
   }
 
+  /// Reads the lesson again after [send] was lost before its reply started:
+  /// the message may have reached the server, which then writes its reply
+  /// and refuses another send on the branch. A message of the learner's on
+  /// the branch that wasn't there before means it did; the replies still
+  /// being written are followed either way. Answers whether it did.
+  Future<bool> _recoverSend(_Send send, Object error) async {
+    try {
+      await reload();
+    } on Object catch (reloadError) {
+      if (!_disposed) onError(reloadError);
+      return false;
+    }
+    if (_disposed) return false;
+    followAll(nodes());
+    final arrived = nodes().any(
+      (node) =>
+          node.branchId == send.branchId &&
+          node.role == Role.user &&
+          !send.known.contains(node.id),
+    );
+    if (!arrived) onError(error);
+    return arrived;
+  }
+
   /// Whether [replyId] is still shown being written.
   bool _isStreaming(String replyId) => nodes().any(
     (node) => node.id == replyId && node.status == NodeStatus.streaming,
@@ -172,3 +204,11 @@ class ReplyFollower {
 /// What a reply given up on says in place of its end.
 const connectionLostText =
     'Connection lost. Open the lesson again to see the final reply.';
+
+/// A send being followed: its branch, the nodes shown when it was sent, and
+/// how to settle what [ReplyFollower.send] answers.
+typedef _Send = ({
+  String branchId,
+  Set<String> known,
+  void Function(bool started) accept,
+});

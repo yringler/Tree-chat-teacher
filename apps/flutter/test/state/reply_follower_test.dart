@@ -171,19 +171,6 @@ void main() {
         'ended',
       ]);
     });
-
-    test(
-      'a send lost before start completes with false, with no reload',
-      () async {
-        final accepted = follower.send('trunk', 'Why tides?');
-        await api.sends.single.controller.close();
-        expect(await accepted, isFalse);
-        await pumpEventQueue();
-        expect(log, hasLength(2));
-        expect(log.first, contains('The reply ended before it started'));
-        expect(log.last, 'ended');
-      },
-    );
   });
 
   group('a reply lost while shown being written', () {
@@ -271,6 +258,86 @@ void main() {
     });
   });
 
+  group('a send lost before its reply started', () {
+    final asked = node('u1', branch: 'trunk', seq: 2);
+
+    setUp(() {
+      // A message from before the send isn't taken for it.
+      shown = [node('u0', branch: 'trunk', seq: 0)];
+    });
+
+    test('is read again, and is sending until then', () async {
+      final read = Completer<void>();
+      reloading = () => read.future;
+      final accepted = follower.send('trunk', 'Why tides?');
+      await api.sends.single.controller.close();
+      await pumpEventQueue();
+      expect(log, ['reload']);
+      expect(follower.sending, isTrue);
+
+      read.complete();
+      expect(await accepted, isFalse);
+      expect(follower.sending, isFalse);
+    });
+
+    test('completes with true when its message reached the server, and '
+        'follows the replies still being written', () async {
+      reloading = () async =>
+          shown = [...shown, asked, reply('a1'), reply('a9')];
+      final accepted = follower.send('trunk', 'Why tides?');
+      await api.sends.single.controller.close();
+      expect(await accepted, isTrue);
+      await pumpEventQueue();
+      expect(log, ['reload', 'ended']);
+      expect([for (final r in api.resumes) r.target], ['a1', 'a9']);
+    });
+
+    test('completes with true when its reply has already ended too', () async {
+      reloading = () async =>
+          shown = [...shown, asked, reply('a1', status: NodeStatus.complete)];
+      final accepted = follower.send('trunk', 'Why tides?');
+      await api.sends.single.controller.close();
+      expect(await accepted, isTrue);
+      await pumpEventQueue();
+      expect(log, ['reload', 'ended']);
+      expect(api.resumes, isEmpty);
+    });
+
+    test(
+      'completes with false and reports why when its message is not there',
+      () async {
+        final accepted = follower.send('trunk', 'Why tides?');
+        await api.sends.single.controller.close();
+        expect(await accepted, isFalse);
+        await pumpEventQueue();
+        expect(log, hasLength(3));
+        expect(log.first, 'reload');
+        expect(log[1], contains('The reply ended before it started'));
+        expect(log.last, 'ended');
+      },
+    );
+
+    test(
+      'completes with false and reports why the lesson cannot be read',
+      () async {
+        reloading = () async => throw const ApiException(
+          status: 0,
+          code: 'network',
+          message: 'offline',
+        );
+        final accepted = follower.send('trunk', 'Why tides?');
+        await api.sends.single.controller.close();
+        expect(await accepted, isFalse);
+        await pumpEventQueue();
+        expect(log, [
+          'reload',
+          'error ApiException(0 network: offline)',
+          'ended',
+        ]);
+      },
+    );
+  });
+
   group('dispose', () {
     test('stops every stream, and reports nothing after', () async {
       final cancelled = <String>[];
@@ -311,6 +378,25 @@ void main() {
       await pumpEventQueue();
       expect(log, ['StartEvent a1', 'reload']);
       expect(api.resumes, isEmpty);
+    });
+
+    test('reports nothing when a reload it waits on fails after', () async {
+      final read = Completer<void>();
+      reloading = () => read.future;
+      final accepted = follower.send('trunk', 'Why tides?');
+      var settled = false;
+      unawaited(accepted.then((_) => settled = true));
+      await api.sends.single.controller.close();
+      await pumpEventQueue();
+      expect(log, ['reload']);
+
+      follower.dispose();
+      read.completeError(
+        const ApiException(status: 0, code: 'network', message: 'offline'),
+      );
+      await pumpEventQueue();
+      expect(log, ['reload']);
+      expect(settled, isFalse);
     });
   });
 }

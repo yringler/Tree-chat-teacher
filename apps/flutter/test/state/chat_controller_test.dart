@@ -479,4 +479,56 @@ void main() {
       expect(chat.notice, isNotNull);
     });
   });
+
+  group('a send lost before its reply started', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+
+    setUp(() async {
+      api = FakeTangentApi()..details['t1'] = treeDetail();
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+      await chat.load();
+    });
+
+    tearDown(() => chat.dispose());
+
+    test(
+      'counts as sent, with no notice, when the question reached the server',
+      () async {
+        api.details['t1'] = treeDetail(
+          nodes: [
+            node('u1', branch: 'trunk', seq: 0, content: 'hi'),
+            node(
+              'a1',
+              branch: 'trunk',
+              seq: 1,
+              role: Role.assistant,
+              status: NodeStatus.streaming,
+            ),
+          ],
+        );
+        final accepted = chat.send('hi');
+        await api.sends.single.controller.close();
+        expect(await accepted, isTrue);
+        expect(chat.sending, isFalse);
+        expect(chat.notice, isNull);
+        expect(chat.streamingNode?.id, 'a1');
+        expect([for (final r in api.resumes) r.target], ['a1']);
+      },
+    );
+
+    test('is refused, with a notice, when it did not', () async {
+      final accepted = chat.send('hi');
+      await api.sends.single.controller.close();
+      expect(await accepted, isFalse);
+      expect(chat.sending, isFalse);
+      expect(chat.notice, isNotNull);
+    });
+  });
 }
