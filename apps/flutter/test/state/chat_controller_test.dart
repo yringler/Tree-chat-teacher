@@ -226,6 +226,65 @@ void main() {
     });
   });
 
+  group('replies being written', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+
+    setUp(() {
+      api = FakeTangentApi()
+        ..details['t1'] = treeDetail(
+          nodes: [
+            node('u1', branch: 'trunk', seq: 0),
+            node(
+              'a1',
+              branch: 'trunk',
+              seq: 1,
+              role: Role.assistant,
+              status: NodeStatus.streaming,
+            ),
+          ],
+        );
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+    });
+
+    tearDown(() => chat.dispose());
+
+    test('are followed when the lesson opens, once', () async {
+      await chat.load();
+      await chat.load();
+      expect([for (final s in api.resumes) s.target], ['a1']);
+    });
+
+    test('a send is sending until the server starts its reply', () async {
+      await chat.load();
+      final accepted = chat.send('And then?');
+      expect(chat.sending, isTrue);
+      expect(await chat.send('Again?'), isFalse);
+      api.sends.single.controller.add(
+        StartEvent(
+          userNode: node('u2', branch: 'trunk', seq: 2),
+          assistantNode: node(
+            'a2',
+            branch: 'trunk',
+            seq: 3,
+            role: Role.assistant,
+            status: NodeStatus.streaming,
+          ),
+          branch: branch('trunk'),
+        ),
+      );
+      expect(await accepted, isTrue);
+      expect(chat.sending, isFalse);
+      expect([for (final n in chat.thread) n.id], ['u1', 'a1', 'u2', 'a2']);
+    });
+  });
+
   group('deleteMessage', () {
     late FakeTangentApi api;
     late ChatController chat;

@@ -3,16 +3,16 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
-import '../api/reply_stream.dart';
 import '../api/tangent_api.dart';
 import 'composer_plan.dart';
 import 'lessons_controller.dart';
 import 'notice.dart';
+import 'reply_follower.dart';
 import 'session_controller.dart';
 import 'thread.dart';
 
 /// One lesson: its branches and messages, the branch on screen, and the
-/// replies streaming into it.
+/// replies streaming into it, which a [ReplyFollower] follows.
 class ChatController extends ChangeNotifier {
   ChatController({
     required this.api,
@@ -31,9 +31,17 @@ class ChatController extends ChangeNotifier {
   final _branches = <String, Branch>{};
   final _nodes = <String, ChatNode>{};
   final _status = <String, String>{};
-  final _streams = <ReplyStream>{};
   String? _requestedBranchId;
   bool _disposed = false;
+
+  late final _replies = ReplyFollower(
+    transport: api,
+    onEvent: _apply,
+    isStreaming: (id) => _nodes[id]?.status == NodeStatus.streaming,
+    onError: _fail,
+    reload: _reload,
+    onEnded: _notify,
+  );
 
   bool _loading = true;
   bool get loading => _loading;
@@ -47,8 +55,10 @@ class ChatController extends ChangeNotifier {
   Notice? get notice => _notice;
 
   /// A message is on its way and the server hasn't started its reply yet.
-  bool _sending = false;
-  bool get sending => _sending;
+  bool get sending => _creatingTangent || _replies.sending;
+
+  /// A tangent is being made for the message it starts with.
+  bool _creatingTangent = false;
 
   String get title => lessons.titleOf(treeId) ?? _tree?.title ?? '';
 
@@ -180,11 +190,7 @@ class ChatController extends ChangeNotifier {
     if (_disposed) return;
     _loading = false;
     _notify();
-    for (final node in _nodes.values.toList()) {
-      if (node.role == Role.assistant && node.status == NodeStatus.streaming) {
-        _listen(ReplyStream.attach(api, node.id));
-      }
-    }
+    _replies.followAll(_nodes.values);
   }
 
   void selectBranch(String? branchId) {
@@ -202,17 +208,12 @@ class ChatController extends ChangeNotifier {
   /// server has started the reply, and false when it refused (see [notice]).
   Future<bool> send(String text) {
     final id = branchId;
-    if (id == null || _sending) return Future.value(false);
-    final accepted = Completer<bool>();
-    _sending = true;
+    if (id == null || sending) return Future.value(false);
     _notice = null;
     _atTangentStart = false;
+    final accepted = _replies.send(id, text);
     _notify();
-    _listen(
-      ReplyStream.send(api, branchId: id, content: text),
-      accepted: accepted,
-    );
-    return accepted.future;
+    return accepted;
   }
 
   /// Stops the reply being written; its stream then ends with an error.
@@ -240,7 +241,7 @@ class ChatController extends ChangeNotifier {
   }) async {
     if (question.trim().isEmpty) return null;
     _notice = null;
-    _sending = true;
+    _creatingTangent = true;
     _notify();
     try {
       final created = await api.createBranch(
@@ -249,11 +250,11 @@ class ChatController extends ChangeNotifier {
         anchorQuote: anchorQuote,
       );
       _branches[created.id] = created;
-      _sending = false;
+      _creatingTangent = false;
       selectBranch(created.id);
       return (id: created.id, accepted: send(question));
     } on Object catch (error) {
-      _sending = false;
+      _creatingTangent = false;
       _fail(error);
       _notify();
       return null;
@@ -300,44 +301,6 @@ class ChatController extends ChangeNotifier {
   void dismissNotice() {
     _notice = null;
     _notify();
-  }
-
-  void _listen(ReplyStream stream, {Completer<bool>? accepted}) {
-    void accept(bool value) {
-      if (accepted == null || accepted.isCompleted) return;
-      _sending = false;
-      accepted.complete(value);
-    }
-
-    _streams.add(stream);
-    unawaited(
-      stream
-          .run((event) {
-            if (event is StartEvent) accept(true);
-            _apply(event, stream.replyId);
-          })
-          .then((outcome) {
-            _streams.remove(stream);
-            if (_disposed || outcome is ReplyCancelled) return;
-            switch (outcome) {
-              case ReplyRefused(:final error):
-                _fail(error);
-              case ReplyLost(:final error):
-                _fail(error);
-              case ReplyDone() || ReplyErrored() || ReplyCancelled():
-            }
-            // The stream re-attaches itself, so one that still ends before
-            // the reply is done has given up: the lesson is reloaded to show
-            // what the server has.
-            final id = stream.replyId;
-            final node = id == null ? null : _nodes[id];
-            if (node != null && node.status == NodeStatus.streaming) {
-              unawaited(_reload());
-            }
-            accept(false);
-            _notify();
-          }),
-    );
   }
 
   void _apply(StreamEvent event, String? replyId) {
@@ -438,9 +401,7 @@ class ChatController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    for (final stream in _streams.toList()) {
-      stream.cancel();
-    }
+    _replies.dispose();
     super.dispose();
   }
 }
