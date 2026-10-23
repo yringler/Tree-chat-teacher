@@ -37,7 +37,7 @@ class ChatController extends ChangeNotifier {
   late final _replies = ReplyFollower(
     transport: api,
     onEvent: _apply,
-    isStreaming: (id) => _nodes[id]?.status == NodeStatus.streaming,
+    nodes: () => _nodes.values,
     onError: _fail,
     reload: _reload,
     onEnded: _notify,
@@ -333,8 +333,9 @@ class ChatController extends ChangeNotifier {
           if (!_nodes.containsKey(node.id)) break;
           _nodes[node.id] = node;
           _status.remove(node.id);
-        } else if (nodeId != null) {
-          _markFailed(nodeId, message);
+        } else if (nodeId ?? replyId case final id?) {
+          // An error naming no node still ends the reply its stream follows.
+          _markFailed(id, message);
         }
     }
     _notify();
@@ -357,12 +358,9 @@ class ChatController extends ChangeNotifier {
     );
   }
 
+  /// Reads the lesson again for [_replies]; throws when it can't.
   Future<void> _reload() async {
-    try {
-      _replace(await api.tree(treeId));
-    } on Object catch (error) {
-      _fail(error);
-    }
+    _replace(await api.tree(treeId));
     _notify();
   }
 

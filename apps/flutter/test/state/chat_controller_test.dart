@@ -5,6 +5,7 @@ import 'package:tangent/api/models.dart';
 import 'package:tangent/state/chat_controller.dart';
 import 'package:tangent/state/composer_plan.dart';
 import 'package:tangent/state/lessons_controller.dart';
+import 'package:tangent/state/reply_follower.dart';
 import 'package:tangent/state/session_controller.dart';
 
 import '../fakes.dart';
@@ -376,6 +377,106 @@ void main() {
         'Replies still being written there are stopped. This cannot be undone.',
       );
       expect(chat.deleteQuestion(a1, titleOf: (b) => b.title), isNull);
+    });
+  });
+
+  group('a reply whose stream gives up', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+    final question = node('u1', branch: 'trunk', seq: 0, content: 'hi');
+    final writing = node(
+      'a1',
+      branch: 'trunk',
+      seq: 1,
+      role: Role.assistant,
+      status: NodeStatus.streaming,
+    );
+    final written = node(
+      'a1',
+      branch: 'trunk',
+      seq: 1,
+      role: Role.assistant,
+      content: 'Hello',
+    );
+
+    setUp(() async {
+      api = FakeTangentApi()..details['t1'] = treeDetail();
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+      await chat.load();
+    });
+
+    tearDown(() => chat.dispose());
+
+    /// Sends a question and loses its reply after `start`. Any loss will
+    /// do; one the stream doesn't reconnect after keeps the test off the
+    /// real waits between reconnects.
+    Future<void> sendAndLose() async {
+      unawaited(chat.send('hi'));
+      api.sends.single.controller
+        ..add(
+          StartEvent(
+            userNode: question,
+            assistantNode: writing,
+            branch: branch('trunk'),
+          ),
+        )
+        ..addError(StateError('lost'));
+      await pumpEventQueue();
+    }
+
+    test('is followed again while the server still writes it', () async {
+      api.details['t1'] = treeDetail(nodes: [question, writing]);
+      await sendAndLose();
+      expect([for (final r in api.resumes) r.target], ['a1']);
+      expect(chat.notice, isNull);
+
+      api.resumes.single.controller.add(
+        DoneEvent(node: written, branch: branch('trunk')),
+      );
+      await pumpEventQueue();
+      expect(chat.streamingNode, isNull);
+      expect(chat.thread.last.content, 'Hello');
+    });
+
+    test('shows what the server has, with no notice, once it ended', () async {
+      api.details['t1'] = treeDetail(nodes: [question, written]);
+      await sendAndLose();
+      expect(api.resumes, isEmpty);
+      expect(chat.notice, isNull);
+      expect(chat.thread.last.content, 'Hello');
+    });
+
+    test('ends in an error that names no reply', () async {
+      unawaited(chat.send('hi'));
+      api.sends.single.controller
+        ..add(
+          StartEvent(
+            userNode: question,
+            assistantNode: writing,
+            branch: branch('trunk'),
+          ),
+        )
+        ..add(const ErrorEvent(nodeId: null, message: 'Boom', node: null));
+      await pumpEventQueue();
+      expect(chat.streamingNode, isNull);
+      expect(chat.thread.last.status, NodeStatus.error);
+      expect(chat.thread.last.error, 'Boom');
+    });
+
+    test('is marked failed when the lesson cannot be read again', () async {
+      api.details.remove('t1');
+      await sendAndLose();
+      expect(api.resumes, isEmpty);
+      expect(chat.streamingNode, isNull);
+      expect(chat.thread.last.status, NodeStatus.error);
+      expect(chat.thread.last.error, connectionLostText);
+      expect(chat.notice, isNotNull);
     });
   });
 }

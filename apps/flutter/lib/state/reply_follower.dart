@@ -5,12 +5,12 @@ import '../api/reply_stream.dart';
 
 /// The replies a lesson follows while they are written: which ones, and
 /// what happens when a reply's stream ends. Each event goes to [onEvent];
-/// the owner keeps the nodes, and answers [isStreaming] from them.
+/// the owner keeps the nodes, and shows them through [nodes].
 class ReplyFollower {
   ReplyFollower({
     required this._transport,
     required this.onEvent,
-    required this.isStreaming,
+    required this.nodes,
     required this.onError,
     required this.reload,
     required this.onEnded,
@@ -25,19 +25,23 @@ class ReplyFollower {
   /// An event of [replyId]'s stream (null until a send's `start`).
   final void Function(StreamEvent event, String? replyId) onEvent;
 
-  /// Whether [replyId] is still shown being written.
-  final bool Function(String replyId) isStreaming;
+  /// The lesson's nodes, as the owner shows them.
+  final Iterable<ChatNode> Function() nodes;
 
   /// Why a send was refused, or a reply's stream gave up.
   final void Function(Object error) onError;
 
-  /// Reads the lesson again from the server.
+  /// Reads the lesson again from the server, and shows it through [nodes];
+  /// throws when it can't.
   final Future<void> Function() reload;
 
-  /// A reply's stream ended, after [onError] and [reload] were started.
+  /// A reply's stream ended, and whatever that called for is done.
   final void Function() onEnded;
 
   final _streams = <ReplyStream>{};
+
+  /// The replies read again once after their stream gave up.
+  final _recovered = <String>{};
   int _unstarted = 0;
   bool _disposed = false;
 
@@ -102,28 +106,59 @@ class ReplyFollower {
     );
   }
 
-  void _ended(
+  Future<void> _ended(
     ReplyStream stream,
     ReplyOutcome outcome,
     void Function(bool started)? accept,
-  ) {
+  ) async {
     _streams.remove(stream);
     if (_disposed) return;
+    final id = stream.replyId;
     switch (outcome) {
       case ReplyRefused(:final error):
         onError(error);
+      // The stream reconnects itself, so a reply still shown being written
+      // when it ends was given up on.
+      case ReplyLost(:final error) when id != null && _isStreaming(id):
+        await _recoverReply(id, error);
       case ReplyLost(:final error):
         onError(error);
       case ReplyDone() || ReplyErrored() || ReplyCancelled():
     }
-    // The stream reconnects itself, so a reply still shown being written
-    // when it ends was given up on: the lesson is read again to show what
-    // the server has.
-    final id = stream.replyId;
-    if (id != null && isStreaming(id)) unawaited(reload());
+    if (_disposed) return;
     accept?.call(false);
     onEnded();
   }
+
+  /// Reads the lesson again to show what the server has of [replyId], whose
+  /// stream gave up while it is shown being written, and follows it again
+  /// if the server still writes it. A reply given up on twice, or whose
+  /// lesson can't be read, is marked failed instead: while reads work but
+  /// its stream keeps failing, recovering again would never end.
+  Future<void> _recoverReply(String replyId, Object error) async {
+    if (!_recovered.add(replyId)) return _giveUp(replyId, error);
+    try {
+      await reload();
+    } on Object catch (reloadError) {
+      if (!_disposed) _giveUp(replyId, reloadError);
+      return;
+    }
+    if (_disposed) return;
+    if (_isStreaming(replyId)) follow(replyId);
+  }
+
+  void _giveUp(String replyId, Object error) {
+    onError(error);
+    onEvent(
+      ErrorEvent(nodeId: replyId, message: connectionLostText, node: null),
+      replyId,
+    );
+  }
+
+  /// Whether [replyId] is still shown being written.
+  bool _isStreaming(String replyId) => nodes().any(
+    (node) => node.id == replyId && node.status == NodeStatus.streaming,
+  );
 
   /// Stops following every reply; nothing is reported after this.
   void dispose() {
@@ -133,3 +168,7 @@ class ReplyFollower {
     }
   }
 }
+
+/// What a reply given up on says in place of its end.
+const connectionLostText =
+    'Connection lost. Open the lesson again to see the final reply.';

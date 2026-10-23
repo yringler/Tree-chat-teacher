@@ -27,16 +27,28 @@ void main() {
   /// What the follower reported, in order.
   late List<String> log;
 
-  /// The replies the owner shows being written.
-  late Set<String> streaming;
+  /// The nodes the owner shows.
+  late List<ChatNode> shown;
+
+  /// What reading the lesson again does.
+  late Future<void> Function() reloading;
+
+  /// The last event given.
+  StreamEvent? lastEvent;
 
   ReplyFollower make({ReconnectPolicy policy = const ReconnectPolicy()}) =>
       ReplyFollower(
         transport: api,
-        onEvent: (event, replyId) => log.add('${event.runtimeType} $replyId'),
-        isStreaming: streaming.contains,
+        onEvent: (event, replyId) {
+          lastEvent = event;
+          log.add('${event.runtimeType} $replyId');
+        },
+        nodes: () => shown,
         onError: (error) => log.add('error $error'),
-        reload: () async => log.add('reload'),
+        reload: () {
+          log.add('reload');
+          return reloading();
+        },
         onEnded: () => log.add('ended'),
         delay: (_) async {},
         policy: policy,
@@ -45,7 +57,9 @@ void main() {
   setUp(() {
     api = FakeTangentApi();
     log = [];
-    streaming = {};
+    shown = [];
+    reloading = () async {};
+    lastEvent = null;
     follower = make();
   });
 
@@ -145,24 +159,6 @@ void main() {
       expect(log, ['DoneEvent a1', 'ended']);
     });
 
-    test(
-      'a reply lost while shown being written reports why and reloads',
-      () async {
-        follower = make(policy: const ReconnectPolicy(maxReconnects: 0));
-        streaming.add('a1');
-        unawaited(follower.send('trunk', 'Why tides?'));
-        api.sends.single.controller.add(start);
-        await api.sends.single.controller.close();
-        await pumpEventQueue();
-        expect(log, [
-          'StartEvent a1',
-          'error ApiException(0 network: Connection lost)',
-          'reload',
-          'ended',
-        ]);
-      },
-    );
-
     test('a reply no longer shown being written is not reloaded', () async {
       follower = make(policy: const ReconnectPolicy(maxReconnects: 0));
       unawaited(follower.send('trunk', 'Why tides?'));
@@ -190,6 +186,91 @@ void main() {
     );
   });
 
+  group('a reply lost while shown being written', () {
+    setUp(() {
+      follower = make(policy: const ReconnectPolicy(maxReconnects: 1));
+      shown = [reply('a1')];
+    });
+
+    /// Sends a message and loses its reply after `start`, and its one
+    /// reconnect.
+    Future<void> sendAndLose() async {
+      unawaited(follower.send('trunk', 'Why tides?'));
+      api.sends.single.controller.add(start);
+      await api.sends.single.controller.close();
+      await pumpEventQueue();
+      await api.resumes.single.controller.close();
+      await pumpEventQueue();
+    }
+
+    /// The attaches after the reconnect [sendAndLose] made.
+    List<String> followedAgain() => [
+      for (final r in api.resumes.skip(1)) r.target,
+    ];
+
+    test('is read again, with no notice when it has ended', () async {
+      reloading = () async =>
+          shown = [reply('a1', status: NodeStatus.complete)];
+      await sendAndLose();
+      expect(log, ['StartEvent a1', 'reload', 'ended']);
+      expect(followedAgain(), isEmpty);
+    });
+
+    test('is followed again while the server still writes it', () async {
+      reloading = () async => shown = [reply('a1'), reply('a2')];
+      await sendAndLose();
+      expect(followedAgain(), ['a1']);
+      expect(log, ['StartEvent a1', 'reload', 'ended']);
+
+      api.resumes.last.controller.add(done);
+      await pumpEventQueue();
+      expect(log.skip(3), ['DoneEvent a1', 'ended']);
+    });
+
+    test('is marked failed when lost again, without reading it again', () async {
+      await sendAndLose();
+      await api.resumes.last.controller.close();
+      await pumpEventQueue();
+      expect(log, [
+        'StartEvent a1',
+        'reload',
+        'ended',
+        'error ApiException(0 network: Connection lost)',
+        'ErrorEvent a1',
+        'ended',
+      ]);
+      expect(
+        lastEvent,
+        isA<ErrorEvent>()
+            .having((e) => e.nodeId, 'nodeId', 'a1')
+            .having((e) => e.node, 'node', isNull)
+            .having(
+              (e) => e.message,
+              'message',
+              'Connection lost. Open the lesson again to see the final reply.',
+            ),
+      );
+      expect(followedAgain(), ['a1']);
+    });
+
+    test('is marked failed when the lesson cannot be read again', () async {
+      reloading = () async => throw const ApiException(
+        status: 0,
+        code: 'network',
+        message: 'offline',
+      );
+      await sendAndLose();
+      expect(log, [
+        'StartEvent a1',
+        'reload',
+        'error ApiException(0 network: offline)',
+        'ErrorEvent a1',
+        'ended',
+      ]);
+      expect(followedAgain(), isEmpty);
+    });
+  });
+
   group('dispose', () {
     test('stops every stream, and reports nothing after', () async {
       final cancelled = <String>[];
@@ -212,6 +293,24 @@ void main() {
 
       follower.follow('a9');
       expect(api.resumes, hasLength(2));
+    });
+
+    test('reports nothing when a reload it waits on ends after', () async {
+      follower = make(policy: const ReconnectPolicy(maxReconnects: 0));
+      shown = [reply('a1')];
+      final read = Completer<void>();
+      reloading = () => read.future;
+      unawaited(follower.send('trunk', 'Why tides?'));
+      api.sends.single.controller.add(start);
+      await api.sends.single.controller.close();
+      await pumpEventQueue();
+      expect(log, ['StartEvent a1', 'reload']);
+
+      follower.dispose();
+      read.complete();
+      await pumpEventQueue();
+      expect(log, ['StartEvent a1', 'reload']);
+      expect(api.resumes, isEmpty);
     });
   });
 }
