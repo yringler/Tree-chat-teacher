@@ -61,6 +61,10 @@ export const accountSettings = sqliteTable('account_settings', {
   maxInputTokens: integer('max_input_tokens'),
   /** What a conversation over the input limit loses (`compact` | `truncate`); null = `compact`. */
   inputOverflow: text('input_overflow'),
+  /** Learn's model tier (`normal` | `max`); null = `normal`. */
+  learnTier: text('learn_tier'),
+  /** Learn's reply length (`normal` | `long` | `veryLong`); null = `normal`. */
+  learnReplyLength: text('learn_reply_length'),
   updatedAt: text('updated_at').notNull(),
 });
 

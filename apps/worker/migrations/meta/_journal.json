@@ -71,6 +71,13 @@
       "when": 1792520461842,
       "tag": "0009_power_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792770765324,
+      "tag": "0010_learn_reply_settings",
+      "breakpoints": true
     }
   ]
 }
