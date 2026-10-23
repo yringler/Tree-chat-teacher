@@ -1,4 +1,4 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { computed, inject, Injectable, signal, type OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { linkTarget } from '@tangent/core/links';
@@ -69,7 +69,7 @@ export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
  * (`unsentDraft`, for the tab and its user).
  */
 @Injectable({ providedIn: 'root' })
-export class LessonStore extends ConversationStore<ApiClient> {
+export class LessonStore extends ConversationStore<ApiClient> implements OnDestroy {
   private readonly ui = inject(UiStore);
   private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
@@ -408,6 +408,14 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
     this.toast.notify(text, kind);
+  }
+
+  protected override withdrawNotice(text: string): void {
+    this.toast.withdraw(text);
+  }
+
+  ngOnDestroy(): void {
+    this.dispose();
   }
 
   fail(err: unknown): void {

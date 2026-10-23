@@ -33,4 +33,13 @@ describe('ToastStore', () => {
     t.dismiss(t.toasts()[0]!.id);
     expect(t.toasts().map((x) => x.text)).toEqual(['b']);
   });
+
+  it('withdraws the toasts saying a text', () => {
+    const t = new ToastStore();
+    t.notify('lost', 'error');
+    t.notify('saved');
+    t.notify('lost', 'error');
+    t.withdraw('lost');
+    expect(t.toasts().map((x) => x.text)).toEqual(['saved']);
+  });
 });
