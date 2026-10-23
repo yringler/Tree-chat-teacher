@@ -117,8 +117,8 @@ export const REPLY_LENGTH_WORDS: Readonly<Record<LearnReplyLength, ReplyLengthWo
  * misconceptions section re-arguing the body, a section regrouping what was
  * already explained, a point made twice, headings on a short reply, tangents
  * repeating the reply, more wrong figures as replies grew, narrated
- * confidence in place of leaving a doubtful detail out, a safety claim made
- * loosely, a closing offer of a diagram after the content, and a dropped
+ * confidence in place of leaving a doubtful detail out, a doubt hardened into
+ * 'never', a safety claim made loosely, a tangent restating its parent, a closing offer of a diagram after the content, and a dropped
  * tangents block.
  */
 const SPEND_RULE =
@@ -129,19 +129,21 @@ const LONG_RULES = [
   "- No section that regroups what's already been explained (a timeline, 'why it was fragile', competing frameworks).",
   "- A longer reply carries more specific figures, dates, names and version details. Include only those you're sure of, say which era a version-specific detail belongs to, and attribute a contested claim to whoever holds it.",
   "- Don't narrate your confidence ('I'm confident…', 'as I recall', 'I'd check…'); leave out a detail you're unsure of.",
+  "- Don't turn an uncertain claim into an absolute ('never', 'only'); state what's established.",
   "- A practical safety claim (burns, disinfection, dosing) must be one you're sure of.",
-  '- Inside a tangent, use the terms the conversation has already explained without redefining them.',
+  "- Inside a tangent, use the terms the conversation has already explained without redefining them, and don't restate what an earlier turn already said.",
   '- Leave out the closing offer to draw a diagram; if a diagram would help, make it one of the tangents instead.',
   "- Always end with the tangents block, with at most 6 suggestions, none that any paragraph of this reply already covers. It doesn't count toward the length.",
 ];
 
 /**
  * Where Long and Very long differ, after `SPEND_RULE`. Long may stop early
- * on a narrow question; Very long, read that way, stopped well short of its
+ * on a narrow question, but not before the mechanism and what follows from
+ * it (stopping at the bare answer left a Long reply thinner than Normal); Very long, read that way, stopped well short of its
  * range with material left, so it is pushed toward a chapter instead.
  */
 const LENGTH_RULE: Readonly<Record<'long' | 'veryLong', string>> = {
-  long: "- If the question is narrow, stop when it's answered.",
+  long: "- If the question is narrow, stop when it's answered, but even then give the mechanism and its practical consequence.",
   veryLong:
     "- A learner who picks Very long wants a chapter. Before ending, check what a textbook chapter on this would cover (the full mechanism, a second worked example of a different kind, the edge cases, where experts genuinely disagree, if they do; don't manufacture a debate) and cover what's missing. Come in under the range only when the question is truly narrow, and even then go clearly beyond what a Long reply would cover.",
 };

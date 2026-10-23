@@ -217,6 +217,10 @@ describe('replyLengthInstructions', () => {
     expect(text).toMatch(/only those you're sure of/);
     expect(text).toMatch(/attribute a contested claim/);
     expect(text).toMatch(/without redefining them/);
+    expect(text).toMatch(/don't restate what an earlier turn already said/);
+    expect(text).toMatch(
+      /Don't turn an uncertain claim into an absolute \('never', 'only'\); state what's established\./,
+    );
     expect(text).toMatch(/at most 6 suggestions/);
     expect(text).toMatch(/none that any paragraph of this reply already covers/);
     expect(replyLengthInstructions('normal')).not.toMatch(/^- /m);
@@ -236,6 +240,7 @@ describe('replyLengthInstructions', () => {
     const narrowStop = /If the question is narrow, stop when it's answered/;
     const chapter = /wants a chapter/;
     expect(replyLengthInstructions('long')).toMatch(narrowStop);
+    expect(replyLengthInstructions('long')).toMatch(/the mechanism and its practical consequence/);
     expect(replyLengthInstructions('long')).not.toMatch(chapter);
     const veryLong = replyLengthInstructions('veryLong');
     expect(veryLong).not.toMatch(narrowStop);
