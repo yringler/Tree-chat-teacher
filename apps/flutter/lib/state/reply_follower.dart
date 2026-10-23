@@ -48,6 +48,16 @@ class ReplyFollower {
   int _unstarted = 0;
   bool _disposed = false;
 
+  /// The waits running, which [dispose] stops.
+  final _waits = <Timer>{};
+  final _stopped = Completer<void>();
+
+  /// How long a lost send whose message isn't in the lesson waits before
+  /// the lesson is read once more: a send can lose its connection while
+  /// the server, slow to start (a cold Durable Object), hasn't written the
+  /// message yet.
+  static const recheckDelay = Duration(seconds: 3);
+
   /// A send is waiting for the server to start its reply.
   bool get sending => _unstarted > 0;
 
@@ -172,25 +182,42 @@ class ReplyFollower {
   /// Reads the lesson again after [send] was lost before its reply started:
   /// the message may have reached the server, which then writes its reply
   /// and refuses another send on the branch. A message of the learner's on
-  /// the branch that wasn't there before means it did; the replies still
-  /// being written are followed either way. Answers whether it did.
+  /// the branch that wasn't there before means it did; one not there yet
+  /// is looked for once more after [recheckDelay]. The replies still being
+  /// written are followed either way. Answers whether it did.
   Future<bool> _recoverSend(_Send send, Object error) async {
     try {
       await _host.reload();
+      if (!_disposed && !_arrived(send)) {
+        await _wait(recheckDelay);
+        if (!_disposed) await _host.reload();
+      }
     } on Object catch (reloadError) {
       if (!_disposed) _host.report(reloadError);
       return false;
     }
     if (_disposed) return false;
     followAll(_host.nodes);
-    final arrived = _host.nodes.any(
-      (node) =>
-          node.branchId == send.branchId &&
-          node.role == Role.user &&
-          !send.known.contains(node.id),
-    );
+    final arrived = _arrived(send);
     if (!arrived) _host.report(error);
     return arrived;
+  }
+
+  /// Whether [send]'s message is in the lesson.
+  bool _arrived(_Send send) => _host.nodes.any(
+    (node) =>
+        node.branchId == send.branchId &&
+        node.role == Role.user &&
+        !send.known.contains(node.id),
+  );
+
+  /// Waits [duration], or until [dispose].
+  Future<void> _wait(Duration duration) async {
+    final waited = Completer<void>();
+    final timer = _startTimer(duration, waited.complete);
+    _waits.add(timer);
+    await Future.any([waited.future, _stopped.future]);
+    _waits.remove(timer);
   }
 
   /// Whether [replyId] is still shown being written.
@@ -201,7 +228,12 @@ class ReplyFollower {
   /// Stops following every reply; nothing is reported after this, and a
   /// send not started yet completes with false.
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
+    _stopped.complete();
+    for (final timer in _waits) {
+      timer.cancel();
+    }
     for (final stream in _streams.toList()) {
       stream.cancel();
     }

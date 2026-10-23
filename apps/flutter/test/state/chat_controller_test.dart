@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/state/chat_controller.dart';
@@ -523,12 +524,21 @@ void main() {
       },
     );
 
-    test('is refused, with a notice, when it did not', () async {
-      final accepted = chat.send('hi');
-      await api.sends.single.controller.close();
-      expect(await accepted, isFalse);
-      expect(chat.sending, isFalse);
-      expect(chat.notice, isNotNull);
+    test('is refused, with a notice, when it did not, after a second look '
+        '3s later', () {
+      fakeAsync((async) {
+        bool? accepted;
+        unawaited(chat.send('hi').then((value) => accepted = value));
+        unawaited(api.sends.single.controller.close());
+        async.elapse(const Duration(milliseconds: 2999));
+        expect(accepted, isNull);
+        expect(chat.sending, isTrue);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(accepted, isFalse);
+        expect(chat.sending, isFalse);
+        expect(chat.notice, isNotNull);
+      });
     });
   });
 }

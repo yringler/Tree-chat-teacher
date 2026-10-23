@@ -62,8 +62,13 @@ void main() {
   /// What the follower asked of its host, in order.
   late List<String> log;
 
-  ReplyFollower make() =>
-      ReplyFollower(transport: api, host: host, startTimer: FakeTimers().call);
+  /// The follower's timers, which fire at once.
+  late FakeTimers timers;
+
+  ReplyFollower make({bool holdTimers = false}) {
+    timers = FakeTimers(hold: holdTimers);
+    return ReplyFollower(transport: api, host: host, startTimer: timers.call);
+  }
 
   /// Loses each reconnect a stream makes before it gives up, after its
   /// connection was lost.
@@ -359,12 +364,27 @@ void main() {
         await api.sends.single.controller.close();
         expect(await accepted, isFalse);
         await pumpEventQueue();
-        expect(log, hasLength(3));
-        expect(log.first, 'reload');
-        expect(log[1], contains('The reply ended before it started'));
+        expect(log, hasLength(4));
+        expect(log.take(2), ['reload', 'reload']);
+        expect(log[2], contains('The reply ended before it started'));
         expect(log.last, 'changed');
       },
     );
+
+    test('is read once more 3s later when its message is not there yet, '
+        'as the server may still be writing it', () async {
+      var reads = 0;
+      host.reloading = () async {
+        if (++reads == 2) host.shown = [...host.shown, asked, reply('a1')];
+      };
+      final accepted = follower.send('trunk', 'Why tides?');
+      await api.sends.single.controller.close();
+      expect(await accepted, isTrue);
+      await pumpEventQueue();
+      expect(log, ['reload', 'reload', 'changed']);
+      expect(timers.durations, [const Duration(seconds: 3)]);
+      expect([for (final r in api.resumes) r.target], ['a1']);
+    });
 
     test(
       'completes with false and reports why the lesson cannot be read',
@@ -388,6 +408,22 @@ void main() {
   });
 
   group('dispose', () {
+    test('during the wait to read a lost send again, stops the wait, and '
+        'completes the send with false', () async {
+      follower = make(holdTimers: true);
+      final accepted = follower.send('trunk', 'Why tides?');
+      await api.sends.single.controller.close();
+      await pumpEventQueue();
+      expect(log, ['reload']);
+      expect(timers.started.single.isActive, isTrue);
+
+      follower.dispose();
+      expect(timers.started.single.isActive, isFalse);
+      expect(await accepted.timeout(const Duration(seconds: 1)), isFalse);
+      await pumpEventQueue();
+      expect(log, ['reload']);
+    });
+
     test('stops every stream, and reports nothing after', () async {
       final cancelled = <String>[];
       unawaited(follower.send('trunk', 'Why tides?'));
