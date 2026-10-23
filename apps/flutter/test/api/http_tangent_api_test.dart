@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -946,29 +947,37 @@ void main() {
       expect(f.seen.last.url.path, '/api/nodes/a1/stream');
     });
 
-    test('a body kept alive by keepalive comments is not cut off', () async {
-      final body = StreamController<List<int>>();
-      final f = fake(
-        (_) => http.StreamedResponse(body.stream, 200),
-        idleTimeout: const Duration(milliseconds: 200),
-      );
-      final events = <StreamEvent>[];
-      final outcome = ReplyStream.send(
-        f.api,
-        branchId: 'b1',
-        content: 'hi',
-        startTimer: FakeTimers().call,
-      ).run(events.add);
-      body.add(utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'));
-      for (var i = 0; i < 8; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        body.add(utf8.encode(': keepalive\n\n'));
-      }
-      body.add(utf8.encode('event: done\ndata: ${jsonEncode(done)}\n\n'));
-      await body.close();
-      expect(await outcome, isA<ReplyDone>());
-      expect(types(events), ['start', 'done']);
-      expect(f.seen, hasLength(1));
+    test('a body kept alive by keepalive comments is not cut off', () {
+      fakeAsync((async) {
+        final body = StreamController<List<int>>();
+        final f = fake(
+          (_) => http.StreamedResponse(body.stream, 200),
+          idleTimeout: const Duration(seconds: 45),
+        );
+        final events = <StreamEvent>[];
+        ReplyOutcome? outcome;
+        unawaited(
+          ReplyStream.send(
+            f.api,
+            branchId: 'b1',
+            content: 'hi',
+            startTimer: FakeTimers().call,
+          ).run(events.add).then((o) => outcome = o),
+        );
+        async.flushMicrotasks();
+        body.add(utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'));
+        // Two minutes with nothing but the server's keepalive, every 15s.
+        for (var i = 0; i < 8; i++) {
+          async.elapse(const Duration(seconds: 15));
+          body.add(utf8.encode(': keepalive\n\n'));
+        }
+        body.add(utf8.encode('event: done\ndata: ${jsonEncode(done)}\n\n'));
+        unawaited(body.close());
+        async.flushMicrotasks();
+        expect(outcome, isA<ReplyDone>());
+        expect(types(events), ['start', 'done']);
+        expect(f.seen, hasLength(1));
+      });
     });
 
     test('a reply stream cancelled while its send is unanswered aborts the '
