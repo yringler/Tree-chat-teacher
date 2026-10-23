@@ -68,6 +68,47 @@ TreeDetail treeDetail({
   nodes: nodes,
 );
 
+/// Timers a test controls. Each records its duration and fires at once (in
+/// a microtask) unless [hold] is set; cancelled, it never fires.
+class FakeTimers {
+  FakeTimers({this.hold = false});
+
+  final bool hold;
+  final started = <FakeTimer>[];
+
+  List<Duration> get durations => [for (final t in started) t.duration];
+
+  Timer call(Duration duration, void Function() callback) {
+    final timer = FakeTimer(duration, callback);
+    started.add(timer);
+    if (!hold) scheduleMicrotask(timer.fire);
+    return timer;
+  }
+}
+
+class FakeTimer implements Timer {
+  FakeTimer(this.duration, this._callback);
+
+  final Duration duration;
+  final void Function() _callback;
+  bool _active = true;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => 0;
+
+  @override
+  void cancel() => _active = false;
+
+  void fire() {
+    if (!_active) return;
+    _active = false;
+    _callback();
+  }
+}
+
 /// A reply's response body the test drives event by event.
 class ScriptedStream {
   ScriptedStream(this.target, this.content);

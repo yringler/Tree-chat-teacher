@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/api/reply_stream.dart';
@@ -83,20 +84,24 @@ Matcher isLost(Object error, {required String? replyId}) => isA<ReplyLost>()
     .having((o) => o.replyId, 'replyId', replyId);
 
 void main() {
-  late List<Duration> delays;
+  late FakeTimers timers;
   late List<StreamEvent> events;
 
-  /// Waits recorded in [delays], not waited.
-  Future<void> record(Duration duration) async => delays.add(duration);
+  /// The waits before reconnects, which the timers don't wait.
+  List<Duration> delays() => timers.durations;
 
-  ReplyStream send(FakeTransport transport) =>
-      ReplyStream.send(transport, branchId: 'b1', content: 'hi', delay: record);
+  ReplyStream send(FakeTransport transport) => ReplyStream.send(
+    transport,
+    branchId: 'b1',
+    content: 'hi',
+    startTimer: timers.call,
+  );
 
   ReplyStream attach(FakeTransport transport, [String id = 'a1']) =>
-      ReplyStream.attach(transport, id, delay: record);
+      ReplyStream.attach(transport, id, startTimer: timers.call);
 
   setUp(() {
-    delays = [];
+    timers = FakeTimers();
     events = [];
   });
 
@@ -184,7 +189,7 @@ void main() {
       expect(types(events), ['start', 'delta', 'snapshot', 'delta', 'done']);
       expect(transport.attached, ['a1']);
       expect(stream.replyId, 'a1');
-      expect(delays, [const Duration(milliseconds: 500)]);
+      expect(delays(), [const Duration(milliseconds: 500)]);
     });
 
     test('after a connection lost mid-body', () async {
@@ -206,7 +211,7 @@ void main() {
       final outcome = await send(transport).run(events.add);
       expect(outcome, isLost(down, replyId: 'a1'));
       expect(transport.attached, hasLength(4));
-      expect(delays.map((d) => d.inMilliseconds), [500, 1000, 2000, 4000]);
+      expect(delays().map((d) => d.inMilliseconds), [500, 1000, 2000, 4000]);
     });
 
     test('a body that ends early counts as an attempt, as lost', () async {
@@ -235,7 +240,7 @@ void main() {
       ]);
       final outcome = await send(transport).run(events.add);
       expect(outcome, isA<ReplyDone>());
-      expect(delays.map((d) => d.inMilliseconds), [500, 1000, 500]);
+      expect(delays().map((d) => d.inMilliseconds), [500, 1000, 500]);
     });
 
     test('stop at a permanent refusal', () async {
@@ -293,7 +298,7 @@ void main() {
       expect(types(events), ['snapshot', 'error']);
       expect(transport.sent, isEmpty);
       expect(transport.attached, ['a1']);
-      expect(delays, isEmpty);
+      expect(delays(), isEmpty);
     });
 
     test('waits from its second attempt, doubling', () async {
@@ -303,7 +308,7 @@ void main() {
         body([done]),
       ]);
       await attach(transport).run(events.add);
-      expect(delays.map((d) => d.inMilliseconds), [1000, 2000]);
+      expect(delays().map((d) => d.inMilliseconds), [1000, 2000]);
     });
 
     test('follows the reply its snapshot names', () async {
@@ -346,24 +351,50 @@ void main() {
       expect(bodyCancelled, isTrue);
     });
 
-    test('during the wait before a reconnect, stops before it', () async {
-      final wait = Completer<void>();
-      final transport = FakeTransport([
-        body([start]),
-      ]);
-      final stream = ReplyStream.send(
-        transport,
-        branchId: 'b1',
-        content: 'hi',
-        delay: (_) => wait.future,
-      );
-      final outcome = stream.run(events.add);
-      await pumpEventQueue();
-      stream.cancel();
-      expect(await outcome, isA<ReplyCancelled>());
-      wait.complete();
-      await pumpEventQueue();
-      expect(transport.attached, isEmpty);
+    test(
+      'during the wait before a reconnect, stops it and the stream',
+      () async {
+        final held = FakeTimers(hold: true);
+        final transport = FakeTransport([
+          body([start]),
+        ]);
+        final stream = ReplyStream.send(
+          transport,
+          branchId: 'b1',
+          content: 'hi',
+          startTimer: held.call,
+        );
+        final outcome = stream.run(events.add);
+        await pumpEventQueue();
+        expect(held.started.single.isActive, isTrue);
+        stream.cancel();
+        expect(held.started.single.isActive, isFalse);
+        expect(await outcome, isA<ReplyCancelled>());
+        await pumpEventQueue();
+        expect(transport.attached, isEmpty);
+      },
+    );
+
+    test('during the wait before a reconnect, leaves no timer running', () {
+      fakeAsync((async) {
+        final transport = FakeTransport([
+          body([start]),
+        ]);
+        final stream = ReplyStream.send(
+          transport,
+          branchId: 'b1',
+          content: 'hi',
+        );
+        ReplyOutcome? outcome;
+        unawaited(stream.run(events.add).then((o) => outcome = o));
+        async.flushMicrotasks();
+        expect(async.pendingTimers, hasLength(1));
+
+        stream.cancel();
+        async.flushMicrotasks();
+        expect(outcome, isA<ReplyCancelled>());
+        expect(async.pendingTimers, isEmpty);
+      });
     });
 
     test('while the send is unanswered', () async {

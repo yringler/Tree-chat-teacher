@@ -10,6 +10,8 @@ import 'package:tangent/api/models.dart';
 import 'package:tangent/api/reply_stream.dart';
 import 'package:tangent/api/token_store.dart';
 
+import '../fakes.dart' show FakeTimers;
+
 /// A request as the fake server saw it.
 class Seen {
   Seen(this.method, this.url, this.headers, this.body);
@@ -831,13 +833,13 @@ void main() {
           ]),
         },
       );
-      final delays = <Duration>[];
+      final timers = FakeTimers();
       final events = <StreamEvent>[];
       final outcome = await ReplyStream.send(
         f.api,
         branchId: 'b1',
         content: 'hi',
-        delay: (duration) async => delays.add(duration),
+        startTimer: timers.call,
       ).run(events.add);
       expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'delta', 'snapshot', 'delta', 'done']);
@@ -845,7 +847,7 @@ void main() {
         [for (final r in f.seen) r.url.path],
         ['/api/branches/b1/messages', '/api/nodes/a1/stream'],
       );
-      expect(delays, [const Duration(milliseconds: 500)]);
+      expect(timers.durations, [const Duration(milliseconds: 500)]);
     });
 
     test('resumes after a network error mid-body', () async {
@@ -861,7 +863,7 @@ void main() {
         f.api,
         branchId: 'b1',
         content: 'hi',
-        delay: (_) async {},
+        startTimer: FakeTimers().call,
       ).run(events.add);
       expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'delta', 'done']);
@@ -886,7 +888,7 @@ void main() {
         f.api,
         branchId: 'b1',
         content: 'hi',
-        delay: (_) async {},
+        startTimer: FakeTimers().call,
       ).run(events.add);
       expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'delta', 'done']);
@@ -903,7 +905,7 @@ void main() {
         f.api,
         branchId: 'b1',
         content: 'hi',
-        delay: (_) async {},
+        startTimer: FakeTimers().call,
       ).run((_) {});
       expect(
         outcome,
@@ -937,7 +939,7 @@ void main() {
         f.api,
         branchId: 'b1',
         content: 'hi',
-        delay: (_) async {},
+        startTimer: FakeTimers().call,
       ).run(events.add).timeout(const Duration(seconds: 5));
       expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'snapshot', 'done']);
@@ -955,7 +957,7 @@ void main() {
         f.api,
         branchId: 'b1',
         content: 'hi',
-        delay: (_) async {},
+        startTimer: FakeTimers().call,
       ).run(events.add);
       body.add(utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'));
       for (var i = 0; i < 8; i++) {
@@ -1000,7 +1002,7 @@ void main() {
         final outcome = await ReplyStream.attach(
           f.api,
           'a1',
-          delay: (_) async {},
+          startTimer: FakeTimers().call,
         ).run((_) {}).timeout(const Duration(seconds: 5));
         expect(outcome, isA<ReplyDone>());
         expect(f.paths, ['/api/nodes/a1/stream', '/api/nodes/a1/stream']);
@@ -1012,7 +1014,7 @@ void main() {
           f.api,
           branchId: 'b1',
           content: 'hi',
-          delay: (_) async {},
+          startTimer: FakeTimers().call,
         ).run((_) {}).timeout(const Duration(seconds: 5));
         expect(
           outcome,

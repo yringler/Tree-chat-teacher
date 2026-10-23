@@ -1,7 +1,7 @@
 // A reply's stream with reconnects, matching
 // packages/web-shared/src/sse/stream-runner.ts. Pure Dart: the HTTP side is
-// a [ReplyTransport], and the waits between reconnects are an injected
-// [Delay], so it tests without a server or real time.
+// a [ReplyTransport], and the waits between reconnects are timers from an
+// injected [StartTimer], so it tests without a server or real time.
 
 import 'dart:async';
 
@@ -22,8 +22,11 @@ abstract interface class ReplyTransport {
   Future<Stream<StreamEvent>> attachReply(String nodeId);
 }
 
-/// Waits [duration]; tests pass one that doesn't.
-typedef Delay = Future<void> Function(Duration duration);
+/// Starts a timer: [Timer.new], or a test's own.
+typedef StartTimer = Timer Function(
+  Duration duration,
+  void Function() callback,
+);
 
 /// When a reply's stream reconnects, and when it gives up.
 abstract final class ReconnectPolicy {
@@ -90,7 +93,7 @@ class ReplyStream {
     ReplyTransport transport, {
     required String branchId,
     required String content,
-    this._delay = Future<void>.delayed,
+    this._startTimer = Timer.new,
   }) : _transport = transport,
        _open = (() => transport.sendMessage(branchId, content)),
        _replyId = null;
@@ -99,13 +102,13 @@ class ReplyStream {
   ReplyStream.attach(
     ReplyTransport transport,
     String replyId, {
-    this._delay = Future<void>.delayed,
+    this._startTimer = Timer.new,
   }) : _transport = transport,
        _open = null,
        _replyId = replyId;
 
   final ReplyTransport _transport;
-  final Delay _delay;
+  final StartTimer _startTimer;
 
   /// The send, for a stream that starts with one.
   final Future<Stream<StreamEvent>> Function()? _open;
@@ -119,6 +122,9 @@ class ReplyStream {
 
   /// Stops the body being read, if any.
   void Function()? _stopBody;
+
+  /// The wait before a reconnect, while there is one.
+  Timer? _wait;
   bool _ran = false;
 
   /// Stops the stream: [run] finishes with [ReplyCancelled] and gives no
@@ -126,6 +132,7 @@ class ReplyStream {
   void cancel() {
     if (_cancelled) return;
     _cancel.complete();
+    _wait?.cancel();
     _stopBody?.call();
   }
 
@@ -173,7 +180,10 @@ class ReplyStream {
         final wait = ReconnectPolicy.delayBefore(attempt, sent: _open != null);
         attempt++;
         if (wait > Duration.zero) {
-          await Future.any([_delay(wait), _cancel.future]);
+          final waited = Completer<void>();
+          _wait = _startTimer(wait, waited.complete);
+          await Future.any([waited.future, _cancel.future]);
+          _wait = null;
           if (_cancelled) return const ReplyCancelled();
         }
         try {

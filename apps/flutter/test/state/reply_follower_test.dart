@@ -63,7 +63,7 @@ void main() {
   late List<String> log;
 
   ReplyFollower make() =>
-      ReplyFollower(transport: api, host: host, delay: (_) async {});
+      ReplyFollower(transport: api, host: host, startTimer: FakeTimers().call);
 
   /// Loses each reconnect a stream makes before it gives up, after its
   /// connection was lost.
