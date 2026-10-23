@@ -111,6 +111,8 @@ describe('warnsLongOnNormal', () => {
 
   it('says what Very long costs, and what Long risks on Normal', () => {
     expect(REPLY_LENGTH_HINTS.veryLong).toMatch(/Uses the Max model .*20× the cost of Normal/);
+    // Its larger output cap holds more credit before each reply, so the hint says so.
+    expect(REPLY_LENGTH_HINTS.veryLong).toMatch(/sets aside more credit before each reply\.$/);
     expect(`${LEARN_REPLY_WARNING_MARK} ${LEARN_REPLY_LONG_WARNING}`).toBe(
       '⚠️ On the Normal model, long replies are more likely to have accuracy issues. Consider switching to Max.',
     );

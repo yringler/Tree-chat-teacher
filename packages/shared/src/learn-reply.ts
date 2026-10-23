@@ -55,7 +55,7 @@ export const REPLY_LENGTH_HINTS: Readonly<Record<LearnReplyLength, string>> = {
   normal: 'A page or so. Short questions still get short answers.',
   long: 'A few pages, in sections.',
   veryLong:
-    'About a chapter, in sections. Uses the Max model for accuracy (about 20× the cost of Normal).',
+    'About a chapter, in sections. Uses the Max model for accuracy (about 20× the cost of Normal) and sets aside more credit before each reply.',
 };
 
 /** The line under each model tier in Learn's settings. */

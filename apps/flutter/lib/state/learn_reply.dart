@@ -40,7 +40,7 @@ const replyLengthLabels = {
 const replyLengthHints = {
   ReplyLength.normal: 'A page or so. Short questions still get short answers.',
   ReplyLength.long: 'A few pages, in sections.',
-  ReplyLength.veryLong: 'About a chapter, in sections. Uses the Max model for accuracy (about 20× the cost of Normal).',
+  ReplyLength.veryLong: 'About a chapter, in sections. Uses the Max model for accuracy (about 20× the cost of Normal) and sets aside more credit before each reply.',
 };
 
 /// Under the length choice (`REPLY_LENGTH_FOOTNOTE`).
