@@ -56,7 +56,7 @@ describe('pool pricing', () => {
     // A budget of 16_000 "tokens" of 3.5 bytes: 56_000 bytes, plus headings, tags and framing.
     const limit = poolInputLimitTokens({ ...FLASH, contextTokens: 1_048_576 }, 16_000);
     expect(limit).toBeGreaterThan(56_000 + renderOverheadBytes(1));
-    expect(limit).toBeLessThan(56_000 + 5_000);
+    expect(limit).toBeLessThan(56_000 + 5_500);
     // A smaller window wins.
     expect(poolInputLimitTokens({ ...FLASH, contextTokens: 8_192 }, 16_000)).toBe(8_192);
   });

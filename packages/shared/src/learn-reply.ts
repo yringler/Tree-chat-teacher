@@ -106,23 +106,40 @@ export interface ReplyLengthWords {
 export const REPLY_LENGTH_WORDS: Readonly<Record<LearnReplyLength, ReplyLengthWords>> = {
   normal: { min: 0, target: 500, max: 750 },
   long: { min: 1000, target: 1500, max: 2000 },
-  veryLong: { min: 2500, target: 3500, max: 5000 },
+  veryLong: { min: 2000, target: 3500, max: 5000 },
 };
 
 /**
  * How Long and Very long spend their room. Each rule answers padding or slips
  * seen in longer replies: recaps, a contents paragraph, a misconceptions
  * section re-arguing the body, a point made twice, headings on a short reply,
- * tangents repeating a section, and more wrong figures as replies grew.
+ * tangents repeating a section, more wrong figures as replies grew, a closing
+ * offer of a diagram after the content, and a dropped tangents block.
  */
-const LONG_RULES = `
+const SPEND_RULE =
+  '- Spend added length only on new material: more of the mechanism, worked examples (check every number before writing it), and edge cases. Make each point once.';
+const LONG_RULES = [
+  "- Open with a short overview paragraph, with no title or heading. A reply under about 600 words has no headings. Past that, organize the body under `##` headings that follow the overview. Don't list the sections you're about to cover.",
+  '- End on the last new point. Add no summary, recap or "short version" section, and no misconceptions section that re-argues the body; address a misconception where the mechanism it gets wrong is explained.',
+  "- A longer reply carries more specific figures, dates, names and version details. Include only those you're sure of, say which era a version-specific detail belongs to, and attribute a contested claim to whoever holds it.",
+  '- Inside a tangent, use the terms the conversation has already explained without redefining them.',
+  '- Leave out the closing offer to draw a diagram; if a diagram would help, make it one of the tangents instead.',
+  "- Always end with the tangents block, with at most 6 suggestions, none of them something a section of this reply already covers. It doesn't count toward the length.",
+];
 
-- Spend added length only on new material: more of the mechanism, worked examples (check every number before writing it), and edge cases. Make each point once. If the question is narrow, stop when it's answered.
-- Open with a short overview paragraph, with no title or heading. Past about 600 words, organize the body under \`##\` headings that follow the overview; below that, use none. Don't list the sections you're about to cover.
-- End on the last new point. Add no summary, recap or "short version" section, and no misconceptions section that re-argues the body; address a misconception where the mechanism it gets wrong is explained.
-- A longer reply carries more specific figures, dates, names and version details. Include only those you're sure of, say which era a version-specific detail belongs to, and attribute a contested claim to whoever holds it.
-- Inside a tangent, use the terms the conversation has already explained without redefining them.
-- The tangents block still comes last, with at most 6 suggestions, none of them something a section of this reply already covers. It doesn't count toward the length.`;
+/**
+ * Where Long and Very long differ, after `SPEND_RULE`. Long may stop early
+ * on a narrow question; Very long, read that way, stopped well short of its
+ * range with material left, so it is pushed toward a chapter instead.
+ */
+const LENGTH_RULE: Readonly<Record<'long' | 'veryLong', string>> = {
+  long: "- If the question is narrow, stop when it's answered.",
+  veryLong:
+    "- A learner who picks Very long wants a chapter. Before ending, check what a textbook chapter on this would cover (the full mechanism, a second worked example of a different kind, the edge cases, where experts disagree) and cover what's missing. Come in under the range only when the question is truly narrow, and even then go clearly beyond what a Long reply would cover.",
+};
+
+const longRules = (length: 'long' | 'veryLong') =>
+  `\n\n${[SPEND_RULE, LENGTH_RULE[length], ...LONG_RULES].join('\n')}`;
 
 /** Normal's close: only the tangents block, which a short reply has no sections to repeat. */
 const NORMAL_CLOSE = " The tangents block still comes last and doesn't count toward the length.";
@@ -133,13 +150,14 @@ const number = (n: number) => n.toLocaleString('en-US');
  * What a Learn reply of `length` is asked after the history (with any
  * grounding text, in the same `replyInstructions` block), so the cached
  * prompt prefix is the same whatever the length. Built from
- * `REPLY_LENGTH_WORDS`, with Long and Very long sharing `LONG_RULES`.
+ * `REPLY_LENGTH_WORDS`, with Long and Very long sharing `SPEND_RULE` and `LONG_RULES` and
+ * differing by `LENGTH_RULE`.
  */
 export function replyLengthInstructions(length: LearnReplyLength): string {
   const { min, target, max } = REPLY_LENGTH_WORDS[length];
   const range =
     min > 0 ? `about ${number(min)}–${number(max)} words` : `up to about ${number(max)} words`;
-  const rules = length === 'normal' ? NORMAL_CLOSE : LONG_RULES;
+  const rules = length === 'normal' ? NORMAL_CLOSE : longRules(length);
   return `## Reply length
 
 The learner chose ${REPLY_LENGTH_LABELS[length].toLowerCase()} replies: ${range}, around ${number(target)} for a typical question. The range is leeway, not a quota. Write what this question needs: a simple question can come in well under it, and a hard one can run toward the top. Don't pad to reach it, and don't cut a needed explanation short to stay under it.${rules}`;

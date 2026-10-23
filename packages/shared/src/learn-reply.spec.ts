@@ -166,27 +166,31 @@ describe('replyLengthInstructions', () => {
       expect(text).toMatch(/not a quota/);
       expect(text).toMatch(/Don't pad/);
       expect(text).toMatch(/don't cut a needed explanation short/);
-      expect(text).toMatch(/tangents block still comes last/);
     }
+    expect(replyLengthInstructions('normal')).toMatch(/tangents block still comes last/);
   });
 
-  it('sections the longer lengths under `##` headings only past a threshold, not Normal', () => {
+  it('keeps headings off a reply under about 600 words, and off Normal', () => {
     expect(replyLengthInstructions('normal')).not.toContain('`##`');
     for (const length of ['long', 'veryLong'] as const) {
       const text = replyLengthInstructions(length);
       expect(text).toContain('`##`');
-      expect(text).toMatch(/Past about 600 words/);
+      expect(text).toMatch(/A reply under about 600 words has no headings\./);
       expect(text).toMatch(/no title or heading/);
     }
   });
 
-  it('gives Long and Very long the same rules against padding and slips', () => {
-    const rules = (length: 'long' | 'veryLong') =>
-      replyLengthInstructions(length)
-        .split('\n')
-        .filter((line) => line.startsWith('- '));
-    expect(rules('long').length).toBeGreaterThan(0);
-    expect(rules('veryLong')).toEqual(rules('long'));
+  const rules = (length: 'long' | 'veryLong') =>
+    replyLengthInstructions(length)
+      .split('\n')
+      .filter((line) => line.startsWith('- '));
+
+  it('gives Long and Very long the same rules against padding and slips, but one', () => {
+    const long = rules('long');
+    const veryLong = rules('veryLong');
+    expect(long.length).toBeGreaterThan(1);
+    expect(veryLong.length).toBe(long.length);
+    expect(veryLong.filter((line) => !long.includes(line))).toHaveLength(1);
     const text = replyLengthInstructions('long');
     expect(text).toMatch(/only on new material/);
     expect(text).toMatch(/check every number/);
@@ -199,6 +203,32 @@ describe('replyLengthInstructions', () => {
     expect(text).toMatch(/without redefining them/);
     expect(text).toMatch(/at most 6 suggestions/);
     expect(replyLengthInstructions('normal')).not.toMatch(/^- /m);
+  });
+
+  it('turns the closing diagram offer into a tangent, and always ends on the tangents block', () => {
+    for (const length of ['long', 'veryLong'] as const) {
+      const text = replyLengthInstructions(length);
+      expect(text).toMatch(/Leave out the closing offer to draw a diagram/);
+      expect(text).toMatch(/make it one of the tangents instead/);
+      expect(text).toMatch(/Always end with the tangents block/);
+    }
+    expect(replyLengthInstructions('normal')).not.toMatch(/diagram/);
+  });
+
+  it('lets only Long stop early on a narrow question, and pushes Very long toward a chapter', () => {
+    const narrowStop = /If the question is narrow, stop when it's answered/;
+    const chapter = /wants a chapter/;
+    expect(replyLengthInstructions('long')).toMatch(narrowStop);
+    expect(replyLengthInstructions('long')).not.toMatch(chapter);
+    const veryLong = replyLengthInstructions('veryLong');
+    expect(veryLong).not.toMatch(narrowStop);
+    expect(veryLong).toMatch(chapter);
+    expect(veryLong).toMatch(/what a textbook chapter on this would cover/);
+    expect(veryLong).toMatch(/a second worked example of a different kind/);
+    expect(veryLong).toMatch(/only when the question is truly narrow/);
+    expect(veryLong).toMatch(/clearly beyond what a Long reply would cover/);
+    expect(replyLengthInstructions('normal')).not.toMatch(narrowStop);
+    expect(replyLengthInstructions('normal')).not.toMatch(chapter);
   });
 });
 
