@@ -11,6 +11,7 @@ import {
   inputBoundTokens,
   maxInputMicrosPerMTok,
   poolInputLimitTokens,
+  renderAllowanceBytes,
   worstCaseHoldMicros,
 } from '../src/pool/pricing.js';
 import { meteredSettlement } from '../src/billing/settle-policy.js';
@@ -55,8 +56,13 @@ describe('pool pricing', () => {
   it("limits pool input to its budget in bytes plus what rendering adds, within the model's window", () => {
     // A budget of 16_000 "tokens" of 3.5 bytes: 56_000 bytes, plus headings, tags and framing.
     const limit = poolInputLimitTokens({ ...FLASH, contextTokens: 1_048_576 }, 16_000);
-    expect(limit).toBeGreaterThan(56_000 + renderOverheadBytes(1));
-    expect(limit).toBeLessThan(56_000 + 5_500);
+    expect(limit).toBeGreaterThan(56_000 + renderOverheadBytes(1, { replyLength: false }));
+    expect(limit).toBeLessThan(56_000 + 4_000);
+    // The pool never sends Learn's reply-length instructions, so they don't move its limit.
+    expect(limit).toBe(56_000 + renderAllowanceBytes({ replyLength: false }));
+    expect(renderAllowanceBytes({ replyLength: false })).toBeLessThan(
+      renderAllowanceBytes({ replyLength: true }),
+    );
     // A smaller window wins.
     expect(poolInputLimitTokens({ ...FLASH, contextTokens: 8_192 }, 16_000)).toBe(8_192);
   });

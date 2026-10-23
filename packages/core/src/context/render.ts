@@ -103,18 +103,23 @@ export function turnInstructionsOf(
  * their headings, tags and separators, the continuation message, the system
  * text folded into the first message, and the longest per-reply
  * instructions after the history (`replyInstructions`, as providers append
- * them). Segment token counts leave all of it out, so a hard input bound
- * (the open pool) allows for it. Each message segment also adds a separator
- * when merged, which its `MESSAGE_OVERHEAD_TOKENS` covers; message framing
- * is the caller's to count.
+ * them) the caller can send: the grounding texts always, Learn's
+ * reply-length texts only with `replyLength` (a caller that never sends
+ * them, such as the open pool, doesn't pay room for them). Segment token
+ * counts leave all of it out, so a hard input bound (the open pool) allows
+ * for it. Each message segment also adds a separator when merged, which its
+ * `MESSAGE_OVERHEAD_TOKENS` covers; message framing is the caller's to count.
  */
-export function renderOverheadBytes(sections: number): number {
+export function renderOverheadBytes(sections: number, sends: { replyLength: boolean }): number {
   const separator = utf8Bytes(SEPARATOR);
   const perSection = Math.max(
     utf8Bytes(`${SUMMARY_HEADING}${SEPARATOR}`) + separator,
     utf8Bytes(quotedAnchor('')) + separator,
   );
-  const lengths = [null, ...LEARN_REPLY_LENGTHS.map(replyLengthInstructions)];
+  const lengths = [
+    null,
+    ...(sends.replyLength ? LEARN_REPLY_LENGTHS.map(replyLengthInstructions) : []),
+  ];
   const groundings = [null, GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS];
   const instructions = Math.max(
     ...lengths.flatMap((l) => groundings.map((g) => utf8Bytes(turnInstructionsOf(l, g) ?? ''))),

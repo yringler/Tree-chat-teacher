@@ -312,13 +312,37 @@ suite('renderOverheadBytes', () => {
     ];
     for (const { sections, segments } of shapes) {
       for (const options of [WITH_SYSTEM, NO_SYSTEM]) {
-        expect(addedBytes(segments, options)).toBeLessThanOrEqual(renderOverheadBytes(sections));
+        expect(addedBytes(segments, options)).toBeLessThanOrEqual(
+          renderOverheadBytes(sections, { replyLength: true }),
+        );
       }
     }
     // Within a section's worth of the real overhead: a bound, not a guess.
     const anchors = Array.from({ length: 8 }, (_, i) => anchor(`q${i}`));
     const added = addedBytes([msg('branch', 'assistant', 'a'), ...anchors], NO_SYSTEM);
-    expect(renderOverheadBytes(8) - added).toBeLessThan(renderOverheadBytes(1));
+    expect(renderOverheadBytes(8, { replyLength: true }) - added).toBeLessThan(
+      renderOverheadBytes(1, { replyLength: true }),
+    );
+  });
+
+  it('leaves reply-length instructions out where the caller never sends them', () => {
+    const longest = (lengths: (string | null)[]) =>
+      Math.max(
+        ...lengths.flatMap((l) =>
+          [null, GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
+            utf8Bytes(turnInstructionsOf(l, t) ?? ''),
+          ),
+        ),
+      );
+    const withLength = longest([null, ...LEARN_REPLY_LENGTHS.map(replyLengthInstructions)]);
+    const withoutLength = longest([null]);
+    expect(withLength).toBeGreaterThan(withoutLength);
+    for (const sections of [0, 1, 32]) {
+      expect(
+        renderOverheadBytes(sections, { replyLength: true }) -
+          renderOverheadBytes(sections, { replyLength: false }),
+      ).toBe(withLength - withoutLength);
+    }
   });
 });
 

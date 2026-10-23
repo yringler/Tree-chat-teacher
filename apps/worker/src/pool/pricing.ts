@@ -59,11 +59,12 @@ const PROMPT_SECTIONS = 32;
  * message and per-reply instructions (`renderOverheadBytes` for
  * `PROMPT_SECTIONS`), and the framing of each message added that way (an
  * anchor quote per section, the continuation message, the folded system text
- * and the reply instructions) and of the request.
+ * and the reply instructions) and of the request. `sends.replyLength`: whether
+ * the call can carry Learn's reply-length instructions (never on the pool).
  */
-export function renderAllowanceBytes(): number {
+export function renderAllowanceBytes(sends: { replyLength: boolean }): number {
   return (
-    renderOverheadBytes(PROMPT_SECTIONS) +
+    renderOverheadBytes(PROMPT_SECTIONS, sends) +
     TOKENS_PER_MESSAGE * (PROMPT_SECTIONS + 3) +
     TOKENS_PER_REQUEST
   );
@@ -76,13 +77,14 @@ export function renderAllowanceBytes(): number {
  * `maxInputTokens` (`POOL_MAX_INPUT_TOKENS`), is measured in UTF-8 bytes / 3.5
  * (core's `estimateTokensUtf8`), so a prompt within it holds at most
  * 3.5 × `maxInputTokens` bytes of segment text and framing, plus what
- * rendering adds outside the budget (`renderAllowanceBytes`). At most the
+ * rendering adds outside the budget (`renderAllowanceBytes`, without Learn's
+ * reply-length instructions: the pool ignores Learn's reply settings). At most the
  * price entry's context window.
  */
 export function poolInputLimitTokens(price: ModelPrice, maxInputTokens: number): number {
   return Math.min(
     price.contextTokens,
-    Math.ceil(maxInputTokens * CHARS_PER_TOKEN) + renderAllowanceBytes(),
+    Math.ceil(maxInputTokens * CHARS_PER_TOKEN) + renderAllowanceBytes({ replyLength: false }),
   );
 }
 
