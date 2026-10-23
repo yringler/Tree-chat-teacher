@@ -1,12 +1,13 @@
 import {
   CHECK_SOURCES_INSTRUCTIONS,
   GROUNDING_INSTRUCTIONS,
-  REPLY_LENGTH_INSTRUCTIONS,
+  LEARN_REPLY_LENGTHS,
   REVIEW_ACCURACY_LABEL,
   REVIEW_ACCURACY_VALUES,
   REVIEW_RECOMMENDATION_LABEL,
   REVIEW_RECOMMENDATION_VALUES,
   clip,
+  replyLengthInstructions,
   foldSystemPrompt,
   type ChatMessage,
   type ContextPlan,
@@ -113,7 +114,7 @@ export function renderOverheadBytes(sections: number): number {
     utf8Bytes(`${SUMMARY_HEADING}${SEPARATOR}`) + separator,
     utf8Bytes(quotedAnchor('')) + separator,
   );
-  const lengths = [null, ...Object.values(REPLY_LENGTH_INSTRUCTIONS)];
+  const lengths = [null, ...LEARN_REPLY_LENGTHS.map(replyLengthInstructions)];
   const groundings = [null, GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS];
   const instructions = Math.max(
     ...lengths.flatMap((l) => groundings.map((g) => utf8Bytes(turnInstructionsOf(l, g) ?? ''))),

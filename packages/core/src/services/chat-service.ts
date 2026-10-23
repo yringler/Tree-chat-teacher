@@ -153,7 +153,7 @@ export class ChatService {
       ctx,
       this.resolver,
       deps.groundingAllowance,
-      profile.kind === 'learn' ? (profile.reply?.replyLength ?? 'normal') : 'normal',
+      profile.kind === 'learn' ? (profile.reply?.replyLength ?? null) : null,
     );
     const titler = new Titler(ctx);
     this.sends = new SendService(ctx, this.resolver, this.replier, titler);

@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { updateSettingsRequestSchema } from './api.js';
 import {
   DEFAULT_LEARN_REPLY,
+  LEARN_REPLY_LENGTHS,
   LEARN_REPLY_POOL_NOTE,
   learnReplyIndicator,
+  REPLY_LENGTH_WORDS,
   replyLengthInstructions,
   type LearnReplyContext,
 } from './learn-reply.js';
-import { WORDS_PER_PAGE } from './token-size.js';
+import { BUILT_IN_MAX_OUTPUT_TOKENS } from './output-tokens.js';
 
 const paid: LearnReplyContext = { pool: false, fixedModel: false };
 
@@ -53,18 +55,51 @@ describe('learnReplyIndicator', () => {
   });
 });
 
+describe('REPLY_LENGTH_WORDS', () => {
+  it('gives every length a range around its target, each longer than the one before', () => {
+    let previousMax = 0;
+    for (const length of LEARN_REPLY_LENGTHS) {
+      const { min, target, max } = REPLY_LENGTH_WORDS[length];
+      expect(min).toBeGreaterThanOrEqual(0);
+      expect(min).toBeLessThan(target);
+      expect(target).toBeLessThan(max);
+      expect(max).toBeGreaterThan(previousMax);
+      previousMax = max;
+    }
+  });
+
+  it('keeps the longest inside a reasoning reply cap, about 4/3 tokens a word', () => {
+    expect((REPLY_LENGTH_WORDS.veryLong.max * 4) / 3).toBeLessThan(BUILT_IN_MAX_OUTPUT_TOKENS / 2);
+  });
+});
+
 describe('replyLengthInstructions', () => {
-  it('sends nothing for Normal, and word targets of a few pages and a chapter', () => {
-    expect(replyLengthInstructions('normal')).toBeNull();
-    expect(replyLengthInstructions('long')).toContain('1,000 words');
-    expect(replyLengthInstructions('veryLong')).toContain('3,000 words');
-    // About 4 and 11 pages: longer than Normal's page.
-    expect(1000 / WORDS_PER_PAGE).toBeGreaterThan(3);
-    for (const length of ['long', 'veryLong'] as const) {
-      const text = replyLengthInstructions(length) ?? '';
-      expect(text).toContain('`##`');
+  const number = (n: number) => n.toLocaleString('en-US');
+
+  it('names each length its range and target, from the table', () => {
+    for (const length of LEARN_REPLY_LENGTHS) {
+      const { min, target, max } = REPLY_LENGTH_WORDS[length];
+      const text = replyLengthInstructions(length);
+      expect(text).toContain(number(target));
+      expect(text).toContain(number(max));
+      if (min > 0) expect(text).toContain(number(min));
+    }
+  });
+
+  it('treats the range as leeway: no padding, nothing needed cut short', () => {
+    for (const length of LEARN_REPLY_LENGTHS) {
+      const text = replyLengthInstructions(length);
+      expect(text).toMatch(/not a quota/);
+      expect(text).toMatch(/Don't pad/);
+      expect(text).toMatch(/don't cut short/);
       expect(text).toMatch(/tangents block still comes last/);
     }
+  });
+
+  it('sections the longer lengths under `##` headings, not Normal', () => {
+    expect(replyLengthInstructions('normal')).not.toContain('`##`');
+    expect(replyLengthInstructions('long')).toContain('`##`');
+    expect(replyLengthInstructions('veryLong')).toContain('`##`');
   });
 });
 

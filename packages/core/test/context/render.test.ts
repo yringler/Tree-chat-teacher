@@ -1,7 +1,8 @@
 import {
   CHECK_SOURCES_INSTRUCTIONS,
   GROUNDING_INSTRUCTIONS,
-  REPLY_LENGTH_INSTRUCTIONS,
+  LEARN_REPLY_LENGTHS,
+  replyLengthInstructions,
   type ContextPlan,
   type ContextSegment,
   type SummaryRequest,
@@ -268,10 +269,12 @@ suite('renderOverheadBytes', () => {
   /** What rendering `segments` (with the longest reply instructions after them) adds to their text. */
   function addedBytes(segments: ContextSegment[], options: { supportsSystemPrompt: boolean }) {
     const out = renderPlan(plan(segments), options);
-    // A very long reply that must check sources: the longest pair.
+    // Every length with every grounding text: the longest pair.
     const instructions = Math.max(
-      ...[GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
-        utf8Bytes(turnInstructionsOf(REPLY_LENGTH_INSTRUCTIONS.veryLong, t) ?? ''),
+      ...LEARN_REPLY_LENGTHS.flatMap((l) =>
+        [GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
+          utf8Bytes(turnInstructionsOf(replyLengthInstructions(l), t) ?? ''),
+        ),
       ),
     );
     let sent = (out.system === null ? 0 : utf8Bytes(out.system)) + 2 + instructions;

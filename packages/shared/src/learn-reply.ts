@@ -32,11 +32,11 @@ export const REPLY_LENGTH_LABELS: Readonly<Record<LearnReplyLength, string>> = {
   veryLong: 'Very long',
 };
 
-/** The line under each length in the settings. */
+/** The line under each length in the settings: no numbers, so tuning `REPLY_LENGTH_WORDS` keeps it true. */
 export const REPLY_LENGTH_HINTS: Readonly<Record<LearnReplyLength, string>> = {
-  normal: 'Up to about a page. Short questions still get short answers.',
-  long: 'A few pages.',
-  veryLong: 'About a chapter. Works best with Max.',
+  normal: 'A page or so. Short questions still get short answers.',
+  long: 'A few pages, in sections.',
+  veryLong: 'About a chapter, in sections. Works best with Max.',
 };
 
 /** The line under each model tier in Learn's settings. */
@@ -55,31 +55,54 @@ export const LEARN_REPLY_POOL_NOTE = 'Not used for free replies';
 /** Shown in place of the model choice on the learner's own Anthropic key, which has one model. */
 export const LEARN_REPLY_FIXED_MODEL_NOTE = 'Your Anthropic key always uses the stronger model.';
 
-/**
- * Sent after the history for a longer reply (with any grounding text, in
- * the same `replyInstructions` block), so the cached prompt prefix is the
- * same whatever the length. Normal sends nothing: the tutor prompt's own
- * "match length to the question" applies. The targets are words, about 275
- * to a page (`WORDS_PER_PAGE`); the reply's output cap doesn't change, so a
- * very long reply on a model that doesn't think may end cut off, and
- * Continue picks it up.
- */
-export const REPLY_LENGTH_INSTRUCTIONS: Readonly<
-  Record<Exclude<LearnReplyLength, 'normal'>, string>
-> = {
-  long: lengthInstructions('long replies, about 1,000 words (a few pages)'),
-  veryLong: lengthInstructions('very long replies, about 3,000 words (a short chapter)'),
-};
-
-function lengthInstructions(target: string): string {
-  return `## Reply length
-
-The learner chose ${target}. Unless the message only needs a sentence or two (a greeting, a yes or no, a clarification), write to that length: open with a short overview, organize the body under \`##\` section headings, and go further into the mechanism, examples and edge cases than a short answer would. This replaces the usual advice to match length to the question and stay brief. The tangents block still comes last, after everything else.`;
+/** How many words a reply of one length may run: a range with the length to aim for. */
+export interface ReplyLengthWords {
+  /** The least a reply that needs the room should run; 0 = no floor. */
+  min: number;
+  /** What to aim for. */
+  target: number;
+  /** About the most it should run. */
+  max: number;
 }
 
-/** The instructions a reply of `length` gets after the history; null for Normal. */
-export function replyLengthInstructions(length: LearnReplyLength): string | null {
-  return length === 'normal' ? null : REPLY_LENGTH_INSTRUCTIONS[length];
+/**
+ * Each length's words, the one place to tune them: the instructions are
+ * built from it (`replyLengthInstructions`). A range is leeway, not a quota:
+ * a simple question comes in under it and a hard one runs toward the top.
+ * The reply's output cap doesn't change with the length (5,000 words is
+ * about 6,700 tokens, inside a reasoning model's cap); on a model that
+ * doesn't reason a very long reply may end cut off, and Continue picks it up.
+ */
+export const REPLY_LENGTH_WORDS: Readonly<Record<LearnReplyLength, ReplyLengthWords>> = {
+  normal: { min: 0, target: 500, max: 750 },
+  long: { min: 1000, target: 1500, max: 2000 },
+  veryLong: { min: 2500, target: 3500, max: 5000 },
+};
+
+/** Lengths whose replies are organized under section headings. */
+const SECTIONED: ReadonlySet<LearnReplyLength> = new Set(['long', 'veryLong']);
+
+const words = (n: number) => `${n.toLocaleString('en-US')} words`;
+
+/**
+ * What a Learn reply of `length` is asked after the history (with any
+ * grounding text, in the same `replyInstructions` block), so the cached
+ * prompt prefix is the same whatever the length. Built from
+ * `REPLY_LENGTH_WORDS`.
+ */
+export function replyLengthInstructions(length: LearnReplyLength): string {
+  const { min, target, max } = REPLY_LENGTH_WORDS[length];
+  const range =
+    min > 0 ? `about ${min.toLocaleString('en-US')}–${words(max)}` : `up to about ${words(max)}`;
+  const lines = [
+    '## Reply length',
+    '',
+    `The learner chose ${REPLY_LENGTH_LABELS[length].toLowerCase()} replies: ${range}, aiming for about ${words(target)}. Treat the range as room to work with, not a quota: a simple question can be answered well under it, and a hard one can run toward the top. Don't pad a reply to reach it, and don't cut short an explanation the question needs.`,
+  ];
+  if (SECTIONED.has(length))
+    lines.push('', 'Open with a short overview and organize the body under `##` section headings.');
+  lines.push('', 'The tangents block still comes last, after everything else.');
+  return lines.join('\n');
 }
 
 /** What the composer shows while a setting isn't the default (`learnReplyIndicator`). */

@@ -1,6 +1,6 @@
 import {
   DEFAULT_SYSTEM_PROMPT,
-  REPLY_LENGTH_INSTRUCTIONS,
+  replyLengthInstructions,
   type LearnReplyLength,
 } from '@tangent/shared';
 import { replyInstructions } from '../../src/context/render.js';
@@ -205,15 +205,21 @@ describe("Learn's reply length", () => {
     const { tree } = await s.learn.createTree({});
     await send(s.learn, tree.trunkBranchId, 'hi');
     const call = s.provider.chatCalls().at(-1);
-    expect(call?.turnInstructions).toBe(replyInstructions(REPLY_LENGTH_INSTRUCTIONS.veryLong));
+    expect(call?.turnInstructions).toBe(replyInstructions(replyLengthInstructions('veryLong')));
     expect(call?.system).toBe('TUTOR');
   });
 
-  it('asks nothing for Normal, nor on the pool', async () => {
+  it("asks Normal for Normal's length too, and nothing on the pool or without settings", async () => {
     const normal = lengthService('normal');
     const { tree } = await normal.learn.createTree({});
     await send(normal.learn, tree.trunkBranchId, 'hi');
-    expect(normal.provider.chatCalls().at(-1)?.turnInstructions).toBeUndefined();
+    expect(normal.provider.chatCalls().at(-1)?.turnInstructions).toBe(
+      replyInstructions(replyLengthInstructions('normal')),
+    );
+    const s = setup();
+    const lesson0 = await s.learn.createTree({});
+    await send(s.learn, lesson0.tree.trunkBranchId, 'hi');
+    expect(s.learnProvider.chatCalls().at(-1)?.turnInstructions).toBeUndefined();
     const long = lengthService('long');
     const lesson = await long.learn.createTree({});
     await send(long.pool, lesson.tree.trunkBranchId, 'hi');

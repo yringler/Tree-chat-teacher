@@ -74,8 +74,8 @@ export class Replier {
     private readonly ctx: ServiceContext,
     private readonly resolver: ContextResolver,
     private readonly groundingAllowance: GroundingAllowance | undefined,
-    /** How long the learner asked replies to be (`LearnProfile.reply`); Normal asks nothing. */
-    private readonly replyLength: LearnReplyLength = 'normal',
+    /** How long the learner asked replies to be (`LearnProfile.reply`); null outside a Learn send. */
+    private readonly replyLength: LearnReplyLength | null = null,
   ) {}
 
   /**
@@ -133,7 +133,7 @@ export class Replier {
       // After the history, not in the system prompt: see `replyInstructions`. A required
       // search is asked for here even where the provider can't enforce it.
       const turnInstructions = turnInstructionsOf(
-        replyLengthInstructions(this.replyLength),
+        this.replyLength === null ? null : replyLengthInstructions(this.replyLength),
         webSearch === undefined
           ? null
           : reply.grounding.mode === 'required'
