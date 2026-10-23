@@ -10,6 +10,10 @@ import 'package:tangent/api/http_tangent_api.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/api/reply_stream.dart';
 import 'package:tangent/api/token_store.dart';
+import 'package:tangent/state/chat_controller.dart';
+import 'package:tangent/state/lessons_controller.dart';
+import 'package:tangent/state/reply_follower.dart';
+import 'package:tangent/state/session_controller.dart';
 
 import '../fakes.dart' show FakeTimers;
 
@@ -307,6 +311,47 @@ void main() {
       await f.api.cancel('a1');
       expect(f.seen.last.method, 'POST');
       expect(f.seen.last.url.path, '/api/nodes/a1/cancel');
+    });
+  });
+
+  group('a JSON read', () {
+    test('whose response never comes is a lost connection in 30s', () {
+      fakeAsync((async) {
+        final api = HttpTangentApi(
+          baseUri: Uri.parse('https://tangent.test'),
+          client: MockClient.streaming(
+            (_, _) => Completer<http.StreamedResponse>().future,
+          ),
+        );
+        Object? error;
+        unawaited(
+          api.tree('t1').then<void>((_) {}, onError: (Object e) => error = e),
+        );
+        async.elapse(const Duration(seconds: 29));
+        expect(error, isNull);
+        async.elapse(const Duration(seconds: 1));
+        expect(error, apiError(0, 'network'));
+      });
+    });
+
+    test('whose body stalls is a lost connection 30s after its last byte', () {
+      fakeAsync((async) {
+        final stalled = StreamController<List<int>>();
+        final f = fake((_) {
+          stalled.add(utf8.encode('[{"id":'));
+          return http.StreamedResponse(stalled.stream, 200);
+        }, headersTimeout: const Duration(seconds: 30));
+        Object? error;
+        unawaited(
+          f.api.trees().then<void>((_) {}, onError: (Object e) => error = e),
+        );
+        async.elapse(const Duration(seconds: 20));
+        stalled.add(utf8.encode('"t1"'));
+        async.elapse(const Duration(seconds: 29));
+        expect(error, isNull);
+        async.elapse(const Duration(seconds: 1));
+        expect(error, apiError(0, 'network'));
+      });
     });
   });
 
@@ -1054,6 +1099,71 @@ void main() {
               .having((o) => o.error, 'error', apiError(0, 'network')),
         );
         expect(f.paths, ['/api/branches/b1/messages']);
+      });
+    });
+  });
+
+  group('a lesson over the API, when reading it again never answers', () {
+    /// A lesson on a fake server whose first read of the lesson answers
+    /// and every later one hangs, as on a link that died; [messages]
+    /// answers a send, and every attach is refused with a 503.
+    ChatController lesson(Future<http.StreamedResponse> Function() messages) {
+      var reads = 0;
+      final api = HttpTangentApi(
+        baseUri: Uri.parse('https://tangent.test'),
+        client: MockClient.streaming(
+          (request, _) => switch (request.url.path) {
+            '/api/trees/t1' when ++reads == 1 => Future.value(json(treeDetail)),
+            '/api/trees/t1' => Completer<http.StreamedResponse>().future,
+            '/api/branches/b1/messages' => messages(),
+            _ => Future.value(empty(503)),
+          },
+        ),
+      );
+      final session = SessionController(api);
+      return ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+    }
+
+    test('marks a reply whose stream gave up failed in time', () {
+      fakeAsync((async) {
+        final chat = lesson(() async => sse([start]));
+        unawaited(chat.load());
+        async.flushMicrotasks();
+        unawaited(chat.send('hi'));
+        // The stream's four reconnects, refused, then the read of the
+        // lesson, which hangs.
+        async.elapse(const Duration(seconds: 10));
+        expect(chat.streamingNode?.id, 'a1');
+
+        async.elapse(const Duration(seconds: 30));
+        expect(chat.streamingNode, isNull);
+        expect(chat.thread.last.status, NodeStatus.error);
+        expect(chat.thread.last.error, connectionLostText);
+        chat.dispose();
+      });
+    });
+
+    test('refuses a send lost before its reply started, in time', () {
+      fakeAsync((async) {
+        final chat = lesson(() => Completer<http.StreamedResponse>().future);
+        unawaited(chat.load());
+        async.flushMicrotasks();
+        bool? accepted;
+        unawaited(chat.send('hi').then((value) => accepted = value));
+        // The send's 30s for an answer, then the read of the lesson.
+        async.elapse(const Duration(seconds: 59));
+        expect(chat.sending, isTrue);
+
+        async.elapse(const Duration(seconds: 1));
+        expect(accepted, isFalse);
+        expect(chat.sending, isFalse);
+        expect(chat.notice, isNotNull);
+        chat.dispose();
       });
     });
   });

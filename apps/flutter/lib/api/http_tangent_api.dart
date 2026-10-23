@@ -50,8 +50,9 @@ class HttpTangentApi implements TangentApi {
   /// in a row mean the connection is gone.
   final Duration _idleTimeout;
 
-  /// How long a reply's request may wait for the response's headers before
-  /// its connection counts as lost.
+  /// How long a reply's connection or a JSON read may wait for the
+  /// response's headers, and a JSON body for its next byte, before its
+  /// connection counts as lost.
   final Duration _headersTimeout;
 
   /// The server's own default when the header is absent; the app sets it
@@ -315,7 +316,7 @@ class HttpTangentApi implements TangentApi {
   /// reset (a phone changing network) shows. The timer watches bytes, so
   /// the server's keepalive comments, which give no event, keep it alive.
   Stream<StreamEvent> _events(http.StreamedResponse response) =>
-      readStreamEvents(response.stream.timeout(_idleTimeout)).transform(
+      readStreamEvents(_failWhenQuiet(response.stream, _idleTimeout)).transform(
         StreamTransformer.fromHandlers(
           handleError: (error, stack, sink) =>
               sink.addError(_bodyError(error), stack),
@@ -336,6 +337,65 @@ class HttpTangentApi implements TangentApi {
   static ApiException _network(http.ClientException error) =>
       ApiException(status: 0, code: 'network', message: error.message);
 
+  static ApiException _noAnswer(Duration timeout) => ApiException(
+    status: 0,
+    code: 'network',
+    message: 'No answer from the server in ${timeout.inSeconds}s',
+  );
+
+  /// [body], which fails with [_noAnswer] and stops reading once it goes
+  /// [limit] without a byte; stopping drops the connection, on a client
+  /// that can. Not [Stream.timeout]: its stream waits for a microtask of
+  /// the root zone to end or fail, which fake_async never runs.
+  static Stream<List<int>> _failWhenQuiet(
+    Stream<List<int>> body,
+    Duration limit,
+  ) {
+    final out = StreamController<List<int>>(sync: true);
+    StreamSubscription<List<int>>? reading;
+    Timer? quiet;
+    void wait() {
+      quiet?.cancel();
+      quiet = Timer(limit, () {
+        unawaited(reading?.cancel());
+        out.addError(_noAnswer(limit));
+        unawaited(out.close());
+      });
+    }
+
+    out
+      ..onListen = () {
+        wait();
+        reading = body.listen(
+          (chunk) {
+            wait();
+            out.add(chunk);
+          },
+          onError: (Object error, StackTrace stack) {
+            wait();
+            out.addError(error, stack);
+          },
+          onDone: () {
+            quiet?.cancel();
+            unawaited(out.close());
+          },
+        );
+      }
+      ..onPause = () {
+        quiet?.cancel();
+        reading?.pause();
+      }
+      ..onResume = () {
+        wait();
+        reading?.resume();
+      }
+      ..onCancel = () {
+        quiet?.cancel();
+        unawaited(reading?.cancel());
+      };
+    return out.stream;
+  }
+
   // Plumbing.
 
   Future<Json> _object(String method, List<String> path, {Json? body}) async {
@@ -350,10 +410,22 @@ class HttpTangentApi implements TangentApi {
     throw FormatException('Expected a JSON array from /api/${path.join('/')}');
   }
 
+  /// A JSON response's body, decoded. Its headers, and each stretch of its
+  /// body without a byte, get [_headersTimeout]: a read on a link that died
+  /// fails then, so whatever waits on it (a reply shown being written, a
+  /// send) moves on.
   Future<Object?> _json(String method, List<String> path, {Json? body}) async {
-    final response = await _send(method, path, body: body);
+    final response = await _send(
+      method,
+      path,
+      body: body,
+      timeout: _headersTimeout,
+    );
     try {
-      return jsonDecode(await response.stream.bytesToString());
+      final text = await http.ByteStream(
+        _failWhenQuiet(response.stream, _headersTimeout),
+      ).bytesToString();
+      return jsonDecode(text);
     } on http.ClientException catch (error) {
       throw _network(error);
     }
@@ -405,11 +477,7 @@ class HttpTangentApi implements TangentApi {
               onTimeout: () {
                 // Frees the connection, on a client that can.
                 abortRequest();
-                throw ApiException(
-                  status: 0,
-                  code: 'network',
-                  message: 'No answer from the server in ${timeout.inSeconds}s',
-                );
+                throw _noAnswer(timeout);
               },
             );
       // Saving, renewing and clearing the key all set the cookie, on
