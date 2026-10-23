@@ -224,6 +224,20 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     expect(sent.maxOutputTokens).toBe(String(POOL_MAX_OUTPUT));
   });
 
+  it('runs Very long on the pool model too, though it needs Max on credit', async () => {
+    const u = await poolReadyUser();
+    await ok(
+      await u.client.call('/api/settings', {
+        method: 'PATCH',
+        json: { learn: { replyLength: 'veryLong' } },
+        learn: 'pool',
+      }),
+    );
+    const { trunk } = await createTree(u, 'pool');
+    const res = await send(u, trunk.id, `Explain primes ${ECHO}`, { learn: 'pool' });
+    expect(echoed(replyText(parseSse(await res.text()))).model).toBe('normal');
+  });
+
   it("a stored system node (e.g. imported) never joins the pool's locked prompt", async () => {
     const u = await poolReadyUser({ env: { POOL_SYSTEM_PROMPT: 'LOCKED POOL PROMPT' } });
     const { trunk } = await createTree(u, 'pool');

@@ -960,6 +960,54 @@ describe('Learn has one model; Max is power’s', () => {
     >;
     expect(powerStart.assistantNode).toMatchObject({ model: 'normal' });
   });
+
+  it('replies on Max, held and billed as Max, on Very long while Normal stays saved; power is unaffected', async () => {
+    const u = await newUser();
+    await grant(u);
+    const saved = await ok<SettingsResponse>(
+      await u.call('/api/settings', {
+        method: 'PATCH',
+        json: { learn: { replyLength: 'veryLong' } },
+        learn: 'credit',
+      }),
+    );
+    // Saved as picked: Max follows from the length wherever a reply runs.
+    expect(saved.learn).toEqual({ tier: 'normal', replyLength: 'veryLong' });
+    const { trunk } = await treeWithNodes(u, 'credit');
+    const sent = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(sent.status).toBe(200);
+    const events = parseSse(await sent.text());
+    expect(events.at(-1), JSON.stringify(events.at(-1))).toMatchObject({ type: 'done' });
+    const start = events[0] as Extract<StreamEvent, { type: 'start' }>;
+    expect(start.assistantNode).toMatchObject({ providerId: 'openrouter', model: 'strong' });
+    const rows = await env.DB.prepare(
+      "SELECT model FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .all<{ model: string }>();
+    expect(rows.results.map((r) => r.model)).toEqual(['strong']);
+
+    await ok<SettingsResponse>(
+      await u.call('/api/settings', {
+        method: 'PATCH',
+        json: { learn: { replyLength: 'veryLong' } },
+      }),
+    );
+    const power = await treeWithNodes(u, undefined, { ...CREDIT, model: 'normal' });
+    const powerSent = await u.call(`/api/branches/${power.trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+    });
+    const powerStart = parseSse(await powerSent.text())[0] as Extract<
+      StreamEvent,
+      { type: 'start' }
+    >;
+    expect(powerStart.assistantNode).toMatchObject({ model: 'normal' });
+  });
 });
 
 describe('power mode with the built-in provider (Tangent credit)', () => {

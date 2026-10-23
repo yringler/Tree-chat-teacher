@@ -1,4 +1,5 @@
 import {
+  effectiveLearnTier,
   isModelAllowed,
   isProviderAvailable,
   pickDefaultRoute,
@@ -23,17 +24,18 @@ import type { ChatSettings } from './settings.js';
  *
  * Learn runs every route on its one registry, whatever a branch says: a
  * provider that registry lacks becomes its default provider, and the model
- * is the one of the learner's tier (`LearnProfile.reply`, Normal unless
- * they chose Max), never a branch's own choice of tier (`runnable`). The
- * stored branch keeps its route, so a branch made in power continues in
- * Learn on Learn's choice and still continues in power as it was.
+ * is the one of the learner's tier (`LearnProfile.reply` through
+ * `effectiveLearnTier`: Normal unless they chose Max or Very long), never
+ * a branch's own choice of tier (`runnable`). The stored branch keeps its
+ * route, so a branch made in power continues in Learn on Learn's choice and
+ * still continues in power as it was.
  */
 export class RouteResolver {
   /** Learn's funding of every route: payment is decided per request, outside the branch. */
   private readonly fixedFunding: BranchFunding | undefined;
   /** Power's Tangent credit, where offered. */
   private readonly credit: PowerProfile['credit'];
-  /** The tier Learn's replies run on: the learner's choice, else Normal (the pool's is its own). */
+  /** The tier Learn's replies run on (`effectiveLearnTier`), else Normal (the pool's is its own). */
   private readonly learnTier: ModelTier;
 
   constructor(
@@ -43,7 +45,8 @@ export class RouteResolver {
   ) {
     this.fixedFunding = paysPerRequest(profile) ? 'own-key' : undefined;
     this.credit = profile.kind === 'power' ? profile.credit : undefined;
-    this.learnTier = profile.kind === 'learn' ? (profile.reply?.tier ?? 'normal') : 'normal';
+    this.learnTier =
+      profile.kind === 'learn' && profile.reply ? effectiveLearnTier(profile.reply) : 'normal';
   }
 
   /** The model generations on `branch` use: the pool's, else the branch's. */
@@ -76,9 +79,9 @@ export class RouteResolver {
 
   /**
    * The model Learn runs `stored` as on `info`: the provider's Max model when
-   * the learner chose Max and it lists one; otherwise `stored` while the
-   * provider allows it and it isn't a Max model (a branch made on Max in
-   * power), else the provider's default. A provider without a Max model (the
+   * the learner's settings call for Max and it lists one; otherwise `stored`
+   * while the provider allows it and it isn't a Max model (a branch made on
+   * Max in power), else the provider's default. A provider without a Max model (the
    * learner's own Anthropic key, one model) runs as it always does.
    */
   private learnModel(info: ProviderInfo, stored: string): string {

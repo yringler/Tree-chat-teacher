@@ -25,6 +25,24 @@ export const DEFAULT_LEARN_REPLY: Readonly<LearnReplySettings> = {
   replyLength: 'normal',
 };
 
+/**
+ * The lengths that run only on Max, whatever tier the learner saved: a review
+ * of very long replies on Normal's model found them unreliable on reasoning
+ * and arithmetic, so a reply that long is held to Max's standard, and the
+ * settings say what it costs. The saved tier stays the learner's pick, so a
+ * shorter length runs on it again.
+ */
+export const LENGTH_REQUIRES_MAX: Readonly<Record<LearnReplyLength, boolean>> = {
+  normal: false,
+  long: false,
+  veryLong: true,
+};
+
+/** The tier a Learn reply runs, is gated and is held on under `settings` (the pool keeps its own). */
+export function effectiveLearnTier(settings: LearnReplySettings): ModelTier {
+  return LENGTH_REQUIRES_MAX[settings.replyLength] ? 'max' : settings.tier;
+}
+
 /** What each length is called in the settings and on the composer chip. */
 export const REPLY_LENGTH_LABELS: Readonly<Record<LearnReplyLength, string>> = {
   normal: 'Normal',

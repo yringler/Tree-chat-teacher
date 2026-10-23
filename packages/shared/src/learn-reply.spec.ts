@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { updateSettingsRequestSchema } from './api.js';
 import {
   DEFAULT_LEARN_REPLY,
+  effectiveLearnTier,
   LEARN_REPLY_LENGTHS,
+  LENGTH_REQUIRES_MAX,
   LEARN_REPLY_POOL_NOTE,
   learnReplyIndicator,
   REPLY_LENGTH_WORDS,
@@ -52,6 +54,18 @@ describe('learnReplyIndicator', () => {
     expect(learnReplyIndicator({ tier: 'max', replyLength: 'veryLong' }, fixed)?.label).toBe(
       'Very long',
     );
+  });
+});
+
+describe('effectiveLearnTier', () => {
+  it('runs Very long on Max whatever tier is saved, and the other lengths on the saved tier', () => {
+    expect(LENGTH_REQUIRES_MAX).toEqual({ normal: false, long: false, veryLong: true });
+    expect(effectiveLearnTier({ tier: 'normal', replyLength: 'veryLong' })).toBe('max');
+    expect(effectiveLearnTier({ tier: 'max', replyLength: 'veryLong' })).toBe('max');
+    for (const replyLength of ['normal', 'long'] as const) {
+      expect(effectiveLearnTier({ tier: 'normal', replyLength })).toBe('normal');
+      expect(effectiveLearnTier({ tier: 'max', replyLength })).toBe('max');
+    }
   });
 });
 

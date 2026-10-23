@@ -544,6 +544,7 @@ describe("Learn's tier", () => {
       provider,
       chat: chat(tier ? { tier, replyLength: 'normal' } : undefined),
       plain: chat(),
+      withReply: chat,
     };
   }
 
@@ -566,6 +567,17 @@ describe("Learn's tier", () => {
     await send(chat, tree.trunkBranchId, 'hi');
     await send(plain, tree.trunkBranchId, 'hi');
     expect(provider.chatCalls().map((c) => c.model)).toEqual(['normal', 'normal']);
+  });
+
+  it('runs Very long on Max even while the learner keeps Normal; Long stays on Normal', async () => {
+    const { provider, plain, withReply } = tierSetup(undefined);
+    const { tree } = await plain.createTree({});
+    const veryLong = withReply({ tier: 'normal', replyLength: 'veryLong' });
+    const { last } = await send(veryLong, tree.trunkBranchId, 'a chapter, please');
+    expect(last).toMatchObject({ type: 'done', node: { model: 'max' } });
+    expect((await plain.getOwnedBranch(tree.trunkBranchId)).model).toBe('normal');
+    await send(withReply({ tier: 'normal', replyLength: 'long' }), tree.trunkBranchId, 'more');
+    expect(provider.chatCalls().map((c) => c.model)).toEqual(['max', 'normal']);
   });
 
   it('keeps the one model of a provider without a Max', async () => {
