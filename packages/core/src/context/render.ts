@@ -9,6 +9,7 @@ import {
   clip,
   replyLengthInstructions,
   foldSystemPrompt,
+  splitTangents,
   type ChatMessage,
   type ContextPlan,
   type RenderedPrompt,
@@ -23,13 +24,21 @@ export interface RenderOptions {
 export const SUMMARY_HEADING = '## Summary of the earlier conversation';
 export const ANCHOR_HEADING = '## The user branched off to focus on this excerpt';
 export const CONTINUATION_MESSAGE = '(Conversation continues.)';
+/**
+ * Leads a long reply's summary sent in its place, so the model reads it as
+ * its own earlier reply, shortened, and doesn't take the learner to have
+ * seen only that.
+ */
+export const CONDENSED_REPLY_MARKER = '[Condensed; the learner sees the full reply]';
 /** What joins system sections, and merged messages. */
 const SEPARATOR = '\n\n';
 
 /**
  * Plan → provider-agnostic prompt.
  * - system: tree system prompt, system nodes and summaries, in segment order,
- *   as labelled sections;
+ *   as labelled sections, except a long reply's summary, which stands in the
+ *   reply's place as assistant text (`condensedReply`), so the history and
+ *   its cached prefix keep their shape;
  * - messages: ancestor + branch message segments in order, with a branch's
  *   anchor quote as quoted user text where it occurs (not in the system
  *   prompt, so sibling branches with different quotes share the cached prefix
@@ -50,8 +59,9 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
         if (seg.text.trim() !== '') systemParts.push(seg.text);
         break;
       case 'summary':
-        if (seg.status === 'ready' && seg.text !== null)
-          systemParts.push(`${SUMMARY_HEADING}${SEPARATOR}${seg.text}`);
+        if (seg.status !== 'ready' || seg.text === null) break;
+        if (seg.purpose === 'message') pushMessage(messages, 'assistant', condensedReply(seg.text));
+        else systemParts.push(`${SUMMARY_HEADING}${SEPARATOR}${seg.text}`);
         break;
       case 'anchor':
         pushMessage(messages, 'user', quotedAnchor(seg.text));
@@ -135,6 +145,11 @@ function pushMessage(messages: ChatMessage[], role: ChatMessage['role'], text: s
   else messages.push({ role, content: text });
 }
 
+/** A long reply's summary as sent in the reply's place. */
+export function condensedReply(summary: string): string {
+  return `${CONDENSED_REPLY_MARKER}${SEPARATOR}${summary}`;
+}
+
 /** An anchor quote as user text: quoted, so it reads as material, not instructions. */
 function quotedAnchor(text: string): string {
   return `${ANCHOR_HEADING}\n\n<excerpt>\n${text}\n</excerpt>`;
@@ -176,6 +191,45 @@ function summaryPrompt(transcript: string, focus: string | null): RenderedPrompt
   }
   const content = `<conversation>\n${transcript}\n</conversation>\n\n${instruction}`;
   return { system, messages: [{ role: 'user', content }] };
+}
+
+const MESSAGE_SUMMARY_SYSTEM =
+  'You condense one long reply that an AI tutor wrote in a learning app. Your version replaces the reply ' +
+  'as context for later questions asked further down the conversation, so it must stand on its own and ' +
+  'keep what a follow-up question could point back to. ' +
+  'Write about 500 words, never more than 700. Keep the reply’s `##` section headings, in order, with ' +
+  'each section’s key points under it. Number its examples and steps as they appear ("Example 3: …", ' +
+  '"Step 2: …") and keep each one’s numbers and result. Keep definitions, formulas (as TeX), code ' +
+  'identifiers, names, dates and figures exactly, and cited sources as Markdown links next to the claims ' +
+  'they support. Write in the reply’s own voice and language. Do not add anything that is not in the ' +
+  'reply, and output only the condensed reply.';
+
+function messageSummaryPrompt(reply: string): RenderedPrompt {
+  const content = `<reply>\n${reply}\n</reply>\n\nCondense the reply above.`;
+  return { system: MESSAGE_SUMMARY_SYSTEM, messages: [{ role: 'user', content }] };
+}
+
+/**
+ * Prompt used to condense the long reply of a `message` summary request
+ * (its one transcript message), without its tangents block, which the
+ * learner follows from the reply itself. With a `limit` the prompt never
+ * exceeds `limit.maxInputTokens`, the reply keeping its start; null when
+ * even the instructions alone do not fit.
+ */
+export function buildMessageSummaryPrompt(
+  request: SummaryRequest,
+  limit: SummaryInputLimit | undefined,
+): RenderedPrompt | null {
+  const reply = request.transcript.map((m) => splitTangents(m.content).body).join(SEPARATOR);
+  const full = messageSummaryPrompt(reply);
+  if (!limit) return full;
+  const fits = (prompt: RenderedPrompt): boolean =>
+    promptTokens(prompt, limit.estimateTokens) <= limit.maxInputTokens;
+  if (fits(full)) return full;
+  if (!fits(messageSummaryPrompt('…'))) return null;
+  return messageSummaryPrompt(
+    `${longestFitting(reply, false, (part) => fits(messageSummaryPrompt(`${part}…`)))}…`,
+  );
 }
 
 function promptTokens(prompt: RenderedPrompt, estimate: TokenEstimator): number {

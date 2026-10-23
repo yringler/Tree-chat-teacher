@@ -1,8 +1,8 @@
 import type { ChatMessage, ContextMode, ContextPlan, ContextSegment } from '@tangent/shared';
 import { describe as suite, expect, it } from 'vitest';
 import { assembleContext, summaryKeyString } from '../../src/context/assemble.js';
-import type { AssembleBudget } from '../../src/context/assemble.js';
-import { renderPlan } from '../../src/context/render.js';
+import type { AssembleBudget, AssembleInput } from '../../src/context/assemble.js';
+import { CONDENSED_REPLY_MARKER, renderPlan } from '../../src/context/render.js';
 import { ValidationError } from '../../src/errors.js';
 import { sha256Hex } from '../../src/hash.js';
 import { estimateTokens, MESSAGE_OVERHEAD_TOKENS } from '../../src/tokens.js';
@@ -62,6 +62,10 @@ function checkProvenance(f: Fixture, plan: ContextPlan): void {
           expect(s.reason).toBe('branch-summary');
           expect(f.branch(s.viaBranchId!).contextMode).toBe('summary');
           expect(s.key.anchorNodeId).toBe(f.branch(s.viaBranchId!).branchPointNodeId);
+        } else if (s.purpose === 'message') {
+          expect(s.reason).toBe('message-summary');
+          expect(s.key.anchorNodeId).toBe(s.sourceNodeIds[0]);
+          expect(s.viaBranchId).toBe(f.node(s.sourceNodeIds[0]!).branchId);
         } else {
           expect(s.reason).toBe('budget-compaction');
           expect(s.viaBranchId).toBe(plan.targetBranchId);
@@ -1340,5 +1344,183 @@ suite('token budget', () => {
     // Candidates are T.0 and T.1 (the target is excluded); 312-208+100 = 204 > 150.
     expect(plan.compaction).toBeNull();
     expect(plan.segments.map((s) => s.sourceNodeIds[0])).toEqual(['T.2']);
+  });
+});
+
+suite('condensing long ancestor replies', () => {
+  /** A reply over the test threshold (`condenseAbove: 50` with one token per character). */
+  const LONG = `${'A long reply. '.repeat(10)}<tangents>\n- [deeper] More — why\n</tangents>`;
+  const LONG2 = 'A second long reply, from the child thread. '.repeat(3);
+  const budget: AssembleBudget = { maxInputTokens: 1_000_000, condenseAbove: 50 };
+  const messageKey = (anchorNodeId: string, content: string) => ({
+    anchorNodeId,
+    sourceHash: sha256Hex(JSON.stringify({ kind: 'message', content })),
+  });
+
+  /** Trunk with a long reply T.1; Child forks from it; Grandchild forks from Child's long reply. */
+  function build(anchor: string | null = null) {
+    const f = new Fixture();
+    f.add('T', 'user', 'question');
+    f.add('T', 'assistant', LONG);
+    const child = f.fork('T.1', 'path', { title: 'Child' });
+    f.add(child, 'user', 'follow-up');
+    f.add(child, 'assistant', LONG2);
+    const grandchild = f.fork(`${child}.1`, 'path', { title: 'Grandchild', anchor });
+    f.add(grandchild, 'user', 'deeper');
+    return { f, child, grandchild };
+  }
+
+  const plan = (f: Fixture, target: string, overrides: Partial<AssembleInput> = {}) =>
+    f.plan(target, { estimateTokens: charTokens, budget, ...overrides });
+
+  it('keeps a long reply whole in its own thread and in the tangent that starts from it', () => {
+    const { f, child } = build();
+    expect(describe(plan(f, 'T'))).toEqual(['br:question', `br:${LONG}`]);
+    const childPlan = plan(f, child);
+    expect(describe(childPlan)).toEqual([
+      'anc:question',
+      `anc:${LONG}`,
+      'br:follow-up',
+      `br:${LONG2}`,
+    ]);
+    expect(childPlan.pendingSummaries).toEqual([]);
+    expect(childPlan.complete).toBe(true);
+  });
+
+  it('asks for a summary of a long reply two levels up, sending it whole until then', () => {
+    const { f, grandchild } = build();
+    const result = plan(f, grandchild);
+    expect(describe(result)).toEqual([
+      'anc:question',
+      `anc:${LONG}`,
+      'anc:follow-up',
+      `anc:${LONG2}`,
+      'br:deeper',
+    ]);
+    expect(result.complete).toBe(false);
+    expect(result.pendingSummaries).toEqual([
+      {
+        key: messageKey('T.1', LONG),
+        purpose: 'message',
+        sourceNodeIds: ['T.1'],
+        transcript: [a(LONG)],
+        focus: null,
+      },
+    ]);
+  });
+
+  it('sends a ready summary in the reply’s place, as assistant text', () => {
+    const { f, grandchild } = build();
+    const summaries = new Map([[summaryKeyString(messageKey('T.1', LONG)), 'condensed']]);
+    const result = plan(f, grandchild, { summaries });
+    expect(describe(result)).toEqual([
+      'anc:question',
+      'sum:message:ready',
+      'anc:follow-up',
+      `anc:${LONG2}`,
+      'br:deeper',
+    ]);
+    expect(result.complete).toBe(true);
+    expect(result.pendingSummaries).toEqual([]);
+    const condensed = summarySegments(result)[0]!;
+    expect(condensed.reason).toBe('message-summary');
+    expect(condensed.sourceNodeIds).toEqual(['T.1']);
+    expect(condensed.viaBranchId).toBe('T');
+    checkProvenance(f, result);
+
+    const rendered = renderPlan(result, { supportsSystemPrompt: true });
+    expect(rendered.system).toBeNull();
+    expect(rendered.messages).toEqual([
+      u('question'),
+      a(`${CONDENSED_REPLY_MARKER}\n\ncondensed`),
+      u('follow-up'),
+      a(LONG2),
+      u('deeper'),
+    ]);
+  });
+
+  it('keeps the excerpt the tangent started from word for word', () => {
+    const { f, grandchild } = build(LONG2.slice(0, 30));
+    const summaries = new Map([[summaryKeyString(messageKey('T.1', LONG)), 'condensed']]);
+    expect(describe(plan(f, grandchild, { summaries }))).toEqual([
+      'anc:question',
+      'sum:message:ready',
+      'anc:follow-up',
+      `anc:${LONG2}`,
+      `quote:${LONG2.slice(0, 30)}`,
+      'br:deeper',
+    ]);
+  });
+
+  it('condenses the tangent’s own starting reply once a tangent below it starts', () => {
+    const { f, grandchild } = build();
+    const great = f.fork(`${grandchild}.0`, 'path', { title: 'Great' });
+    f.add(great, 'user', 'deepest');
+    const result = plan(f, great);
+    expect(result.pendingSummaries.map((r) => r.key.anchorNodeId)).toEqual(['T.1', 'B1.1']);
+  });
+
+  it('asks for no summary of a reply a later branch doesn’t inherit', () => {
+    const { f, grandchild } = build();
+    const apart = f.fork(`${grandchild}.0`, 'independent', { title: 'Apart' });
+    f.add(apart, 'user', 'fresh start');
+    const result = plan(f, apart);
+    expect(describe(result)).toEqual(['br:fresh start']);
+    expect(result.pendingSummaries).toEqual([]);
+    expect(result.complete).toBe(true);
+  });
+
+  it('sends a reply whose summary failed whole, without asking again', () => {
+    const { f, grandchild } = build();
+    const failedSummaries = new Set([summaryKeyString(messageKey('T.1', LONG))]);
+    const result = plan(f, grandchild, { failedSummaries });
+    expect(describe(result)).toContain(`anc:${LONG}`);
+    expect(result.pendingSummaries).toEqual([]);
+    expect(result.complete).toBe(true);
+  });
+
+  it('keeps the condensed prefix the same as the thread goes on', () => {
+    const { f, grandchild } = build();
+    const summaries = new Map([[summaryKeyString(messageKey('T.1', LONG)), 'condensed']]);
+    const first = renderPlan(plan(f, grandchild, { summaries }), { supportsSystemPrompt: true });
+    f.add(grandchild, 'assistant', LONG);
+    f.add(grandchild, 'user', 'and then?');
+    const later = renderPlan(plan(f, grandchild, { summaries }), { supportsSystemPrompt: true });
+    expect(later.messages.slice(0, first.messages.length - 1)).toEqual(first.messages.slice(0, -1));
+    // The thread's own long reply stays whole.
+    expect(later.messages.at(-2)).toEqual(a(LONG));
+  });
+
+  it('leaves short replies, user messages and failed replies whole', () => {
+    const f = new Fixture();
+    f.add('T', 'user', 'A long question from the learner, longer than the threshold.');
+    f.add('T', 'assistant', 'short');
+    f.add('T', 'user', 'again');
+    f.add('T', 'assistant', LONG, { status: 'error' });
+    const child = f.fork('T.3', 'path');
+    f.add(child, 'user', 'next');
+    const grandchild = f.fork(`${child}.0`, 'path');
+    f.add(grandchild, 'user', 'deeper');
+    const result = plan(f, grandchild);
+    expect(result.pendingSummaries).toEqual([]);
+    expect(describe(result)).toContain(`anc:${LONG}`);
+  });
+
+  it('does nothing without the option, and leaves compaction keys as they were', () => {
+    const { f, grandchild } = build();
+    const off = f.plan(grandchild, { estimateTokens: charTokens });
+    expect(off.pendingSummaries).toEqual([]);
+    expect(describe(off)).toContain(`anc:${LONG}`);
+
+    const g = new Fixture();
+    g.messages('T', 6);
+    const tight = { maxInputTokens: 40, compactionSummaryTokens: 10 };
+    const without = g.plan('T', { estimateTokens: charTokens, budget: tight });
+    const withOption = g.plan('T', {
+      estimateTokens: charTokens,
+      budget: { ...tight, condenseAbove: 50 },
+    });
+    expect(without.compaction).not.toBeNull();
+    expect(withOption.compaction!.key).toEqual(without.compaction!.key);
   });
 });

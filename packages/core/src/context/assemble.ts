@@ -7,7 +7,9 @@ import type {
   CompactionRecord,
   ContextPlan,
   ContextSegment,
+  NodeStatus,
   SummaryKey,
+  SummaryPurpose,
   SummaryRequest,
   SummarySegment,
   SystemSegment,
@@ -18,6 +20,7 @@ import { ValidationError } from '../errors.js';
 import { sha256Hex } from '../hash.js';
 import { estimateTokens as defaultEstimateTokens, MESSAGE_OVERHEAD_TOKENS } from '../tokens.js';
 import type { TokenEstimator } from '../tokens.js';
+import { condensedReply } from './render.js';
 
 export interface AssembleBudget {
   /** Max input tokens for the plan (caller subtracts reserved output already). */
@@ -37,7 +40,22 @@ export interface AssembleBudget {
    * truncated. Default 2. The target message itself is always kept.
    */
   minTailMessages?: number;
+  /**
+   * Condense long replies inherited from further up: a complete assistant
+   * reply over this many tokens, inherited through `path` by a branch below
+   * the tangent that starts from it, is sent as its summary (`'message'`
+   * purpose), keyed by the reply alone so every descendant shares it. The
+   * target branch's own messages and the branch point a tangent starts from
+   * stay whole. Absent: nothing is condensed.
+   */
+  condenseAbove?: number;
 }
+
+/**
+ * `AssembleBudget.condenseAbove` where it is set (Learn): over Normal's
+ * 750-word replies with headroom, so only longer replies are condensed.
+ */
+export const CONDENSE_REPLIES_ABOVE_TOKENS = 1500;
 
 export interface AssembleInput {
   tree: Pick<Tree, 'id' | 'systemPrompt'>;
@@ -87,6 +105,12 @@ interface Ctx {
   requests: Map<DraftSummary, { transcript: ChatMessage[]; focus: string | null }>;
   /** For summaries whose transcript is unknown: the inner summaries that are not ready. */
   blockers: Map<DraftSummary, DraftSummary[]>;
+  /** `AssembleBudget.condenseAbove`; null: nothing is condensed. */
+  condenseAbove: number | null;
+  /** Each path node's status: only complete replies are condensed. */
+  statuses: ReadonlyMap<string, NodeStatus>;
+  /** Long replies sent whole until their summary is ready, with its request. */
+  condenseRequests: Map<Draft, SummaryRequest>;
 }
 
 /**
@@ -107,6 +131,9 @@ export function assembleContext(input: AssembleInput): ContextPlan {
     failed: input.failedSummaries ?? new Set<string>(),
     requests: new Map(),
     blockers: new Map(),
+    condenseAbove: input.budget.condenseAbove ?? null,
+    statuses: new Map(input.nodes.map((n) => [n.id, n.status])),
+    condenseRequests: new Map(),
   };
 
   const chain = resolveChain(branchIndex(input.branches), input.tree.id, input.targetBranchId);
@@ -122,7 +149,9 @@ export function assembleContext(input: AssembleInput): ContextPlan {
     if (parent) {
       switch (branch.contextMode) {
         case 'path':
-          next.push(...effective);
+          // Long replies above the parent's branch point are condensed; the
+          // reply this branch starts from is not.
+          next.push(...effective.map((s) => condensed(ctx, s, branch.branchPointNodeId)));
           break;
         case 'summary': {
           const summary = branchSummary(ctx, branch, parent, effective);
@@ -203,6 +232,16 @@ export function assembleContext(input: AssembleInput): ContextPlan {
     complete = false;
     collect(seg);
   }
+  // Only replies the context still holds (a later branch may not inherit
+  // them). Condensing goes first: a compaction over a reply sent whole would
+  // be made again once the reply's summary is ready.
+  const condense = new Map<string, SummaryRequest>();
+  for (const draft of drafts) {
+    const request = ctx.condenseRequests.get(draft);
+    if (request) condense.set(summaryKeyString(request.key), request);
+  }
+  if (condense.size > 0) complete = false;
+  pendingSummaries.unshift(...condense.values());
 
   let truncation: TruncationRecord | null = null;
   if (budgeted.truncation) {
@@ -529,6 +568,59 @@ function anchorSegment(ctx: Ctx, branch: Branch): Draft<AnchorSegment> | null {
 }
 
 /**
+ * `segment` as sent below the branch that inherits it at `branchPointNodeId`:
+ * a long complete reply other than that branch point becomes its summary
+ * when it is ready. Pending, it stays whole and is requested; failed, it
+ * stays whole. Any other segment comes back as it is.
+ */
+function condensed(ctx: Ctx, segment: Draft, branchPointNodeId: string | null): Draft {
+  const limit = ctx.condenseAbove;
+  if (
+    limit === null ||
+    segment.kind !== 'ancestor' ||
+    segment.role !== 'assistant' ||
+    segment.nodeId === branchPointNodeId ||
+    ctx.statuses.get(segment.nodeId) !== 'complete' ||
+    segment.tokens <= limit
+  ) {
+    return segment;
+  }
+  const key: SummaryKey = {
+    anchorNodeId: segment.nodeId,
+    sourceHash: sha256Hex(JSON.stringify({ kind: 'message', content: segment.text })),
+  };
+  const keyString = summaryKeyString(key);
+  const text = ctx.summaries.get(keyString);
+  if (text === undefined) {
+    if (!ctx.failed.has(keyString)) {
+      ctx.condenseRequests.set(segment, {
+        key,
+        purpose: 'message',
+        sourceNodeIds: [segment.nodeId],
+        transcript: [{ role: 'assistant', content: segment.text }],
+        focus: null,
+      });
+    }
+    return segment;
+  }
+  const tokens = ctx.estimate(condensedReply(text)) + MESSAGE_OVERHEAD_TOKENS;
+  // A summary no shorter than its reply saves nothing.
+  if (tokens >= segment.tokens) return segment;
+  return {
+    kind: 'summary',
+    reason: 'message-summary',
+    explanation: `${segment.explanation}, condensed: a long reply further up than this tangent’s start`,
+    sourceNodeIds: [segment.nodeId],
+    viaBranchId: segment.viaBranchId,
+    tokens,
+    purpose: 'message',
+    key,
+    status: 'ready',
+    text,
+  };
+}
+
+/**
  * The segments as one transcript. Returns null when the transcript is unknown
  * because it contains a summary that is not ready yet.
  */
@@ -547,7 +639,9 @@ function flatten(segments: readonly Draft[]): ChatMessage[] | null {
         break;
       case 'summary':
         if (s.status !== 'ready' || s.text === null) return null;
-        out.push({ role: 'user', content: FLATTENED_SUMMARY_PREFIX + s.text });
+        if (s.purpose === 'message')
+          out.push({ role: 'assistant', content: condensedReply(s.text) });
+        else out.push({ role: 'user', content: FLATTENED_SUMMARY_PREFIX + s.text });
         break;
     }
   }
@@ -569,7 +663,7 @@ function summarySourceIds(segments: readonly Draft[]): string[] {
 }
 
 interface SummarySpec {
-  purpose: 'branch' | 'compaction';
+  purpose: Exclude<SummaryPurpose, 'message'>;
   anchorNodeId: string;
   focus: string | null;
   viaBranchId: string;

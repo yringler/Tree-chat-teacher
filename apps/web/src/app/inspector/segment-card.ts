@@ -9,6 +9,7 @@ const REASONS: Record<InclusionReason, string> = {
   'branch-message': 'this tangent',
   'branch-summary': 'tangent summary',
   'budget-compaction': 'compaction',
+  'message-summary': 'condensed reply',
   'anchor-quote': 'anchor quote',
 };
 
