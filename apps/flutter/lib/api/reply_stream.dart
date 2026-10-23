@@ -11,15 +11,20 @@ import 'models.dart';
 /// answers a 2xx response's body as events; anything else throws
 /// [ApiException] before any event. A body fails with [ApiException] when
 /// its connection is lost; any other error there is a bug, and ends the
-/// reply's stream without a reconnect.
+/// reply's stream without a reconnect. Once [abort] completes, the request
+/// and its body are no longer wanted, and are dropped where the client can.
 abstract interface class ReplyTransport {
   /// Sends [content] on [branchId] (`POST /api/branches/:id/messages`). A
   /// refusal (out of credit, pool empty, …) throws before any event.
-  Future<Stream<StreamEvent>> sendMessage(String branchId, String content);
+  Future<Stream<StreamEvent>> sendMessage(
+    String branchId,
+    String content, {
+    Future<void>? abort,
+  });
 
   /// Attaches to a reply being written (`GET /api/nodes/:id/stream`):
   /// snapshot, then live events.
-  Future<Stream<StreamEvent>> attachReply(String nodeId);
+  Future<Stream<StreamEvent>> attachReply(String nodeId, {Future<void>? abort});
 }
 
 /// Starts a timer: [Timer.new], or a test's own.
@@ -95,7 +100,8 @@ class ReplyStream {
     required String content,
     this._startTimer = Timer.new,
   }) : _transport = transport,
-       _open = (() => transport.sendMessage(branchId, content)),
+       _open = ((abort) =>
+           transport.sendMessage(branchId, content, abort: abort)),
        _replyId = null;
 
   /// Follows [replyId], a reply being written, starting by attaching to it.
@@ -111,7 +117,7 @@ class ReplyStream {
   final StartTimer _startTimer;
 
   /// The send, for a stream that starts with one.
-  final Future<Stream<StreamEvent>> Function()? _open;
+  final Future<Stream<StreamEvent>> Function(Future<void> abort)? _open;
 
   /// The reply followed: given, or named by `start` or `snapshot`.
   String? get replyId => _replyId;
@@ -152,7 +158,7 @@ class ReplyStream {
         final open = pendingOpen;
         pendingOpen = null;
         try {
-          final opened = await _unlessCancelled(open());
+          final opened = await _unlessCancelled(open(_cancel.future));
           if (opened == null) return const ReplyCancelled();
           body = opened;
         } on ApiException catch (error) {
@@ -187,7 +193,9 @@ class ReplyStream {
           if (_cancelled) return const ReplyCancelled();
         }
         try {
-          final attached = await _unlessCancelled(_transport.attachReply(id));
+          final attached = await _unlessCancelled(
+            _transport.attachReply(id, abort: _cancel.future),
+          );
           if (attached == null) return const ReplyCancelled();
           body = attached;
         } on ApiException catch (error) {
@@ -215,9 +223,22 @@ class ReplyStream {
     }
   }
 
-  /// [future]'s value, or null when the stream is cancelled first.
-  Future<T?> _unlessCancelled<T extends Object>(Future<T> future) =>
-      Future.any<T?>([future, _cancel.future.then((_) => null)]);
+  /// The body [opening] answers, or null when the stream is cancelled
+  /// first. A body that comes after the cancel is cancelled too, in case
+  /// the transport couldn't drop it.
+  Future<Stream<StreamEvent>?> _unlessCancelled(
+    Future<Stream<StreamEvent>> opening,
+  ) async {
+    final body = await Future.any([opening, _cancel.future.then((_) => null)]);
+    if (!_cancelled) return body;
+    unawaited(
+      opening.then(
+        (body) => body.listen(null).cancel(),
+        onError: (Object _) {},
+      ),
+    );
+    return null;
+  }
 
   /// Reads [body] until a terminal event, its end or [cancel]: the outcome
   /// of a terminal event or the cancel, or null when the body ended first.

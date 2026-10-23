@@ -275,19 +275,29 @@ class HttpTangentApi implements TangentApi {
   @override
   Future<Stream<StreamEvent>> sendMessage(
     String branchId,
-    String content,
-  ) async => _events(
+    String content, {
+    Future<void>? abort,
+  }) async => _events(
     await _send(
       'POST',
       ['branches', branchId, 'messages'],
       body: {'content': content},
       timeout: _headersTimeout,
+      abort: abort,
     ),
   );
 
   @override
-  Future<Stream<StreamEvent>> attachReply(String nodeId) async => _events(
-    await _send('GET', ['nodes', nodeId, 'stream'], timeout: _headersTimeout),
+  Future<Stream<StreamEvent>> attachReply(
+    String nodeId, {
+    Future<void>? abort,
+  }) async => _events(
+    await _send(
+      'GET',
+      ['nodes', nodeId, 'stream'],
+      timeout: _headersTimeout,
+      abort: abort,
+    ),
   );
 
   @override
@@ -351,19 +361,26 @@ class HttpTangentApi implements TangentApi {
 
   /// Sends a request under `/api` and returns a 2xx response with its body
   /// unread; anything else throws [ApiException], as does a response whose
-  /// headers take longer than [timeout].
+  /// headers take longer than [timeout]. Once [abort] completes, the
+  /// request and its body are aborted, on a client that can.
   Future<http.StreamedResponse> _send(
     String method,
     List<String> path, {
     Json? body,
     Map<String, String> headers = const {},
     Duration? timeout,
+    Future<void>? abort,
   }) async {
     final token = await (_token ??= _read(tokens));
     final key = await (_keyCookieValue ??= _read(keyCookie));
-    final abort = Completer<void>();
+    final aborted = Completer<void>();
+    void abortRequest() {
+      if (!aborted.isCompleted) aborted.complete();
+    }
+
+    unawaited(abort?.then((_) => abortRequest()));
     final request =
-        http.AbortableRequest(method, _url(path), abortTrigger: abort.future)
+        http.AbortableRequest(method, _url(path), abortTrigger: aborted.future)
           ..headers.addAll({
             'x-tangent-mode': 'simple',
             'x-tangent-payment': payer.header,
@@ -387,7 +404,7 @@ class HttpTangentApi implements TangentApi {
               timeout,
               onTimeout: () {
                 // Frees the connection, on a client that can.
-                abort.complete();
+                abortRequest();
                 throw ApiException(
                   status: 0,
                   code: 'network',

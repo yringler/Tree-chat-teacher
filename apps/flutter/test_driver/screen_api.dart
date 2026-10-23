@@ -308,8 +308,9 @@ class ScreenApi implements TangentApi {
   @override
   Future<Stream<StreamEvent>> sendMessage(
     String branchId,
-    String content,
-  ) async => _write(branchId, content);
+    String content, {
+    Future<void>? abort,
+  }) async => _write(branchId, content);
 
   /// Writes a canned reply a few words at a time.
   Stream<StreamEvent> _write(String branchId, String content) async* {
@@ -338,8 +339,10 @@ class ScreenApi implements TangentApi {
   }
 
   @override
-  Future<Stream<StreamEvent>> attachReply(String nodeId) async =>
-      const Stream.empty();
+  Future<Stream<StreamEvent>> attachReply(
+    String nodeId, {
+    Future<void>? abort,
+  }) async => const Stream.empty();
 
   @override
   Future<void> cancel(String nodeId) async {}

@@ -391,8 +391,9 @@ class FakeTangentApi implements TangentApi {
   @override
   Future<Stream<StreamEvent>> sendMessage(
     String branchId,
-    String content,
-  ) async {
+    String content, {
+    Future<void>? abort,
+  }) async {
     final scripted = ScriptedStream(branchId, content);
     sends.add(scripted);
     final refusal = refuseSend;
@@ -401,7 +402,10 @@ class FakeTangentApi implements TangentApi {
   }
 
   @override
-  Future<Stream<StreamEvent>> attachReply(String nodeId) async {
+  Future<Stream<StreamEvent>> attachReply(
+    String nodeId, {
+    Future<void>? abort,
+  }) async {
     final scripted = ScriptedStream(nodeId, null);
     resumes.add(scripted);
     return scripted.controller.stream;

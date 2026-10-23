@@ -22,14 +22,18 @@ class FakeTransport implements ReplyTransport {
   @override
   Future<Stream<StreamEvent>> sendMessage(
     String branchId,
-    String content,
-  ) async {
+    String content, {
+    Future<void>? abort,
+  }) async {
     sent.add(branchId);
     return answers.removeAt(0)();
   }
 
   @override
-  Future<Stream<StreamEvent>> attachReply(String nodeId) async {
+  Future<Stream<StreamEvent>> attachReply(
+    String nodeId, {
+    Future<void>? abort,
+  }) async {
     attached.add(nodeId);
     return answers.removeAt(0)();
   }
@@ -397,19 +401,39 @@ void main() {
       });
     });
 
-    test('while the send is unanswered', () async {
+    test('while the send is unanswered, aborts it and cancels a body that '
+        'comes after', () async {
       final answer = Completer<Stream<StreamEvent>>();
-      final stream = ReplyStream.send(
-        _Unanswered(answer.future),
-        branchId: 'b1',
-        content: 'hi',
-      );
+      final transport = _Unanswered(answer.future);
+      final stream = ReplyStream.send(transport, branchId: 'b1', content: 'hi');
       final outcome = stream.run(events.add);
+      var aborted = false;
+      unawaited(transport.aborts.single!.then((_) => aborted = true));
       stream.cancel();
       expect(await outcome, isA<ReplyCancelled>());
-      answer.complete(Stream.value(start));
       await pumpEventQueue();
+      expect(aborted, isTrue);
+
+      final lateBody = StreamController<StreamEvent>();
+      var lateBodyCancelled = false;
+      lateBody.onCancel = () => lateBodyCancelled = true;
+      answer.complete(lateBody.stream);
+      await pumpEventQueue();
+      expect(lateBodyCancelled, isTrue);
       expect(events, isEmpty);
+    });
+
+    test('while an attach is unanswered, aborts it', () async {
+      final transport = _Unanswered(Completer<Stream<StreamEvent>>().future);
+      final stream = ReplyStream.attach(transport, 'a1');
+      final outcome = stream.run(events.add);
+      await pumpEventQueue();
+      var aborted = false;
+      unawaited(transport.aborts.single!.then((_) => aborted = true));
+      stream.cancel();
+      expect(await outcome, isA<ReplyCancelled>());
+      await pumpEventQueue();
+      expect(aborted, isTrue);
     });
 
     test('from inside an event stops at that event', () async {
@@ -445,16 +469,29 @@ void main() {
   });
 }
 
-/// A transport whose send answers with [answer], whenever it completes.
+/// A transport that answers every connection with [answer], whenever it
+/// completes, and records each one's abort trigger.
 class _Unanswered implements ReplyTransport {
   _Unanswered(this.answer);
   final Future<Stream<StreamEvent>> answer;
+  final aborts = <Future<void>?>[];
 
   @override
-  Future<Stream<StreamEvent>> sendMessage(String branchId, String content) =>
-      answer;
+  Future<Stream<StreamEvent>> sendMessage(
+    String branchId,
+    String content, {
+    Future<void>? abort,
+  }) {
+    aborts.add(abort);
+    return answer;
+  }
 
   @override
-  Future<Stream<StreamEvent>> attachReply(String nodeId) =>
-      throw UnimplementedError();
+  Future<Stream<StreamEvent>> attachReply(
+    String nodeId, {
+    Future<void>? abort,
+  }) {
+    aborts.add(abort);
+    return answer;
+  }
 }

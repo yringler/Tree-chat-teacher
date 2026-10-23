@@ -971,6 +971,28 @@ void main() {
       expect(f.seen, hasLength(1));
     });
 
+    test('a reply stream cancelled while its send is unanswered aborts the '
+        'request', () async {
+      var aborted = false;
+      final client = MockClient.streaming((request, _) async {
+        final trigger = (request as http.Abortable).abortTrigger;
+        await trigger;
+        aborted = true;
+        throw http.RequestAbortedException(request.url);
+      });
+      final api = HttpTangentApi(
+        baseUri: Uri.parse('https://tangent.test'),
+        client: client,
+      );
+      final stream = ReplyStream.send(api, branchId: 'b1', content: 'hi');
+      final outcome = stream.run((_) {});
+      await pumpEventQueue();
+      stream.cancel();
+      expect(await outcome, isA<ReplyCancelled>());
+      await pumpEventQueue();
+      expect(aborted, isTrue);
+    });
+
     group('a response that never comes', () {
       /// An API whose first request's response never comes, and which then
       /// answers with [reply]; records the paths asked for.
