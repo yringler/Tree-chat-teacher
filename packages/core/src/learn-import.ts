@@ -2,24 +2,25 @@ import type { TreeBackupInput } from '@tangent/shared';
 
 /**
  * What a backup imported into Learn is adapted to: Learn's one provider and
- * the models it offers there (Normal).
+ * the models a branch may store there (all but Max, which is the learner's
+ * reply setting).
  */
 export interface LearnImportTarget {
   /** Learn's provider: the built-in endpoint (`openrouter`). */
   providerId: string;
-  /** The model ids Learn offers on it. */
+  /** The model ids a Learn branch may store on it. */
   models: readonly string[];
   /** The model of a branch Learn can't run as it is: Learn's default (Normal). */
   defaultModel: string;
 }
 
 /**
- * A backup as Learn imports it. Learn runs on one provider and one model, shows each branch as
+ * A backup as Learn imports it. Learn runs on one provider, shows each branch as
  * its whole path and has no system-prompt editor, so a tree made in power
  * mode is adapted to what Learn can show and continue:
  *
  * - a branch Learn can't run (another provider, or a model Learn doesn't
- *   offer) moves to Learn's provider on its default model (Normal); a branch
+ *   offer a branch) moves to Learn's provider on its default model (Normal); a branch
  *   already on one of Learn's models keeps it;
  * - every branch uses `path` context, which is what Learn shows (a `summary`
  *   or `independent` branch would answer from context the learner can't see);
