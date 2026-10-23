@@ -34,13 +34,11 @@ class ReplyFollower {
     required this._transport,
     required this._host,
     this._delay = Future<void>.delayed,
-    this._policy = const ReconnectPolicy(),
   });
 
   final ReplyTransport _transport;
   final ReplyHost _host;
   final Delay _delay;
-  final ReconnectPolicy _policy;
 
   final _streams = <ReplyStream>{};
 
@@ -59,9 +57,7 @@ class ReplyFollower {
   /// Follows [replyId], a reply being written, unless it is followed already.
   void follow(String replyId) {
     if (_disposed || isFollowing(replyId)) return;
-    _run(
-      ReplyStream.attach(_transport, replyId, delay: _delay, policy: _policy),
-    );
+    _run(ReplyStream.attach(_transport, replyId, delay: _delay));
   }
 
   /// Follows every reply in [nodes] that is still being written.
@@ -91,7 +87,6 @@ class ReplyFollower {
         branchId: branchId,
         content: content,
         delay: _delay,
-        policy: _policy,
       ),
       send: (
         branchId: branchId,

@@ -89,14 +89,8 @@ void main() {
   /// Waits recorded in [delays], not waited.
   Future<void> record(Duration duration) async => delays.add(duration);
 
-  ReplyStream send(FakeTransport transport, {ReconnectPolicy? policy}) =>
-      ReplyStream.send(
-        transport,
-        branchId: 'b1',
-        content: 'hi',
-        delay: record,
-        policy: policy ?? const ReconnectPolicy(),
-      );
+  ReplyStream send(FakeTransport transport) =>
+      ReplyStream.send(transport, branchId: 'b1', content: 'hi', delay: record);
 
   ReplyStream attach(FakeTransport transport, [String id = 'a1']) =>
       ReplyStream.attach(transport, id, delay: record);
@@ -402,22 +396,20 @@ void main() {
   });
 
   group('ReconnectPolicy', () {
-    const policy = ReconnectPolicy();
-
     test('treats a 4xx as permanent, but not a timeout or a rate limit', () {
-      expect(policy.isPermanent(status(400)), isTrue);
-      expect(policy.isPermanent(status(404)), isTrue);
-      expect(policy.isPermanent(status(408)), isFalse);
-      expect(policy.isPermanent(status(429)), isFalse);
-      expect(policy.isPermanent(status(500)), isFalse);
-      expect(policy.isPermanent(lost), isFalse);
+      expect(ReconnectPolicy.isPermanent(status(400)), isTrue);
+      expect(ReconnectPolicy.isPermanent(status(404)), isTrue);
+      expect(ReconnectPolicy.isPermanent(status(408)), isFalse);
+      expect(ReconnectPolicy.isPermanent(status(429)), isFalse);
+      expect(ReconnectPolicy.isPermanent(status(500)), isFalse);
+      expect(ReconnectPolicy.isPermanent(lost), isFalse);
     });
 
     test('doubles the wait, from none for an attach’s first try', () {
-      expect(policy.delayBefore(0, sent: false), Duration.zero);
-      expect(policy.delayBefore(1, sent: false).inMilliseconds, 1000);
-      expect(policy.delayBefore(0, sent: true).inMilliseconds, 500);
-      expect(policy.delayBefore(3, sent: true).inMilliseconds, 4000);
+      expect(ReconnectPolicy.delayBefore(0, sent: false), Duration.zero);
+      expect(ReconnectPolicy.delayBefore(1, sent: false).inMilliseconds, 1000);
+      expect(ReconnectPolicy.delayBefore(0, sent: true).inMilliseconds, 500);
+      expect(ReconnectPolicy.delayBefore(3, sent: true).inMilliseconds, 4000);
     });
   });
 }

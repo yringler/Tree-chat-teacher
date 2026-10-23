@@ -320,11 +320,7 @@ class HttpTangentApi implements TangentApi {
   static Object _bodyError(Object error) => switch (error) {
     ApiException() || FormatException() || Error() => error,
     http.ClientException() => _network(error),
-    _ => const ApiException(
-      status: 0,
-      code: 'network',
-      message: 'Connection lost',
-    ),
+    _ => ApiException.connectionLost,
   };
 
   static ApiException _network(http.ClientException error) =>

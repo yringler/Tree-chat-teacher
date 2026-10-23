@@ -26,25 +26,20 @@ abstract interface class ReplyTransport {
 typedef Delay = Future<void> Function(Duration duration);
 
 /// When a reply's stream reconnects, and when it gives up.
-class ReconnectPolicy {
-  const ReconnectPolicy({
-    this.maxReconnects = 4,
-    this.baseDelay = const Duration(milliseconds: 500),
-  });
-
+abstract final class ReconnectPolicy {
   /// Reconnects in a row without an event before giving up.
-  final int maxReconnects;
+  static const maxReconnects = 4;
 
   /// The wait before the first reconnect, doubling with each one after.
-  final Duration baseDelay;
+  static const baseDelay = Duration(milliseconds: 500);
 
   /// The wait before reconnect [attempt] (from 0). A reply only attached to
   /// tries its first reconnect at once: nothing has failed yet.
-  Duration delayBefore(int attempt, {required bool sent}) =>
+  static Duration delayBefore(int attempt, {required bool sent}) =>
       sent || attempt > 0 ? baseDelay * (1 << attempt) : Duration.zero;
 
   /// A refusal no reconnect will change: a 4xx other than 408 and 429.
-  bool isPermanent(ApiException error) =>
+  static bool isPermanent(ApiException error) =>
       error.status >= 400 &&
       error.status < 500 &&
       error.status != 408 &&
@@ -96,7 +91,6 @@ class ReplyStream {
     required String branchId,
     required String content,
     this._delay = Future<void>.delayed,
-    this.policy = const ReconnectPolicy(),
   }) : _transport = transport,
        _open = (() => transport.sendMessage(branchId, content)),
        _replyId = null;
@@ -106,14 +100,12 @@ class ReplyStream {
     ReplyTransport transport,
     String replyId, {
     this._delay = Future<void>.delayed,
-    this.policy = const ReconnectPolicy(),
   }) : _transport = transport,
        _open = null,
        _replyId = replyId;
 
   final ReplyTransport _transport;
   final Delay _delay;
-  final ReconnectPolicy policy;
 
   /// The send, for a stream that starts with one.
   final Future<Stream<StreamEvent>> Function()? _open;
@@ -145,7 +137,7 @@ class ReplyStream {
     _ran = true;
     var pendingOpen = _open;
     var attempt = 0;
-    ApiException lastError = _connectionLost;
+    ApiException lastError = ApiException.connectionLost;
     for (;;) {
       if (_cancelled) return const ReplyCancelled();
       final Stream<StreamEvent> body;
@@ -175,10 +167,10 @@ class ReplyStream {
             replyId: null,
           );
         }
-        if (attempt >= policy.maxReconnects) {
+        if (attempt >= ReconnectPolicy.maxReconnects) {
           return ReplyLost(lastError, replyId: id);
         }
-        final wait = policy.delayBefore(attempt, sent: _open != null);
+        final wait = ReconnectPolicy.delayBefore(attempt, sent: _open != null);
         attempt++;
         if (wait > Duration.zero) {
           await Future.any([_delay(wait), _cancel.future]);
@@ -189,7 +181,9 @@ class ReplyStream {
           if (attached == null) return const ReplyCancelled();
           body = attached;
         } on ApiException catch (error) {
-          if (policy.isPermanent(error)) return ReplyLost(error, replyId: id);
+          if (ReconnectPolicy.isPermanent(error)) {
+            return ReplyLost(error, replyId: id);
+          }
           lastError = error;
           continue;
         } on Object catch (error) {
@@ -202,7 +196,7 @@ class ReplyStream {
           onEvent(event);
         });
         if (outcome != null) return outcome;
-        lastError = _connectionLost;
+        lastError = ApiException.connectionLost;
       } on ApiException catch (error) {
         lastError = error;
       } on Object catch (error) {
@@ -262,10 +256,4 @@ class ReplyStream {
     };
     return result.future;
   }
-
-  static const _connectionLost = ApiException(
-    status: 0,
-    code: 'network',
-    message: 'Connection lost',
-  );
 }
