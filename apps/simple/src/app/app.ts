@@ -21,6 +21,7 @@ import { InstructionsDialog } from './chat/instructions-dialog';
 import { Keyboard, SHORTCUTS } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
+import { AdvancedSettingsDialog } from './shell/advanced-settings-dialog';
 import { AppHeader } from './shell/app-header';
 import { HelpDialog } from './shell/help-dialog';
 import { LessonSidebar } from './shell/lesson-sidebar';
@@ -31,6 +32,7 @@ import { AccountStore } from './state/account-store';
 import { LessonStore } from './state/lesson-store';
 import { UiStore } from './state/ui-store';
 import { LearnFunding } from './state/learn-funding';
+import { ReplySettings } from './state/reply-settings';
 
 /** Simple-mode shell, served under /learn/. */
 @Component({
@@ -51,6 +53,7 @@ import { LearnFunding } from './state/learn-funding';
     ShortcutsTable,
     Toasts,
     HelpDialog,
+    AdvancedSettingsDialog,
     CoachMark,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -120,6 +123,9 @@ import { LearnFunding } from './state/learn-funding';
           @case ('help') {
             <app-help-dialog />
           }
+          @case ('advanced-settings') {
+            <app-advanced-settings-dialog />
+          }
         }
       }
       <app-coach-mark />
@@ -135,6 +141,7 @@ export class App {
   private readonly lessons = inject(LessonStore);
   protected readonly account = inject(AccountStore);
   protected readonly funding = inject(LearnFunding);
+  private readonly replySettings = inject(ReplySettings);
   private readonly routeSync = inject(RouteSync);
   private readonly keyboard = inject(Keyboard);
   protected readonly shortcuts = SHORTCUTS;
@@ -177,6 +184,7 @@ export class App {
         this.lessons.init(),
         this.funding.refreshBalance(),
         this.funding.refreshPool(),
+        this.replySettings.load(),
         // The demo has no key cookie (and always runs on pretend credit).
         this.demo ? Promise.resolve() : this.funding.refreshKey(),
       ]);

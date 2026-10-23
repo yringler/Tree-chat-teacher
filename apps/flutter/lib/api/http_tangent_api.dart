@@ -202,6 +202,24 @@ class HttpTangentApi implements TangentApi {
     await _send('PATCH', ['settings'], body: {'walkthroughDone': true});
   }
 
+  @override
+  Future<LearnReplySettings> updateLearnReply({
+    ModelTier? tier,
+    ReplyLength? replyLength,
+  }) async {
+    final saved = await _object(
+      'PATCH',
+      ['settings'],
+      body: {
+        'learn': {
+          if (tier != null) 'tier': tier.id,
+          if (replyLength != null) 'replyLength': replyLength.id,
+        },
+      },
+    );
+    return Settings.fromJson(saved).learn;
+  }
+
   // Paying for replies.
 
   @override

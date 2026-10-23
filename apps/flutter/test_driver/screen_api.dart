@@ -234,6 +234,15 @@ class ScreenApi implements TangentApi {
   Future<void> markWalkthroughDone() async => _walkthroughDone = true;
 
   @override
+  Future<LearnReplySettings> updateLearnReply({
+    ModelTier? tier,
+    ReplyLength? replyLength,
+  }) async => LearnReplySettings.defaults.copyWith(
+    tier: tier,
+    replyLength: replyLength,
+  );
+
+  @override
   Future<PoolStatus> poolStatus() async =>
       const PoolStatus(enabled: false, modelLabel: null);
 

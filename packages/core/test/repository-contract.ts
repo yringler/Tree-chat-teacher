@@ -849,6 +849,25 @@ export function describeRepositories(name: string, factory: () => Repositories):
         });
       });
 
+      it("keeps Learn's reply settings apart from the others", async () => {
+        const a = uid('acct');
+        const t = '2026-01-02T00:00:00.000Z';
+        await repos.settings.updateSettings(a, { learnTier: 'max' }, t);
+        await repos.settings.updateSettings(a, { learnReplyLength: 'veryLong' }, t);
+        await repos.settings.updateSettings(a, { systemPrompt: 'Mine' }, t);
+        expect(await repos.settings.getSettings(a)).toEqual({
+          ...none,
+          systemPrompt: 'Mine',
+          learnTier: 'max',
+          learnReplyLength: 'veryLong',
+        });
+        await repos.settings.updateSettings(a, { learnTier: null }, t);
+        expect(await repos.settings.getSettings(a)).toMatchObject({
+          learnTier: null,
+          learnReplyLength: 'veryLong',
+        });
+      });
+
       it('two changes at once, of different fields, both stick', async () => {
         const a = uid('acct');
         const t = '2026-01-02T00:00:00.000Z';

@@ -119,23 +119,27 @@ void main() {
       ]);
     });
 
-    test('caps each kind on its own: 3 deeper, 6 tangent', () {
+    test('keeps at most 3 deeper and 6 in all, the first offered', () {
       final lines = [
         for (var i = 0; i < 5; i++) '- [deeper] C$i — r',
         for (var i = 0; i < 8; i++) '- [tangent] T$i — r',
       ].join('\n');
-      final groups = groupTangents(
-        splitTangents('<tangents>\n$lines\n</tangents>').tangents,
-      );
+      final tangents = splitTangents('<tangents>\n$lines\n</tangents>')
+          .tangents;
+      expect(tangents, hasLength(6));
+      final groups = groupTangents(tangents);
       expect(groups.deeper.map((t) => t.title), ['C0', 'C1', 'C2']);
-      expect(groups.tangent.map((t) => t.title), [
-        'T0',
-        'T1',
-        'T2',
-        'T3',
-        'T4',
-        'T5',
-      ]);
+      expect(groups.tangent.map((t) => t.title), ['T0', 'T1', 'T2']);
+      // Tangents offered first fill the 6 before a deeper one comes.
+      final late = [
+        for (var i = 0; i < 7; i++) '- [tangent] T$i — r',
+        '- [deeper] C0 — r',
+      ].join('\n');
+      expect(
+        splitTangents('<tangents>\n$late\n</tangents>').tangents
+            .map((t) => t.title),
+        ['T0', 'T1', 'T2', 'T3', 'T4', 'T5'],
+      );
     });
 
     test('drops a title repeated under the other kind: the first wins', () {

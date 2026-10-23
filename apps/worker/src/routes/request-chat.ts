@@ -1,5 +1,6 @@
 // The caller's ChatService and key cookie, as the /api route modules build them.
 import type { ChatService } from '@tangent/core';
+import type { LearnReplySettings } from '@tangent/shared';
 import { requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import { callPayer, type AppContext } from '../env.js';
 import { chatService } from '../registries.js';
@@ -12,17 +13,20 @@ export type OpenKeys = Extract<UserKeys, { state: 'ok' }>;
  * by Learn on credit or the pool); the usage meter of the built-in provider
  * defers its work to the request's `waitUntil`. `generating`: the service
  * will call a model, so a pool-funded account gets the pool's restrictions;
- * build it after `assertCanGenerate`, which settles who pays.
+ * build it after `assertCanGenerate`, which settles who pays. `learnReply`:
+ * a Learn send's reply settings (`ChatServiceOptions.learnReply`).
  */
 export function chatOf(
   c: AppContext,
   keys: OpenKeys | null = null,
   generating = false,
+  learnReply?: LearnReplySettings,
 ): ChatService {
   return chatService(c.env, c.var.account, {
     ...(keys ? { apiKeys: keys.keys } : {}),
     defer: (p) => c.executionCtx.waitUntil(p),
     generating,
+    ...(learnReply ? { learnReply } : {}),
   });
 }
 

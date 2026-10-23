@@ -6,7 +6,11 @@ import { CANDIDATE_TTL_MS } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_BACKGROUND_MODEL, DEFAULT_LEARN_NORMAL_MODEL } from '../src/config.js';
+import {
+  DEFAULT_BACKGROUND_MODEL,
+  DEFAULT_LEARN_NORMAL_MODEL,
+  DEFAULT_POWER_MAX_MODEL,
+} from '../src/config.js';
 import type { AppBindings, AppEnv } from '../src/env.js';
 import { hostedAi } from '../src/http/hosted-ai.js';
 import { legalRoutes } from '../src/http/legal.js';
@@ -175,6 +179,15 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
         fallbacks: true,
         direct: false,
       },
+      {
+        // Max, which a learner can choose, on OpenRouter's choice of host.
+        id: DEFAULT_POWER_MAX_MODEL,
+        maker: 'Anthropic',
+        uses: ["Learn's Max model"],
+        hosts: [],
+        fallbacks: true,
+        direct: false,
+      },
     ]);
     expect(ai?.anthropic).toBe(false);
     // The policy names each model and host.
@@ -195,6 +208,7 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
     expect(ai?.anthropic).toBe(true);
     expect(ai?.models.map((m) => [m.id, m.direct, m.hosts])).toEqual([
       [DEFAULT_LEARN_NORMAL_MODEL, true, []],
+      [DEFAULT_POWER_MAX_MODEL, true, []],
     ]);
     const privacy = await page('/privacy', anthropic);
     expect(privacy).toContain('Some Claude models go to Anthropic (USA) directly instead');
@@ -216,6 +230,7 @@ describe('who handles Tangent-paid requests (hostedAi)', () => {
         ["Learn's Normal model", 'the open pool', 'summaries and titles of conversations'],
         ['Amazon Bedrock'],
       ],
+      [DEFAULT_POWER_MAX_MODEL, ["Learn's Max model"], []],
     ]);
   });
 

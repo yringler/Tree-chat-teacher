@@ -19,6 +19,7 @@ import {
   OPENROUTER_PROVIDER_ID,
   type ApiError,
   type CommitCandidateResponse,
+  type LearnReplySettings,
 } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import { openKeys } from '../byok/keys.js';
@@ -57,6 +58,11 @@ export interface SessionSendBody extends GenerationLimits {
   sealedKeys?: string;
   /** A reply on Tangent credit: what to reserve before any node is written. */
   creditReply?: CreditReplyHold;
+  /**
+   * A Learn send's reply settings, as the Worker read them and priced the
+   * hold on; absent on the pool and in power.
+   */
+  learnReply?: LearnReplySettings;
 }
 
 /** The reservation of a reply on Tangent credit, as the Worker priced it (routes/generation.ts). */
@@ -207,8 +213,9 @@ export class TreeSession extends DurableObject<AppEnv> {
   private async generatingChat(body: {
     account: AccountContext;
     sealedKeys?: string;
+    learnReply?: LearnReplySettings;
   }): Promise<ChatService> {
-    const { account, sealedKeys } = body;
+    const { account, sealedKeys, learnReply } = body;
     const keys =
       callPayer(account, 'own-key') === 'own-key'
         ? await openKeys(sealedKeys, this.env, account.userId)
@@ -221,6 +228,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       // The usage meter (built-in provider) settles or reconciles after the stream ends.
       defer: (p) => this.ctx.waitUntil(p),
       generating: true,
+      ...(learnReply ? { learnReply } : {}),
     });
   }
 

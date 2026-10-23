@@ -7,6 +7,7 @@ import 'api/tangent_api.dart';
 import 'api/token_store.dart';
 import 'state/app_scope.dart';
 import 'state/lessons_controller.dart';
+import 'state/reply_settings_controller.dart';
 import 'state/session_controller.dart';
 import 'state/walkthrough_controller.dart';
 import 'ui/chat_page.dart';
@@ -62,6 +63,10 @@ class _TangentAppState extends State<TangentApp> {
     api: widget.api,
     session: _session,
   );
+  late final _replySettings = ReplySettingsController(
+    api: widget.api,
+    session: _session,
+  );
   late final _router = GoRouter(
     initialLocation: widget.initialLocation,
     refreshListenable: _session,
@@ -91,6 +96,7 @@ class _TangentAppState extends State<TangentApp> {
     _router.dispose();
     _lessons.dispose();
     _walkthrough.dispose();
+    _replySettings.dispose();
     _session.dispose();
     super.dispose();
   }
@@ -124,6 +130,7 @@ class _TangentAppState extends State<TangentApp> {
       session: _session,
       lessons: _lessons,
       walkthrough: _walkthrough,
+      replySettings: _replySettings,
       child: MaterialApp.router(
         title: brandName,
         debugShowCheckedModeBanner: false,

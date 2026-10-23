@@ -10,14 +10,24 @@ import type {
   ProviderError,
   ProviderRoute,
   ReasoningEffort,
+  SummaryPurpose,
   SummaryRequest,
   Tree,
   UsageTag,
 } from '@tangent/shared';
 import { auxOutputTokens, clipUtf16, isLengthStop, replyOutputTokens } from '@tangent/shared';
-import { assembleContext, summaryKeyString } from '../context/assemble.js';
+import {
+  assembleContext,
+  CONDENSE_REPLIES_ABOVE_TOKENS,
+  summaryKeyString,
+} from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
-import { buildSummaryPrompt, renderPlan, type SummaryInputLimit } from '../context/render.js';
+import {
+  buildMessageSummaryPrompt,
+  buildSummaryPrompt,
+  renderPlan,
+  type SummaryInputLimit,
+} from '../context/render.js';
 import { ValidationError } from '../errors.js';
 import { emptyToNull, errorText, type ServiceContext } from '../services/context.js';
 import type { GenerationProfile, PoolProfile } from '../services/profile.js';
@@ -30,6 +40,13 @@ import { estimateTokens as charsEstimate } from '../tokens.js';
  * bounds an imported chain of hundreds to under a minute of waiting.
  */
 const MAX_SUMMARY_CALLS = 16;
+
+/** The status line while a summary of each purpose is written. */
+const STATUS: Readonly<Record<SummaryPurpose, string>> = {
+  branch: 'Summarizing the parent conversation…',
+  compaction: 'Compacting older messages to fit the context window…',
+  message: 'Condensing an earlier reply…',
+};
 
 /**
  * A generation's own limits (power's settings), as a send, a context preview,
@@ -180,6 +197,12 @@ function systemPromptFor(
 export class ContextResolver {
   /** The open pool's bounds on what a generation sends; null elsewhere. */
   private readonly pool: PoolProfile | null;
+  /**
+   * Learn's (`AssembleBudget.condenseAbove`): its trees are reopened long
+   * after a cached prompt has expired, so a descendant would pay to reread a
+   * chapter-length reply on every send. Power sends contexts as they are.
+   */
+  private readonly condenseAbove: number | undefined;
   /** The system prompt this profile sends for a tree (`systemPromptFor`). */
   private readonly systemPrompt: (
     tree: Pick<Tree, 'systemPrompt' | 'learnerInstructions'>,
@@ -190,6 +213,7 @@ export class ContextResolver {
     profile: GenerationProfile,
   ) {
     this.pool = profile.kind === 'pool' ? profile : null;
+    this.condenseAbove = profile.kind === 'power' ? undefined : CONDENSE_REPLIES_ABOVE_TOKENS;
     this.systemPrompt = systemPromptFor(
       profile,
       ctx.defaultSystemPrompt,
@@ -420,12 +444,17 @@ export class ContextResolver {
         targetNodeId: inputs.targetNodeId,
         summaries,
         failedSummaries: failed,
-        budget: { maxInputTokens, ...overflowBudget(limits.inputOverflow) },
+        budget: {
+          maxInputTokens,
+          ...overflowBudget(limits.inputOverflow),
+          ...(this.condenseAbove !== undefined ? { condenseAbove: this.condenseAbove } : {}),
+        },
         ...(estimateTokens ? { estimateTokens } : {}),
       });
 
     let current = plan();
-    const maxGeneratingRounds = inputs.chain.length;
+    // One more round where long replies are condensed, which go first.
+    const maxGeneratingRounds = inputs.chain.length + (this.condenseAbove === undefined ? 0 : 1);
     let calls = 0;
     let generatingRounds = 0;
     for (;;) {
@@ -461,15 +490,19 @@ export class ContextResolver {
       if (generatingRounds === maxGeneratingRounds) return current;
       generatingRounds++;
 
-      // 2. Generate what is still missing.
-      for (const request of current.pendingSummaries) {
+      // 2. Generate what is still missing. Long replies are condensed in a
+      // round of their own: a summary over one still sent whole would be
+      // made again once it is condensed.
+      const missing = current.pendingSummaries.filter((r) => {
+        const k = summaryKeyString(r.key);
+        return !summaries.has(k) && !failed.has(k);
+      });
+      const condense = missing.filter((r) => r.purpose === 'message');
+      for (const request of condense.length > 0 ? condense : missing) {
         const k = summaryKeyString(request.key);
-        if (summaries.has(k) || failed.has(k)) continue;
         if (calls === MAX_SUMMARY_CALLS) return plan();
         calls++;
-        yield request.purpose === 'branch'
-          ? 'Summarizing the parent conversation…'
-          : 'Compacting older messages to fit the context window…';
+        yield STATUS[request.purpose];
         const summary = await this.generateSummary(
           summaryProvider,
           summaryModel,
@@ -523,7 +556,10 @@ export class ContextResolver {
       : cap !== undefined
         ? { maxInputTokens: Math.min(await budget(), cap), estimateTokens: charsEstimate }
         : undefined;
-    const prompt = buildSummaryPrompt(request, limit);
+    const prompt =
+      request.purpose === 'message'
+        ? buildMessageSummaryPrompt(request, limit)
+        : buildSummaryPrompt(request, limit);
     if (prompt === null) return null;
     const result = await collectText(
       provider,

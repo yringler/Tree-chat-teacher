@@ -1,6 +1,8 @@
 import {
   CHECK_SOURCES_INSTRUCTIONS,
   GROUNDING_INSTRUCTIONS,
+  LEARN_REPLY_LENGTHS,
+  replyLengthInstructions,
   type ContextPlan,
   type ContextSegment,
   type SummaryRequest,
@@ -9,6 +11,7 @@ import { describe as suite, expect, it } from 'vitest';
 import { summaryKeyString } from '../../src/context/assemble.js';
 import {
   ANCHOR_HEADING,
+  buildMessageSummaryPrompt,
   buildSummaryPrompt,
   buildTitlePrompt,
   cleanTitle,
@@ -18,6 +21,7 @@ import {
   renderPlan,
   replyInstructions,
   SUMMARY_HEADING,
+  turnInstructionsOf,
 } from '../../src/context/render.js';
 import { estimateTokensUtf8, MESSAGE_OVERHEAD_TOKENS, utf8Bytes } from '../../src/tokens.js';
 import { Fixture, resolveAll } from './fixtures.js';
@@ -266,9 +270,12 @@ suite('renderOverheadBytes', () => {
   /** What rendering `segments` (with the longest reply instructions after them) adds to their text. */
   function addedBytes(segments: ContextSegment[], options: { supportsSystemPrompt: boolean }) {
     const out = renderPlan(plan(segments), options);
+    // Every length with every grounding text: the longest pair.
     const instructions = Math.max(
-      ...[GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
-        utf8Bytes(replyInstructions(t)),
+      ...LEARN_REPLY_LENGTHS.flatMap((l) =>
+        [GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
+          utf8Bytes(turnInstructionsOf(replyLengthInstructions(l), t) ?? ''),
+        ),
       ),
     );
     let sent = (out.system === null ? 0 : utf8Bytes(out.system)) + 2 + instructions;
@@ -306,13 +313,37 @@ suite('renderOverheadBytes', () => {
     ];
     for (const { sections, segments } of shapes) {
       for (const options of [WITH_SYSTEM, NO_SYSTEM]) {
-        expect(addedBytes(segments, options)).toBeLessThanOrEqual(renderOverheadBytes(sections));
+        expect(addedBytes(segments, options)).toBeLessThanOrEqual(
+          renderOverheadBytes(sections, { replyLength: true }),
+        );
       }
     }
     // Within a section's worth of the real overhead: a bound, not a guess.
     const anchors = Array.from({ length: 8 }, (_, i) => anchor(`q${i}`));
     const added = addedBytes([msg('branch', 'assistant', 'a'), ...anchors], NO_SYSTEM);
-    expect(renderOverheadBytes(8) - added).toBeLessThan(renderOverheadBytes(1));
+    expect(renderOverheadBytes(8, { replyLength: true }) - added).toBeLessThan(
+      renderOverheadBytes(1, { replyLength: true }),
+    );
+  });
+
+  it('leaves reply-length instructions out where the caller never sends them', () => {
+    const longest = (lengths: (string | null)[]) =>
+      Math.max(
+        ...lengths.flatMap((l) =>
+          [null, GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
+            utf8Bytes(turnInstructionsOf(l, t) ?? ''),
+          ),
+        ),
+      );
+    const withLength = longest([null, ...LEARN_REPLY_LENGTHS.map(replyLengthInstructions)]);
+    const withoutLength = longest([null]);
+    expect(withLength).toBeGreaterThan(withoutLength);
+    for (const sections of [0, 1, 32]) {
+      expect(
+        renderOverheadBytes(sections, { replyLength: true }) -
+          renderOverheadBytes(sections, { replyLength: false }),
+      ).toBe(withLength - withoutLength);
+    }
   });
 });
 
@@ -392,6 +423,55 @@ suite('buildSummaryPrompt', () => {
     it('is null when the instructions alone exceed the limit', () => {
       expect(buildSummaryPrompt(request, { ...limit, maxInputTokens: 50 })).toBeNull();
     });
+  });
+});
+
+suite('buildMessageSummaryPrompt', () => {
+  const reply =
+    '## Mechanism\n\nExample 1: a worked case.\n\n<tangents>\n- [deeper] More — why\n</tangents>';
+  const request: SummaryRequest = {
+    key: { anchorNodeId: 'n1', sourceHash: 'h' },
+    purpose: 'message',
+    sourceNodeIds: ['n1'],
+    transcript: [{ role: 'assistant', content: reply }],
+    focus: null,
+  };
+  const tokensOf = (p: { system: string | null; messages: { content: string }[] }) =>
+    (p.system === null ? 0 : estimateTokensUtf8(p.system)) +
+    p.messages.reduce((n, m) => n + estimateTokensUtf8(m.content) + MESSAGE_OVERHEAD_TOKENS, 0);
+
+  it('asks for the reply condensed, without its tangents block', () => {
+    const out = buildMessageSummaryPrompt(request, undefined)!;
+    expect(out.system).toContain('700');
+    expect(out.system).toContain('##');
+    expect(out.messages).toHaveLength(1);
+    const content = out.messages[0]!.content;
+    expect(content).toContain('<reply>\n## Mechanism\n\nExample 1: a worked case.\n</reply>');
+    expect(content).not.toContain('tangents');
+  });
+
+  it('keeps the start of a reply that does not fit the limit, within it', () => {
+    const limit = { maxInputTokens: 600, estimateTokens: estimateTokensUtf8 };
+    const huge = {
+      ...request,
+      transcript: [{ role: 'assistant' as const, content: `START ${'漢'.repeat(100_000)} END` }],
+    };
+    const out = buildMessageSummaryPrompt(huge, limit)!;
+    expect(tokensOf(out)).toBeLessThanOrEqual(600);
+    expect(tokensOf(out)).toBeGreaterThan(550);
+    const content = out.messages[0]!.content;
+    expect(content).toContain('<reply>\nSTART ');
+    expect(content).not.toContain('END');
+    expect(content).not.toMatch(/[\uD800-\uDFFF]/);
+  });
+
+  it('is null when the instructions alone exceed the limit', () => {
+    expect(
+      buildMessageSummaryPrompt(request, {
+        maxInputTokens: 50,
+        estimateTokens: estimateTokensUtf8,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -482,5 +562,14 @@ suite('replyInstructions (grounding)', () => {
       focus: null,
     } as unknown as SummaryRequest);
     expect(prompt.system).toContain('Keep cited sources as Markdown links');
+  });
+});
+
+suite('turnInstructionsOf', () => {
+  it('puts the length before the grounding in one block, and is undefined with neither', () => {
+    expect(turnInstructionsOf(null, null)).toBeUndefined();
+    expect(turnInstructionsOf(null, 'G')).toBe(replyInstructions('G'));
+    expect(turnInstructionsOf('L', null)).toBe(replyInstructions('L'));
+    expect(turnInstructionsOf('L', 'G')).toBe(replyInstructions('L\n\nG'));
   });
 });

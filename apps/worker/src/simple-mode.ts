@@ -7,9 +7,11 @@ import {
   TIER_LABELS,
   TIERS,
   BUILT_IN_MAX_OUTPUT_TOKENS,
+  LEARN_VERY_LONG_OUTPUT_TOKENS,
   tierModel,
   tierOf,
   type LearnKeyProvider,
+  type LearnReplyLength,
   type ModelInfo,
   type ModelTier,
   type ProviderConfig,
@@ -48,8 +50,8 @@ export {
  * as "Tangent credit", with any OpenRouter model allowed
  * (`builtInPowerConfig`), in a registry of its own. Learn also runs this
  * config on the user's own OpenRouter key, unmetered (registries.ts `registryFor`).
- * Learn has one model, Normal; Max is power's (docs/DECISIONS.md says why).
- * On the user's own Anthropic key, Learn runs power's Anthropic endpoint on
+ * Learn replies on Normal, or on Max where the learner chose it in their
+ * reply settings (`LearnProfile.reply`). On the user's own Anthropic key, Learn runs power's Anthropic endpoint on
  * a fixed pair of models instead (`LEARN_ANTHROPIC_REPLY_MODEL`,
  * provider-configs.ts `learnKeyConfig`).
  */
@@ -74,21 +76,32 @@ export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 /**
  * The most output one call on the built-in provider asks for: a reasoning
  * model's reply (its thinking counts as output), or power's own setting on
- * Tangent credit. With the input cap it bounds the cost of any one request.
+ * Tangent credit. With the input cap it bounds the cost of any one request,
+ * except a Learn reply of length Very long (`learnReplyOutputTokens`).
  */
 export const SIMPLE_MAX_OUTPUT_TOKENS = BUILT_IN_MAX_OUTPUT_TOKENS;
 
 /**
- * The built-in provider's config, as Learn uses it: Learn's one model,
- * Normal (`LEARN_NORMAL_MODEL`), with its request settings
- * (`LEARN_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`; empty ones are
- * the default model's evaluated settings, `withTierDefaults`), whoever pays
- * (credit or the learner's own key). With a `BUILT_IN_PROVIDER` override,
- * every model it lists but those tagged `tier: "max"`, which are power's.
+ * A Learn reply's output cap on a reasoning model, by its length:
+ * LEARN_VERY_LONG_OUTPUT_TOKENS for Very long, else SIMPLE_MAX_OUTPUT_TOKENS.
+ * The credit hold is sized from the same cap (ChatService `routeBudget`).
+ */
+function learnReplyOutputTokens(replyLength: LearnReplyLength | undefined): number {
+  return replyLength === 'veryLong' ? LEARN_VERY_LONG_OUTPUT_TOKENS : SIMPLE_MAX_OUTPUT_TOKENS;
+}
+
+/**
+ * The built-in provider's config, as Learn uses it, whoever pays (credit or
+ * the learner's own key): Normal (`LEARN_NORMAL_MODEL`), its default, with
+ * its request settings (`LEARN_NORMAL_EFFORT`, `_REPLY_TOKENS`,
+ * `_PROVIDER_ORDER`; empty ones are the default model's evaluated settings,
+ * `withTierDefaults`), and Max (`POWER_MAX_MODEL`) with its default
+ * model's settings (`DEFAULT_TIER_REQUESTS.max`), which a reply runs on only
+ * where the learner's settings call for Max (`RouteResolver.runnable`).
+ * With a `BUILT_IN_PROVIDER` override, every model it lists.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
-  const config = builtInConfig(env);
-  return { ...config, models: config.models.filter((m) => m.tier !== 'max') };
+  return builtInConfig(env);
 }
 
 /**
@@ -121,14 +134,17 @@ function builtInConfig(env: AppEnv): ProviderConfig {
     ...openRouterBackend.config(),
     label: 'Tangent',
     defaultModel: learn.normalModel,
-    // Power asks Max as the user sets it, so only Normal carries request settings.
-    models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) =>
-      m.tier === 'normal'
-        ? withRequestConfig(m, withTierDefaults(learn.normal, DEFAULT_TIER_REQUESTS.normal, m.id))
-        : m,
-    ),
+    // Each tier asked as Learn asks it; power drops these and asks as the user sets it.
+    models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) => {
+      const tier = m.tier ?? 'normal';
+      const vars = tier === 'normal' ? learn.normal : NO_TIER_VARS;
+      return withRequestConfig(m, withTierDefaults(vars, DEFAULT_TIER_REQUESTS[tier], m.id));
+    }),
   };
 }
+
+/** Max's request settings as parsed: it has no vars, so only its defaults apply. */
+const NO_TIER_VARS: TierRequestConfig = { effort: null, maxOutputTokens: null, providerOrder: [] };
 
 /**
  * `model` with a hosted tier's request settings (only those set): its effort,
@@ -216,13 +232,18 @@ function onBuiltIn(env: AppEnv, wanted: string, config: ProviderConfig): string 
 }
 
 /**
- * Chat settings for simple accounts: capped input, fixed output reserve,
+ * Chat settings for simple accounts: capped input, fixed output reserve
+ * (larger for a reply of `replyLength` Very long, `learnReplyOutputTokens`),
  * cheap summaries. On the learner's own Anthropic key (`ownKey`) summaries
  * and titles run on LEARN_ANTHROPIC_BACKGROUND_MODEL at
  * LEARN_ANTHROPIC_BACKGROUND_EFFORT, since the background vars describe the
  * built-in provider's model.
  */
-export function simpleChatSettings(env: AppEnv, ownKey: LearnKeyProvider): ChatSettings {
+export function simpleChatSettings(
+  env: AppEnv,
+  ownKey: LearnKeyProvider,
+  replyLength?: LearnReplyLength,
+): ChatSettings {
   const summary =
     ownKey === ANTHROPIC_PROVIDER_ID
       ? {
@@ -235,7 +256,7 @@ export function simpleChatSettings(env: AppEnv, ownKey: LearnKeyProvider): ChatS
     ...summary,
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
-    reasoningOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
+    reasoningOutputTokens: learnReplyOutputTokens(replyLength),
     groundingPolicy: groundingPolicy(env),
   });
 }

@@ -20,8 +20,13 @@ function setup(saved: SettingsResponse = accountSettings()) {
   const api = {
     settings: vi.fn(async (): Promise<SettingsResponse> => current),
     updateSettings: vi.fn(async (req: UpdateSettingsRequest): Promise<SettingsResponse> => {
-      const { tiers, walkthroughDone: _w, ...rest } = req;
-      current = { ...current, ...rest, tiers: { ...current.tiers, ...tiers } };
+      const { tiers, walkthroughDone: _w, learn, ...rest } = req;
+      current = {
+        ...current,
+        ...rest,
+        tiers: { ...current.tiers, ...tiers },
+        learn: { ...current.learn, ...learn },
+      };
       return current;
     }),
   };

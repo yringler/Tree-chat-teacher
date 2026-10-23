@@ -73,6 +73,13 @@ abstract interface class TangentApi implements ReplyTransport {
   /// (`PATCH /api/settings`), so it doesn't show again on any device.
   Future<void> markWalkthroughDone();
 
+  /// Saves the Advanced settings [tier] and [replyLength] names, keeping the
+  /// other (`PATCH /api/settings`); answers them as saved.
+  Future<LearnReplySettings> updateLearnReply({
+    ModelTier? tier,
+    ReplyLength? replyLength,
+  });
+
   // Paying for replies.
 
   Future<PoolStatus> poolStatus();

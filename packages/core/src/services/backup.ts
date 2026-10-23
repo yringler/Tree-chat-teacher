@@ -122,7 +122,11 @@ export class BackupService {
     if (!provider) throw new ValidationError('There is no provider to import onto');
     return {
       providerId: provider.id,
-      models: provider.models().map((m) => m.id),
+      // Max is the learner's reply setting, not a branch's: an import never keeps it.
+      models: provider
+        .models()
+        .filter((m) => m.tier !== 'max')
+        .map((m) => m.id),
       defaultModel: provider.defaultModel(),
     };
   }

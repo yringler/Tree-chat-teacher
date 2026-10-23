@@ -165,3 +165,27 @@ describe("account settings: power's models and limits", () => {
     });
   });
 });
+
+describe("account settings: Learn's reply settings", () => {
+  it('are the defaults until saved, then as saved, one at a time', async () => {
+    const { chat } = setup({ autoTitle: false });
+    expect((await chat.getSettings()).learn).toEqual({ tier: 'normal', replyLength: 'normal' });
+    await chat.updateSettings({ learn: { tier: 'max' } });
+    const saved = await chat.updateSettings({ learn: { replyLength: 'long' } });
+    expect(saved.learn).toEqual({ tier: 'max', replyLength: 'long' });
+    expect(await chat.learnReplySettings()).toEqual({ tier: 'max', replyLength: 'long' });
+    await chat.updateSettings({ learn: { tier: 'normal', replyLength: 'normal' } });
+    expect(await chat.learnReplySettings()).toEqual({ tier: 'normal', replyLength: 'normal' });
+  });
+
+  it('a stored value that no longer validates reads as its default', async () => {
+    const { chat, repos } = setup({ autoTitle: false });
+    await repos.settings.updateSettings(
+      chat.accountId,
+      { learnTier: 'ultra', learnReplyLength: 'veryLong' },
+      '2026-01-01T00:00:00.000Z',
+    );
+    expect(await chat.learnReplySettings()).toEqual({ tier: 'normal', replyLength: 'veryLong' });
+    expect((await chat.getSettings()).learn).toEqual({ tier: 'normal', replyLength: 'veryLong' });
+  });
+});

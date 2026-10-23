@@ -9,10 +9,12 @@ import {
   REPLY_THINKING_ONLY_ERROR,
   failedStopError,
   isLengthStop,
+  replyLengthInstructions,
   type Branch,
   type ChatNode,
   type Citation,
   type ContextPlan,
+  type LearnReplyLength,
   type LlmProvider,
   type NodeErrorKind,
   type ProviderCapabilities,
@@ -23,7 +25,7 @@ import {
   type UsageTag,
   type WebSearchRequest,
 } from '@tangent/shared';
-import { renderPlan, replyInstructions } from '../context/render.js';
+import { renderPlan, turnInstructionsOf } from '../context/render.js';
 import { decideGrounding, type GroundingDecision } from '../grounding/policy.js';
 import { errorText, type ServiceContext } from '../services/context.js';
 import {
@@ -72,6 +74,8 @@ export class Replier {
     private readonly ctx: ServiceContext,
     private readonly resolver: ContextResolver,
     private readonly groundingAllowance: GroundingAllowance | undefined,
+    /** How long the learner asked replies to be (`LearnProfile.reply`); null outside a Learn send. */
+    private readonly replyLength: LearnReplyLength | null = null,
   ) {}
 
   /**
@@ -128,14 +132,14 @@ export class Replier {
       let retryWithoutSearch = false;
       // After the history, not in the system prompt: see `replyInstructions`. A required
       // search is asked for here even where the provider can't enforce it.
-      const turnInstructions =
+      const turnInstructions = turnInstructionsOf(
+        this.replyLength === null ? null : replyLengthInstructions(this.replyLength),
         webSearch === undefined
-          ? undefined
-          : replyInstructions(
-              reply.grounding.mode === 'required'
-                ? CHECK_SOURCES_INSTRUCTIONS
-                : GROUNDING_INSTRUCTIONS,
-            );
+          ? null
+          : reply.grounding.mode === 'required'
+            ? CHECK_SOURCES_INSTRUCTIONS
+            : GROUNDING_INSTRUCTIONS,
+      );
       const rendered = renderPlan(plan, { supportsSystemPrompt: caps.supportsSystemPrompt });
       let searched = false;
       let cited: Citation[] = [];

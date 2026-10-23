@@ -22,6 +22,8 @@ export type InclusionReason =
   | 'branch-summary'
   /** Summary replacing the oldest messages because the plan exceeded its budget. */
   | 'budget-compaction'
+  /** Summary standing in for a long reply further up than the tangent it starts. */
+  | 'message-summary'
   /** The anchor quote highlighted when the branch was created. */
   | 'anchor-quote';
 
@@ -67,7 +69,10 @@ export interface BranchMessageSegment extends SegmentBase {
 }
 
 export interface SummaryKey {
-  /** Branch-point node (branch summaries) or last compacted node (compaction). */
+  /**
+   * Branch-point node (branch summaries), last compacted node (compaction) or
+   * the condensed reply (message summaries).
+   */
   anchorNodeId: string;
   /** SHA-256 hex of the canonical transcript being summarized. */
   sourceHash: string;
@@ -75,9 +80,15 @@ export interface SummaryKey {
 
 export type SummaryStatus = 'ready' | 'pending' | 'failed';
 
+/**
+ * What a summary stands in for: a summary-mode branch's parent context, the
+ * oldest messages of a context over its budget, or one long reply.
+ */
+export type SummaryPurpose = 'branch' | 'compaction' | 'message';
+
 export interface SummarySegment extends SegmentBase {
   kind: 'summary';
-  purpose: 'branch' | 'compaction';
+  purpose: SummaryPurpose;
   key: SummaryKey;
   status: SummaryStatus;
   /** null while pending/failed. */
@@ -95,7 +106,7 @@ export type ContextSegment =
 /** A summary the assembler needs but was not given. The caller generates it and re-plans. */
 export interface SummaryRequest {
   key: SummaryKey;
-  purpose: 'branch' | 'compaction';
+  purpose: SummaryPurpose;
   sourceNodeIds: string[];
   /** What to summarize, already flattened (system prompt excluded). */
   transcript: ChatMessage[];
@@ -156,7 +167,11 @@ export interface ContextPlan {
   compaction: CompactionRecord | null;
   truncation: TruncationRecord | null;
   pendingSummaries: SummaryRequest[];
-  /** True when there are no pending/failed summaries. */
+  /**
+   * True when no summary is pending or failed. A long reply whose summary is
+   * pending is sent whole, and leaves the plan incomplete until it is ready;
+   * one whose summary failed is sent whole and doesn't.
+   */
   complete: boolean;
 }
 

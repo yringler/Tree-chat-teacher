@@ -7,6 +7,7 @@ import 'package:tangent/api/models.dart';
 import 'package:tangent/api/token_store.dart';
 import 'package:tangent/state/app_scope.dart';
 import 'package:tangent/state/lessons_controller.dart';
+import 'package:tangent/state/reply_settings_controller.dart';
 import 'package:tangent/state/session_controller.dart';
 import 'package:tangent/state/walkthrough_controller.dart';
 import 'package:tangent/ui/google_button.dart';
@@ -35,6 +36,7 @@ Future<SessionController> pumpLogin(
       session: session,
       lessons: lessons,
       walkthrough: WalkthroughController(api: api, session: session),
+      replySettings: ReplySettingsController(api: api, session: session),
       child: MaterialApp(
         home: LoginPage(
           captcha: captcha,

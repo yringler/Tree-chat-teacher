@@ -59,7 +59,8 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   // override with auth configured (as auth.test.ts does for BETTER_AUTH_SECRET).
   // The built-in provider (the endpoint `openrouter`): fake, reporting a fixed cost per call.
   // Its default `max` is no tier: it is the id the suites run Learn on. `normal` is the
-  // Normal tier and the pool's model, and `strong` is power's Max, which Learn never lists.
+  // Normal tier and the pool's model, and `strong` is Max: power's, and Learn's where the
+  // learner chooses it.
   BUILT_IN_PROVIDER: JSON.stringify({
     id: 'openrouter',
     kind: 'fake',
@@ -68,7 +69,8 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
     models: [
       { id: 'max', label: 'Default' },
       { id: 'normal', label: 'Normal', tier: 'normal' },
-      { id: 'strong', label: 'Max', tier: 'max' },
+      // A reasoning model with room for Learn's Very long cap, as the deployed Max.
+      { id: 'strong', label: 'Max', tier: 'max', reasoning: true, maxOutputTokens: 64_000 },
     ],
     // `[echo-request]` in a message makes the reply echo the request's model, output cap
     // and system prompt (the pool tests check what was really sent upstream).
@@ -108,11 +110,12 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   PERSONAL_CREDIT_ENABLED: 'false',
   // As deployed: tests that simulate purchases turn it on in an env override.
   DEV_PURCHASES_ENABLED: 'false',
-  // `max` is priced too, low, so a credit call on it holds USAGE_HOLD_MICROS like
-  // any cheap model (a model without a price can't run on credit).
+  // `max` and `strong` are priced too, low, so a credit call on them holds about
+  // USAGE_HOLD_MICROS like any cheap model (a model without a price can't run on credit).
   MODEL_PRICES: JSON.stringify({
     normal: { in: 1_000_000, out: 1_000_000, context: 1_048_576 },
     max: { in: 10_000, out: 10_000, context: 1_048_576 },
+    strong: { in: 20_000, out: 20_000, context: 1_048_576 },
   }),
   POOL_MAX_OUTPUT_TOKENS: '2048',
   POOL_REQUESTS_PER_DAY: '3',

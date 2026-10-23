@@ -79,10 +79,11 @@ export function estimatedInputTokens(request: InputOf): number {
 /**
  * The input a reply with an input budget of `maxInputTokens` can send, in
  * `estimatedInputTokens`' measure: the budget plus what rendering adds
- * outside it (headings, anchor tags, per-reply instructions, framing).
+ * outside it (headings, anchor tags, per-reply instructions with Learn's
+ * reply length, which credit replies send, framing).
  */
 export function replyInputTokens(maxInputTokens: number): number {
-  return maxInputTokens + Math.ceil(renderAllowanceBytes() / CHARS_PER_TOKEN);
+  return maxInputTokens + Math.ceil(renderAllowanceBytes({ replyLength: true }) / CHARS_PER_TOKEN);
 }
 
 /**

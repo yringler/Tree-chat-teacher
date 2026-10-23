@@ -1,4 +1,10 @@
-import type { DefaultRouteFacts, ProviderRegistry, TreeBackupInput } from '@tangent/shared';
+import type {
+  DefaultRouteFacts,
+  LearnReplySettings,
+  ModelTier,
+  ProviderRegistry,
+  TreeBackupInput,
+} from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
 import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
@@ -504,5 +510,80 @@ describe('Learn continues any branch of the account', () => {
     });
     await send(learn, side.id, 'fresh start');
     expect(tiers.chatCalls()[0]!.messages.map((m) => m.content)).toEqual(['fresh start']);
+  });
+});
+
+/** Learn's provider with its models tagged by tier, as the built-in provider lists them. */
+class TaggedTierProvider extends ScriptedProvider {
+  constructor(private readonly withMax = true) {
+    super('openrouter');
+  }
+  override models() {
+    return [
+      { id: 'normal', label: 'Normal', tier: 'normal' as const },
+      ...(this.withMax ? [{ id: 'max', label: 'Max', tier: 'max' as const }] : []),
+    ];
+  }
+  override defaultModel() {
+    return 'normal';
+  }
+}
+
+describe("Learn's tier", () => {
+  function tierSetup(tier: ModelTier | undefined, withMax = true) {
+    const repos = createMemoryRepositories();
+    const provider = new TaggedTierProvider(withMax);
+    const chat = (reply?: LearnReplySettings) =>
+      new ChatService({
+        repos,
+        settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
+        providers: registryOf(provider),
+        profile: { kind: 'learn', customPrompt: true, ...(reply ? { reply } : {}) },
+      });
+    return {
+      provider,
+      chat: chat(tier ? { tier, replyLength: 'normal' } : undefined),
+      plain: chat(),
+      withReply: chat,
+    };
+  }
+
+  it("runs on the provider's Max model when the learner chose Max, whatever the branch stores", async () => {
+    const { provider, chat, plain } = tierSetup('max');
+    const { tree } = await plain.createTree({});
+    expect((await plain.getOwnedBranch(tree.trunkBranchId)).model).toBe('normal');
+    const { last } = await send(chat, tree.trunkBranchId, 'hard question');
+    expect(last).toMatchObject({ type: 'done', node: { model: 'max' } });
+    expect(provider.chatCalls().map((c) => c.model)).toEqual(['max']);
+    // The stored branch is unchanged: the next reply on Normal runs on Normal.
+    await send(plain, tree.trunkBranchId, 'easy question');
+    expect(provider.chatCalls().map((c) => c.model)).toEqual(['max', 'normal']);
+  });
+
+  it('runs a branch stored on Max on Normal unless the learner chose Max', async () => {
+    const { provider, chat, plain } = tierSetup('normal');
+    const { tree } = await plain.createTree({});
+    await plain.updateBranch(tree.trunkBranchId, { model: 'max' });
+    await send(chat, tree.trunkBranchId, 'hi');
+    await send(plain, tree.trunkBranchId, 'hi');
+    expect(provider.chatCalls().map((c) => c.model)).toEqual(['normal', 'normal']);
+  });
+
+  it('runs Very long on Max even while the learner keeps Normal; Long stays on Normal', async () => {
+    const { provider, plain, withReply } = tierSetup(undefined);
+    const { tree } = await plain.createTree({});
+    const veryLong = withReply({ tier: 'normal', replyLength: 'veryLong' });
+    const { last } = await send(veryLong, tree.trunkBranchId, 'a chapter, please');
+    expect(last).toMatchObject({ type: 'done', node: { model: 'max' } });
+    expect((await plain.getOwnedBranch(tree.trunkBranchId)).model).toBe('normal');
+    await send(withReply({ tier: 'normal', replyLength: 'long' }), tree.trunkBranchId, 'more');
+    expect(provider.chatCalls().map((c) => c.model)).toEqual(['max', 'normal']);
+  });
+
+  it('keeps the one model of a provider without a Max', async () => {
+    const { provider, chat, plain } = tierSetup('max', false);
+    const { tree } = await plain.createTree({});
+    await send(chat, tree.trunkBranchId, 'hi');
+    expect(provider.chatCalls().map((c) => c.model)).toEqual(['normal']);
   });
 });

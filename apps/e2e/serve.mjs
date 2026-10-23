@@ -127,7 +127,13 @@ function lastAsked(messages) {
   const text = Array.isArray(content)
     ? content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')
     : String(content);
-  return text.trim().split('\n').at(-1) ?? '';
+  // The per-reply instructions (reply length, grounding) follow the question
+  // in the same turn; the script answers the question, as a model would.
+  const asked = text.replace(
+    /<instructions_for_this_reply>[\s\S]*?<\/instructions_for_this_reply>/g,
+    '',
+  );
+  return asked.trim().split('\n').at(-1) ?? '';
 }
 
 /**

@@ -362,9 +362,18 @@ void main() {
           'systemPrompt': null,
           'defaultSystemPrompt': 'Be brief.',
           'walkthroughDoneAt': null,
+          'learn': {'tier': 'max', 'replyLength': 'veryLong'},
         }),
       );
-      expect((await f.api.settings()).walkthroughDoneAt, isNull);
+      final settings = await f.api.settings();
+      expect(settings.walkthroughDoneAt, isNull);
+      expect(
+        settings.learn,
+        const LearnReplySettings(
+          tier: ModelTier.max,
+          replyLength: ReplyLength.veryLong,
+        ),
+      );
       expect(f.seen.single.method, 'GET');
       expect(f.seen.single.url.path, '/api/settings');
     });
@@ -375,6 +384,7 @@ void main() {
           'systemPrompt': 'Mine',
           'defaultSystemPrompt': 'Be brief.',
           'walkthroughDoneAt': '2026-10-12T00:00:00.000Z',
+          'learn': {'tier': 'normal', 'replyLength': 'normal'},
         }),
       );
       await f.api.markWalkthroughDone();
@@ -382,6 +392,29 @@ void main() {
       expect(f.seen.single.url.path, '/api/settings');
       expect(f.seen.single.json, {'walkthroughDone': true});
     });
+
+    test(
+      'saves only the Advanced setting it names, and reads back both',
+      () async {
+        final f = fake(
+          (_) => json({
+            'systemPrompt': null,
+            'defaultSystemPrompt': 'Be brief.',
+            'walkthroughDoneAt': null,
+            'learn': {'tier': 'normal', 'replyLength': 'long'},
+          }),
+        );
+        final saved = await f.api.updateLearnReply(
+          replyLength: ReplyLength.long,
+        );
+        expect(f.seen.single.method, 'PATCH');
+        expect(f.seen.single.url.path, '/api/settings');
+        expect(f.seen.single.json, {
+          'learn': {'replyLength': 'long'},
+        });
+        expect(saved, const LearnReplySettings(replyLength: ReplyLength.long));
+      },
+    );
   });
 
   group('own key', () {

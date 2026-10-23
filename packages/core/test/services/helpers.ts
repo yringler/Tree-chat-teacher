@@ -43,6 +43,8 @@ export class ScriptedProvider implements LlmProvider {
   summaryStopReason = 'end_turn';
   /** Text of chat replies instead of the default echo (`''`: an empty reply). */
   chatText: string | null = null;
+  /** Text of summaries instead of the default (`''`: an empty summary, which fails). */
+  summaryText: string | null = null;
   /** Set by a test that counts tokens (with capability `supportsTokenCount`). */
   countTokens?: LlmProvider['countTokens'];
 
@@ -69,6 +71,7 @@ export class ScriptedProvider implements LlmProvider {
   kindOf(req: GenerateRequest): 'title' | 'summary' | 'chat' {
     const sys = (req.system ?? '').toLowerCase();
     if (sys.startsWith('you write faithful, concise summaries')) return 'summary';
+    if (sys.startsWith('you condense one long reply')) return 'summary';
     if (sys.includes('title') && !sys.includes('## ')) return 'title';
     return 'chat';
   }
@@ -81,7 +84,7 @@ export class ScriptedProvider implements LlmProvider {
       kind === 'title'
         ? 'Scripted Title'
         : kind === 'summary'
-          ? `SUMMARY(${req.messages.length})`
+          ? (this.summaryText ?? `SUMMARY(${req.messages.length})`)
           : (this.chatText ?? `reply to: ${last.slice(0, 40)}`);
     const searches =
       req.webSearch !== undefined &&

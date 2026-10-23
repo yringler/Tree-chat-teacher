@@ -80,6 +80,9 @@ import { LearnFunding } from '../state/learn-funding';
                 How replies are paid for
               </button>
             }
+            <button type="button" class="menu-item" role="menuitem" (click)="openAdvanced()">
+              Advanced settings
+            </button>
             @if (funding.creditOffered() || funding.membership()?.required || funding.poolOn()) {
               <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
                 {{ funding.creditOffered() ? 'Billing and credit' : 'Billing' }}
@@ -151,6 +154,11 @@ export class AppHeader {
   protected openAccess(): void {
     this.close();
     this.ui.dialogs.open({ kind: 'access' });
+  }
+
+  protected openAdvanced(): void {
+    this.close();
+    this.ui.dialogs.open({ kind: 'advanced-settings' });
   }
 
   protected openPasskeys(): void {

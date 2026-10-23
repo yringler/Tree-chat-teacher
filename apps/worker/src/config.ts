@@ -20,6 +20,8 @@ import {
   DEFAULT_SERVICE_FEE,
   DEFAULT_SYSTEM_PROMPT,
   isReasoningEffort,
+  LEARN_VERY_LONG_OUTPUT_TOKENS,
+  type ModelTier,
   type ReasoningEffort,
   type ServiceFee,
   SHARING_MODES,
@@ -204,7 +206,7 @@ export const POOL_ACCOUNT_ID = 'pool';
 
 // ---- The hosted models: the owner's pick, which the open pool runs too
 
-/** Learn's one model, and power's Normal (`LEARN_NORMAL_MODEL`). */
+/** Learn's Normal, and power's (`LEARN_NORMAL_MODEL`). */
 export const DEFAULT_LEARN_NORMAL_MODEL = 'anthropic/claude-haiku-5.5';
 /** Power's Max, the stronger model it suggests (`POWER_MAX_MODEL`). */
 export const DEFAULT_POWER_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
@@ -235,14 +237,28 @@ export interface DefaultTierRequest {
  * OpenRouter's routing): an effort or a pinned provider tuned for one model
  * says nothing about another. The open pool runs Normal as it is, under its
  * own reply cap (`POOL_MAX_OUTPUT_TOKENS`).
+ *
+ * Max has no vars: Learn asks Sonnet at `high` effort, sent explicitly so a
+ * change of the provider's default can't change it (a review found it gives
+ * fuller chapters than `medium`), and its listing allows Very long's cap
+ * (`LEARN_VERY_LONG_OUTPUT_TOKENS`; other lengths keep the default reply
+ * cap). Power asks Max as the user sets it (`builtInPowerConfig`).
  */
-export const DEFAULT_TIER_REQUESTS: Readonly<Record<'normal', DefaultTierRequest>> = {
+export const DEFAULT_TIER_REQUESTS: Readonly<Record<ModelTier, DefaultTierRequest>> = {
   normal: {
     model: DEFAULT_LEARN_NORMAL_MODEL,
     request: {
       effort: 'high',
       maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
       providerOrder: HAIKU_PROVIDER_ORDER,
+    },
+  },
+  max: {
+    model: DEFAULT_POWER_MAX_MODEL,
+    request: {
+      effort: 'high',
+      maxOutputTokens: LEARN_VERY_LONG_OUTPUT_TOKENS,
+      providerOrder: [],
     },
   },
 };
@@ -571,7 +587,7 @@ export interface AppConfig {
     maxInputTokens: number;
   };
   learn: {
-    /** `LEARN_NORMAL_MODEL`: Learn's one model, and power's Normal. */
+    /** `LEARN_NORMAL_MODEL`: Normal, in Learn and power. */
     normalModel: string;
     normal: TierRequestConfig;
     /** `LEARN_SYSTEM_PROMPT`; null = DEFAULT_SYSTEM_PROMPT. */

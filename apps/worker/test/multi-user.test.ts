@@ -1,8 +1,11 @@
 import {
+  BUILT_IN_MAX_OUTPUT_TOKENS,
   DEFAULT_SYSTEM_PROMPT,
+  LEARN_VERY_LONG_OUTPUT_TOKENS,
   type ApiError,
   type BillingSummary,
   type Branch,
+  type ContextPlanResponse,
   type Payer,
   type LoginOptionsResponse,
   type MeResponse,
@@ -20,7 +23,8 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
-import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import { creditNeeded, replyHoldMicros, USAGE_HOLD_MICROS } from '../src/billing/service.js';
+import { simpleMaxInputTokens } from '../src/simple-mode.js';
 import { rememberCustomer } from '../src/billing/payments/customers.js';
 import { createApp } from '../src/app.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
@@ -261,6 +265,7 @@ describe('account settings: the default system prompt', () => {
       maxOutputTokens: null,
       maxInputTokens: null,
       inputOverflow: 'compact',
+      learn: { tier: 'normal', replyLength: 'normal' },
     };
     expect(await ok<SettingsResponse>(await u.call('/api/settings'))).toEqual(defaults);
     expect(await ok<SettingsResponse>(await patch(u, 'Answer in French.'))).toEqual({
@@ -788,6 +793,82 @@ describe('Learn mode on paid credit', () => {
     expect(row).toEqual({ node_id: start.assistantNode.id, status: 'settled' });
   });
 
+  it('gives Very long a 32,768-token cap and holds it at that cap; Long keeps 16,384; power is unchanged', async () => {
+    // Max (`strong`) reasons and allows more than Very long's cap, as the deployed Max does
+    // (bindings.ts); here it is priced like Sonnet, so the holds are far apart.
+    const e = authEnv({
+      POOL_ENABLED: 'false',
+      MODEL_PRICES: JSON.stringify({
+        normal: { in: 10_000, out: 10_000, context: 1_048_576 },
+        max: { in: 10_000, out: 10_000, context: 1_048_576 },
+        strong: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+      }),
+    });
+    const u = await newUser(e);
+    const { trunk } = await treeWithNodes(u, 'credit');
+    const save = async (learn: Record<string, string>) =>
+      ok<SettingsResponse>(
+        await u.call('/api/settings', { method: 'PATCH', json: { learn }, learn: 'credit' }),
+      );
+    const send = () =>
+      u.call(`/api/branches/${trunk.id}/messages`, {
+        method: 'POST',
+        json: { content: 'Explain primes [echo-request]' },
+        learn: 'credit',
+      });
+    /** The model and output cap the fake was sent, which it echoes. */
+    const echoed = async (res: Response) => {
+      const text = await res.text();
+      expect(res.status, text).toBe(200);
+      const reply = parseSse(text)
+        .map((ev) => (ev.type === 'delta' ? ev.text : ''))
+        .join('');
+      return /^ECHO model=(\S+) maxOutputTokens=(\S+) /.exec(reply)?.slice(1);
+    };
+    /** The 402 of a send the balance can't cover: what it says the reply needs. */
+    const needs = async () => {
+      const res = await send();
+      expect(res.status).toBe(402);
+      return ((await res.json()) as ApiError).error.message;
+    };
+    const holdAt = async (maxOutputTokens: number) =>
+      creditNeeded(
+        await replyHoldMicros(e, 'strong', {
+          maxInputTokens: simpleMaxInputTokens(e),
+          maxOutputTokens,
+        }),
+      ).message;
+
+    // A balance above the minimum but under either hold: each 402 names its hold, the whole
+    // input budget plus the reply's cap at Max's price.
+    await grant(u.learn.accountId, 100_000);
+    await save({ tier: 'normal', replyLength: 'veryLong' });
+    expect(await needs()).toBe(await holdAt(LEARN_VERY_LONG_OUTPUT_TOKENS));
+    await save({ tier: 'max', replyLength: 'long' });
+    expect(await needs()).toBe(await holdAt(BUILT_IN_MAX_OUTPUT_TOKENS));
+    expect(await holdAt(LEARN_VERY_LONG_OUTPUT_TOKENS)).not.toBe(
+      await holdAt(BUILT_IN_MAX_OUTPUT_TOKENS),
+    );
+
+    // Covered: each reply is sent with the cap it was held at.
+    await grant(u.learn.accountId, 2_000_000);
+    expect(await echoed(await send())).toEqual(['strong', '16384']);
+    await save({ tier: 'normal', replyLength: 'veryLong' });
+    expect(await echoed(await send())).toEqual(['strong', '32768']);
+
+    // Power on Tangent credit keeps its bound, whatever Learn saved.
+    const power = await treeWithNodes(u, undefined, {
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'strong',
+    });
+    const powerSent = await u.call(`/api/branches/${power.trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes [echo-request]', maxOutputTokens: 32_768 },
+    });
+    expect(await echoed(powerSent)).toEqual(['strong', '16384']);
+  });
+
   it('is hidden without billing: credit falls back to the own-key mode', async () => {
     const e = authEnv({ PAYMENT_PROVIDER: 'polar' });
     const u = await newUser(e);
@@ -810,6 +891,78 @@ describe('Learn mode on paid credit', () => {
       );
       expect(summary).toMatchObject({ builtInCredit: true, balanceMicros: 1_500_000 });
     }
+  });
+  it('condenses a long reply two tangents up in Learn, on its own summary call; power sends it whole', async () => {
+    /**
+     * A chapter-length trunk reply, a tangent from it and a tangent from that
+     * tangent's reply; returns the context planned for the last one.
+     */
+    const CHAPTER = 'A chapter on primes. '.repeat(400);
+    async function grandchildContext(u: User, learn?: Payer) {
+      const mode = learn ? { learn } : {};
+      const detail = await ok<TreeDetail>(
+        await u.call('/api/trees', { method: 'POST', json: { title: 'Deep' }, ...mode }),
+        201,
+      );
+      const trunk = detail.branches[0]!;
+      const repo = createD1Repositories(env.DB).trees;
+      const now = new Date().toISOString();
+      const question = makeNode(trunk, 0, null, { role: 'user', content: 'Teach me primes' });
+      const chapter = makeNode(trunk, 1, question.id, { role: 'assistant', content: CHAPTER });
+      await repo.appendNodes([question, chapter], now);
+      const branchFrom = async (fromNodeId: string) =>
+        ok<Branch>(
+          await u.call('/api/branches', {
+            method: 'POST',
+            json: { fromNodeId, contextMode: 'path' },
+            ...mode,
+          }),
+          201,
+        );
+      const child = await branchFrom(chapter.id);
+      const why = makeNode(child, 0, chapter.id, { role: 'user', content: 'Why?' });
+      const because = makeNode(child, 1, why.id, { role: 'assistant', content: 'Because.' });
+      await repo.appendNodes([why, because], now);
+      const grandchild = await branchFrom(because.id);
+      await repo.appendNodes(
+        [makeNode(grandchild, 0, because.id, { role: 'user', content: 'Deeper?' })],
+        now,
+      );
+      return ok<ContextPlanResponse>(
+        await u.call(`/api/branches/${grandchild.id}/context?resolve=true`, mode),
+      );
+    }
+    const summaryRows = async (accountId: string) =>
+      (
+        await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM usage_events WHERE account_id = ?1 AND purpose = 'summary'",
+        )
+          .bind(accountId)
+          .first<{ n: number }>()
+      )?.n ?? 0;
+
+    const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    const learn = await grandchildContext(u, 'credit');
+    expect(learn.plan.complete).toBe(true);
+    const condensed = learn.plan.segments.filter(
+      (s) => s.kind === 'summary' && s.purpose === 'message',
+    );
+    expect(condensed).toHaveLength(1);
+    expect(condensed[0]).toMatchObject({ status: 'ready', reason: 'message-summary' });
+    const learnSent = learn.rendered.messages.map((m) => m.content);
+    expect(learnSent).not.toContain(CHAPTER);
+    expect(learnSent[1]).toMatch(/^\[Condensed; the learner sees the full reply\]/);
+    expect(await summaryRows(u.learn.accountId)).toBe(1);
+
+    const power = await grandchildContext(u);
+    expect(power.plan.segments.some((s) => s.kind === 'summary')).toBe(false);
+    expect(power.rendered.messages.map((m) => m.content)).toContain(CHAPTER);
   });
 });
 
@@ -873,22 +1026,17 @@ describe('Learn has one model; Max is power’s', () => {
     expect(after.branches[0]).toMatchObject({ model: 'strong', funding: 'credit' });
   });
 
-  it('Learn lists only Normal and refuses a request that picks Max; power lists both', async () => {
+  it('Learn lists Normal and Max, and stays on Normal until the learner chooses Max', async () => {
     const u = await newUser(tiered());
     await grant(u);
     const learn = await ok<ProviderInfo[]>(await u.call('/api/providers', { learn: 'credit' }));
     expect(learn.map((p) => [p.id, p.defaultModel, p.models.map((m) => m.id)])).toEqual([
-      ['openrouter', 'normal', ['normal']],
-    ]);
-    const power = await ok<ProviderInfo[]>(await u.call('/api/providers'));
-    expect(power.find((p) => p.id === 'openrouter')?.models.map((m) => [m.id, m.tier])).toEqual([
-      ['normal', 'normal'],
-      ['big', 'max'],
+      ['openrouter', 'normal', ['normal', 'big']],
     ]);
 
     const { trunk, assistant } = await treeWithNodes(u, 'credit');
     expect(trunk.model).toBe('normal');
-    // A branch moved to Max in Learn stays on Normal.
+    // A branch moved to Max in Learn stays on Normal: the tier is the learner's setting.
     const patched = await ok<Branch>(
       await u.call(`/api/branches/${trunk.id}`, {
         method: 'PATCH',
@@ -897,7 +1045,7 @@ describe('Learn has one model; Max is power’s', () => {
       }),
     );
     expect(patched.model).toBe('normal');
-    // Generating on Max is refused.
+    // Compare and reviews run on the lesson's own model, never on a Max they name.
     for (const [path, init] of [
       [
         `/api/branches/${trunk.id}/candidates`,
@@ -912,6 +1060,105 @@ describe('Learn has one model; Max is power’s', () => {
       expect(res.status, path).toBe(400);
     }
     expect(await usageRows(u.learn.accountId)).toBe(0);
+  });
+
+  it("replies on Max, held and billed as Max, once the learner chooses it; power doesn't change", async () => {
+    // On the suites' bindings, as the send runs in the tree's Durable Object: Max is `strong`.
+    const u = await newUser();
+    await grant(u);
+    const saved = await ok<SettingsResponse>(
+      await u.call('/api/settings', {
+        method: 'PATCH',
+        json: { learn: { tier: 'max', replyLength: 'veryLong' } },
+        learn: 'credit',
+      }),
+    );
+    expect(saved.learn).toEqual({ tier: 'max', replyLength: 'veryLong' });
+    const { trunk } = await treeWithNodes(u, 'credit');
+    const sent = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(sent.status).toBe(200);
+    const events = parseSse(await sent.text());
+    expect(events.at(-1), JSON.stringify(events.at(-1))).toMatchObject({ type: 'done' });
+    const start = events[0] as Extract<StreamEvent, { type: 'start' }>;
+    expect(start.assistantNode).toMatchObject({ providerId: 'openrouter', model: 'strong' });
+    const rows = await env.DB.prepare(
+      "SELECT model FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .all<{ model: string }>();
+    expect(rows.results.map((r) => r.model)).toEqual(['strong']);
+    // The stored branch stays on Normal.
+    const after = await ok<TreeDetail>(
+      await u.call(`/api/trees/${trunk.treeId}`, { learn: 'credit' }),
+    );
+    expect(after.branches[0]?.model).toBe('max');
+
+    // Power keeps its own routes: Learn settings, even saved on its account, don't reach it.
+    await ok<SettingsResponse>(
+      await u.call('/api/settings', { method: 'PATCH', json: { learn: { tier: 'max' } } }),
+    );
+    const power = await treeWithNodes(u, undefined, { ...CREDIT, model: 'normal' });
+    const powerSent = await u.call(`/api/branches/${power.trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+    });
+    const powerStart = parseSse(await powerSent.text())[0] as Extract<
+      StreamEvent,
+      { type: 'start' }
+    >;
+    expect(powerStart.assistantNode).toMatchObject({ model: 'normal' });
+  });
+
+  it('replies on Max, held and billed as Max, on Very long while Normal stays saved; power is unaffected', async () => {
+    const u = await newUser();
+    await grant(u);
+    const saved = await ok<SettingsResponse>(
+      await u.call('/api/settings', {
+        method: 'PATCH',
+        json: { learn: { replyLength: 'veryLong' } },
+        learn: 'credit',
+      }),
+    );
+    // Saved as picked: Max follows from the length wherever a reply runs.
+    expect(saved.learn).toEqual({ tier: 'normal', replyLength: 'veryLong' });
+    const { trunk } = await treeWithNodes(u, 'credit');
+    const sent = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(sent.status).toBe(200);
+    const events = parseSse(await sent.text());
+    expect(events.at(-1), JSON.stringify(events.at(-1))).toMatchObject({ type: 'done' });
+    const start = events[0] as Extract<StreamEvent, { type: 'start' }>;
+    expect(start.assistantNode).toMatchObject({ providerId: 'openrouter', model: 'strong' });
+    const rows = await env.DB.prepare(
+      "SELECT model FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .all<{ model: string }>();
+    expect(rows.results.map((r) => r.model)).toEqual(['strong']);
+
+    await ok<SettingsResponse>(
+      await u.call('/api/settings', {
+        method: 'PATCH',
+        json: { learn: { replyLength: 'veryLong' } },
+      }),
+    );
+    const power = await treeWithNodes(u, undefined, { ...CREDIT, model: 'normal' });
+    const powerSent = await u.call(`/api/branches/${power.trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+    });
+    const powerStart = parseSse(await powerSent.text())[0] as Extract<
+      StreamEvent,
+      { type: 'start' }
+    >;
+    expect(powerStart.assistantNode).toMatchObject({ model: 'normal' });
   });
 });
 

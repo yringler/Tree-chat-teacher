@@ -15,6 +15,7 @@ import { createProviderRegistry, decorateProvider } from '@tangent/providers';
 import {
   DEFAULT_SYSTEM_PROMPT,
   type BranchFunding,
+  type LearnReplySettings,
   type LlmProvider,
   type ProviderConfig,
   type ProviderInfo,
@@ -211,10 +212,12 @@ export function chatSettingsFor(
   env: AppEnv,
   account: AccountContext,
   scope: ServiceScope = {},
+  learnReply?: LearnReplySettings,
 ): ChatSettings {
   const pool = poolScope(account, scope);
   if (pool) return poolChatSettings(pool);
-  if (account.mode === 'simple') return simpleChatSettings(env, learnOwnKey(account));
+  if (account.mode === 'simple')
+    return simpleChatSettings(env, learnOwnKey(account), learnReply?.replyLength);
   const { summaryProviderId, summaryModel, autoTitle } = appConfig(env).power;
   // A summary provider is looked up among the own-key routes only (ChatService), so
   // summaries of branches on the user's own keys never cost credit.
@@ -249,6 +252,12 @@ export interface ChatServiceOptions extends ServiceScope {
   apiKeys?: UserApiKeys;
   /** Where the usage meter parks its background work (built-in provider calls). */
   defer?: Defer;
+  /**
+   * The learner's reply settings for a Learn send (`LearnProfile.reply`),
+   * read once by the route so the gate, the hold and the reply agree.
+   * Ignored by power and on the pool, whose model and limits are fixed.
+   */
+  learnReply?: LearnReplySettings;
 }
 
 /** Last resort when a caller has no `waitUntil`: the work still runs, failures are logged. */
@@ -371,6 +380,7 @@ export function chatService(
           customPrompt: account.payer !== 'pool',
           // On credit a summary's input is capped as a reply's is.
           ...(operatorPaid ? { summaryMaxInputTokens: simpleMaxInputTokens(env) } : {}),
+          ...(opts.learnReply ? { reply: opts.learnReply } : {}),
         };
   } else {
     // Power: own keys unmetered; Tangent credit, every call metered.
@@ -394,7 +404,7 @@ export function chatService(
     accountId: account.id,
     providers,
     profile,
-    settings: chatSettingsFor(env, account, scope),
+    settings: chatSettingsFor(env, account, scope, opts.learnReply),
     defaultSystemPrompt: defaultSystemPromptFor(env, account, scope),
     groundingAllowance: groundingAllowance(env, account),
     // Failures the service recovers from on its own, as structured log lines.

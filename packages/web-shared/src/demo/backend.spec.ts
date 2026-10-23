@@ -27,7 +27,13 @@ import {
   type DemoBackendOptions,
   type DemoStorage,
 } from './backend';
-import { createLoremProvider, seededRandom, type LoremProviderOptions } from './lorem';
+import {
+  createLoremProvider,
+  DEMO_MAX_MODEL,
+  DEMO_NORMAL_MODEL,
+  seededRandom,
+  type LoremProviderOptions,
+} from './lorem';
 
 /** The real ApiClient over the demo backend (no network, no DOM). */
 function setup(options: DemoBackendOptions & { lorem?: LoremProviderOptions } = {}) {
@@ -69,8 +75,11 @@ describe('demo backend', () => {
     const [provider, ...others] = await api.providers();
     expect(others).toEqual([]);
     expect(provider).toMatchObject({ id: 'openrouter', defaultModel: 'normal', available: true });
-    // Learn runs one model.
-    expect(provider!.models).toEqual([{ id: 'normal', label: 'Normal', tier: 'normal' }]);
+    // Normal, and Max for a learner who chooses it.
+    expect(provider!.models.map((m) => [m.id, m.tier])).toEqual([
+      ['normal', 'normal'],
+      ['max', 'max'],
+    ]);
   });
 
   it('starts with the example lesson (main thread, a side question and a followed tangent)', async () => {
@@ -573,6 +582,28 @@ describe('power demo backend', () => {
       ),
     );
     expect(stream.at(-1)?.type).toBe('done');
+  });
+
+  it('replies on Max in Learn once the learner chooses it, and keeps the setting', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage, seed: false });
+    const { tree } = await api.createTree({ title: 'Lesson' });
+    const send = async () => {
+      const stream = await events(
+        await api.sendMessage(tree.trunkBranchId, { content: 'Hi' }, new AbortController().signal),
+      );
+      const done = stream.at(-1);
+      return done?.type === 'done' ? done.node.model : null;
+    };
+    expect(await send()).toBe(DEMO_NORMAL_MODEL);
+    await expect(
+      api.updateSettings({ learn: { tier: 'max', replyLength: 'long' } }),
+    ).resolves.toMatchObject({ learn: { tier: 'max', replyLength: 'long' } });
+    expect(await send()).toBe(DEMO_MAX_MODEL);
+    const { api: next } = setup({ storage });
+    await expect(next.settings()).resolves.toMatchObject({
+      learn: { tier: 'max', replyLength: 'long' },
+    });
   });
 
   it('saves a default system prompt in Settings, keeps it across a reload, and resets it', async () => {

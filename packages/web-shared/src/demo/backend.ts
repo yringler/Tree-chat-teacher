@@ -41,6 +41,7 @@ import {
   type Branch,
   type CandidateEvent,
   type ChatNode,
+  type LearnReplySettings,
   type GenerateRequest,
   type InputBudgetResponse,
   type KeyStatusResponse,
@@ -247,6 +248,7 @@ export class DemoBackend {
   private readonly repos = createMemoryRepositories();
   private readonly state: MemoryState = this.repos.dump();
   private readonly chat: ChatService;
+  private readonly registry: ProviderRegistry;
   private readonly provider: LlmProvider;
   private readonly clock: Clock;
   private readonly storage: DemoStorage | null;
@@ -268,10 +270,6 @@ export class DemoBackend {
     const inner = options.provider ?? createLoremProvider();
     this.provider = {
       ...inner,
-      // Like the Worker: Learn offers one model (Normal), so it lists and imports onto
-      // that alone; power keeps Normal | Max.
-      models: () =>
-        this.mode === 'simple' ? inner.models().filter((m) => m.tier !== 'max') : inner.models(),
       stream: (request) => this.meter(inner, request),
     };
     const provider = this.provider;
@@ -280,14 +278,31 @@ export class DemoBackend {
       list: () => [providerInfo(provider)],
       defaultProviderId: () => provider.id,
     };
-    this.chat = new ChatService({
+    this.registry = registry;
+    this.chat = this.service();
+    if (!this.restore() && options.seed !== false) {
+      this.usage = seedDemoLesson(this.state, {
+        accountId: DEMO_ACCOUNT_ID,
+        now: this.clock(),
+        newId: () => newId(),
+      });
+    }
+  }
+
+  /** The demo's ChatService; `reply`: a Learn send's reply settings (`LearnProfile.reply`). */
+  private service(reply?: LearnReplySettings): ChatService {
+    return new ChatService({
       repos: this.repos,
       accountId: DEMO_ACCOUNT_ID,
-      providers: registry,
+      providers: this.registry,
       // Like the Worker: Learn pays per request, so its branches are written `own-key`,
       // and imports are adapted to its provider, models and context. The demo
       // runs on pretend credit, so a lesson's learner instructions apply.
-      profile: this.mode === 'simple' ? { kind: 'learn', customPrompt: true } : { kind: 'power' },
+      // A send passes the learner's reply settings, as the Worker reads them for one.
+      profile:
+        this.mode === 'simple'
+          ? { kind: 'learn', customPrompt: true, ...(reply ? { reply } : {}) }
+          : { kind: 'power' },
       // As a server with the default config, summarizing on each branch's own route.
       settings: appChatSettings(this.mode === 'simple' ? 'learn' : 'power', {
         summaryProviderId: null,
@@ -299,13 +314,6 @@ export class DemoBackend {
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       clock: this.clock,
     });
-    if (!this.restore() && options.seed !== false) {
-      this.usage = seedDemoLesson(this.state, {
-        accountId: DEMO_ACCOUNT_ID,
-        now: this.clock(),
-        newId: () => newId(),
-      });
-    }
   }
 
   /** `fetch` over the demo routes; a request whose signal is already aborted rejects like fetch. */
@@ -540,7 +548,10 @@ export class DemoBackend {
     const { content, ground, ...requested } = R.sendMessage.body.parse(body ?? {});
     await this.chat.getOwnedBranch(branchId);
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
-    const begin = this.lock.then(() => this.chat.beginSend(branchId, content));
+    // Like the Worker: Learn's reply settings, read once for the send.
+    const chat =
+      this.mode === 'simple' ? this.service(await this.chat.learnReplySettings()) : this.chat;
+    const begin = this.lock.then(() => chat.beginSend(branchId, content));
     this.lock = begin.catch(() => undefined);
     const started: BeginSendResult = await begin;
 
@@ -555,7 +566,7 @@ export class DemoBackend {
       // The Learn demo runs on pretend credit; the power demo on each branch's route.
       this.mode === 'simple' ? 'credit' : started.branch.funding,
       sink,
-      (aborted) => this.chat.runGeneration(started, aborted, options),
+      (aborted) => chat.runGeneration(started, aborted, options),
       { settle: () => this.save() },
     );
     this.save();
