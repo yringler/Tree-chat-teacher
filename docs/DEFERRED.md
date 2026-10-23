@@ -34,6 +34,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **Canvas has no web search setting.** A new lane takes its parent's, which only power's Tangent and Conversation settings change. Canvas's Tangent from here and Lane settings would need power's web search field.
 - **No `openrouter:web_fetch` for URLs the learner pastes.** It would let the tutor read one page for about $0.001.
 - **No confidence trailer.** The model could flag low confidence at the end of an unsearched reply, to trigger a grounded follow-up only then. Not built: it pays for the reply twice, and Check sources covers the case at the learner's choice.
+- **Long replies don't search more readily.** Learn's reply length is a prompt instruction only, so a Long or Very long reply is offered a search on the same turns as a Normal one (`groundingScore` in `packages/core/src/grounding/policy.ts`). A longer reply states more facts, so a point more for those lengths would be cheap and pure, but it raises search spend and counts toward the daily cap; left until the lengths are in use.
 - **The daily search cap counts settled rows only.** Replies still in flight aren't counted, so a burst of parallel sends can pass the cap by up to `USAGE_MAX_PENDING`.
 
 ## Power app and Canvas
@@ -86,6 +87,8 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **A renamed tangent loses its suggestion.** A tangent follows a suggestion by carrying its title ([DECISIONS](DECISIONS.md#reply-or-tangent)), so renaming one in power or Canvas puts the suggestion back among the offers, and clicking it starts a second tangent. Keeping the match needs the suggestion stored on the branch (a column on `branches`).
 - **Flutter shows only the first suggested tangent at every width** while a reply has no tangent of the learner's, a fold meant for phones; the web shows them all. A width check (`MediaQuery`) would match the web on tablets and the `/app/` build.
 - **Going back in Flutter doesn't scroll to the reply a tangent started from.** The web's path returns to that message (`?m=`); Flutter opens the main thread at its end and a parent tangent at its start, so the highlighted row under **Your tangents** can be out of view. Passing the branch point along and revealing it (`Scrollable.ensureVisible`) would match the web.
+- **A very long reply is one call.** Very long asks one reply for up to about 5,000 words; outlining first and then writing each section as its own call (or researching with several queries) might hold together better, but it breaks the one-node `start → delta* → done` stream, needs a hold per call (`USAGE_MAX_PENDING` is 6) and multiplies the wait. A non-reasoning model's very long reply may also end cut off at the output cap, which Continue picks up.
+- **The Flutter payment dialog doesn't say the open pool ignores Advanced settings.** The web's used-up-credit notice does; in Flutter the composer chip is muted and says so instead.
 - **The e2e scripted upstream emits no suggestions.** `apps/e2e/serve.mjs` answers without a `<tangents>` block, so grouped suggestions are covered end to end only through `/learn/demo`, whose generator emits tagged blocks.
 
 ## Links between messages
