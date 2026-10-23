@@ -477,6 +477,13 @@ class ApiException implements Exception {
   /// `pool.reason` on `pool_*` codes: `empty`, `verify`, `cap_requests`, …
   final String? poolReason;
 
+  /// A connection that ended or failed with nothing more to say about why.
+  static const connectionLost = ApiException(
+    status: 0,
+    code: 'network',
+    message: 'Connection lost',
+  );
+
   @override
   String toString() => 'ApiException($status $code: $message)';
 }

@@ -7,11 +7,12 @@ import '../api/tangent_api.dart';
 import 'composer_plan.dart';
 import 'lessons_controller.dart';
 import 'notice.dart';
+import 'reply_follower.dart';
 import 'session_controller.dart';
 import 'thread.dart';
 
 /// One lesson: its branches and messages, the branch on screen, and the
-/// replies streaming into it.
+/// replies streaming into it, which a [ReplyFollower] follows.
 class ChatController extends ChangeNotifier {
   ChatController({
     required this.api,
@@ -30,9 +31,10 @@ class ChatController extends ChangeNotifier {
   final _branches = <String, Branch>{};
   final _nodes = <String, ChatNode>{};
   final _status = <String, String>{};
-  final _subscriptions = <StreamSubscription<StreamEvent>>{};
   String? _requestedBranchId;
   bool _disposed = false;
+
+  late final _replies = ReplyFollower(transport: api, host: _ReplyHost(this));
 
   bool _loading = true;
   bool get loading => _loading;
@@ -46,8 +48,10 @@ class ChatController extends ChangeNotifier {
   Notice? get notice => _notice;
 
   /// A message is on its way and the server hasn't started its reply yet.
-  bool _sending = false;
-  bool get sending => _sending;
+  bool get sending => _creatingTangent || _replies.sending;
+
+  /// A tangent is being made for the message it starts with.
+  bool _creatingTangent = false;
 
   String get title => lessons.titleOf(treeId) ?? _tree?.title ?? '';
 
@@ -179,11 +183,7 @@ class ChatController extends ChangeNotifier {
     if (_disposed) return;
     _loading = false;
     _notify();
-    for (final node in _nodes.values.toList()) {
-      if (node.role == Role.assistant && node.status == NodeStatus.streaming) {
-        _listen(api.resume(node.id), nodeId: node.id);
-      }
-    }
+    _replies.followAll(_nodes.values);
   }
 
   void selectBranch(String? branchId) {
@@ -201,14 +201,12 @@ class ChatController extends ChangeNotifier {
   /// server has started the reply, and false when it refused (see [notice]).
   Future<bool> send(String text) {
     final id = branchId;
-    if (id == null || _sending) return Future.value(false);
-    final accepted = Completer<bool>();
-    _sending = true;
+    if (id == null || sending) return Future.value(false);
     _notice = null;
     _atTangentStart = false;
+    final accepted = _replies.send(id, text);
     _notify();
-    _listen(api.sendMessage(id, text), accepted: accepted);
-    return accepted.future;
+    return accepted;
   }
 
   /// Stops the reply being written; its stream then ends with an error.
@@ -236,7 +234,7 @@ class ChatController extends ChangeNotifier {
   }) async {
     if (question.trim().isEmpty) return null;
     _notice = null;
-    _sending = true;
+    _creatingTangent = true;
     _notify();
     try {
       final created = await api.createBranch(
@@ -245,11 +243,11 @@ class ChatController extends ChangeNotifier {
         anchorQuote: anchorQuote,
       );
       _branches[created.id] = created;
-      _sending = false;
+      _creatingTangent = false;
       selectBranch(created.id);
       return (id: created.id, accepted: send(question));
     } on Object catch (error) {
-      _sending = false;
+      _creatingTangent = false;
       _fail(error);
       _notify();
       return null;
@@ -296,59 +294,6 @@ class ChatController extends ChangeNotifier {
   void dismissNotice() {
     _notice = null;
     _notify();
-  }
-
-  void _listen(
-    Stream<StreamEvent> stream, {
-    Completer<bool>? accepted,
-    String? nodeId,
-  }) {
-    var replyId = nodeId;
-    late final StreamSubscription<StreamEvent> subscription;
-
-    void accept(bool value) {
-      if (accepted == null || accepted.isCompleted) return;
-      _sending = false;
-      accepted.complete(value);
-    }
-
-    // The API re-attaches a broken stream itself, so one that still ends
-    // before the reply is done has given up: the lesson is reloaded to show
-    // what the server has.
-    void ended(Object? error) {
-      _subscriptions.remove(subscription);
-      final node = replyId == null ? null : _nodes[replyId];
-      if (error != null) _fail(error);
-      if (node != null && node.status == NodeStatus.streaming) {
-        unawaited(_reload());
-      }
-      accept(false);
-      _notify();
-    }
-
-    subscription = stream.listen(
-      (event) {
-        switch (event) {
-          case StartEvent(:final assistantNode):
-            replyId = assistantNode.id;
-            accept(true);
-          case SnapshotEvent(:final node):
-            replyId = node.id;
-          default:
-        }
-        _apply(event, replyId);
-      },
-      onError: (Object error) {
-        if (_disposed) return;
-        ended(error);
-      },
-      onDone: () {
-        if (_disposed) return;
-        ended(null);
-      },
-      cancelOnError: true,
-    );
-    _subscriptions.add(subscription);
   }
 
   void _apply(StreamEvent event, String? replyId) {
@@ -405,12 +350,9 @@ class ChatController extends ChangeNotifier {
     );
   }
 
+  /// Reads the lesson again for [_replies]; throws when it can't.
   Future<void> _reload() async {
-    try {
-      _replace(await api.tree(treeId));
-    } on Object catch (error) {
-      _fail(error);
-    }
+    _replace(await api.tree(treeId));
     _notify();
   }
 
@@ -449,9 +391,36 @@ class ChatController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    for (final subscription in _subscriptions) {
-      unawaited(subscription.cancel());
-    }
+    _replies.dispose();
     super.dispose();
   }
+}
+
+/// The lesson its [ReplyFollower] shows replies in.
+class _ReplyHost implements ReplyHost {
+  _ReplyHost(this._chat);
+
+  final ChatController _chat;
+
+  @override
+  Iterable<ChatNode> get nodes => _chat._nodes.values;
+
+  @override
+  void apply(StreamEvent event, String? replyId) =>
+      _chat._apply(event, replyId);
+
+  @override
+  void markFailed(String replyId, String message) {
+    _chat._markFailed(replyId, message);
+    _chat._notify();
+  }
+
+  @override
+  void report(Object error) => _chat._fail(error);
+
+  @override
+  Future<void> reload() => _chat._reload();
+
+  @override
+  void changed() => _chat._notify();
 }
