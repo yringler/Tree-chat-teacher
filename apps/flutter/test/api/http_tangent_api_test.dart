@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -48,6 +49,8 @@ class MemoryTokens implements TokenStore {
   String base = 'https://tangent.test',
   TokenStore? tokens,
   TokenStore? keyCookie,
+  Duration idleTimeout = const Duration(minutes: 1),
+  Duration headersTimeout = const Duration(minutes: 1),
 }) {
   final seen = <Seen>[];
   final client = MockClient.streaming((request, body) async {
@@ -65,6 +68,8 @@ class MemoryTokens implements TokenStore {
     client: client,
     tokens: tokens,
     keyCookie: keyCookie,
+    idleTimeout: idleTimeout,
+    headersTimeout: headersTimeout,
   );
   return (api: api, seen: seen);
 }
@@ -80,15 +85,22 @@ http.StreamedResponse empty([int status = 204]) =>
     http.StreamedResponse(const Stream.empty(), status);
 
 /// An SSE body of [events], ending cleanly or, with [fail], in a network
-/// error.
-http.StreamedResponse sse(List<Json> events, {bool fail = false}) {
+/// error: by default the [http.ClientException] package:http wraps an
+/// `HttpException` in, else [failure].
+http.StreamedResponse sse(
+  List<Json> events, {
+  bool fail = false,
+  Exception? failure,
+}) {
   final controller = StreamController<List<int>>();
   for (final event in events) {
     controller.add(
       utf8.encode('event: ${event['type']}\ndata: ${jsonEncode(event)}\n\n'),
     );
   }
-  if (fail) controller.addError(http.ClientException('network reset'));
+  if (fail) {
+    controller.addError(failure ?? http.ClientException('network reset'));
+  }
   unawaited(controller.close());
   return http.StreamedResponse(
     controller.stream,
@@ -853,6 +865,163 @@ void main() {
       ).run(events.add);
       expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'delta', 'done']);
+    });
+
+    test('reconnects after a socket reset mid-body', () async {
+      // Mid-body, package:http passes a SocketException or TlsException
+      // through as it is, not as a ClientException.
+      var calls = 0;
+      final f = fake((request) {
+        calls++;
+        return calls == 1
+            ? sse(
+                [start, delta('Hel')],
+                fail: true,
+                failure: const SocketException('Connection reset by peer'),
+              )
+            : sse([done]);
+      });
+      final events = <StreamEvent>[];
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        delay: (_) async {},
+      ).run(events.add);
+      expect(outcome, isA<ReplyDone>());
+      expect(types(events), ['start', 'delta', 'done']);
+      expect(f.seen.last.url.path, '/api/nodes/a1/stream');
+    });
+
+    test('a frame of the wrong shape is not taken as the connection', () async {
+      final controller = StreamController<List<int>>()
+        ..add(utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'))
+        ..add(utf8.encode('data: {"type":"delta","nodeId":"a1"}\n\n'));
+      unawaited(controller.close());
+      final f = fake((_) => http.StreamedResponse(controller.stream, 200));
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        delay: (_) async {},
+      ).run((_) {});
+      expect(
+        outcome,
+        isA<ReplyLost>().having((o) => o.error, 'error', isFormatException),
+      );
+      expect(f.seen, hasLength(1));
+    });
+
+    test('reconnects a body that goes quiet, as a dead one does', () async {
+      // A phone's connection can die with no reset reaching it: the body
+      // then neither ends nor sends anything, not even the keepalive.
+      final stalled = StreamController<List<int>>();
+      addTearDown(stalled.close);
+      final f = fake(
+        (request) => switch (request.url.path) {
+          '/api/branches/b1/messages' => () {
+            stalled.add(
+              utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'),
+            );
+            return http.StreamedResponse(stalled.stream, 200);
+          }(),
+          _ => sse([
+            {'type': 'snapshot', 'node': node('a1')},
+            done,
+          ]),
+        },
+        idleTimeout: const Duration(milliseconds: 50),
+      );
+      final events = <StreamEvent>[];
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        delay: (_) async {},
+      ).run(events.add).timeout(const Duration(seconds: 5));
+      expect(outcome, isA<ReplyDone>());
+      expect(types(events), ['start', 'snapshot', 'done']);
+      expect(f.seen.last.url.path, '/api/nodes/a1/stream');
+    });
+
+    test('a body kept alive by keepalive comments is not cut off', () async {
+      final body = StreamController<List<int>>();
+      final f = fake(
+        (_) => http.StreamedResponse(body.stream, 200),
+        idleTimeout: const Duration(milliseconds: 200),
+      );
+      final events = <StreamEvent>[];
+      final outcome = ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        delay: (_) async {},
+      ).run(events.add);
+      body.add(utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'));
+      for (var i = 0; i < 8; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        body.add(utf8.encode(': keepalive\n\n'));
+      }
+      body.add(utf8.encode('event: done\ndata: ${jsonEncode(done)}\n\n'));
+      await body.close();
+      expect(await outcome, isA<ReplyDone>());
+      expect(types(events), ['start', 'done']);
+      expect(f.seen, hasLength(1));
+    });
+
+    group('a response that never comes', () {
+      /// An API whose first request's response never comes, and which then
+      /// answers with [reply]; records the paths asked for.
+      ({HttpTangentApi api, List<String> paths}) hanging(
+        http.StreamedResponse Function() reply,
+      ) {
+        final paths = <String>[];
+        final client = MockClient.streaming((request, _) {
+          paths.add(request.url.path);
+          return paths.length == 1
+              ? Completer<http.StreamedResponse>().future
+              : Future.value(reply());
+        });
+        final api = HttpTangentApi(
+          baseUri: Uri.parse('https://tangent.test'),
+          client: client,
+          headersTimeout: const Duration(milliseconds: 50),
+        );
+        return (api: api, paths: paths);
+      }
+
+      test('to an attach, is tried again', () async {
+        final f = hanging(
+          () => sse([
+            {'type': 'snapshot', 'node': node('a1')},
+            done,
+          ]),
+        );
+        final outcome = await ReplyStream.attach(
+          f.api,
+          'a1',
+          delay: (_) async {},
+        ).run((_) {}).timeout(const Duration(seconds: 5));
+        expect(outcome, isA<ReplyDone>());
+        expect(f.paths, ['/api/nodes/a1/stream', '/api/nodes/a1/stream']);
+      });
+
+      test('to a send, loses it before a reply is named', () async {
+        final f = hanging(() => sse([done]));
+        final outcome = await ReplyStream.send(
+          f.api,
+          branchId: 'b1',
+          content: 'hi',
+          delay: (_) async {},
+        ).run((_) {}).timeout(const Duration(seconds: 5));
+        expect(
+          outcome,
+          isA<ReplyLost>()
+              .having((o) => o.replyId, 'replyId', isNull)
+              .having((o) => o.error, 'error', apiError(0, 'network')),
+        );
+        expect(f.paths, ['/api/branches/b1/messages']);
+      });
     });
   });
 }

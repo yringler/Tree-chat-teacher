@@ -22,6 +22,8 @@ class HttpTangentApi implements TangentApi {
     http.Client? client,
     this.tokens,
     this.keyCookie,
+    this._idleTimeout = const Duration(seconds: 45),
+    this._headersTimeout = const Duration(seconds: 30),
   }) : _client = client ?? http.Client();
 
   /// The Worker's origin; every call goes to `/api` under it.
@@ -41,6 +43,16 @@ class HttpTangentApi implements TangentApi {
 
   /// The key cookie's value, read from [keyCookie] before the first call.
   Future<String?>? _keyCookieValue;
+
+  /// How long a reply's body may go without a byte before its connection
+  /// counts as lost. The server sends a keepalive comment every 15s
+  /// (`KEEPALIVE_MS` in apps/worker/src/do/tree-session.ts), so three missed
+  /// in a row mean the connection is gone.
+  final Duration _idleTimeout;
+
+  /// How long a reply's request may wait for the response's headers before
+  /// its connection counts as lost.
+  final Duration _headersTimeout;
 
   /// The server's own default when the header is absent; the app sets it
   /// once it knows who pays.
@@ -269,12 +281,14 @@ class HttpTangentApi implements TangentApi {
       'POST',
       ['branches', branchId, 'messages'],
       body: {'content': content},
+      timeout: _headersTimeout,
     ),
   );
 
   @override
-  Future<Stream<StreamEvent>> attachReply(String nodeId) async =>
-      _events(await _send('GET', ['nodes', nodeId, 'stream']));
+  Future<Stream<StreamEvent>> attachReply(String nodeId) async => _events(
+    await _send('GET', ['nodes', nodeId, 'stream'], timeout: _headersTimeout),
+  );
 
   @override
   Future<void> cancel(String nodeId) async {
@@ -286,16 +300,32 @@ class HttpTangentApi implements TangentApi {
       DeletedMessages.fromJson(await _object('DELETE', ['nodes', nodeId]));
 
   /// A reply's response body as events. A connection lost mid-body fails
-  /// it with an [ApiException], as [ReplyTransport] asks.
-  static Stream<StreamEvent> _events(http.StreamedResponse response) =>
-      readStreamEvents(response.stream).transform(
+  /// it with an [ApiException], as [ReplyTransport] asks: so does silence
+  /// past [_idleTimeout], which is how a connection that died without a
+  /// reset (a phone changing network) shows. The timer watches bytes, so
+  /// the server's keepalive comments, which give no event, keep it alive.
+  Stream<StreamEvent> _events(http.StreamedResponse response) =>
+      readStreamEvents(response.stream.timeout(_idleTimeout)).transform(
         StreamTransformer.fromHandlers(
-          handleError: (error, stack, sink) => sink.addError(
-            error is http.ClientException ? _network(error) : error,
-            stack,
-          ),
+          handleError: (error, stack, sink) =>
+              sink.addError(_bodyError(error), stack),
         ),
       );
+
+  /// What a body's [error] means. Mid-body, package:http wraps an
+  /// `HttpException` in a [http.ClientException] but passes a
+  /// `SocketException` or `TlsException` through as it is, so any exception
+  /// but a [FormatException] (a frame of ours with the wrong shape: a bug)
+  /// is the connection.
+  static Object _bodyError(Object error) => switch (error) {
+    ApiException() || FormatException() || Error() => error,
+    http.ClientException() => _network(error),
+    _ => const ApiException(
+      status: 0,
+      code: 'network',
+      message: 'Connection lost',
+    ),
+  };
 
   static ApiException _network(http.ClientException error) =>
       ApiException(status: 0, code: 'network', message: error.message);
@@ -324,33 +354,51 @@ class HttpTangentApi implements TangentApi {
   }
 
   /// Sends a request under `/api` and returns a 2xx response with its body
-  /// unread; anything else throws [ApiException].
+  /// unread; anything else throws [ApiException], as does a response whose
+  /// headers take longer than [timeout].
   Future<http.StreamedResponse> _send(
     String method,
     List<String> path, {
     Json? body,
     Map<String, String> headers = const {},
+    Duration? timeout,
   }) async {
     final token = await (_token ??= _read(tokens));
     final key = await (_keyCookieValue ??= _read(keyCookie));
-    final request = http.Request(method, _url(path))
-      ..headers.addAll({
-        'x-tangent-mode': 'simple',
-        'x-tangent-payment': payer.header,
-        'x-tangent-own-key': ownKey.id,
-        'accept': 'application/json, text/event-stream',
-        if (body != null) 'content-type': 'application/json',
-        if (token != null) 'authorization': 'Bearer $token',
-        // Better Auth refuses a POST with cookies but no Origin, and needs
-        // no key.
-        if (key != null && key.isNotEmpty && path.first != 'auth')
-          'cookie': '$keyCookieName=$key',
-        ...headers,
-      });
+    final abort = Completer<void>();
+    final request =
+        http.AbortableRequest(method, _url(path), abortTrigger: abort.future)
+          ..headers.addAll({
+            'x-tangent-mode': 'simple',
+            'x-tangent-payment': payer.header,
+            'x-tangent-own-key': ownKey.id,
+            'accept': 'application/json, text/event-stream',
+            if (body != null) 'content-type': 'application/json',
+            if (token != null) 'authorization': 'Bearer $token',
+            // Better Auth refuses a POST with cookies but no Origin, and needs
+            // no key.
+            if (key != null && key.isNotEmpty && path.first != 'auth')
+              'cookie': '$keyCookieName=$key',
+            ...headers,
+          });
     // Bytes, not `body`, so package:http leaves the content type as set.
     if (body != null) request.bodyBytes = utf8.encode(jsonEncode(body));
     try {
-      final response = await _client.send(request);
+      final sent = _client.send(request);
+      final response = timeout == null
+          ? await sent
+          : await sent.timeout(
+              timeout,
+              onTimeout: () {
+                // Frees the connection, on a client that can.
+                abort.complete();
+                throw ApiException(
+                  status: 0,
+                  code: 'network',
+                  message: 'No answer from the server in ${timeout.inSeconds}s',
+                );
+              },
+            );
       // Saving, renewing and clearing the key all set the cookie, on
       // refusals too (an unreadable key is cleared with its 401).
       if (keyCookie != null) {
