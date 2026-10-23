@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tangent/api/http_tangent_api.dart';
 import 'package:tangent/api/models.dart';
+import 'package:tangent/api/reply_stream.dart';
 import 'package:tangent/api/token_store.dart';
 
 /// A request as the fake server saw it.
@@ -41,15 +42,14 @@ class MemoryTokens implements TokenStore {
 }
 
 /// An API over a fake server that answers with [reply] and records every
-/// request in [seen]; reconnect delays are recorded in [delays], not waited.
-({HttpTangentApi api, List<Seen> seen, List<Duration> delays}) fake(
+/// request in [seen].
+({HttpTangentApi api, List<Seen> seen}) fake(
   Reply reply, {
   String base = 'https://tangent.test',
   TokenStore? tokens,
   TokenStore? keyCookie,
 }) {
   final seen = <Seen>[];
-  final delays = <Duration>[];
   final client = MockClient.streaming((request, body) async {
     final request0 = Seen(
       request.method,
@@ -65,9 +65,8 @@ class MemoryTokens implements TokenStore {
     client: client,
     tokens: tokens,
     keyCookie: keyCookie,
-    delay: (duration) async => delays.add(duration),
   );
-  return (api: api, seen: seen, delays: delays);
+  return (api: api, seen: seen);
 }
 
 http.StreamedResponse json(Object? body, [int status = 200]) =>
@@ -739,9 +738,9 @@ void main() {
   });
 
   group('sendMessage', () {
-    test('streams a reply', () async {
+    test('posts the message and streams the reply', () async {
       final f = fake((_) => sse([start, delta('Hel'), delta('lo'), done]));
-      final events = await f.api.sendMessage('b1', 'hi').toList();
+      final events = await (await f.api.sendMessage('b1', 'hi')).toList();
       expect(types(events), ['start', 'delta', 'delta', 'done']);
       final request = f.seen.single;
       expect(request.method, 'POST');
@@ -759,15 +758,56 @@ void main() {
           },
         }, 429),
       );
-      final events = <StreamEvent>[];
       await expectLater(
-        f.api.sendMessage('b1', 'hi').forEach(events.add),
+        f.api.sendMessage('b1', 'hi'),
         throwsA(apiError(429, 'pool_cap_reached', pool: 'cap_requests')),
       );
-      expect(events, isEmpty);
       expect(f.seen, hasLength(1));
     });
 
+    test(
+      'a connection lost mid-body fails the body with a network error',
+      () async {
+        final f = fake((_) => sse([start, delta('Hel')], fail: true));
+        final events = <StreamEvent>[];
+        await expectLater(
+          (await f.api.sendMessage('b1', 'hi')).forEach(events.add),
+          throwsA(apiError(0, 'network', message: 'network reset')),
+        );
+        expect(types(events), ['start', 'delta']);
+      },
+    );
+  });
+
+  group('attachReply', () {
+    test('gets the reply\'s stream with the usual headers', () async {
+      final f = fake(
+        (_) => sse([
+          {'type': 'snapshot', 'node': node('a1', content: 'partial')},
+          done,
+        ]),
+      );
+      final events = await (await f.api.attachReply('a1')).toList();
+      expect(types(events), ['snapshot', 'done']);
+      expect(f.seen.single.method, 'GET');
+      expect(f.seen.single.url.path, '/api/nodes/a1/stream');
+      expect(f.seen.single.headers['x-tangent-mode'], 'simple');
+    });
+
+    test('a refusal throws', () async {
+      final f = fake(
+        (_) => json({
+          'error': {'code': 'not_found', 'message': 'Gone'},
+        }, 404),
+      );
+      await expectLater(
+        f.api.attachReply('a1'),
+        throwsA(apiError(404, 'not_found')),
+      );
+    });
+  });
+
+  group('a ReplyStream over the API', () {
     test('resumes a body that ends early, from its snapshot', () async {
       final f = fake(
         (request) => switch (request.url.path) {
@@ -779,12 +819,21 @@ void main() {
           ]),
         },
       );
-      final events = await f.api.sendMessage('b1', 'hi').toList();
+      final delays = <Duration>[];
+      final events = <StreamEvent>[];
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        delay: (duration) async => delays.add(duration),
+      ).run(events.add);
+      expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'delta', 'snapshot', 'delta', 'done']);
-      expect(f.seen.last.method, 'GET');
-      expect(f.seen.last.url.path, '/api/nodes/a1/stream');
-      expect(f.seen.last.headers['x-tangent-mode'], 'simple');
-      expect(f.delays, [const Duration(milliseconds: 500)]);
+      expect(
+        [for (final r in f.seen) r.url.path],
+        ['/api/branches/b1/messages', '/api/nodes/a1/stream'],
+      );
+      expect(delays, [const Duration(milliseconds: 500)]);
     });
 
     test('resumes after a network error mid-body', () async {
@@ -795,70 +844,15 @@ void main() {
             ? sse([start, delta('Hel')], fail: true)
             : sse([done]);
       });
-      final events = await f.api.sendMessage('b1', 'hi').toList();
+      final events = <StreamEvent>[];
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        delay: (_) async {},
+      ).run(events.add);
+      expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'delta', 'done']);
-    });
-
-    test('backs off and gives up after four reconnects', () async {
-      final f = fake(
-        (request) => switch (request.url.path) {
-          '/api/branches/b1/messages' => sse([start]),
-          _ => json({
-            'error': {'code': 'internal', 'message': 'Down'},
-          }, 503),
-        },
-      );
-      await expectLater(
-        f.api.sendMessage('b1', 'hi').drain<void>(),
-        throwsA(apiError(503, 'internal')),
-      );
-      expect(f.seen, hasLength(5));
-      expect(f.delays.map((d) => d.inMilliseconds), [500, 1000, 2000, 4000]);
-    });
-
-    test('stops at a permanent error', () async {
-      final f = fake(
-        (request) => switch (request.url.path) {
-          '/api/branches/b1/messages' => sse([start]),
-          _ => json({
-            'error': {'code': 'not_found', 'message': 'Gone'},
-          }, 404),
-        },
-      );
-      await expectLater(
-        f.api.sendMessage('b1', 'hi').drain<void>(),
-        throwsA(apiError(404, 'not_found')),
-      );
-      expect(f.seen, hasLength(2));
-    });
-
-    test('a body that ends before start is not resumed', () async {
-      final f = fake((_) => sse([]));
-      await expectLater(
-        f.api.sendMessage('b1', 'hi').drain<void>(),
-        throwsA(apiError(0, 'network')),
-      );
-      expect(f.seen, hasLength(1));
-    });
-  });
-
-  group('resume', () {
-    test('attaches at once, then streams to the end', () async {
-      final f = fake(
-        (_) => sse([
-          {'type': 'snapshot', 'node': node('a1', content: 'partial')},
-          {
-            'type': 'error',
-            'nodeId': 'a1',
-            'message': 'Cancelled',
-            'node': node('a1', content: 'partial', status: 'error'),
-          },
-        ]),
-      );
-      final events = await f.api.resume('a1').toList();
-      expect(types(events), ['snapshot', 'error']);
-      expect(f.seen.single.url.path, '/api/nodes/a1/stream');
-      expect(f.delays, isEmpty);
     });
   });
 }

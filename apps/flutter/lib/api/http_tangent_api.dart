@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'reply_stream.dart';
 import 'sse.dart';
 import 'tangent_api.dart';
 import 'token_store.dart';
@@ -20,9 +22,7 @@ class HttpTangentApi implements TangentApi {
     http.Client? client,
     this.tokens,
     this.keyCookie,
-    Future<void> Function(Duration)? delay,
-  }) : _client = client ?? http.Client(),
-       _delay = delay ?? Future<void>.delayed;
+  }) : _client = client ?? http.Client();
 
   /// The Worker's origin; every call goes to `/api` under it.
   final Uri baseUri;
@@ -42,9 +42,6 @@ class HttpTangentApi implements TangentApi {
   /// The key cookie's value, read from [keyCookie] before the first call.
   Future<String?>? _keyCookieValue;
 
-  /// Waits between reconnects; tests pass one that doesn't.
-  final Future<void> Function(Duration) _delay;
-
   /// The server's own default when the header is absent; the app sets it
   /// once it knows who pays.
   @override
@@ -53,11 +50,6 @@ class HttpTangentApi implements TangentApi {
   /// OpenRouter, the server's own default when the header is absent.
   @override
   LearnKey ownKey = LearnKey.openRouter;
-
-  /// Reconnects of a reply's stream before giving up, with the delay
-  /// doubling from [_baseDelay] (stream-runner.ts in web-shared).
-  static const _maxReconnects = 4;
-  static const _baseDelay = Duration(milliseconds: 500);
 
   // Sign-in.
 
@@ -269,8 +261,11 @@ class HttpTangentApi implements TangentApi {
   // Replies.
 
   @override
-  Stream<StreamEvent> sendMessage(String branchId, String content) => _stream(
-    open: () => _send(
+  Future<Stream<StreamEvent>> sendMessage(
+    String branchId,
+    String content,
+  ) async => _events(
+    await _send(
       'POST',
       ['branches', branchId, 'messages'],
       body: {'content': content},
@@ -278,7 +273,8 @@ class HttpTangentApi implements TangentApi {
   );
 
   @override
-  Stream<StreamEvent> resume(String nodeId) => _stream(nodeId: nodeId);
+  Future<Stream<StreamEvent>> attachReply(String nodeId) async =>
+      _events(await _send('GET', ['nodes', nodeId, 'stream']));
 
   @override
   Future<void> cancel(String nodeId) async {
@@ -289,78 +285,17 @@ class HttpTangentApi implements TangentApi {
   Future<DeletedMessages> deleteMessage(String nodeId) async =>
       DeletedMessages.fromJson(await _object('DELETE', ['nodes', nodeId]));
 
-  /// One reply's events, reconnecting through `GET /api/nodes/:id/stream`
-  /// when a body ends or fails before `done` or `error`. Without [open] it
-  /// starts by reconnecting to [nodeId]. A refusal of [open] throws before
-  /// any event; reconnects stop at a 4xx other than 408 and 429, and after
-  /// [_maxReconnects] in a row without an event.
-  Stream<StreamEvent> _stream({
-    Future<http.StreamedResponse> Function()? open,
-    String? nodeId,
-  }) async* {
-    var pendingOpen = open;
-    var target = nodeId;
-    var attempt = 0;
-    ApiException lastError = _connectionLost;
-    for (;;) {
-      final http.StreamedResponse response;
-      if (pendingOpen != null) {
-        response = await pendingOpen();
-        pendingOpen = null;
-      } else {
-        final id = target;
-        if (id == null) {
-          throw ApiException(
-            status: 0,
-            code: 'network',
-            message: 'The reply ended before it started (${lastError.message})',
-          );
-        }
-        if (attempt >= _maxReconnects) throw lastError;
-        final wait = open != null || attempt > 0
-            ? _baseDelay * (1 << attempt)
-            : Duration.zero;
-        attempt++;
-        if (wait > Duration.zero) await _delay(wait);
-        try {
-          response = await _send('GET', ['nodes', id, 'stream']);
-        } on ApiException catch (error) {
-          if (_isPermanent(error)) rethrow;
-          lastError = error;
-          continue;
-        }
-      }
-      try {
-        await for (final event in readStreamEvents(response.stream)) {
-          switch (event) {
-            case StartEvent(:final assistantNode):
-              target = assistantNode.id;
-            case SnapshotEvent(:final node):
-              target = node.id;
-            default:
-          }
-          attempt = 0;
-          yield event;
-          if (isTerminal(event)) return;
-        }
-        lastError = _connectionLost;
-      } on http.ClientException catch (error) {
-        lastError = _network(error);
-      }
-    }
-  }
-
-  static const _connectionLost = ApiException(
-    status: 0,
-    code: 'network',
-    message: 'Connection lost',
-  );
-
-  static bool _isPermanent(ApiException error) =>
-      error.status >= 400 &&
-      error.status < 500 &&
-      error.status != 408 &&
-      error.status != 429;
+  /// A reply's response body as events. A connection lost mid-body fails
+  /// it with an [ApiException], as [ReplyTransport] asks.
+  static Stream<StreamEvent> _events(http.StreamedResponse response) =>
+      readStreamEvents(response.stream).transform(
+        StreamTransformer.fromHandlers(
+          handleError: (error, stack, sink) => sink.addError(
+            error is http.ClientException ? _network(error) : error,
+            stack,
+          ),
+        ),
+      );
 
   static ApiException _network(http.ClientException error) =>
       ApiException(status: 0, code: 'network', message: error.message);

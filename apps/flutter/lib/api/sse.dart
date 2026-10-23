@@ -132,9 +132,6 @@ StreamEvent? parseStreamEvent(SseFrame frame) {
   };
 }
 
-/// Whether [event] ends a reply's stream.
-bool isTerminal(StreamEvent event) => event is DoneEvent || event is ErrorEvent;
-
 /// A response body as [StreamEvent]s. UTF-8 is decoded across chunk
 /// boundaries; frames [parseStreamEvent] rejects are skipped.
 Stream<StreamEvent> readStreamEvents(Stream<List<int>> body) async* {

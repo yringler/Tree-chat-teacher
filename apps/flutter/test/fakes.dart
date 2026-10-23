@@ -68,11 +68,11 @@ TreeDetail treeDetail({
   nodes: nodes,
 );
 
-/// A reply stream the test drives event by event.
+/// A reply's response body the test drives event by event.
 class ScriptedStream {
   ScriptedStream(this.target, this.content);
 
-  /// The branch it was sent on, or the node it resumes.
+  /// The branch it was sent on, or the node it attaches to.
   final String target;
   final String? content;
   final controller = StreamController<StreamEvent>();
@@ -132,7 +132,7 @@ class FakeTangentApi implements TangentApi {
   var walkthroughDoneMarks = 0;
   final details = <String, TreeDetail>{};
 
-  /// Thrown by `sendMessage`'s stream before any event, when set.
+  /// Thrown by `sendMessage` before any event, when set.
   ApiException? refuseSend;
 
   /// Thrown by `signInWithCode`, when set; otherwise the code signs in.
@@ -344,20 +344,19 @@ class FakeTangentApi implements TangentApi {
   }
 
   @override
-  Stream<StreamEvent> sendMessage(String branchId, String content) {
+  Future<Stream<StreamEvent>> sendMessage(
+    String branchId,
+    String content,
+  ) async {
     final scripted = ScriptedStream(branchId, content);
     sends.add(scripted);
     final refusal = refuseSend;
-    if (refusal != null) {
-      scripted.controller
-        ..addError(refusal)
-        ..close();
-    }
+    if (refusal != null) throw refusal;
     return scripted.controller.stream;
   }
 
   @override
-  Stream<StreamEvent> resume(String nodeId) {
+  Future<Stream<StreamEvent>> attachReply(String nodeId) async {
     final scripted = ScriptedStream(nodeId, null);
     resumes.add(scripted);
     return scripted.controller.stream;
