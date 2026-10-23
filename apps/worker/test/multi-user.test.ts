@@ -3,6 +3,7 @@ import {
   type ApiError,
   type BillingSummary,
   type Branch,
+  type ContextPlanResponse,
   type Payer,
   type LoginOptionsResponse,
   type MeResponse,
@@ -811,6 +812,78 @@ describe('Learn mode on paid credit', () => {
       );
       expect(summary).toMatchObject({ builtInCredit: true, balanceMicros: 1_500_000 });
     }
+  });
+  it('condenses a long reply two tangents up in Learn, on its own summary call; power sends it whole', async () => {
+    /**
+     * A chapter-length trunk reply, a tangent from it and a tangent from that
+     * tangent's reply; returns the context planned for the last one.
+     */
+    const CHAPTER = 'A chapter on primes. '.repeat(400);
+    async function grandchildContext(u: User, learn?: Payer) {
+      const mode = learn ? { learn } : {};
+      const detail = await ok<TreeDetail>(
+        await u.call('/api/trees', { method: 'POST', json: { title: 'Deep' }, ...mode }),
+        201,
+      );
+      const trunk = detail.branches[0]!;
+      const repo = createD1Repositories(env.DB).trees;
+      const now = new Date().toISOString();
+      const question = makeNode(trunk, 0, null, { role: 'user', content: 'Teach me primes' });
+      const chapter = makeNode(trunk, 1, question.id, { role: 'assistant', content: CHAPTER });
+      await repo.appendNodes([question, chapter], now);
+      const branchFrom = async (fromNodeId: string) =>
+        ok<Branch>(
+          await u.call('/api/branches', {
+            method: 'POST',
+            json: { fromNodeId, contextMode: 'path' },
+            ...mode,
+          }),
+          201,
+        );
+      const child = await branchFrom(chapter.id);
+      const why = makeNode(child, 0, chapter.id, { role: 'user', content: 'Why?' });
+      const because = makeNode(child, 1, why.id, { role: 'assistant', content: 'Because.' });
+      await repo.appendNodes([why, because], now);
+      const grandchild = await branchFrom(because.id);
+      await repo.appendNodes(
+        [makeNode(grandchild, 0, because.id, { role: 'user', content: 'Deeper?' })],
+        now,
+      );
+      return ok<ContextPlanResponse>(
+        await u.call(`/api/branches/${grandchild.id}/context?resolve=true`, mode),
+      );
+    }
+    const summaryRows = async (accountId: string) =>
+      (
+        await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM usage_events WHERE account_id = ?1 AND purpose = 'summary'",
+        )
+          .bind(accountId)
+          .first<{ n: number }>()
+      )?.n ?? 0;
+
+    const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    const learn = await grandchildContext(u, 'credit');
+    expect(learn.plan.complete).toBe(true);
+    const condensed = learn.plan.segments.filter(
+      (s) => s.kind === 'summary' && s.purpose === 'message',
+    );
+    expect(condensed).toHaveLength(1);
+    expect(condensed[0]).toMatchObject({ status: 'ready', reason: 'message-summary' });
+    const learnSent = learn.rendered.messages.map((m) => m.content);
+    expect(learnSent).not.toContain(CHAPTER);
+    expect(learnSent[1]).toMatch(/^\[Condensed; the learner sees the full reply\]/);
+    expect(await summaryRows(u.learn.accountId)).toBe(1);
+
+    const power = await grandchildContext(u);
+    expect(power.plan.segments.some((s) => s.kind === 'summary')).toBe(false);
+    expect(power.rendered.messages.map((m) => m.content)).toContain(CHAPTER);
   });
 });
 
