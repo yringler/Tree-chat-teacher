@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
+import 'package:tangent/ui/message_view.dart';
 
 import '../fakes.dart';
 
@@ -52,6 +55,57 @@ void main() {
     expect(api.sends.single.target, 'trunk');
     expect(api.sends.single.content, 'Tides');
     expect(find.text('Start lesson'), findsNothing, reason: 'on the chat');
+  });
+
+  testWidgets('a first question shows on the chat at once, the tutor writing', (
+    tester,
+  ) async {
+    final loading = Completer<void>();
+    api.treeGate = loading;
+    await pumpApp(tester, api);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Topic or first question'),
+      'Tides',
+    );
+    await tester.tap(find.text('Start lesson'));
+    await settle(tester);
+
+    // While the lesson loads, and then until the server starts the reply.
+    for (final step in ['loading', 'sent']) {
+      expect(find.text('Start lesson'), findsNothing, reason: step);
+      expect(find.text('Tides'), findsOneWidget, reason: step);
+      expect(find.byType(BlinkingCursor), findsOneWidget, reason: step);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('What would you like to learn?'), findsNothing);
+      if (!loading.isCompleted) loading.complete();
+      await settle(tester);
+    }
+    expect(api.sends.single.content, 'Tides');
+  });
+
+  testWidgets('a refused first question lands in the message box', (
+    tester,
+  ) async {
+    api.refuseSend = const ApiException(
+      status: 402,
+      code: 'pool_empty',
+      message: 'The pool is empty',
+      poolReason: 'empty',
+    );
+    await pumpApp(tester, api);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Topic or first question'),
+      'Tides',
+    );
+    await tester.tap(find.text('Start lesson'));
+    await settle(tester);
+
+    expect(find.byType(BlinkingCursor), findsNothing);
+    expect(find.text('What would you like to learn?'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      'Tides',
+    );
   });
 
   testWidgets('Start lesson sits at the end of its row', (tester) async {

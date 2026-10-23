@@ -59,6 +59,11 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **A text drag that starts in an unselected lane can lose its selection.** Selecting the lane changes its head's height, so the cards shift under the pointer. Keep the head's height stable across selection.
 - **No reviewer, shares, export, backups or prompt editor;** use the power app. The phone layout is cramped: the lane map is a desktop idea.
 
+## A reply's stream
+
+- **The web apps' reply stream has no idle or headers timeout.** `runStream` (`packages/web-shared/src/sse/stream-runner.ts`) reconnects a body that ends or fails, but one that goes quiet on a dead link, or a request whose response never comes, waits as long as the browser does, and the reply stays shown being written. Flutter fails both as a lost connection after 45s without a byte and 30s without headers ([DECISIONS.md](DECISIONS.md#frontends-and-the-shared-engine)); the web needs the same timers around `consume` and the `open` and `reconnect` fetches, aborted through their `AbortSignal`.
+- **Reading a Flutter lesson again blanks replies streaming on other branches.** `ChatController._replace` swaps in the server's nodes, and D1 holds a reply's text only once it is done (its deltas live in the Durable Object's memory), so a reply streaming live on another branch loses the text shown so far; the deltas that follow build on nothing until `done` brings the whole reply. A reload happens when a lost reply or send is checked. Keeping the shown node of a reply the server still marks streaming would fix it.
+
 ## The Flutter app (`apps/flutter`)
 
 - **No Google sign-in on iOS, and no GitHub sign-in in the phone apps.** iOS needs an iOS OAuth client and its reversed id as a URL scheme in `Info.plist`, and the App Store then asks for Sign in with Apple beside it (guideline 4.8), which the Worker doesn't offer. GitHub has no on-device sign-in: it would need the browser's OAuth flow handing the session back to the app through a link only the app opens. The phone apps sign in by email code meanwhile.

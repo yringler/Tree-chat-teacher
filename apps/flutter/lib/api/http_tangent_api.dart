@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'reply_stream.dart';
 import 'sse.dart';
 import 'tangent_api.dart';
 import 'token_store.dart';
@@ -20,9 +22,9 @@ class HttpTangentApi implements TangentApi {
     http.Client? client,
     this.tokens,
     this.keyCookie,
-    Future<void> Function(Duration)? delay,
-  }) : _client = client ?? http.Client(),
-       _delay = delay ?? Future<void>.delayed;
+    this._idleTimeout = const Duration(seconds: 45),
+    this._headersTimeout = const Duration(seconds: 30),
+  }) : _client = client ?? http.Client();
 
   /// The Worker's origin; every call goes to `/api` under it.
   final Uri baseUri;
@@ -42,8 +44,16 @@ class HttpTangentApi implements TangentApi {
   /// The key cookie's value, read from [keyCookie] before the first call.
   Future<String?>? _keyCookieValue;
 
-  /// Waits between reconnects; tests pass one that doesn't.
-  final Future<void> Function(Duration) _delay;
+  /// How long a reply's body may go without a byte before its connection
+  /// counts as lost. The server sends a keepalive comment every 15s
+  /// (`KEEPALIVE_MS` in apps/worker/src/do/tree-session.ts), so three missed
+  /// in a row mean the connection is gone.
+  final Duration _idleTimeout;
+
+  /// How long a reply's connection or a JSON read may wait for the
+  /// response's headers, and a JSON body for its next byte, before its
+  /// connection counts as lost.
+  final Duration _headersTimeout;
 
   /// The server's own default when the header is absent; the app sets it
   /// once it knows who pays.
@@ -53,11 +63,6 @@ class HttpTangentApi implements TangentApi {
   /// OpenRouter, the server's own default when the header is absent.
   @override
   LearnKey ownKey = LearnKey.openRouter;
-
-  /// Reconnects of a reply's stream before giving up, with the delay
-  /// doubling from [_baseDelay] (stream-runner.ts in web-shared).
-  static const _maxReconnects = 4;
-  static const _baseDelay = Duration(milliseconds: 500);
 
   // Sign-in.
 
@@ -287,16 +292,32 @@ class HttpTangentApi implements TangentApi {
   // Replies.
 
   @override
-  Stream<StreamEvent> sendMessage(String branchId, String content) => _stream(
-    open: () => _send(
+  Future<Stream<StreamEvent>> sendMessage(
+    String branchId,
+    String content, {
+    Future<void>? abort,
+  }) async => _events(
+    await _send(
       'POST',
       ['branches', branchId, 'messages'],
       body: {'content': content},
+      timeout: _headersTimeout,
+      abort: abort,
     ),
   );
 
   @override
-  Stream<StreamEvent> resume(String nodeId) => _stream(nodeId: nodeId);
+  Future<Stream<StreamEvent>> attachReply(
+    String nodeId, {
+    Future<void>? abort,
+  }) async => _events(
+    await _send(
+      'GET',
+      ['nodes', nodeId, 'stream'],
+      timeout: _headersTimeout,
+      abort: abort,
+    ),
+  );
 
   @override
   Future<void> cancel(String nodeId) async {
@@ -307,81 +328,91 @@ class HttpTangentApi implements TangentApi {
   Future<DeletedMessages> deleteMessage(String nodeId) async =>
       DeletedMessages.fromJson(await _object('DELETE', ['nodes', nodeId]));
 
-  /// One reply's events, reconnecting through `GET /api/nodes/:id/stream`
-  /// when a body ends or fails before `done` or `error`. Without [open] it
-  /// starts by reconnecting to [nodeId]. A refusal of [open] throws before
-  /// any event; reconnects stop at a 4xx other than 408 and 429, and after
-  /// [_maxReconnects] in a row without an event.
-  Stream<StreamEvent> _stream({
-    Future<http.StreamedResponse> Function()? open,
-    String? nodeId,
-  }) async* {
-    var pendingOpen = open;
-    var target = nodeId;
-    var attempt = 0;
-    ApiException lastError = _connectionLost;
-    for (;;) {
-      final http.StreamedResponse response;
-      if (pendingOpen != null) {
-        response = await pendingOpen();
-        pendingOpen = null;
-      } else {
-        final id = target;
-        if (id == null) {
-          throw ApiException(
-            status: 0,
-            code: 'network',
-            message: 'The reply ended before it started (${lastError.message})',
-          );
-        }
-        if (attempt >= _maxReconnects) throw lastError;
-        final wait = open != null || attempt > 0
-            ? _baseDelay * (1 << attempt)
-            : Duration.zero;
-        attempt++;
-        if (wait > Duration.zero) await _delay(wait);
-        try {
-          response = await _send('GET', ['nodes', id, 'stream']);
-        } on ApiException catch (error) {
-          if (_isPermanent(error)) rethrow;
-          lastError = error;
-          continue;
-        }
-      }
-      try {
-        await for (final event in readStreamEvents(response.stream)) {
-          switch (event) {
-            case StartEvent(:final assistantNode):
-              target = assistantNode.id;
-            case SnapshotEvent(:final node):
-              target = node.id;
-            default:
-          }
-          attempt = 0;
-          yield event;
-          if (isTerminal(event)) return;
-        }
-        lastError = _connectionLost;
-      } on http.ClientException catch (error) {
-        lastError = _network(error);
-      }
-    }
-  }
+  /// A reply's response body as events. A connection lost mid-body fails
+  /// it with an [ApiException], as [ReplyTransport] asks: so does silence
+  /// past [_idleTimeout], which is how a connection that died without a
+  /// reset (a phone changing network) shows. The timer watches bytes, so
+  /// the server's keepalive comments, which give no event, keep it alive.
+  Stream<StreamEvent> _events(http.StreamedResponse response) =>
+      readStreamEvents(_failWhenQuiet(response.stream, _idleTimeout)).transform(
+        StreamTransformer.fromHandlers(
+          handleError: (error, stack, sink) =>
+              sink.addError(_bodyError(error), stack),
+        ),
+      );
 
-  static const _connectionLost = ApiException(
-    status: 0,
-    code: 'network',
-    message: 'Connection lost',
-  );
-
-  static bool _isPermanent(ApiException error) =>
-      error.status >= 400 &&
-      error.status < 500 &&
-      error.status != 408 &&
-      error.status != 429;
+  /// What a body's [error] means. Mid-body, package:http wraps an
+  /// `HttpException` in a [http.ClientException] but passes a
+  /// `SocketException` or `TlsException` through as it is, so any exception
+  /// but a [FormatException] (a frame of ours with the wrong shape: a bug)
+  /// is the connection.
+  static Object _bodyError(Object error) => switch (error) {
+    ApiException() || FormatException() || Error() => error,
+    http.ClientException() => _network(error),
+    _ => ApiException.connectionLost,
+  };
 
   static ApiException _network(http.ClientException error) =>
       ApiException(status: 0, code: 'network', message: error.message);
+
+  static ApiException _noAnswer(Duration timeout) => ApiException(
+    status: 0,
+    code: 'network',
+    message: 'No answer from the server in ${timeout.inSeconds}s',
+  );
+
+  /// [body], which fails with [_noAnswer] and stops reading once it goes
+  /// [limit] without a byte; stopping drops the connection, on a client
+  /// that can. Not [Stream.timeout]: its stream waits for a microtask of
+  /// the root zone to end or fail, which fake_async never runs.
+  static Stream<List<int>> _failWhenQuiet(
+    Stream<List<int>> body,
+    Duration limit,
+  ) {
+    final out = StreamController<List<int>>(sync: true);
+    StreamSubscription<List<int>>? reading;
+    Timer? quiet;
+    void wait() {
+      quiet?.cancel();
+      quiet = Timer(limit, () {
+        unawaited(reading?.cancel());
+        out.addError(_noAnswer(limit));
+        unawaited(out.close());
+      });
+    }
+
+    out
+      ..onListen = () {
+        wait();
+        reading = body.listen(
+          (chunk) {
+            wait();
+            out.add(chunk);
+          },
+          onError: (Object error, StackTrace stack) {
+            wait();
+            out.addError(error, stack);
+          },
+          onDone: () {
+            quiet?.cancel();
+            unawaited(out.close());
+          },
+        );
+      }
+      ..onPause = () {
+        quiet?.cancel();
+        reading?.pause();
+      }
+      ..onResume = () {
+        wait();
+        reading?.resume();
+      }
+      ..onCancel = () {
+        quiet?.cancel();
+        unawaited(reading?.cancel());
+      };
+    return out.stream;
+  }
 
   // Plumbing.
 
@@ -397,43 +428,76 @@ class HttpTangentApi implements TangentApi {
     throw FormatException('Expected a JSON array from /api/${path.join('/')}');
   }
 
+  /// A JSON response's body, decoded. Its headers, and each stretch of its
+  /// body without a byte, get [_headersTimeout]: a read on a link that died
+  /// fails then, so whatever waits on it (a reply shown being written, a
+  /// send) moves on.
   Future<Object?> _json(String method, List<String> path, {Json? body}) async {
-    final response = await _send(method, path, body: body);
+    final response = await _send(
+      method,
+      path,
+      body: body,
+      timeout: _headersTimeout,
+    );
     try {
-      return jsonDecode(await response.stream.bytesToString());
+      final text = await http.ByteStream(
+        _failWhenQuiet(response.stream, _headersTimeout),
+      ).bytesToString();
+      return jsonDecode(text);
     } on http.ClientException catch (error) {
       throw _network(error);
     }
   }
 
   /// Sends a request under `/api` and returns a 2xx response with its body
-  /// unread; anything else throws [ApiException].
+  /// unread; anything else throws [ApiException], as does a response whose
+  /// headers take longer than [timeout]. Once [abort] completes, the
+  /// request and its body are aborted, on a client that can.
   Future<http.StreamedResponse> _send(
     String method,
     List<String> path, {
     Json? body,
     Map<String, String> headers = const {},
+    Duration? timeout,
+    Future<void>? abort,
   }) async {
     final token = await (_token ??= _read(tokens));
     final key = await (_keyCookieValue ??= _read(keyCookie));
-    final request = http.Request(method, _url(path))
-      ..headers.addAll({
-        'x-tangent-mode': 'simple',
-        'x-tangent-payment': payer.header,
-        'x-tangent-own-key': ownKey.id,
-        'accept': 'application/json, text/event-stream',
-        if (body != null) 'content-type': 'application/json',
-        if (token != null) 'authorization': 'Bearer $token',
-        // Better Auth refuses a POST with cookies but no Origin, and needs
-        // no key.
-        if (key != null && key.isNotEmpty && path.first != 'auth')
-          'cookie': '$keyCookieName=$key',
-        ...headers,
-      });
+    final aborted = Completer<void>();
+    void abortRequest() {
+      if (!aborted.isCompleted) aborted.complete();
+    }
+
+    unawaited(abort?.then((_) => abortRequest()));
+    final request =
+        http.AbortableRequest(method, _url(path), abortTrigger: aborted.future)
+          ..headers.addAll({
+            'x-tangent-mode': 'simple',
+            'x-tangent-payment': payer.header,
+            'x-tangent-own-key': ownKey.id,
+            'accept': 'application/json, text/event-stream',
+            if (body != null) 'content-type': 'application/json',
+            if (token != null) 'authorization': 'Bearer $token',
+            // Better Auth refuses a POST with cookies but no Origin, and needs
+            // no key.
+            if (key != null && key.isNotEmpty && path.first != 'auth')
+              'cookie': '$keyCookieName=$key',
+            ...headers,
+          });
     // Bytes, not `body`, so package:http leaves the content type as set.
     if (body != null) request.bodyBytes = utf8.encode(jsonEncode(body));
     try {
-      final response = await _client.send(request);
+      final sent = _client.send(request);
+      final response = timeout == null
+          ? await sent
+          : await sent.timeout(
+              timeout,
+              onTimeout: () {
+                // Frees the connection, on a client that can.
+                abortRequest();
+                throw _noAnswer(timeout);
+              },
+            );
       // Saving, renewing and clearing the key all set the cookie, on
       // refusals too (an unreadable key is cleared with its 401).
       if (keyCookie != null) {

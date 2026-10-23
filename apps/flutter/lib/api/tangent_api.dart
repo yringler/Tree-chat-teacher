@@ -1,9 +1,11 @@
 import 'models.dart';
+import 'reply_stream.dart';
 
 /// The Worker's HTTP API, as this app uses it. `HttpTangentApi` is the real
 /// one; tests use a fake. Every call throws [ApiException] on a non-2xx
-/// response.
-abstract interface class TangentApi {
+/// response. A reply's stream is opened through its [ReplyTransport] side and
+/// followed by a [ReplyStream].
+abstract interface class TangentApi implements ReplyTransport {
   /// Who pays for replies from here on (`x-tangent-payment`).
   set payer(Payer payer);
 
@@ -113,13 +115,6 @@ abstract interface class TangentApi {
   });
 
   // Replies.
-
-  /// Sends [content] on [branchId] and streams the reply. A refusal (out of
-  /// credit, pool empty, …) throws [ApiException] before any event.
-  Stream<StreamEvent> sendMessage(String branchId, String content);
-
-  /// Re-attaches to a reply still being written: snapshot, then live events.
-  Stream<StreamEvent> resume(String nodeId);
 
   /// Stops a reply; its stream then ends with an error event (`cancelled`).
   Future<void> cancel(String nodeId);

@@ -68,11 +68,52 @@ TreeDetail treeDetail({
   nodes: nodes,
 );
 
-/// A reply stream the test drives event by event.
+/// Timers a test controls. Each records its duration and fires at once (in
+/// a microtask) unless [hold] is set; cancelled, it never fires.
+class FakeTimers {
+  FakeTimers({this.hold = false});
+
+  final bool hold;
+  final started = <FakeTimer>[];
+
+  List<Duration> get durations => [for (final t in started) t.duration];
+
+  Timer call(Duration duration, void Function() callback) {
+    final timer = FakeTimer(duration, callback);
+    started.add(timer);
+    if (!hold) scheduleMicrotask(timer.fire);
+    return timer;
+  }
+}
+
+class FakeTimer implements Timer {
+  FakeTimer(this.duration, this._callback);
+
+  final Duration duration;
+  final void Function() _callback;
+  bool _active = true;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => 0;
+
+  @override
+  void cancel() => _active = false;
+
+  void fire() {
+    if (!_active) return;
+    _active = false;
+    _callback();
+  }
+}
+
+/// A reply's response body the test drives event by event.
 class ScriptedStream {
   ScriptedStream(this.target, this.content);
 
-  /// The branch it was sent on, or the node it resumes.
+  /// The branch it was sent on, or the node it attaches to.
   final String target;
   final String? content;
   final controller = StreamController<StreamEvent>();
@@ -138,7 +179,7 @@ class FakeTangentApi implements TangentApi {
   ApiException? refuseLearnReply;
   final details = <String, TreeDetail>{};
 
-  /// Thrown by `sendMessage`'s stream before any event, when set.
+  /// Thrown by `sendMessage` before any event, when set.
   ApiException? refuseSend;
 
   /// Thrown by `signInWithCode`, when set; otherwise the code signs in.
@@ -332,8 +373,12 @@ class FakeTangentApi implements TangentApi {
     return detail;
   }
 
+  /// Holds `tree` back until it completes, when set.
+  Completer<void>? treeGate;
+
   @override
   Future<TreeDetail> tree(String treeId) async {
+    await treeGate?.future;
     final detail = details[treeId];
     if (detail == null) {
       throw const ApiException(
@@ -369,20 +414,23 @@ class FakeTangentApi implements TangentApi {
   }
 
   @override
-  Stream<StreamEvent> sendMessage(String branchId, String content) {
+  Future<Stream<StreamEvent>> sendMessage(
+    String branchId,
+    String content, {
+    Future<void>? abort,
+  }) async {
     final scripted = ScriptedStream(branchId, content);
     sends.add(scripted);
     final refusal = refuseSend;
-    if (refusal != null) {
-      scripted.controller
-        ..addError(refusal)
-        ..close();
-    }
+    if (refusal != null) throw refusal;
     return scripted.controller.stream;
   }
 
   @override
-  Stream<StreamEvent> resume(String nodeId) {
+  Future<Stream<StreamEvent>> attachReply(
+    String nodeId, {
+    Future<void>? abort,
+  }) async {
     final scripted = ScriptedStream(nodeId, null);
     resumes.add(scripted);
     return scripted.controller.stream;

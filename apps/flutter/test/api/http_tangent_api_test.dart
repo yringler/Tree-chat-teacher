@@ -1,12 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tangent/api/http_tangent_api.dart';
 import 'package:tangent/api/models.dart';
+import 'package:tangent/api/reply_stream.dart';
 import 'package:tangent/api/token_store.dart';
+import 'package:tangent/state/chat_controller.dart';
+import 'package:tangent/state/lessons_controller.dart';
+import 'package:tangent/state/reply_follower.dart';
+import 'package:tangent/state/session_controller.dart';
+
+import '../fakes.dart' show FakeTimers;
 
 /// A request as the fake server saw it.
 class Seen {
@@ -41,15 +50,16 @@ class MemoryTokens implements TokenStore {
 }
 
 /// An API over a fake server that answers with [reply] and records every
-/// request in [seen]; reconnect delays are recorded in [delays], not waited.
-({HttpTangentApi api, List<Seen> seen, List<Duration> delays}) fake(
+/// request in [seen].
+({HttpTangentApi api, List<Seen> seen}) fake(
   Reply reply, {
   String base = 'https://tangent.test',
   TokenStore? tokens,
   TokenStore? keyCookie,
+  Duration idleTimeout = const Duration(minutes: 1),
+  Duration headersTimeout = const Duration(minutes: 1),
 }) {
   final seen = <Seen>[];
-  final delays = <Duration>[];
   final client = MockClient.streaming((request, body) async {
     final request0 = Seen(
       request.method,
@@ -65,9 +75,10 @@ class MemoryTokens implements TokenStore {
     client: client,
     tokens: tokens,
     keyCookie: keyCookie,
-    delay: (duration) async => delays.add(duration),
+    idleTimeout: idleTimeout,
+    headersTimeout: headersTimeout,
   );
-  return (api: api, seen: seen, delays: delays);
+  return (api: api, seen: seen);
 }
 
 http.StreamedResponse json(Object? body, [int status = 200]) =>
@@ -81,15 +92,22 @@ http.StreamedResponse empty([int status = 204]) =>
     http.StreamedResponse(const Stream.empty(), status);
 
 /// An SSE body of [events], ending cleanly or, with [fail], in a network
-/// error.
-http.StreamedResponse sse(List<Json> events, {bool fail = false}) {
+/// error: by default the [http.ClientException] package:http wraps an
+/// `HttpException` in, else [failure].
+http.StreamedResponse sse(
+  List<Json> events, {
+  bool fail = false,
+  Exception? failure,
+}) {
   final controller = StreamController<List<int>>();
   for (final event in events) {
     controller.add(
       utf8.encode('event: ${event['type']}\ndata: ${jsonEncode(event)}\n\n'),
     );
   }
-  if (fail) controller.addError(http.ClientException('network reset'));
+  if (fail) {
+    controller.addError(failure ?? http.ClientException('network reset'));
+  }
   unawaited(controller.close());
   return http.StreamedResponse(
     controller.stream,
@@ -293,6 +311,47 @@ void main() {
       await f.api.cancel('a1');
       expect(f.seen.last.method, 'POST');
       expect(f.seen.last.url.path, '/api/nodes/a1/cancel');
+    });
+  });
+
+  group('a JSON read', () {
+    test('whose response never comes is a lost connection in 30s', () {
+      fakeAsync((async) {
+        final api = HttpTangentApi(
+          baseUri: Uri.parse('https://tangent.test'),
+          client: MockClient.streaming(
+            (_, _) => Completer<http.StreamedResponse>().future,
+          ),
+        );
+        Object? error;
+        unawaited(
+          api.tree('t1').then<void>((_) {}, onError: (Object e) => error = e),
+        );
+        async.elapse(const Duration(seconds: 29));
+        expect(error, isNull);
+        async.elapse(const Duration(seconds: 1));
+        expect(error, apiError(0, 'network'));
+      });
+    });
+
+    test('whose body stalls is a lost connection 30s after its last byte', () {
+      fakeAsync((async) {
+        final stalled = StreamController<List<int>>();
+        final f = fake((_) {
+          stalled.add(utf8.encode('[{"id":'));
+          return http.StreamedResponse(stalled.stream, 200);
+        }, headersTimeout: const Duration(seconds: 30));
+        Object? error;
+        unawaited(
+          f.api.trees().then<void>((_) {}, onError: (Object e) => error = e),
+        );
+        async.elapse(const Duration(seconds: 20));
+        stalled.add(utf8.encode('"t1"'));
+        async.elapse(const Duration(seconds: 29));
+        expect(error, isNull);
+        async.elapse(const Duration(seconds: 1));
+        expect(error, apiError(0, 'network'));
+      });
     });
   });
 
@@ -772,9 +831,9 @@ void main() {
   });
 
   group('sendMessage', () {
-    test('streams a reply', () async {
+    test('posts the message and streams the reply', () async {
       final f = fake((_) => sse([start, delta('Hel'), delta('lo'), done]));
-      final events = await f.api.sendMessage('b1', 'hi').toList();
+      final events = await (await f.api.sendMessage('b1', 'hi')).toList();
       expect(types(events), ['start', 'delta', 'delta', 'done']);
       final request = f.seen.single;
       expect(request.method, 'POST');
@@ -792,15 +851,56 @@ void main() {
           },
         }, 429),
       );
-      final events = <StreamEvent>[];
       await expectLater(
-        f.api.sendMessage('b1', 'hi').forEach(events.add),
+        f.api.sendMessage('b1', 'hi'),
         throwsA(apiError(429, 'pool_cap_reached', pool: 'cap_requests')),
       );
-      expect(events, isEmpty);
       expect(f.seen, hasLength(1));
     });
 
+    test(
+      'a connection lost mid-body fails the body with a network error',
+      () async {
+        final f = fake((_) => sse([start, delta('Hel')], fail: true));
+        final events = <StreamEvent>[];
+        await expectLater(
+          (await f.api.sendMessage('b1', 'hi')).forEach(events.add),
+          throwsA(apiError(0, 'network', message: 'network reset')),
+        );
+        expect(types(events), ['start', 'delta']);
+      },
+    );
+  });
+
+  group('attachReply', () {
+    test('gets the reply\'s stream with the usual headers', () async {
+      final f = fake(
+        (_) => sse([
+          {'type': 'snapshot', 'node': node('a1', content: 'partial')},
+          done,
+        ]),
+      );
+      final events = await (await f.api.attachReply('a1')).toList();
+      expect(types(events), ['snapshot', 'done']);
+      expect(f.seen.single.method, 'GET');
+      expect(f.seen.single.url.path, '/api/nodes/a1/stream');
+      expect(f.seen.single.headers['x-tangent-mode'], 'simple');
+    });
+
+    test('a refusal throws', () async {
+      final f = fake(
+        (_) => json({
+          'error': {'code': 'not_found', 'message': 'Gone'},
+        }, 404),
+      );
+      await expectLater(
+        f.api.attachReply('a1'),
+        throwsA(apiError(404, 'not_found')),
+      );
+    });
+  });
+
+  group('a ReplyStream over the API', () {
     test('resumes a body that ends early, from its snapshot', () async {
       final f = fake(
         (request) => switch (request.url.path) {
@@ -812,12 +912,21 @@ void main() {
           ]),
         },
       );
-      final events = await f.api.sendMessage('b1', 'hi').toList();
+      final timers = FakeTimers();
+      final events = <StreamEvent>[];
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        startTimer: timers.call,
+      ).run(events.add);
+      expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'delta', 'snapshot', 'delta', 'done']);
-      expect(f.seen.last.method, 'GET');
-      expect(f.seen.last.url.path, '/api/nodes/a1/stream');
-      expect(f.seen.last.headers['x-tangent-mode'], 'simple');
-      expect(f.delays, [const Duration(milliseconds: 500)]);
+      expect(
+        [for (final r in f.seen) r.url.path],
+        ['/api/branches/b1/messages', '/api/nodes/a1/stream'],
+      );
+      expect(timers.durations, [const Duration(milliseconds: 500)]);
     });
 
     test('resumes after a network error mid-body', () async {
@@ -828,70 +937,267 @@ void main() {
             ? sse([start, delta('Hel')], fail: true)
             : sse([done]);
       });
-      final events = await f.api.sendMessage('b1', 'hi').toList();
+      final events = <StreamEvent>[];
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        startTimer: FakeTimers().call,
+      ).run(events.add);
+      expect(outcome, isA<ReplyDone>());
       expect(types(events), ['start', 'delta', 'done']);
     });
 
-    test('backs off and gives up after four reconnects', () async {
-      final f = fake(
-        (request) => switch (request.url.path) {
-          '/api/branches/b1/messages' => sse([start]),
-          _ => json({
-            'error': {'code': 'internal', 'message': 'Down'},
-          }, 503),
-        },
-      );
-      await expectLater(
-        f.api.sendMessage('b1', 'hi').drain<void>(),
-        throwsA(apiError(503, 'internal')),
-      );
-      expect(f.seen, hasLength(5));
-      expect(f.delays.map((d) => d.inMilliseconds), [500, 1000, 2000, 4000]);
+    test('reconnects after a socket reset mid-body', () async {
+      // Mid-body, package:http passes a SocketException or TlsException
+      // through as it is, not as a ClientException.
+      var calls = 0;
+      final f = fake((request) {
+        calls++;
+        return calls == 1
+            ? sse(
+                [start, delta('Hel')],
+                fail: true,
+                failure: const SocketException('Connection reset by peer'),
+              )
+            : sse([done]);
+      });
+      final events = <StreamEvent>[];
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        startTimer: FakeTimers().call,
+      ).run(events.add);
+      expect(outcome, isA<ReplyDone>());
+      expect(types(events), ['start', 'delta', 'done']);
+      expect(f.seen.last.url.path, '/api/nodes/a1/stream');
     });
 
-    test('stops at a permanent error', () async {
-      final f = fake(
-        (request) => switch (request.url.path) {
-          '/api/branches/b1/messages' => sse([start]),
-          _ => json({
-            'error': {'code': 'not_found', 'message': 'Gone'},
-          }, 404),
-        },
-      );
-      await expectLater(
-        f.api.sendMessage('b1', 'hi').drain<void>(),
-        throwsA(apiError(404, 'not_found')),
-      );
-      expect(f.seen, hasLength(2));
-    });
-
-    test('a body that ends before start is not resumed', () async {
-      final f = fake((_) => sse([]));
-      await expectLater(
-        f.api.sendMessage('b1', 'hi').drain<void>(),
-        throwsA(apiError(0, 'network')),
+    test('a frame of the wrong shape is not taken as the connection', () async {
+      final controller = StreamController<List<int>>()
+        ..add(utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'))
+        ..add(utf8.encode('data: {"type":"delta","nodeId":"a1"}\n\n'));
+      unawaited(controller.close());
+      final f = fake((_) => http.StreamedResponse(controller.stream, 200));
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        startTimer: FakeTimers().call,
+      ).run((_) {});
+      expect(
+        outcome,
+        isA<ReplyLost>().having((o) => o.error, 'error', isFormatException),
       );
       expect(f.seen, hasLength(1));
     });
+
+    test('reconnects a body that goes quiet, as a dead one does', () async {
+      // A phone's connection can die with no reset reaching it: the body
+      // then neither ends nor sends anything, not even the keepalive.
+      final stalled = StreamController<List<int>>();
+      addTearDown(stalled.close);
+      final f = fake(
+        (request) => switch (request.url.path) {
+          '/api/branches/b1/messages' => () {
+            stalled.add(
+              utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'),
+            );
+            return http.StreamedResponse(stalled.stream, 200);
+          }(),
+          _ => sse([
+            {'type': 'snapshot', 'node': node('a1')},
+            done,
+          ]),
+        },
+        idleTimeout: const Duration(milliseconds: 50),
+      );
+      final events = <StreamEvent>[];
+      final outcome = await ReplyStream.send(
+        f.api,
+        branchId: 'b1',
+        content: 'hi',
+        startTimer: FakeTimers().call,
+      ).run(events.add).timeout(const Duration(seconds: 5));
+      expect(outcome, isA<ReplyDone>());
+      expect(types(events), ['start', 'snapshot', 'done']);
+      expect(f.seen.last.url.path, '/api/nodes/a1/stream');
+    });
+
+    test('a body kept alive by keepalive comments is not cut off', () {
+      fakeAsync((async) {
+        final body = StreamController<List<int>>();
+        final f = fake(
+          (_) => http.StreamedResponse(body.stream, 200),
+          idleTimeout: const Duration(seconds: 45),
+        );
+        final events = <StreamEvent>[];
+        ReplyOutcome? outcome;
+        unawaited(
+          ReplyStream.send(
+            f.api,
+            branchId: 'b1',
+            content: 'hi',
+            startTimer: FakeTimers().call,
+          ).run(events.add).then((o) => outcome = o),
+        );
+        async.flushMicrotasks();
+        body.add(utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'));
+        // Two minutes with nothing but the server's keepalive, every 15s.
+        for (var i = 0; i < 8; i++) {
+          async.elapse(const Duration(seconds: 15));
+          body.add(utf8.encode(': keepalive\n\n'));
+        }
+        body.add(utf8.encode('event: done\ndata: ${jsonEncode(done)}\n\n'));
+        unawaited(body.close());
+        async.flushMicrotasks();
+        expect(outcome, isA<ReplyDone>());
+        expect(types(events), ['start', 'done']);
+        expect(f.seen, hasLength(1));
+      });
+    });
+
+    test('a reply stream cancelled while its send is unanswered aborts the '
+        'request', () async {
+      var aborted = false;
+      final client = MockClient.streaming((request, _) async {
+        final trigger = (request as http.Abortable).abortTrigger;
+        await trigger;
+        aborted = true;
+        throw http.RequestAbortedException(request.url);
+      });
+      final api = HttpTangentApi(
+        baseUri: Uri.parse('https://tangent.test'),
+        client: client,
+      );
+      final stream = ReplyStream.send(api, branchId: 'b1', content: 'hi');
+      final outcome = stream.run((_) {});
+      await pumpEventQueue();
+      stream.cancel();
+      expect(await outcome, isA<ReplyCancelled>());
+      await pumpEventQueue();
+      expect(aborted, isTrue);
+    });
+
+    group('a response that never comes', () {
+      /// An API whose first request's response never comes, and which then
+      /// answers with [reply]; records the paths asked for.
+      ({HttpTangentApi api, List<String> paths}) hanging(
+        http.StreamedResponse Function() reply,
+      ) {
+        final paths = <String>[];
+        final client = MockClient.streaming((request, _) {
+          paths.add(request.url.path);
+          return paths.length == 1
+              ? Completer<http.StreamedResponse>().future
+              : Future.value(reply());
+        });
+        final api = HttpTangentApi(
+          baseUri: Uri.parse('https://tangent.test'),
+          client: client,
+          headersTimeout: const Duration(milliseconds: 50),
+        );
+        return (api: api, paths: paths);
+      }
+
+      test('to an attach, is tried again', () async {
+        final f = hanging(
+          () => sse([
+            {'type': 'snapshot', 'node': node('a1')},
+            done,
+          ]),
+        );
+        final outcome = await ReplyStream.attach(
+          f.api,
+          'a1',
+          startTimer: FakeTimers().call,
+        ).run((_) {}).timeout(const Duration(seconds: 5));
+        expect(outcome, isA<ReplyDone>());
+        expect(f.paths, ['/api/nodes/a1/stream', '/api/nodes/a1/stream']);
+      });
+
+      test('to a send, loses it before a reply is named', () async {
+        final f = hanging(() => sse([done]));
+        final outcome = await ReplyStream.send(
+          f.api,
+          branchId: 'b1',
+          content: 'hi',
+          startTimer: FakeTimers().call,
+        ).run((_) {}).timeout(const Duration(seconds: 5));
+        expect(
+          outcome,
+          isA<ReplyLost>()
+              .having((o) => o.replyId, 'replyId', isNull)
+              .having((o) => o.error, 'error', apiError(0, 'network')),
+        );
+        expect(f.paths, ['/api/branches/b1/messages']);
+      });
+    });
   });
 
-  group('resume', () {
-    test('attaches at once, then streams to the end', () async {
-      final f = fake(
-        (_) => sse([
-          {'type': 'snapshot', 'node': node('a1', content: 'partial')},
-          {
-            'type': 'error',
-            'nodeId': 'a1',
-            'message': 'Cancelled',
-            'node': node('a1', content: 'partial', status: 'error'),
+  group('a lesson over the API, when reading it again never answers', () {
+    /// A lesson on a fake server whose first read of the lesson answers
+    /// and every later one hangs, as on a link that died; [messages]
+    /// answers a send, and every attach is refused with a 503.
+    ChatController lesson(Future<http.StreamedResponse> Function() messages) {
+      var reads = 0;
+      final api = HttpTangentApi(
+        baseUri: Uri.parse('https://tangent.test'),
+        client: MockClient.streaming(
+          (request, _) => switch (request.url.path) {
+            '/api/trees/t1' when ++reads == 1 => Future.value(json(treeDetail)),
+            '/api/trees/t1' => Completer<http.StreamedResponse>().future,
+            '/api/branches/b1/messages' => messages(),
+            _ => Future.value(empty(503)),
           },
-        ]),
+        ),
       );
-      final events = await f.api.resume('a1').toList();
-      expect(types(events), ['snapshot', 'error']);
-      expect(f.seen.single.url.path, '/api/nodes/a1/stream');
-      expect(f.delays, isEmpty);
+      final session = SessionController(api);
+      return ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+    }
+
+    test('marks a reply whose stream gave up failed in time', () {
+      fakeAsync((async) {
+        final chat = lesson(() async => sse([start]));
+        unawaited(chat.load());
+        async.flushMicrotasks();
+        unawaited(chat.send('hi'));
+        // The stream's four reconnects, refused, then the read of the
+        // lesson, which hangs.
+        async.elapse(const Duration(seconds: 10));
+        expect(chat.streamingNode?.id, 'a1');
+
+        async.elapse(const Duration(seconds: 30));
+        expect(chat.streamingNode, isNull);
+        expect(chat.thread.last.status, NodeStatus.error);
+        expect(chat.thread.last.error, connectionLostText);
+        chat.dispose();
+      });
+    });
+
+    test('refuses a send lost before its reply started, in time', () {
+      fakeAsync((async) {
+        final chat = lesson(() => Completer<http.StreamedResponse>().future);
+        unawaited(chat.load());
+        async.flushMicrotasks();
+        bool? accepted;
+        unawaited(chat.send('hi').then((value) => accepted = value));
+        // The send's 30s for an answer, then the read of the lesson.
+        async.elapse(const Duration(seconds: 59));
+        expect(chat.sending, isTrue);
+
+        async.elapse(const Duration(seconds: 1));
+        expect(accepted, isFalse);
+        expect(chat.sending, isFalse);
+        expect(chat.notice, isNotNull);
+        chat.dispose();
+      });
     });
   });
 }

@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tangent/api/models.dart';
 import 'package:tangent/state/chat_controller.dart';
 import 'package:tangent/state/composer_plan.dart';
 import 'package:tangent/state/lessons_controller.dart';
+import 'package:tangent/state/reply_follower.dart';
 import 'package:tangent/state/session_controller.dart';
 
 import '../fakes.dart';
@@ -226,6 +228,65 @@ void main() {
     });
   });
 
+  group('replies being written', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+
+    setUp(() {
+      api = FakeTangentApi()
+        ..details['t1'] = treeDetail(
+          nodes: [
+            node('u1', branch: 'trunk', seq: 0),
+            node(
+              'a1',
+              branch: 'trunk',
+              seq: 1,
+              role: Role.assistant,
+              status: NodeStatus.streaming,
+            ),
+          ],
+        );
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+    });
+
+    tearDown(() => chat.dispose());
+
+    test('are followed when the lesson opens, once', () async {
+      await chat.load();
+      await chat.load();
+      expect([for (final s in api.resumes) s.target], ['a1']);
+    });
+
+    test('a send is sending until the server starts its reply', () async {
+      await chat.load();
+      final accepted = chat.send('And then?');
+      expect(chat.sending, isTrue);
+      expect(await chat.send('Again?'), isFalse);
+      api.sends.single.controller.add(
+        StartEvent(
+          userNode: node('u2', branch: 'trunk', seq: 2),
+          assistantNode: node(
+            'a2',
+            branch: 'trunk',
+            seq: 3,
+            role: Role.assistant,
+            status: NodeStatus.streaming,
+          ),
+          branch: branch('trunk'),
+        ),
+      );
+      expect(await accepted, isTrue);
+      expect(chat.sending, isFalse);
+      expect([for (final n in chat.thread) n.id], ['u1', 'a1', 'u2', 'a2']);
+    });
+  });
+
   group('deleteMessage', () {
     late FakeTangentApi api;
     late ChatController chat;
@@ -317,6 +378,167 @@ void main() {
         'Replies still being written there are stopped. This cannot be undone.',
       );
       expect(chat.deleteQuestion(a1, titleOf: (b) => b.title), isNull);
+    });
+  });
+
+  group('a reply whose stream gives up', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+    final question = node('u1', branch: 'trunk', seq: 0, content: 'hi');
+    final writing = node(
+      'a1',
+      branch: 'trunk',
+      seq: 1,
+      role: Role.assistant,
+      status: NodeStatus.streaming,
+    );
+    final written = node(
+      'a1',
+      branch: 'trunk',
+      seq: 1,
+      role: Role.assistant,
+      content: 'Hello',
+    );
+
+    setUp(() async {
+      api = FakeTangentApi()..details['t1'] = treeDetail();
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+      await chat.load();
+    });
+
+    tearDown(() => chat.dispose());
+
+    /// Sends a question and loses its reply after `start`. Any loss will
+    /// do; one the stream doesn't reconnect after keeps the test off the
+    /// real waits between reconnects.
+    Future<void> sendAndLose() async {
+      unawaited(chat.send('hi'));
+      api.sends.single.controller
+        ..add(
+          StartEvent(
+            userNode: question,
+            assistantNode: writing,
+            branch: branch('trunk'),
+          ),
+        )
+        ..addError(StateError('lost'));
+      await pumpEventQueue();
+    }
+
+    test('is followed again while the server still writes it', () async {
+      api.details['t1'] = treeDetail(nodes: [question, writing]);
+      await sendAndLose();
+      expect([for (final r in api.resumes) r.target], ['a1']);
+      expect(chat.notice, isNull);
+
+      api.resumes.single.controller.add(
+        DoneEvent(node: written, branch: branch('trunk')),
+      );
+      await pumpEventQueue();
+      expect(chat.streamingNode, isNull);
+      expect(chat.thread.last.content, 'Hello');
+    });
+
+    test('shows what the server has, with no notice, once it ended', () async {
+      api.details['t1'] = treeDetail(nodes: [question, written]);
+      await sendAndLose();
+      expect(api.resumes, isEmpty);
+      expect(chat.notice, isNull);
+      expect(chat.thread.last.content, 'Hello');
+    });
+
+    test('ends in an error that names no reply', () async {
+      unawaited(chat.send('hi'));
+      api.sends.single.controller
+        ..add(
+          StartEvent(
+            userNode: question,
+            assistantNode: writing,
+            branch: branch('trunk'),
+          ),
+        )
+        ..add(const ErrorEvent(nodeId: null, message: 'Boom', node: null));
+      await pumpEventQueue();
+      expect(chat.streamingNode, isNull);
+      expect(chat.thread.last.status, NodeStatus.error);
+      expect(chat.thread.last.error, 'Boom');
+    });
+
+    test('is marked failed when the lesson cannot be read again', () async {
+      api.details.remove('t1');
+      await sendAndLose();
+      expect(api.resumes, isEmpty);
+      expect(chat.streamingNode, isNull);
+      expect(chat.thread.last.status, NodeStatus.error);
+      expect(chat.thread.last.error, connectionLostText);
+      expect(chat.notice, isNotNull);
+    });
+  });
+
+  group('a send lost before its reply started', () {
+    late FakeTangentApi api;
+    late ChatController chat;
+
+    setUp(() async {
+      api = FakeTangentApi()..details['t1'] = treeDetail();
+      final session = SessionController(api);
+      chat = ChatController(
+        api: api,
+        session: session,
+        lessons: LessonsController(api: api, session: session),
+        treeId: 't1',
+      );
+      await chat.load();
+    });
+
+    tearDown(() => chat.dispose());
+
+    test(
+      'counts as sent, with no notice, when the question reached the server',
+      () async {
+        api.details['t1'] = treeDetail(
+          nodes: [
+            node('u1', branch: 'trunk', seq: 0, content: 'hi'),
+            node(
+              'a1',
+              branch: 'trunk',
+              seq: 1,
+              role: Role.assistant,
+              status: NodeStatus.streaming,
+            ),
+          ],
+        );
+        final accepted = chat.send('hi');
+        await api.sends.single.controller.close();
+        expect(await accepted, isTrue);
+        expect(chat.sending, isFalse);
+        expect(chat.notice, isNull);
+        expect(chat.streamingNode?.id, 'a1');
+        expect([for (final r in api.resumes) r.target], ['a1']);
+      },
+    );
+
+    test('is refused, with a notice, when it did not, after a second look '
+        '3s later', () {
+      fakeAsync((async) {
+        bool? accepted;
+        unawaited(chat.send('hi').then((value) => accepted = value));
+        unawaited(api.sends.single.controller.close());
+        async.elapse(const Duration(milliseconds: 2999));
+        expect(accepted, isNull);
+        expect(chat.sending, isTrue);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(accepted, isFalse);
+        expect(chat.sending, isFalse);
+        expect(chat.notice, isNotNull);
+      });
     });
   });
 }
