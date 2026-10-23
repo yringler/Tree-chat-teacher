@@ -419,6 +419,11 @@ class _ReplyHost implements ReplyHost {
   void report(Object error) => _chat._fail(error);
 
   @override
+  void resolved(Object error) {
+    if (_chat._notice?.text == noticeFor(error).text) _chat._notice = null;
+  }
+
+  @override
   Future<void> reload() => _chat._reload();
 
   @override

@@ -1200,4 +1200,69 @@ void main() {
       });
     });
   });
+
+  group('a lesson over the API whose connection comes back', () {
+    test('shows a reply given up on as the server finished it, without '
+        'opening the lesson again', () {
+      fakeAsync((async) {
+        // The reply's connection dies without a reset, and the phone is
+        // offline long enough for the stream and the read after it to give
+        // up; meanwhile the server finishes the reply.
+        var online = true;
+        var reads = 0;
+        final written = StreamController<List<int>>();
+        final finished = {
+          ...treeDetail,
+          'nodes': [
+            node('u1', role: 'user', content: 'hi', status: 'complete'),
+            node('a1', content: 'A whole chapter', status: 'complete'),
+          ],
+        };
+        final api = HttpTangentApi(
+          baseUri: Uri.parse('https://tangent.test'),
+          client: MockClient.streaming((request, _) async {
+            if (!online) throw http.ClientException('Network is unreachable');
+            return switch (request.url.path) {
+              '/api/trees/t1' => json(++reads == 1 ? treeDetail : finished),
+              '/api/branches/b1/messages' => http.StreamedResponse(
+                written.stream,
+                200,
+              ),
+              _ => empty(503),
+            };
+          }),
+        );
+        final session = SessionController(api);
+        final chat = ChatController(
+          api: api,
+          session: session,
+          lessons: LessonsController(api: api, session: session),
+          treeId: 't1',
+        );
+        unawaited(chat.load());
+        async.flushMicrotasks();
+        unawaited(chat.send('hi'));
+        async.flushMicrotasks();
+        written.add(
+          utf8.encode('event: start\ndata: ${jsonEncode(start)}\n\n'),
+        );
+        async.flushMicrotasks();
+        online = false;
+        // 45s without a byte, the four reconnects, then the read of the
+        // lesson, all offline.
+        async.elapse(const Duration(seconds: 60));
+        expect(chat.thread.last.status, NodeStatus.error);
+        expect(chat.thread.last.error, connectionLostText);
+        expect(chat.notice, isNotNull);
+
+        online = true;
+        async.elapse(const Duration(minutes: 1));
+        expect(chat.thread.last.status, NodeStatus.complete);
+        expect(chat.thread.last.content, 'A whole chapter');
+        expect(chat.notice, isNull);
+        chat.dispose();
+        unawaited(written.close());
+      });
+    });
+  });
 }
