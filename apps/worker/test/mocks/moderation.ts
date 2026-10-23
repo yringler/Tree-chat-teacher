@@ -5,7 +5,8 @@
 //
 // - POST /v1/moderations (Bearer `mod-test…` required, else 401): one result
 //   per input, every category near zero, except an input containing
-//   `[mod-violent]` (violence 0.95) or `[mod-csam]` (sexual/minors 0.5).
+//   `[mod-violent]` (violence 0.95), `[mod-sexual]` (sexual 0.6),
+//   `[mod-graphic]` (violence/graphic 0.6) or `[mod-csam]` (sexual/minors 0.5).
 //   A batch with `[mod-down]` gets a 500, one with `[mod-garbled]` a 200
 //   missing a category.
 //
@@ -37,6 +38,8 @@ const requests: string[][] = [];
 function scoresOf(input: string): Record<string, number> {
   const out = Object.fromEntries(CATEGORIES.map((c) => [c, 0.001]));
   if (input.includes('[mod-violent]')) out['violence'] = 0.95;
+  if (input.includes('[mod-sexual]')) out['sexual'] = 0.6;
+  if (input.includes('[mod-graphic]')) out['violence/graphic'] = 0.6;
   if (input.includes('[mod-csam]')) out['sexual/minors'] = 0.5;
   return out;
 }
