@@ -234,14 +234,84 @@ class TreeSummary {
 
 /// `GET /api/settings`: the account's settings this app reads.
 class Settings {
-  const Settings({required this.walkthroughDoneAt});
+  const Settings({
+    required this.walkthroughDoneAt,
+    this.learn = LearnReplySettings.defaults,
+  });
 
-  factory Settings.fromJson(Json json) =>
-      Settings(walkthroughDoneAt: json.strOrNull('walkthroughDoneAt'));
+  factory Settings.fromJson(Json json) => Settings(
+    walkthroughDoneAt: json.strOrNull('walkthroughDoneAt'),
+    learn: LearnReplySettings.fromJson(json.obj('learn')),
+  );
 
   /// When the account finished or skipped the first-run walkthrough (ISO
   /// time); null while it hasn't, so the walkthrough shows.
   final String? walkthroughDoneAt;
+
+  /// Learn's Advanced settings.
+  final LearnReplySettings learn;
+}
+
+/// The model tier replies run on (`ModelTier`).
+enum ModelTier {
+  normal('normal'),
+  max('max');
+
+  const ModelTier(this.id);
+  final String id;
+
+  static ModelTier parse(String id) =>
+      values.firstWhere((t) => t.id == id, orElse: () => normal);
+}
+
+/// How long replies may run (`LearnReplyLength`).
+enum ReplyLength {
+  normal('normal'),
+  long('long'),
+  veryLong('veryLong');
+
+  const ReplyLength(this.id);
+  final String id;
+
+  static ReplyLength parse(String id) =>
+      values.firstWhere((l) => l.id == id, orElse: () => normal);
+}
+
+/// Learn's reply settings (`LearnReplySettings` in
+/// packages/shared/src/learn-reply.ts), saved with the account.
+class LearnReplySettings {
+  const LearnReplySettings({
+    this.tier = ModelTier.normal,
+    this.replyLength = ReplyLength.normal,
+  });
+
+  factory LearnReplySettings.fromJson(Json json) => LearnReplySettings(
+    tier: ModelTier.parse(json.str('tier')),
+    replyLength: ReplyLength.parse(json.str('replyLength')),
+  );
+
+  static const defaults = LearnReplySettings();
+
+  final ModelTier tier;
+  final ReplyLength replyLength;
+
+  bool get isDefault =>
+      tier == defaults.tier && replyLength == defaults.replyLength;
+
+  LearnReplySettings copyWith({ModelTier? tier, ReplyLength? replyLength}) =>
+      LearnReplySettings(
+        tier: tier ?? this.tier,
+        replyLength: replyLength ?? this.replyLength,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is LearnReplySettings &&
+      other.tier == tier &&
+      other.replyLength == replyLength;
+
+  @override
+  int get hashCode => Object.hash(tier, replyLength);
 }
 
 class Tree {

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../api/models.dart';
 import '../state/app_scope.dart';
 import '../state/lessons_controller.dart';
+import 'advanced_settings.dart';
 import 'delete_account_dialog.dart';
 import 'format.dart';
 import 'help.dart';
@@ -108,6 +109,10 @@ class _AccountMenu extends StatelessWidget {
         PopupMenuItem<void>(
           onTap: () => unawaited(showPaymentDialog(context)),
           child: const Text('How replies are paid for'),
+        ),
+        PopupMenuItem<void>(
+          onTap: () => unawaited(showAdvancedSettings(context)),
+          child: const Text('Advanced settings'),
         ),
         PopupMenuItem<void>(
           onTap: () => unawaited(session.signOut()),

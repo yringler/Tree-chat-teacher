@@ -13,6 +13,7 @@ import '../state/app_scope.dart';
 import '../state/chat_controller.dart';
 import '../state/composer_plan.dart';
 import '../state/walkthrough_controller.dart';
+import 'advanced_settings.dart';
 import 'coach_mark.dart';
 import 'format.dart';
 import 'help.dart';
@@ -780,6 +781,9 @@ class _ChatPageState extends State<ChatPage> {
                 NoticeBanner(notice: notice, onDismiss: _chat.dismissNotice),
                 const SizedBox(height: 8),
               ],
+              // A changed Advanced setting, said where the learner writes,
+              // while typing and while a reply streams.
+              const AdvancedChip(),
               _Composer(
                 key: _composerKey,
                 controller: _composer,

@@ -105,6 +105,54 @@ void main() {
     ),
   );
 
+  group('Advanced settings chip', () {
+    Finder chip() => find.byKey(const ValueKey('advanced-chip'));
+
+    testWidgets('shows nothing while every setting is the default', (
+      tester,
+    ) async {
+      await pumpApp(tester, api, location: '/t/t1');
+      expect(chip(), findsNothing);
+    });
+
+    testWidgets(
+      'names a changed setting above the box, and opens the settings',
+      (tester) async {
+        api.settingsAnswer = const Settings(
+          walkthroughDoneAt: '2026-01-01T00:00:00.000Z',
+          learn: LearnReplySettings(
+            tier: ModelTier.max,
+            replyLength: ReplyLength.veryLong,
+          ),
+        );
+        await pumpApp(tester, api, location: '/t/t1');
+        expect(chip(), findsOneWidget);
+        expect(find.text('Max · Very long'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel(
+            'Advanced settings: Max model, very long replies. Change',
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(chip());
+        await settle(tester);
+        expect(find.text('Advanced settings'), findsOneWidget);
+        await tester.tap(
+          find.text('A page or so. Short questions still get short answers.'),
+        );
+        await settle(tester);
+        expect(api.learnReplySaves.single, (null, ReplyLength.normal));
+        await tester.tap(find.text('Done'));
+        await settle(tester);
+        expect(
+          find.descendant(of: chip(), matching: find.text('Max')),
+          findsOneWidget,
+        );
+      },
+    );
+  });
+
   testWidgets('an empty lesson asks what to learn', (tester) async {
     await pumpApp(tester, api, location: '/t/t1');
     expect(find.text('Tides'), findsOneWidget);

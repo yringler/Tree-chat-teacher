@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../api/tangent_api.dart';
 import 'lessons_controller.dart';
+import 'reply_settings_controller.dart';
 import 'session_controller.dart';
 import 'walkthrough_controller.dart';
 
@@ -15,6 +16,7 @@ class AppScope extends InheritedWidget {
     required this.session,
     required this.lessons,
     required this.walkthrough,
+    required this.replySettings,
     required super.child,
   });
 
@@ -22,6 +24,7 @@ class AppScope extends InheritedWidget {
   final SessionController session;
   final LessonsController lessons;
   final WalkthroughController walkthrough;
+  final ReplySettingsController replySettings;
 
   static AppScope of(BuildContext context) {
     final scope = context.getInheritedWidgetOfExactType<AppScope>();
@@ -34,5 +37,6 @@ class AppScope extends InheritedWidget {
       api != oldWidget.api ||
       session != oldWidget.session ||
       lessons != oldWidget.lessons ||
-      walkthrough != oldWidget.walkthrough;
+      walkthrough != oldWidget.walkthrough ||
+      replySettings != oldWidget.replySettings;
 }

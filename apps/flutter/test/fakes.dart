@@ -130,6 +130,12 @@ class FakeTangentApi implements TangentApi {
 
   /// How often `markWalkthroughDone` was called.
   var walkthroughDoneMarks = 0;
+
+  /// The Advanced settings each `updateLearnReply` asked for, as (tier, length).
+  final learnReplySaves = <(ModelTier?, ReplyLength?)>[];
+
+  /// Thrown by `updateLearnReply`, when set.
+  ApiException? refuseLearnReply;
   final details = <String, TreeDetail>{};
 
   /// Thrown by `sendMessage`'s stream before any event, when set.
@@ -246,6 +252,25 @@ class FakeTangentApi implements TangentApi {
 
   @override
   Future<void> markWalkthroughDone() async => walkthroughDoneMarks++;
+
+  @override
+  Future<LearnReplySettings> updateLearnReply({
+    ModelTier? tier,
+    ReplyLength? replyLength,
+  }) async {
+    learnReplySaves.add((tier, replyLength));
+    final refused = refuseLearnReply;
+    if (refused != null) throw refused;
+    final learn = settingsAnswer.learn.copyWith(
+      tier: tier,
+      replyLength: replyLength,
+    );
+    settingsAnswer = Settings(
+      walkthroughDoneAt: settingsAnswer.walkthroughDoneAt,
+      learn: learn,
+    );
+    return learn;
+  }
 
   @override
   Future<PoolStatus> poolStatus() async => poolStatusAnswer;
