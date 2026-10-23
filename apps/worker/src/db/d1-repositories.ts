@@ -332,6 +332,8 @@ function settingsOf(r: SettingsRow): AccountSettings {
     maxOutputTokens: r.maxOutputTokens,
     maxInputTokens: r.maxInputTokens,
     inputOverflow: r.inputOverflow,
+    learnTier: r.learnTier,
+    learnReplyLength: r.learnReplyLength,
   };
 }
 

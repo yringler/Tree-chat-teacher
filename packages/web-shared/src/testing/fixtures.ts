@@ -221,6 +221,7 @@ export function accountSettings(over: Partial<SettingsResponse> = {}): SettingsR
     maxOutputTokens: null,
     maxInputTokens: null,
     inputOverflow: 'compact',
+    learn: { tier: 'normal', replyLength: 'normal' },
     ...over,
   };
 }

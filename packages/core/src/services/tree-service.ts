@@ -2,6 +2,7 @@ import {
   DEFAULT_BRANCH_TITLE_PREFIX,
   DEFAULT_GROUNDING_MODE,
   DEFAULT_INPUT_OVERFLOW,
+  DEFAULT_LEARN_REPLY,
   DEFAULT_TREE_TITLE,
   MAX_LINKS_PER_TREE,
   REPLY_INTERRUPTED_ERROR,
@@ -15,6 +16,8 @@ import {
   updateTreeRequestSchema,
   clip,
   inputOverflowSchema,
+  learnReplyLengthSchema,
+  learnTierSchema,
   plainText,
   requestedInputTokens,
   requestedOutputTokens,
@@ -26,6 +29,7 @@ import {
   type CreateTreeRequest,
   type DeleteBranchResponse,
   type DeleteMessageResponse,
+  type LearnReplySettings,
   type NodeLink,
   type SettingsResponse,
   type Tree,
@@ -181,6 +185,8 @@ export class TreeService {
     if (req.maxOutputTokens !== undefined) patch.maxOutputTokens = req.maxOutputTokens;
     if (req.maxInputTokens !== undefined) patch.maxInputTokens = req.maxInputTokens;
     if (req.inputOverflow !== undefined) patch.inputOverflow = req.inputOverflow;
+    if (req.learn?.tier !== undefined) patch.learnTier = req.learn.tier;
+    if (req.learn?.replyLength !== undefined) patch.learnReplyLength = req.learn.replyLength;
     const saved = await this.ctx.repos.settings.updateSettings(this.ctx.accountId, patch, now);
     return this.settingsResponse(saved);
   }
@@ -199,7 +205,14 @@ export class TreeService {
       maxInputTokens: validOrNull(requestedInputTokens, settings.maxInputTokens),
       inputOverflow:
         validOrNull(inputOverflowSchema, settings.inputOverflow) ?? DEFAULT_INPUT_OVERFLOW,
+      learn: learnReplyOf(settings),
     };
+  }
+
+  /** Learn's reply settings as saved, each the default where unset or no longer valid. */
+  async learnReplySettings(): Promise<LearnReplySettings> {
+    const saved = await this.ctx.repos.settings.getSettings(this.ctx.accountId);
+    return learnReplyOf(saved ?? EMPTY_ACCOUNT_SETTINGS);
   }
 
   // ------------------------------------------------------------- branches
@@ -473,4 +486,14 @@ function validOrNull<T>(
 ): T | null {
   const parsed = schema.safeParse(value);
   return parsed.success ? parsed.data : null;
+}
+
+/** Learn's reply settings from a stored row: an unset or invalid value is the default. */
+function learnReplyOf(settings: AccountSettings): LearnReplySettings {
+  return {
+    tier: validOrNull(learnTierSchema, settings.learnTier) ?? DEFAULT_LEARN_REPLY.tier,
+    replyLength:
+      validOrNull(learnReplyLengthSchema, settings.learnReplyLength) ??
+      DEFAULT_LEARN_REPLY.replyLength,
+  };
 }

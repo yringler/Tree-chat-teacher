@@ -209,6 +209,10 @@ export interface AccountSettings {
   maxInputTokens: number | null;
   /** What a power conversation over its input limit loses; null = `compact`. */
   inputOverflow: string | null;
+  /** Learn's model tier; null = Normal. */
+  learnTier: string | null;
+  /** Learn's reply length; null = Normal. */
+  learnReplyLength: string | null;
 }
 
 export const EMPTY_ACCOUNT_SETTINGS: Readonly<AccountSettings> = {
@@ -220,6 +224,8 @@ export const EMPTY_ACCOUNT_SETTINGS: Readonly<AccountSettings> = {
   maxOutputTokens: null,
   maxInputTokens: null,
   inputOverflow: null,
+  learnTier: null,
+  learnReplyLength: null,
 };
 
 export interface SettingsRepository {

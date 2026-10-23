@@ -261,6 +261,7 @@ describe('account settings: the default system prompt', () => {
       maxOutputTokens: null,
       maxInputTokens: null,
       inputOverflow: 'compact',
+      learn: { tier: 'normal', replyLength: 'normal' },
     };
     expect(await ok<SettingsResponse>(await u.call('/api/settings'))).toEqual(defaults);
     expect(await ok<SettingsResponse>(await patch(u, 'Answer in French.'))).toEqual({

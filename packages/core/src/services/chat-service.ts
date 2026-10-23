@@ -7,6 +7,7 @@ import {
   type ChatNode,
   type CommitCandidateResponse,
   type ContextPlanResponse,
+  type LearnReplySettings,
   type CreateBranchRequest,
   type CreateLinkRequest,
   type CreateTreeRequest,
@@ -208,6 +209,15 @@ export class ChatService {
 
   updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
     return this.trees.updateSettings(request);
+  }
+
+  /**
+   * Learn's reply settings as saved (the defaults where unset), which the
+   * Worker reads once per Learn send and passes to the generating service
+   * (`LearnProfile.reply`), so the hold and the reply use the same ones.
+   */
+  learnReplySettings(): Promise<LearnReplySettings> {
+    return this.trees.learnReplySettings();
   }
 
   createBranch(request: CreateBranchRequest): Promise<Branch> {

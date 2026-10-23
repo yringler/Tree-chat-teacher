@@ -31,6 +31,7 @@ import {
   type GroundingMode,
 } from './grounding.js';
 import type { PoolBlockDetails } from './pool.js';
+import { learnReplyLengthSchema, learnTierSchema, type LearnReplySettings } from './learn-reply.js';
 
 /*
  * The HTTP API's request schemas and reply types. Its routes, with which
@@ -256,6 +257,12 @@ export interface SettingsResponse {
   maxInputTokens: number | null;
   /** What a power conversation over its input limit loses. */
   inputOverflow: InputOverflow;
+  /**
+   * Learn's reply settings (learn-reply.ts), the defaults until changed:
+   * applied by the server to each Learn reply the learner pays for, never on
+   * the open pool or in power.
+   */
+  learn: LearnReplySettings;
 }
 
 /** A model saved in the settings: its provider, who pays, and the model. */
@@ -290,6 +297,15 @@ export const updateSettingsRequestSchema = z
     maxOutputTokens: requestedOutputTokens.nullable().optional(),
     maxInputTokens: requestedInputTokens.nullable().optional(),
     inputOverflow: inputOverflowSchema.optional(),
+    learn: z
+      .object({
+        tier: learnTierSchema.optional(),
+        replyLength: learnReplyLengthSchema.optional(),
+      })
+      .refine((l) => l.tier !== undefined || l.replyLength !== undefined, {
+        message: 'No Learn setting to update',
+      })
+      .optional(),
   })
   .refine((r) => Object.values(r).some((v) => v !== undefined), {
     message: 'Nothing to update',

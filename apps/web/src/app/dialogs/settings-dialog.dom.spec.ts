@@ -53,8 +53,13 @@ const onCredit = (): TreeDetail =>
 
 /** The account's answer to a save: SAVED with the request's changes. */
 async function echo(req: UpdateSettingsRequest): Promise<SettingsResponse> {
-  const { tiers, walkthroughDone: _done, ...rest } = req;
-  return { ...SAVED, ...rest, tiers: { ...SAVED.tiers, ...tiers } };
+  const { tiers, walkthroughDone: _done, learn, ...rest } = req;
+  return {
+    ...SAVED,
+    ...rest,
+    tiers: { ...SAVED.tiers, ...tiers },
+    learn: { ...SAVED.learn, ...learn },
+  };
 }
 
 /** Settings, with the account's settings still on their way (`settings` never answers). */
