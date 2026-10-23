@@ -79,30 +79,34 @@ export const REPLY_LENGTH_WORDS: Readonly<Record<LearnReplyLength, ReplyLengthWo
   veryLong: { min: 2500, target: 3500, max: 5000 },
 };
 
-/** Lengths whose replies are organized under section headings. */
+/** Lengths whose replies are organized under section headings once they run long. */
 const SECTIONED: ReadonlySet<LearnReplyLength> = new Set(['long', 'veryLong']);
 
-const words = (n: number) => `${n.toLocaleString('en-US')} words`;
+const STRUCTURE =
+  ' When the reply runs past a few paragraphs, open with a short overview and organize the body under `##` section headings. This replaces the usual advice to stay brief.';
+
+/** Very long's push to use its room on a question with real substance. */
+const VERY_LONG_DEPTH =
+  ' For a question with real substance, reaching the range is the point of this setting: go into the mechanism step by step, work through more than one example, and cover the edge cases and common misconceptions a short answer would skip.';
+
+const number = (n: number) => n.toLocaleString('en-US');
 
 /**
  * What a Learn reply of `length` is asked after the history (with any
  * grounding text, in the same `replyInstructions` block), so the cached
  * prompt prefix is the same whatever the length. Built from
- * `REPLY_LENGTH_WORDS`.
+ * `REPLY_LENGTH_WORDS`; the wording was tried on Normal and Max, where
+ * simple questions stayed short and each length landed in its range.
  */
 export function replyLengthInstructions(length: LearnReplyLength): string {
   const { min, target, max } = REPLY_LENGTH_WORDS[length];
   const range =
-    min > 0 ? `about ${min.toLocaleString('en-US')}–${words(max)}` : `up to about ${words(max)}`;
-  const lines = [
-    '## Reply length',
-    '',
-    `The learner chose ${REPLY_LENGTH_LABELS[length].toLowerCase()} replies: ${range}, aiming for about ${words(target)}. Treat the range as room to work with, not a quota: a simple question can be answered well under it, and a hard one can run toward the top. Don't pad a reply to reach it, and don't cut short an explanation the question needs.`,
-  ];
-  if (SECTIONED.has(length))
-    lines.push('', 'Open with a short overview and organize the body under `##` section headings.');
-  lines.push('', 'The tangents block still comes last, after everything else.');
-  return lines.join('\n');
+    min > 0 ? `about ${number(min)}–${number(max)} words` : `up to about ${number(max)} words`;
+  const structure =
+    (SECTIONED.has(length) ? STRUCTURE : '') + (length === 'veryLong' ? VERY_LONG_DEPTH : '');
+  return `## Reply length
+
+The learner chose ${REPLY_LENGTH_LABELS[length].toLowerCase()} replies: ${range}, around ${number(target)} for a typical question. The range is leeway, not a quota. Write what this question needs: a simple question can come in well under it, and a hard one can run toward the top. Don't pad to reach it, and don't cut a needed explanation short to stay under it.${structure} The tangents block still comes last and doesn't count toward the length.`;
 }
 
 /** What the composer shows while a setting isn't the default (`learnReplyIndicator`). */

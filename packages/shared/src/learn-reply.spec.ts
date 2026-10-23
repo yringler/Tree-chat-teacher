@@ -91,7 +91,7 @@ describe('replyLengthInstructions', () => {
       const text = replyLengthInstructions(length);
       expect(text).toMatch(/not a quota/);
       expect(text).toMatch(/Don't pad/);
-      expect(text).toMatch(/don't cut short/);
+      expect(text).toMatch(/don't cut a needed explanation short/);
       expect(text).toMatch(/tangents block still comes last/);
     }
   });
@@ -100,6 +100,12 @@ describe('replyLengthInstructions', () => {
     expect(replyLengthInstructions('normal')).not.toContain('`##`');
     expect(replyLengthInstructions('long')).toContain('`##`');
     expect(replyLengthInstructions('veryLong')).toContain('`##`');
+  });
+
+  it('pushes only Very long to use its room on a substantial question', () => {
+    expect(replyLengthInstructions('veryLong')).toMatch(/reaching the range is the point/);
+    expect(replyLengthInstructions('long')).not.toMatch(/reaching the range/);
+    expect(replyLengthInstructions('normal')).not.toMatch(/reaching the range/);
   });
 });
 
