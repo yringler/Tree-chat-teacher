@@ -59,7 +59,10 @@ import { logEvent } from './log.js';
 /** Keeps background work alive past the response (`waitUntil` of the Worker or the Durable Object). */
 export type Defer = (p: Promise<unknown>) => void;
 
-/** Which service a request builds: `generating` = it will call a model (sends, context resolve). */
+/**
+ * Which service a request builds: `generating` = it calls a model, or plans what a
+ * send would send (sends, context plans).
+ */
 export interface ServiceScope {
   /**
    * Pool restrictions apply only to the services that generate: routes that

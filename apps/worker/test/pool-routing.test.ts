@@ -307,11 +307,14 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     expect(res.plan.budget.maxInputTokens).toBe(3000);
     expect(res.rendered.system).toContain('LOCKED POOL PROMPT');
     expect(res.rendered.system).not.toContain('IGNORE ME');
-    // A plain plan (no resolve) is not generating: the tree as it is.
+    // A plain plan (no resolve) generates nothing, but shows what a send would send.
     const plain = await ok<ContextPlanResponse>(
       await u.client.call(`/api/branches/${trunk.id}/context`, { learn: 'pool' }),
     );
-    expect(plain.model).toBe('max');
+    expect(plain.model).toBe('normal');
+    expect(plain.plan.budget.maxInputTokens).toBe(3000);
+    expect(plain.rendered.system).toBe(res.rendered.system);
+    expect(await rows(u.poolId)).toEqual([]);
   });
 
   it('caps a pool send at POOL_MAX_MESSAGE_CHARS (400, nothing written)', async () => {
@@ -549,15 +552,18 @@ describe('pool refusals', () => {
 });
 
 describe('condensing a long reply on the pool', () => {
-  it("a grandchild's long ancestor reply is condensed once, on a pool summary metered like compaction", async () => {
-    // A tree whose long reply was written on credit; the learner's credit has run out since,
-    // so their sends settle to the pool.
-    const u = await poolReadyUser();
+  /** About 2,100 tokens: above Learn's condensing threshold (1,500). */
+  const CHAPTER = 'A chapter on primes. '.repeat(400);
+  const CONDENSED = '[Condensed; the learner sees the full reply]';
+
+  /**
+   * A grandchild branch two levels below a long reply, written on credit; the learner's
+   * credit has run out since, so their sends settle to the pool. `sendDone` sends on it.
+   */
+  async function grandchildOfLongReply(u: User) {
     const { trunk } = await createTree(u, 'credit');
     const repo = createD1Repositories(env.DB).trees;
     const now = new Date().toISOString();
-    // About 2,100 tokens: above Learn's condensing threshold (1,500).
-    const CHAPTER = 'A chapter on primes. '.repeat(400);
     const question = makeNode(trunk, 0, null, { role: 'user', content: 'Teach me primes' });
     const chapter = makeNode(trunk, 1, question.id, { role: 'assistant', content: CHAPTER });
     await repo.appendNodes([question, chapter], now);
@@ -583,6 +589,12 @@ describe('condensing a long reply on the pool', () => {
       expect(events[0]).toMatchObject({ type: 'start', funding: 'pool' });
       expect(events.at(-1)?.type).toBe('done');
     };
+    return { grandchild, sendDone };
+  }
+
+  it("a grandchild's long ancestor reply is condensed once, on a pool summary metered like compaction", async () => {
+    const u = await poolReadyUser();
+    const { grandchild, sendDone } = await grandchildOfLongReply(u);
 
     await sendDone('Deeper?');
     const first = await rows(u.poolId);
@@ -606,9 +618,7 @@ describe('condensing a long reply on the pool', () => {
     );
     const sent = planned.rendered.messages.map((m) => m.content);
     expect(sent).not.toContain(CHAPTER);
-    expect(
-      sent.filter((c) => c.startsWith('[Condensed; the learner sees the full reply]')),
-    ).toHaveLength(1);
+    expect(sent.filter((c) => c.startsWith(CONDENSED))).toHaveLength(1);
     expect(await rows(u.poolId)).toHaveLength(2);
 
     // Metered as the pool's compaction summaries are: the pool's own row for this user and
@@ -638,6 +648,36 @@ describe('condensing a long reply on the pool', () => {
     // The summary is cached: a second send makes no new summary call.
     await sendDone('And then?');
     expect((await rows(u.poolId)).map((r) => r.purpose)).toEqual(['reply', 'summary', 'reply']);
+  });
+
+  it('a plain context read shows the condensed reply the send sent, and generates nothing', async () => {
+    const u = await poolReadyUser();
+    const { grandchild, sendDone } = await grandchildOfLongReply(u);
+    await sendDone('Deeper?');
+    const before = await rows(u.poolId);
+    expect(before.map((r) => r.purpose)).toEqual(['reply', 'summary']);
+
+    // On the pool header, and on credit that has run out (which a send moves to the pool).
+    for (const learn of ['pool', 'credit'] as const) {
+      const plain = await ok<ContextPlanResponse>(
+        await u.client.call(`/api/branches/${grandchild.id}/context`, { learn }),
+      );
+      const sent = plain.rendered.messages.map((m) => m.content);
+      expect(sent, learn).not.toContain(CHAPTER);
+      expect(
+        sent.filter((c) => c.startsWith(CONDENSED)),
+        learn,
+      ).toHaveLength(1);
+      expect(
+        plain.plan.segments.filter((s) => s.reason === 'message-summary'),
+        learn,
+      ).toHaveLength(1);
+      // Planned on the pool's model, as the send was.
+      expect(plain.model, learn).toBe('normal');
+    }
+    // A plain read only looks the summary up: no call, no usage row anywhere.
+    expect(await rows(u.poolId)).toEqual(before);
+    expect(await rows(`u_${u.userId}`)).toEqual([]);
   });
 });
 

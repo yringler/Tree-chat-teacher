@@ -1,6 +1,6 @@
 import { API_ROUTES } from '@tangent/shared';
 import { Hono } from 'hono';
-import { assertCanGenerate } from '../billing/gate.js';
+import { assertCanGenerate, resolveFunding } from '../billing/gate.js';
 import { sameOriginOnly } from '../byok/guard.js';
 import { treeSession } from '../do/tree-session-client.js';
 import type { AppBindings } from '../env.js';
@@ -11,7 +11,8 @@ import { chatOf, keysOf } from './request-chat.js';
 /**
  * Branches: creating, editing and deleting them (and a message with what
  * follows it), and what a send on one would see (its context and input budget). Only `context?resolve=true`
- * generates (missing summaries), so only it passes the gate.
+ * generates (missing summaries), so only it passes the gate; a plain plan is still planned
+ * as a send on the caller's payer would be.
  */
 export function branchRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
@@ -39,10 +40,13 @@ export function branchRoutes(): Hono<AppBindings> {
     async (c) => {
       const q = c.req.valid('query');
       const keys = await keysOf(c);
-      let chat = chatOf(c, keys);
-      const branch = chat.runnableBranch(await chat.getOwnedBranch(c.req.param('branchId')));
+      const reader = chatOf(c, keys);
+      const branch = reader.runnableBranch(await reader.getOwnedBranch(c.req.param('branchId')));
       // resolve=true may generate summaries (billed on the built-in provider, which
-      // summarizes its own branches, or on the pool); a plain plan only counts tokens.
+      // summarizes its own branches, or on the pool); a plain plan only counts tokens and
+      // looks cached summaries up. Both plan on the payer, model and summary route a send
+      // would use (Learn credit that has run out moves to the pool), so the plan shows what
+      // a send sends.
       if (q.resolve) {
         await assertCanGenerate(c, {
           purpose: 'resolve',
@@ -51,8 +55,10 @@ export function branchRoutes(): Hono<AppBindings> {
           model: null,
           keys,
         });
-        chat = chatOf(c, keys, true);
+      } else {
+        c.set('account', await resolveFunding(c, c.var.account, 'resolve'));
       }
+      const chat = chatOf(c, keys, true);
       const res = await chat.planContext(branch.id, q.nodeId ?? null, {
         resolveSummaries: q.resolve,
         signal: c.req.raw.signal,
