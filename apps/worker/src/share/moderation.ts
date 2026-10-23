@@ -16,6 +16,7 @@ import { sendAlert } from '../alerts.js';
 import { userIdOfAccount } from '../auth/account.js';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { legalContactEmail } from '../http/legal-info.js';
 import { logEvent } from '../log.js';
 import { recordAudit, type ScreenAuditEvent } from './audit.js';
 import { placeHold } from './legal-hold.js';
@@ -25,8 +26,22 @@ const MODERATION_MODEL = 'omni-moderation-latest';
 /** A publish waits on screening, so a stalled classifier fails it rather than hanging. */
 const MODERATION_TIMEOUT_MS = 10_000;
 
-/** One generic answer for every refusal: telling the owner the category would teach evasion. */
-const REFUSED = "This conversation can't be shared.";
+/**
+ * One generic answer for every refusal, a possible-CSAM one included: telling
+ * the owner the category would teach evasion. It points to the export, which
+ * is not screened, and to a person to write to about a mistake.
+ */
+export function refusedMessage(contactEmail: string): string {
+  return (
+    "This conversation can't be shared. You can still download the chat and share it yourself. " +
+    `If you feel this share was blocked in error, you can contact ${contactEmail}.`
+  );
+}
+
+/** `MODERATOR_EMAIL`, or the legal contact. */
+export function moderatorEmail(env: AppEnv, origin: string): string {
+  return appConfig(env).site.moderatorEmail ?? legalContactEmail(env, origin);
+}
 const UNAVAILABLE = 'Sharing is temporarily unavailable.';
 const TOO_LONG = 'This conversation is too long to share; share a part of it.';
 
@@ -107,6 +122,7 @@ export function shareScreen(
   const { moderationApiKey: apiKey, moderationUrl: url } = appConfig(env).site;
   if (!apiKey) return undefined;
   const provider = new OpenAIModeration({ apiKey, ...(url ? { url } : {}) });
+  const refused = refusedMessage(moderatorEmail(env, origin));
   return async ({ trigger, share, payload, texts }) => {
     const subjectUserId = userIdOfAccount(share.accountId);
     const verdict = await moderateTexts(provider, texts);
@@ -136,7 +152,7 @@ export function shareScreen(
         return;
       case 'block':
         await audit({ trigger, verdict: 'block', reasons: verdict.reasons, maxScores });
-        throw new DomainError('forbidden', REFUSED);
+        throw new DomainError('forbidden', refused);
       case 'csam_flag': {
         let holdId: string | null = null;
         try {
@@ -160,7 +176,7 @@ export function shareScreen(
           subjectUserId,
           holdId,
         });
-        throw new DomainError('forbidden', REFUSED);
+        throw new DomainError('forbidden', refused);
       }
     }
   };

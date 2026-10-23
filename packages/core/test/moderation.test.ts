@@ -47,7 +47,15 @@ describe('verdictOf', () => {
     expect(
       verdictOf(scores({ violence: 0.8, 'harassment/threatening': 0.6, 'illicit/violent': 0.49 })),
     ).toMatchObject({ kind: 'block', reasons: ['harassment/threatening', 'violence'] });
-    expect(verdictOf(scores({ violence: 0.79, harassment: 1, sexual: 1 })).kind).toBe('allow');
+    expect(verdictOf(scores({ violence: 0.79, harassment: 1, hate: 1 })).kind).toBe('allow');
+  });
+
+  it('blocks sexual and violence/graphic at 0.5', () => {
+    expect(verdictOf(scores({ sexual: 0.5, 'violence/graphic': 0.5 }))).toMatchObject({
+      kind: 'block',
+      reasons: ['sexual', 'violence/graphic'],
+    });
+    expect(verdictOf(scores({ sexual: 0.49, 'violence/graphic': 0.49 })).kind).toBe('allow');
   });
 });
 

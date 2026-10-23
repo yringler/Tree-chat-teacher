@@ -47,6 +47,7 @@ export const CONFIG_VARS = [
   'SHARE_MIN_ACCOUNT_AGE_MS',
   'SHARE_CREATES_PER_DAY',
   'MODERATION_API_KEY',
+  'MODERATOR_EMAIL',
   'ADMIN_USER_IDS',
   'ANDROID_APP_ID',
   // Sign-in and email
@@ -462,6 +463,8 @@ export interface AppConfig {
      * nothing is screened and `SHARING=everyone` acts as `allowlist`.
      */
     moderationApiKey: string | null;
+    /** `MODERATOR_EMAIL`: where an owner whose share was refused is told to write; null = the legal contact. */
+    moderatorEmail: string | null;
     /** `TEST_MODERATION_URL` (tests only); null = the provider's endpoint. */
     moderationUrl: string | null;
     adminUserIds: readonly string[];
@@ -865,6 +868,7 @@ function parse(env: AppEnv): AppConfig {
       shareMinAccountAgeMs: int('SHARE_MIN_ACCOUNT_AGE_MS', 86_400_000),
       shareCreatesPerDay: int('SHARE_CREATES_PER_DAY', 20, { min: 1 }),
       moderationApiKey: text('MODERATION_API_KEY'),
+      moderatorEmail: text('MODERATOR_EMAIL'),
       moderationUrl: testSeams ? text('TEST_MODERATION_URL') : null,
       adminUserIds: listVar(v('ADMIN_USER_IDS')),
       androidAppId: androidAppIdVar(v('ANDROID_APP_ID')),

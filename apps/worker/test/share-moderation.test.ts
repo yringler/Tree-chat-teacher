@@ -13,7 +13,11 @@ import { MODERATION_ORIGIN } from './mocks/moderation.js';
 import { RESEND_ORIGIN } from './mocks/resend.js';
 import { authEnv, client } from './session-client.js';
 
-const REFUSED = "This conversation can't be shared.";
+const MODERATOR = 'moderator@example.org';
+const refusedFor = (email: string) =>
+  "This conversation can't be shared. You can still download the chat and share it yourself. " +
+  `If you feel this share was blocked in error, you can contact ${email}.`;
+const REFUSED = refusedFor(MODERATOR);
 
 let emailSeq = 0;
 async function newUser(e: AppEnv) {
@@ -93,7 +97,7 @@ describe('publish-time screening', () => {
   });
 
   it('refuses a flagged reply with a generic message and stores nothing', async () => {
-    const e = authEnv();
+    const e = authEnv({ MODERATOR_EMAIL: MODERATOR });
     const user = await newUser(e);
     const treeId = await seedTree(user, e, 'A question', 'An answer [mod-violent]');
     const res = await create(user, e, treeId);
@@ -105,7 +109,7 @@ describe('publish-time screening', () => {
   });
 
   it('screens a new title and a republish, keeping the published snapshot when refused', async () => {
-    const e = authEnv();
+    const e = authEnv({ MODERATOR_EMAIL: MODERATOR });
     const user = await newUser(e);
     const treeId = await seedTree(user, e, 'Fine question', 'Fine answer');
     const share = await ok<ShareSummary>(await create(user, e, treeId), 201);
@@ -140,9 +144,32 @@ describe('publish-time screening', () => {
     ]);
   });
 
+  it.each(['[mod-sexual]', '[mod-graphic]'])('refuses %s content like any other', async (flag) => {
+    const e = authEnv({ MODERATOR_EMAIL: MODERATOR });
+    const user = await newUser(e);
+    const treeId = await seedTree(user, e, 'A question', `An answer ${flag}`);
+    expect(await refusal(await create(user, e, treeId))).toEqual({
+      status: 403,
+      code: 'forbidden',
+      message: REFUSED,
+    });
+    expect(await ok<ShareSummary[]>(await user.call('/api/shares', {}, e))).toEqual([]);
+  });
+
+  it('points the owner to the legal contact when no moderator email is set', async () => {
+    const legal = `legal-${crypto.randomUUID()}@example.org`;
+    const e = authEnv({ LEGAL_CONTACT_EMAIL: legal });
+    const user = await newUser(e);
+    const treeId = await seedTree(user, e, 'A question', 'An answer [mod-violent]');
+    expect(await refusal(await create(user, e, treeId))).toMatchObject({
+      message: refusedFor(legal),
+    });
+  });
+
   it('holds and alerts on possible CSAM, refusing exactly as for anything else', async () => {
     const legal = `legal-${crypto.randomUUID()}@example.org`;
     const e = authEnv({
+      MODERATOR_EMAIL: MODERATOR,
       LEGAL_CONTACT_EMAIL: legal,
       EMAIL_PROVIDER: 'resend',
       RESEND_API_KEY: 're_test',
