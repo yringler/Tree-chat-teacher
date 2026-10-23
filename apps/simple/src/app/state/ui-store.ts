@@ -8,7 +8,8 @@ import { Overlays, SidebarState } from '@tangent/web-shared';
  * the Connect sheet (ConnectDialog) for the message a connection is made
  * from; `shortcuts`: the keyboard shortcuts; `instructions`: the open lesson's
  * own instructions (InstructionsDialog); `help`: "How tangents work"
- * (HelpDialog).
+ * (HelpDialog); `advanced-settings`: the model and reply length
+ * (AdvancedSettingsDialog).
  */
 export type Dialog =
   | { kind: 'passkeys' }
@@ -18,7 +19,8 @@ export type Dialog =
   | { kind: 'connect'; sourceNodeId: string }
   | { kind: 'shortcuts' }
   | { kind: 'instructions' }
-  | { kind: 'help' };
+  | { kind: 'help' }
+  | { kind: 'advanced-settings' };
 
 /** View state that is not part of the URL: the account menu and dialogs. */
 @Injectable({ providedIn: 'root' })

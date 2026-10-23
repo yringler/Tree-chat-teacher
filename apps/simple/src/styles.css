@@ -773,6 +773,38 @@ app-related-links.connections {
   margin: 0 auto 8px;
 }
 
+/* "Max · Very long" above the composer (AdvancedChip): quiet, but in view while typing. */
+.composer-dock app-advanced-chip {
+  display: block;
+  max-width: var(--col);
+  margin: 0 auto;
+}
+
+.advanced-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  margin: 0 0 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.advanced-chip.is-off {
+  border-style: dashed;
+  color: var(--fg-muted);
+}
+
+.advanced-chip-note {
+  color: var(--fg-muted);
+}
+
 /* "Your credit is used up…" above the composer. */
 .composer-dock .tier-note {
   display: block;

@@ -66,3 +66,17 @@ describe('Learn header: How tangents work', () => {
     expect(ui.dialogs.list()).toEqual([{ kind: 'shortcuts' }]);
   });
 });
+
+describe('Learn header: Advanced settings', () => {
+  it('the account menu opens them', async () => {
+    await render(AppHeader, {
+      providers: [...appProviders({}), { provide: AuthService, useValue: {} }],
+      setup: () => void learner(),
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Account' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Advanced settings' }));
+    expect(TestBed.inject(UiStore).dialogs.list()).toEqual([{ kind: 'advanced-settings' }]);
+    expect(TestBed.inject(UiStore).menuOpen()).toBe(false);
+  });
+});

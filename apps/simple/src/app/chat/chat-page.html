@@ -167,7 +167,9 @@
       @if (funding.creditWaiting()) {
         <!-- Credit was picked but is used up: replies run on the pool meanwhile, without its extras. -->
         <p class="tier-note" role="status">
-          Your credit is used up, so replies use the open pool, which can't check sources.
+          Your credit is used up, so replies use the open pool, which can't check sources{{
+            replies.changed() ? ' or use your advanced settings, so they use Normal' : ''
+          }}.
           <a routerLink="/billing">Add credit</a>
         </p>
       }
@@ -181,6 +183,8 @@
           (changed)="chooseFunding($event)"
         />
       }
+      <!-- A changed advanced setting, said where the learner writes, so it isn't forgotten. -->
+      <app-advanced-chip />
       <app-composer
         [maxHeight]="280"
         [placeholder]="placeholder()"

@@ -115,6 +115,37 @@ describe('Learn: the lesson page', () => {
     expect(button !== null).toBe(shown);
   });
 
+  it('shows no advanced-settings chip while every setting is the default', async () => {
+    await page();
+    expect(within(dock()).queryByRole('button', { name: /^Advanced settings/ })).toBeNull();
+  });
+
+  it('names a changed advanced setting above the composer, and opens the settings from it', async () => {
+    const { user } = await page(lesson(), {
+      billing: billing(),
+      chosen: 'credit',
+      replies: { tier: 'max', replyLength: 'veryLong' },
+    });
+    const chip = within(dock()).getByRole('button', {
+      name: 'Advanced settings: Max model, very long replies. Change',
+    });
+    expect(chip.textContent).toContain('Max · Very long');
+    expect(chip.getAttribute('aria-live')).toBeNull();
+    await user.click(chip);
+    expect(TestBed.inject(UiStore).dialogs.list()).toEqual([{ kind: 'advanced-settings' }]);
+  });
+
+  it('mutes the chip, saying why, while the open pool pays', async () => {
+    await page(lesson(), {
+      pool: POOL_ON,
+      chosen: 'pool',
+      replies: { tier: 'normal', replyLength: 'long' },
+    });
+    const chip = within(dock()).getByRole('button', { name: /^Advanced settings: long replies/ });
+    expect(chip.classList).toContain('is-off');
+    expect(chip.textContent).toContain('Not used for free replies');
+  });
+
   it('after a reply the composer offers Tangent ↳ first and Next ➜, each saying what it is for', async () => {
     await page();
     screen.getByRole('heading', { name: 'Light' });

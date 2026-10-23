@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import type {
   BillingSummary,
   LearnKeyProvider,
+  LearnReplySettings,
   MembershipInfo,
   Payer,
   PoolMeResponse,
@@ -12,6 +13,7 @@ import { branch, detail, me, membership, node } from '@tangent/web-shared/testin
 import { AccountStore } from './state/account-store';
 import { LearnFunding } from './state/learn-funding';
 import { PaymentChoice } from './state/payment-choice';
+import { ReplySettings } from './state/reply-settings';
 
 /** The open pool, on, with ten sessions' worth of credit, on Normal. */
 export const POOL_ON: PoolStatusResponse = {
@@ -46,6 +48,8 @@ export function learner(
     learnProviders?: LearnKeyProvider[];
     chosen?: Payer;
     chosenKey?: LearnKeyProvider;
+    /** Advanced settings as saved (the defaults unless it says). */
+    replies?: LearnReplySettings;
   } = {},
 ): LearnFunding {
   const m = facts.membership ?? membership({ required: false, status: 'inactive' });
@@ -65,6 +69,7 @@ export function learner(
   });
   if (facts.chosen) TestBed.inject(PaymentChoice).chosen.set(facts.chosen);
   if (facts.chosenKey) TestBed.inject(PaymentChoice).chosenKey.set(facts.chosenKey);
+  if (facts.replies) TestBed.inject(ReplySettings).settings.set(facts.replies);
   return funding;
 }
 

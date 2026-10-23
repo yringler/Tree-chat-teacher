@@ -42,11 +42,13 @@ import {
 import { BRAND } from '../brand';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
+import { AdvancedChip } from './advanced-chip';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
 import { FUNDING_OPTIONS, ownKeyOption, type FundingOption } from './switches';
 import { branchTitle, lessonTitle, threadTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
+import { ReplySettings } from '../state/reply-settings';
 
 /** `/t/:treeId[/b/:branchId]`: the lesson, one branch at a time. */
 @Component({
@@ -64,6 +66,7 @@ import { LearnFunding } from '../state/learn-funding';
     SelectionAsk,
     TextSizeMenu,
     KeyLockedNotice,
+    AdvancedChip,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-page.html',
@@ -77,6 +80,7 @@ import { LearnFunding } from '../state/learn-funding';
 export class ChatPage implements OnDestroy {
   protected readonly store = inject(LessonStore);
   protected readonly funding = inject(LearnFunding);
+  protected readonly replies = inject(ReplySettings);
   protected readonly textSize = inject(TextSizeStore);
   private readonly ui = inject(UiStore);
   private readonly composer = inject(ComposerController);
