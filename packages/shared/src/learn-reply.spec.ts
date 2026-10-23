@@ -177,7 +177,9 @@ describe('replyLengthInstructions', () => {
     for (const length of ['long', 'veryLong'] as const) {
       const text = replyLengthInstructions(length);
       expect(text).toContain('`##`');
-      expect(text).toMatch(/A reply under about 600 words has no headings\./);
+      expect(text).toMatch(
+        /Count before adding headings: a reply under about 600 words has none\./,
+      );
       expect(text).toMatch(/no title or heading/);
     }
   });
@@ -197,13 +199,26 @@ describe('replyLengthInstructions', () => {
     expect(text).toMatch(/only on new material/);
     expect(text).toMatch(/check every number/);
     expect(text).toMatch(/Make each point once/);
-    expect(text).toMatch(/Don't list the sections/);
+    expect(text).toMatch(
+      /The overview answers the question; it never previews the order of what follows\./,
+    );
+    expect(text).not.toMatch(/Don't list the sections/);
+    expect(text).toMatch(
+      /No section that regroups what's already been explained \(a timeline, 'why it was fragile', competing frameworks\)\./,
+    );
+    expect(text).toMatch(
+      /Don't narrate your confidence \('I'm confident…', 'as I recall', 'I'd check…'\); leave out a detail you're unsure of\./,
+    );
+    expect(text).toMatch(
+      /A practical safety claim \(burns, disinfection, dosing\) must be one you're sure of\./,
+    );
     expect(text).toMatch(/no summary, recap/);
     expect(text).toMatch(/no misconceptions section/);
     expect(text).toMatch(/only those you're sure of/);
     expect(text).toMatch(/attribute a contested claim/);
     expect(text).toMatch(/without redefining them/);
     expect(text).toMatch(/at most 6 suggestions/);
+    expect(text).toMatch(/none that any paragraph of this reply already covers/);
     expect(replyLengthInstructions('normal')).not.toMatch(/^- /m);
   });
 
@@ -227,6 +242,8 @@ describe('replyLengthInstructions', () => {
     expect(veryLong).toMatch(chapter);
     expect(veryLong).toMatch(/what a textbook chapter on this would cover/);
     expect(veryLong).toMatch(/a second worked example of a different kind/);
+    expect(veryLong).toMatch(/where experts genuinely disagree, if they do/);
+    expect(veryLong).toMatch(/don't manufacture a debate/);
     expect(veryLong).toMatch(/only when the question is truly narrow/);
     expect(veryLong).toMatch(/clearly beyond what a Long reply would cover/);
     expect(replyLengthInstructions('normal')).not.toMatch(narrowStop);

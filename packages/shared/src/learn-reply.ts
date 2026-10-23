@@ -113,20 +113,26 @@ export const REPLY_LENGTH_WORDS: Readonly<Record<LearnReplyLength, ReplyLengthWo
 
 /**
  * How Long and Very long spend their room. Each rule answers padding or slips
- * seen in longer replies: recaps, a contents paragraph, a misconceptions
- * section re-arguing the body, a point made twice, headings on a short reply,
- * tangents repeating a section, more wrong figures as replies grew, a closing
- * offer of a diagram after the content, and a dropped tangents block.
+ * seen in longer replies: recaps, an overview that previews the sections, a
+ * misconceptions section re-arguing the body, a section regrouping what was
+ * already explained, a point made twice, headings on a short reply, tangents
+ * repeating the reply, more wrong figures as replies grew, narrated
+ * confidence in place of leaving a doubtful detail out, a safety claim made
+ * loosely, a closing offer of a diagram after the content, and a dropped
+ * tangents block.
  */
 const SPEND_RULE =
   '- Spend added length only on new material: more of the mechanism, worked examples (check every number before writing it), and edge cases. Make each point once.';
 const LONG_RULES = [
-  "- Open with a short overview paragraph, with no title or heading. A reply under about 600 words has no headings. Past that, organize the body under `##` headings that follow the overview. Don't list the sections you're about to cover.",
+  '- Open with a short overview paragraph, with no title or heading. The overview answers the question; it never previews the order of what follows. Count before adding headings: a reply under about 600 words has none. Past that, organize the body under `##` headings that follow the overview.',
   '- End on the last new point. Add no summary, recap or "short version" section, and no misconceptions section that re-argues the body; address a misconception where the mechanism it gets wrong is explained.',
+  "- No section that regroups what's already been explained (a timeline, 'why it was fragile', competing frameworks).",
   "- A longer reply carries more specific figures, dates, names and version details. Include only those you're sure of, say which era a version-specific detail belongs to, and attribute a contested claim to whoever holds it.",
+  "- Don't narrate your confidence ('I'm confident…', 'as I recall', 'I'd check…'); leave out a detail you're unsure of.",
+  "- A practical safety claim (burns, disinfection, dosing) must be one you're sure of.",
   '- Inside a tangent, use the terms the conversation has already explained without redefining them.',
   '- Leave out the closing offer to draw a diagram; if a diagram would help, make it one of the tangents instead.',
-  "- Always end with the tangents block, with at most 6 suggestions, none of them something a section of this reply already covers. It doesn't count toward the length.",
+  "- Always end with the tangents block, with at most 6 suggestions, none that any paragraph of this reply already covers. It doesn't count toward the length.",
 ];
 
 /**
@@ -137,7 +143,7 @@ const LONG_RULES = [
 const LENGTH_RULE: Readonly<Record<'long' | 'veryLong', string>> = {
   long: "- If the question is narrow, stop when it's answered.",
   veryLong:
-    "- A learner who picks Very long wants a chapter. Before ending, check what a textbook chapter on this would cover (the full mechanism, a second worked example of a different kind, the edge cases, where experts disagree) and cover what's missing. Come in under the range only when the question is truly narrow, and even then go clearly beyond what a Long reply would cover.",
+    "- A learner who picks Very long wants a chapter. Before ending, check what a textbook chapter on this would cover (the full mechanism, a second worked example of a different kind, the edge cases, where experts genuinely disagree, if they do; don't manufacture a debate) and cover what's missing. Come in under the range only when the question is truly narrow, and even then go clearly beyond what a Long reply would cover.",
 };
 
 const longRules = (length: 'long' | 'veryLong') =>
