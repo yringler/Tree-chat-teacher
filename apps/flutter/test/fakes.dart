@@ -71,9 +71,12 @@ TreeDetail treeDetail({
 /// Timers a test controls. Each records its duration and fires at once (in
 /// a microtask) unless [hold] is set; cancelled, it never fires.
 class FakeTimers {
-  FakeTimers({this.hold = false});
+  FakeTimers({this.hold = false, this.holdFrom});
 
   final bool hold;
+
+  /// Timers this long or longer are held even without [hold].
+  final Duration? holdFrom;
   final started = <FakeTimer>[];
 
   List<Duration> get durations => [for (final t in started) t.duration];
@@ -81,7 +84,8 @@ class FakeTimers {
   Timer call(Duration duration, void Function() callback) {
     final timer = FakeTimer(duration, callback);
     started.add(timer);
-    if (!hold) scheduleMicrotask(timer.fire);
+    final held = hold || (holdFrom != null && duration >= holdFrom!);
+    if (!held) scheduleMicrotask(timer.fire);
     return timer;
   }
 }

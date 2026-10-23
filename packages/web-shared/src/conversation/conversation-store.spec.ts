@@ -14,7 +14,13 @@ import type {
 } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../core/api-client';
-import { ConversationStore, type FailedSend } from './conversation-store';
+import {
+  CHECK_AGAIN_DELAY_MS,
+  CHECK_AGAIN_MAX_DELAY_MS,
+  CONNECTION_LOST_TEXT,
+  ConversationStore,
+  type FailedSend,
+} from './conversation-store';
 import { branch, controlledStream, deferred, detail, link, node, stream, T } from '../testing';
 
 /** Tree `id` with these messages and branches. */
@@ -78,6 +84,7 @@ class TestStore extends ConversationStore<ReturnType<typeof fakeApi>> {
   readonly deletedTrees: string[] = [];
   readonly droppedLinks: string[] = [];
   readonly treeChanges: (string | null)[] = [];
+  readonly withdrawn: string[] = [];
   alsoRefreshed = 0;
 
   fail(err: unknown): void {
@@ -86,6 +93,10 @@ class TestStore extends ConversationStore<ReturnType<typeof fakeApi>> {
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
     this.toasts.push({ text, kind });
+  }
+
+  protected override withdrawNotice(text: string): void {
+    this.withdrawn.push(text);
   }
 
   protected override sent(_branchId: string, content: string): void {
@@ -331,13 +342,13 @@ describe('ConversationStore streaming a reply', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(true);
     expect(s.store.index()?.nodes.get('a1')).toMatchObject({
       status: 'error',
-      error: 'Connection lost. Reload to see the final reply.',
+      error: CONNECTION_LOST_TEXT,
       content: 'Li',
     });
     expect(s.store.live().size).toBe(0);
     expect(s.store.busy()).toBe(false);
     expect(s.store.toasts).toEqual([
-      { text: 'Lost the connection to the reply: gone. Reload to check on it.', kind: 'error' },
+      { text: 'Lost the connection to the reply: gone.', kind: 'error' },
     ]);
     expect(s.store.completions()).toBe(1);
   });
@@ -446,6 +457,140 @@ describe('ConversationStore re-attaching to replies when a tree opens', () => {
     expect(s.store.index()?.nodes.get('a1')?.content).toBe('Ha');
     expect(s.store.live().size).toBe(0);
     expect(s.store.toasts.at(-1)?.text).toContain('Lost the connection');
+  });
+});
+
+describe('ConversationStore checking on a reply given up on', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const offline = () => new TypeError('Failed to fetch');
+  const lostNotice = 'Lost the connection to the reply: Failed to fetch.';
+
+  /** Sends into `t1` and loses the reply: its stream drops and the 4 reconnects fail offline. */
+  async function loseReply(): Promise<ReturnType<typeof setup>> {
+    const s = setup();
+    await open(s, tree());
+    s.api.sendMessage.mockResolvedValue(
+      stream([start, { type: 'delta', nodeId: 'a1', text: 'Li' }]),
+    );
+    s.api.streamNode.mockRejectedValue(offline());
+    s.api.getTree.mockRejectedValue(offline());
+    const sending = s.store.send('trunk', 'What is light?');
+    await vi.advanceTimersByTimeAsync(500 + 1000 + 2000 + 4000);
+    await expect(sending).resolves.toBe(true);
+    expect(s.store.index()?.nodes.get('a1')).toMatchObject({
+      status: 'error',
+      error: CONNECTION_LOST_TEXT,
+      content: 'Li',
+    });
+    expect(s.store.toasts).toEqual([{ text: lostNotice, kind: 'error' }]);
+    s.api.getTree.mockClear();
+    return s;
+  }
+
+  it('reads the tree again after 5s and shows the reply as the server finished it', async () => {
+    const s = await loseReply();
+    s.api.getTree.mockResolvedValue(
+      tree('t1', [userNode, { ...replyNode, status: 'complete', content: 'Light is fast.' }]),
+    );
+    await vi.advanceTimersByTimeAsync(CHECK_AGAIN_DELAY_MS - 1);
+    expect(s.api.getTree).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(s.api.getTree).toHaveBeenCalledWith('t1');
+    expect(s.store.index()?.nodes.get('a1')).toMatchObject({
+      status: 'complete',
+      content: 'Light is fast.',
+    });
+    expect(s.store.withdrawn).toEqual([lostNotice]);
+    expect(s.store.busy()).toBe(false);
+    await vi.advanceTimersByTimeAsync(5 * CHECK_AGAIN_MAX_DELAY_MS);
+    expect(s.api.getTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows the reply again when the server is still writing it, keeping its text meanwhile', async () => {
+    const s = await loseReply();
+    s.api.getTree.mockResolvedValue(tree('t1', [userNode, replyNode]));
+    const again = deferred<Response>();
+    s.api.streamNode.mockReset().mockReturnValue(again.promise);
+    await vi.advanceTimersByTimeAsync(CHECK_AGAIN_DELAY_MS);
+    expect(s.store.index()?.nodes.get('a1')?.status).toBe('streaming');
+    expect(s.store.live().get('a1')?.content).toBe('Li');
+    expect(s.store.withdrawn).toEqual([lostNotice]);
+    again.resolve(
+      stream([
+        { type: 'snapshot', node: { ...replyNode, content: 'Light is' } },
+        { type: 'delta', nodeId: 'a1', text: ' fast.' },
+        {
+          type: 'done',
+          node: { ...replyNode, status: 'complete', content: 'Light is fast.' },
+          branch: branch('trunk'),
+        },
+      ]),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.store.index()?.nodes.get('a1')).toMatchObject({
+      status: 'complete',
+      content: 'Light is fast.',
+    });
+    expect(s.store.live().size).toBe(0);
+    await vi.advanceTimersByTimeAsync(5 * CHECK_AGAIN_MAX_DELAY_MS);
+    expect(s.api.getTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('a dead connection stays failed, reported once, and is checked after 5, 10, 20, 40, then every 60s', async () => {
+    const s = await loseReply();
+    const waits = [5, 10, 20, 40, 60, 60, 60].map((sec) => sec * 1000);
+    for (const [i, wait] of waits.entries()) {
+      await vi.advanceTimersByTimeAsync(wait - 1);
+      expect(s.api.getTree).toHaveBeenCalledTimes(i);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(s.api.getTree).toHaveBeenCalledTimes(i + 1);
+    }
+    expect(s.store.index()?.nodes.get('a1')).toMatchObject({
+      status: 'error',
+      error: CONNECTION_LOST_TEXT,
+      content: 'Li',
+    });
+    expect(s.store.toasts).toHaveLength(1);
+    expect(s.store.failures).toEqual([]);
+    expect(s.store.withdrawn).toEqual([]);
+    expect(s.store.detailError()).toBeNull();
+  });
+
+  it('a reply followed again and lost again with no event is not reported again', async () => {
+    const s = await loseReply();
+    s.api.getTree.mockResolvedValue(tree('t1', [userNode, replyNode]));
+    await vi.advanceTimersByTimeAsync(CHECK_AGAIN_DELAY_MS);
+    expect(s.store.index()?.nodes.get('a1')?.status).toBe('streaming');
+    s.api.getTree.mockClear().mockRejectedValue(offline());
+    // Its reconnects fail again (at once, then after 2, 4 and 8s).
+    await vi.advanceTimersByTimeAsync(2000 + 4000 + 8000);
+    expect(s.store.index()?.nodes.get('a1')?.error).toBe(CONNECTION_LOST_TEXT);
+    expect(s.store.toasts).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(s.api.getTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops checking once another tree opens, or the store is disposed', async () => {
+    const s = await loseReply();
+    s.api.getTree.mockResolvedValue(tree('t2'));
+    s.store.setRoute('t2', null, null);
+    await vi.advanceTimersByTimeAsync(5 * CHECK_AGAIN_MAX_DELAY_MS);
+    expect(s.api.getTree.mock.calls).toEqual([['t2']]);
+
+    const d = await loseReply();
+    d.store.dispose();
+    await vi.advanceTimersByTimeAsync(5 * CHECK_AGAIN_MAX_DELAY_MS);
+    expect(d.api.getTree).not.toHaveBeenCalled();
   });
 });
 

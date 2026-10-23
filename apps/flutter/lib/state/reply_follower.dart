@@ -19,6 +19,10 @@ abstract interface class ReplyHost {
   /// Says why a send was refused, or a reply's stream gave up.
   void report(Object error);
 
+  /// The [error] reported for a reply given up on no longer holds: the
+  /// lesson was read again since.
+  void resolved(Object error);
+
   /// Reads the lesson again from the server, and shows it through [nodes];
   /// throws when it can't.
   Future<void> reload();
@@ -45,6 +49,13 @@ class ReplyFollower {
   /// The replies read again after their stream gave up, and followed
   /// again with no event since.
   final _recovered = <String>{};
+
+  /// The replies given up on with no event since, with how many waits to
+  /// read the lesson again they have had.
+  final _givenUp = <String, int>{};
+
+  /// The replies given up on whose lesson is waiting to be read again.
+  final _checking = <String>{};
   int _unstarted = 0;
   bool _disposed = false;
 
@@ -57,6 +68,15 @@ class ReplyFollower {
   /// the server, slow to start (a cold Durable Object), hasn't written the
   /// message yet.
   static const recheckDelay = Duration(seconds: 3);
+
+  /// How long a reply given up on waits before the lesson is read again,
+  /// to show what the server made of it. Its connection is often only
+  /// paused (a phone locked, or between networks) while the server
+  /// finishes the reply.
+  static const checkAgainDelay = Duration(seconds: 5);
+
+  /// The longest wait between reads of the lesson for a reply given up on.
+  static const checkAgainMaxDelay = Duration(minutes: 1);
 
   /// A send is waiting for the server to start its reply.
   bool get sending => _unstarted > 0;
@@ -116,6 +136,7 @@ class ReplyFollower {
             if (event is StartEvent) send?.accept(true);
             // A reply whose stream makes progress may be recovered again.
             _recovered.remove(stream.replyId);
+            _givenUp.remove(stream.replyId);
             _host.apply(event, stream.replyId);
           })
           .then((outcome) => _ended(stream, outcome, send)),
@@ -173,10 +194,48 @@ class ReplyFollower {
     if (_isStreaming(replyId)) follow(replyId);
   }
 
+  /// Marks [replyId] failed, and reads the lesson again from time to time
+  /// until that works, to show the reply as the server has it then. [error]
+  /// is reported once, however often the reply is given up on again with no
+  /// event in between.
   void _giveUp(String replyId, Object error) {
-    _host
-      ..report(error)
-      ..markFailed(replyId, connectionLostText);
+    if (!_givenUp.containsKey(replyId)) {
+      _givenUp[replyId] = 0;
+      _host.report(error);
+    }
+    _host.markFailed(replyId, connectionLostText);
+    if (_checking.add(replyId)) unawaited(_checkAgain(replyId, error));
+  }
+
+  /// Reads the lesson again for [replyId], given up on, after a wait that
+  /// doubles with each wait since it was first given up on, until a read
+  /// works or an event of the reply's comes first. A reply the server still
+  /// writes is followed again.
+  Future<void> _checkAgain(String replyId, Object error) async {
+    try {
+      for (;;) {
+        final waits = _givenUp[replyId];
+        if (waits == null) return;
+        _givenUp[replyId] = waits + 1;
+        final wait = checkAgainDelay * (1 << (waits < 4 ? waits : 4));
+        await _wait(wait < checkAgainMaxDelay ? wait : checkAgainMaxDelay);
+        if (_disposed || !_givenUp.containsKey(replyId)) return;
+        try {
+          await _host.reload();
+        } on Object {
+          continue;
+        }
+        if (_disposed) return;
+        _host.resolved(error);
+        // Lost again with no event, it is given up on again at once.
+        _recovered.add(replyId);
+        if (_isStreaming(replyId)) follow(replyId);
+        _host.changed();
+        return;
+      }
+    } finally {
+      _checking.remove(replyId);
+    }
   }
 
   /// Reads the lesson again after [send] was lost before its reply started:
@@ -242,7 +301,7 @@ class ReplyFollower {
 
 /// What a reply given up on says in place of its end.
 const connectionLostText =
-    'Connection lost. Open the lesson again to see the final reply.';
+    'Connection lost. The reply shows here once the connection is back.';
 
 /// A send being followed: its branch, the nodes shown when it was sent, and
 /// how to settle what [ReplyFollower.send] answers.

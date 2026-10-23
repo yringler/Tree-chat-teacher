@@ -1,4 +1,4 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { computed, inject, Injectable, signal, type OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
 import { linkTarget } from '@tangent/core/links';
 import { branchChain, branchLeaf, descendantBranches } from '@tangent/core/tree';
@@ -84,7 +84,7 @@ export function modelLabel(
  * number of lanes may generate at once; `busyBranches` tells them apart.
  */
 @Injectable({ providedIn: 'root' })
-export class CanvasStore extends PowerConversationStore<ApiClient> {
+export class CanvasStore extends PowerConversationStore<ApiClient> implements OnDestroy {
   private readonly ui = inject(UiStore);
   private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
@@ -343,6 +343,14 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
     this.toast.notify(text, kind);
+  }
+
+  protected override withdrawNotice(text: string): void {
+    this.toast.withdraw(text);
+  }
+
+  ngOnDestroy(): void {
+    this.dispose();
   }
 
   protected override keysSettled(): void {

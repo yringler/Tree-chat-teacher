@@ -20,7 +20,7 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/{web,simple,canvas,admin}/src/**",
         "$TURBO_ROOT$/apps/flutter/lib/ui/{tangent_help_copy,lesson_outline}.dart",
-        "$TURBO_ROOT$/apps/flutter/lib/state/learn_reply.dart"
+        "$TURBO_ROOT$/apps/flutter/lib/state/{learn_reply,reply_follower}.dart"
       ],
       "outputs": []
     },
@@ -30,7 +30,7 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/{web,simple,canvas,admin}/src/**",
         "$TURBO_ROOT$/apps/flutter/lib/ui/{tangent_help_copy,lesson_outline}.dart",
-        "$TURBO_ROOT$/apps/flutter/lib/state/learn_reply.dart"
+        "$TURBO_ROOT$/apps/flutter/lib/state/{learn_reply,reply_follower}.dart"
       ],
       "outputs": ["coverage/**"]
     },

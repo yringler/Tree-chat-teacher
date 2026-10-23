@@ -1,4 +1,4 @@
-import { computed, inject, Injectable } from '@angular/core';
+import { computed, inject, Injectable, type OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
 import { branchesWithLinks, linkTarget } from '@tangent/core';
 import { DEFAULT_GROUNDING_MODE, type BranchFunding } from '@tangent/shared';
@@ -30,7 +30,7 @@ import { UiStore } from './ui-store';
  * and its dialogs and toasts.
  */
 @Injectable({ providedIn: 'root' })
-export class TreeStore extends PowerConversationStore<ApiClient> {
+export class TreeStore extends PowerConversationStore<ApiClient> implements OnDestroy {
   private readonly ui = inject(UiStore);
   private readonly sidebar = inject(SidebarState);
   private readonly composer = inject(ComposerController);
@@ -257,6 +257,14 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
     this.toast.notify(text, kind);
+  }
+
+  protected override withdrawNotice(text: string): void {
+    this.toast.withdraw(text);
+  }
+
+  ngOnDestroy(): void {
+    this.dispose();
   }
 
   protected override keysSettled(): void {

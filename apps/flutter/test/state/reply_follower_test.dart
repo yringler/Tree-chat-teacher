@@ -45,6 +45,9 @@ class FakeHost implements ReplyHost {
   void report(Object error) => log.add('error $error');
 
   @override
+  void resolved(Object error) => log.add('resolved $error');
+
+  @override
   Future<void> reload() {
     log.add('reload');
     return reloading();
@@ -66,7 +69,12 @@ void main() {
   late FakeTimers timers;
 
   ReplyFollower make({bool holdTimers = false}) {
-    timers = FakeTimers(hold: holdTimers);
+    // The waits to read the lesson again for a reply given up on are held:
+    // a test fires them.
+    timers = FakeTimers(
+      hold: holdTimers,
+      holdFrom: ReplyFollower.checkAgainDelay,
+    );
     return ReplyFollower(transport: api, host: host, startTimer: timers.call);
   }
 
@@ -217,6 +225,12 @@ void main() {
   group('a reply lost while shown being written', () {
     setUp(() => host.shown = [reply('a1')]);
 
+    const offline = ApiException(
+      status: 0,
+      code: 'network',
+      message: 'offline',
+    );
+
     /// Sends a message and loses its reply after `start`, and its
     /// reconnects.
     Future<void> sendAndLose() async {
@@ -265,7 +279,7 @@ void main() {
         ]);
         expect(
           connectionLostText,
-          'Connection lost. Open the lesson again to see the final reply.',
+          'Connection lost. The reply shows here once the connection is back.',
         );
         expect(followedAgain().toSet(), {'a1'});
       },
@@ -289,6 +303,70 @@ void main() {
         'changed',
       ]);
       expect(followedAgain().last, 'a1');
+    });
+
+    test('given up on, is read again later and shown as the server has it, '
+        'with its error withdrawn', () async {
+      var reads = 0;
+      host.reloading = () async {
+        if (++reads == 1) throw offline;
+        host.shown = [reply('a1', status: NodeStatus.complete)];
+      };
+      await sendAndLose();
+      expect(log, [
+        'StartEvent a1',
+        'reload',
+        'error $offline',
+        'failed a1: $connectionLostText',
+        'changed',
+      ]);
+      expect(timers.started.last.duration, ReplyFollower.checkAgainDelay);
+
+      timers.started.last.fire();
+      await pumpEventQueue();
+      expect(log.skip(5), ['reload', 'resolved $offline', 'changed']);
+      expect(followedAgain(), isEmpty);
+    });
+
+    test('given up on, waits longer each time the lesson cannot be read, '
+        'reports once, and follows the reply again', () async {
+      var reads = 0;
+      host.reloading = () async {
+        if (++reads <= 5) throw offline;
+        host.shown = [reply('a1')];
+      };
+      await sendAndLose();
+      final waits = <Duration>[];
+      for (var i = 0; i < 4; i++) {
+        waits.add(timers.started.last.duration);
+        timers.started.last.fire();
+        await pumpEventQueue();
+      }
+      expect(waits, const [
+        Duration(seconds: 5),
+        Duration(seconds: 10),
+        Duration(seconds: 20),
+        Duration(seconds: 40),
+      ]);
+      expect(timers.started.last.duration, ReplyFollower.checkAgainMaxDelay);
+      timers.started.last.fire();
+      await pumpEventQueue();
+      expect(log.where((line) => line.startsWith('error')), ['error $offline']);
+      expect(log.skip(log.length - 2), ['resolved $offline', 'changed']);
+      expect(followedAgain(), ['a1']);
+
+      api.resumes.last.controller.add(done);
+      await pumpEventQueue();
+      expect(log.skip(log.length - 2), ['DoneEvent a1', 'changed']);
+    });
+
+    test('given up on, stops reading the lesson again once disposed', () async {
+      host.reloading = () async => throw offline;
+      await sendAndLose();
+      follower.dispose();
+      timers.started.last.fire();
+      await pumpEventQueue();
+      expect(log.where((line) => line == 'reload'), hasLength(1));
     });
 
     test('is marked failed when the lesson cannot be read again', () async {

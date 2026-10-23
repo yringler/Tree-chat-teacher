@@ -36,6 +36,11 @@ export class ToastStore {
   dismiss(id: number): void {
     this.toasts.update((list) => list.filter((t) => t.id !== id));
   }
+
+  /** Takes back the toasts saying `text`: what they said no longer holds. */
+  withdraw(text: string): void {
+    this.toasts.update((list) => list.filter((t) => t.text !== text));
+  }
 }
 
 /** Renders `ToastStore`'s toasts at the foot of the page. Styles: `.toasts` in base.css. */

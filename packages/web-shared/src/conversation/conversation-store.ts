@@ -35,7 +35,7 @@ import type {
 import { checkSourcesMessage } from '@tangent/shared';
 import { ApiError, errorMessage, hasCode, type ApiClient } from '../core/api-client';
 import { coalesced } from '../core/coalesced';
-import { runStream, type StreamOutcome } from '../sse/stream-runner';
+import { defaultSleep, runStream, type StreamOutcome } from '../sse/stream-runner';
 
 /** Live state of a reply, kept apart from `detail` so deltas don't re-index the tree. */
 export interface LiveReply {
@@ -46,6 +46,32 @@ export interface LiveReply {
   /** Latest `status` event (e.g. "Summarizing parent context…"). */
   status: string | null;
   reconnecting: boolean;
+}
+
+/** What a reply given up on says in place of its end, as Flutter's `connectionLostText` does. */
+export const CONNECTION_LOST_TEXT =
+  'Connection lost. The reply shows here once the connection is back.';
+
+/**
+ * How long a reply given up on waits before its tree is read again, to show
+ * what the server made of it: its connection is often only paused (a laptop
+ * asleep, or between networks) while the server finishes the reply. The
+ * wait doubles with each read that fails, up to the max.
+ */
+export const CHECK_AGAIN_DELAY_MS = 5000;
+
+/** The longest wait between reads of the tree for a reply given up on. */
+export const CHECK_AGAIN_MAX_DELAY_MS = 60_000;
+
+/** A reply given up on with no event of its since. */
+interface GivenUp {
+  treeId: string;
+  /** The toast that said so, withdrawn once the tree is read again. */
+  notice: string;
+  /** How many waits to read the tree again it has had. */
+  waits: number;
+  checking: boolean;
+  stop: AbortController;
 }
 
 /** The server calls the conversation engine makes. */
@@ -167,6 +193,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** Bumped whenever a reply finishes. */
   readonly completions = signal(0);
   protected readonly controllers = new Map<string, AbortController>();
+  private readonly givenUp = new Map<string, GivenUp>();
   private detailSeq = 0;
   private treesSeq = 0;
 
@@ -315,6 +342,9 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** A toast. */
   protected abstract notify(text: string, kind?: 'info' | 'error'): void;
 
+  /** Takes back a toast `notify` showed, when what it said no longer holds. */
+  protected withdrawNotice(_text: string): void {}
+
   /** The open tree changed (another one, none, or a new one): state about the old one goes. */
   protected treeChanged(): void {}
 
@@ -415,6 +445,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     } else {
       this.cameFrom.set(new Set());
       this.selectedTreeId.set(treeId);
+      this.stopChecks();
       this.treeChanged();
       if (treeId) void this.loadTree(treeId);
       else this.showDetail(null);
@@ -958,18 +989,107 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** A reply's stream ended (`nodeId` null: it never started). */
   protected finish(nodeId: string | null, outcome: StreamOutcome): void {
     if (outcome.kind === 'lost') {
-      this.notify(
-        `Lost the connection to the reply: ${outcome.message}. Reload to check on it.`,
-        'error',
-      );
-      if (nodeId) {
-        // Unblock the composer; the server answers a racing send with 409 if it is still generating.
-        this.markError(nodeId, 'Connection lost. Reload to see the final reply.');
-        this.dropLive(nodeId);
-      }
+      if (nodeId) this.giveUp(nodeId, outcome.message);
+      else
+        this.notify(
+          `Lost the connection to the reply: ${outcome.message}. Reload to check on it.`,
+          'error',
+        );
     }
     this.completions.update((n) => n + 1);
     void this.refreshAfterCompletion();
+  }
+
+  /**
+   * Marks a reply failed and reads its tree again from time to time until
+   * that works, to show the reply as the server has it then. The loss is
+   * reported once, however often the reply is given up on again with no
+   * event in between.
+   */
+  private giveUp(nodeId: string, message: string): void {
+    // A reply of a tree no longer open isn't shown, so there is nothing to check.
+    const treeId = this.index()?.nodes.get(nodeId)?.treeId;
+    let given = this.givenUp.get(nodeId);
+    if (!given) {
+      const notice = `Lost the connection to the reply: ${message}.`;
+      this.notify(notice, 'error');
+      if (treeId) {
+        given = { treeId, notice, waits: 0, checking: false, stop: new AbortController() };
+        this.givenUp.set(nodeId, given);
+      }
+    }
+    // Unblock the composer; the server answers a racing send with 409 if it is still generating.
+    this.markError(nodeId, CONNECTION_LOST_TEXT);
+    this.dropLive(nodeId);
+    if (given && !given.checking) void this.checkAgain(nodeId, given);
+  }
+
+  /**
+   * Reads the tree of `nodeId`, given up on, after a wait that doubles with
+   * each wait since, until a read works or an event of the reply's comes
+   * first. A reply the server still writes is followed again.
+   */
+  private async checkAgain(nodeId: string, given: GivenUp): Promise<void> {
+    given.checking = true;
+    try {
+      while (this.givenUp.get(nodeId) === given) {
+        const wait = CHECK_AGAIN_DELAY_MS * 2 ** Math.min(given.waits, 4);
+        given.waits++;
+        await defaultSleep(Math.min(wait, CHECK_AGAIN_MAX_DELAY_MS), given.stop.signal);
+        if (this.givenUp.get(nodeId) !== given) return;
+        let read: TreeDetail;
+        try {
+          read = await this.api.getTree(given.treeId);
+        } catch {
+          continue;
+        }
+        if (this.givenUp.get(nodeId) !== given) return;
+        this.recovered(nodeId, given, read);
+        return;
+      }
+    } finally {
+      given.checking = false;
+    }
+  }
+
+  /**
+   * The tree of a reply given up on was read again: the reply shows as the
+   * server has it, followed again if still written, and the loss is no
+   * longer reported. Followed again and lost with no event, it stays given
+   * up on, so it is not reported twice.
+   */
+  private recovered(nodeId: string, given: GivenUp, read: TreeDetail): void {
+    this.withdrawNotice(given.notice);
+    const node = read.nodes.find((n) => n.id === nodeId);
+    if (node?.status === 'streaming') {
+      // The server's copy has no text until it is done: keep the text shown until a snapshot comes.
+      const shown = this.index()?.nodes.get(nodeId)?.content ?? '';
+      const kept = { ...node, content: node.content || shown };
+      this.applyNodes([kept]);
+      this.resumeStreaming([kept]);
+      return;
+    }
+    this.stopCheck(nodeId);
+    if (!node) return;
+    this.applyNodes([node]);
+    const branch = read.branches.find((b) => b.id === node.branchId);
+    if (branch) this.applyBranch(branch);
+  }
+
+  /** Stops checking on `nodeId`, given up on. */
+  private stopCheck(nodeId: string): void {
+    this.givenUp.get(nodeId)?.stop.abort();
+    this.givenUp.delete(nodeId);
+  }
+
+  /** Stops checking on every reply given up on: they belong to the tree that was open. */
+  private stopChecks(): void {
+    for (const id of [...this.givenUp.keys()]) this.stopCheck(id);
+  }
+
+  /** The store goes (the app's store calls this from `ngOnDestroy`): nothing waits on a timer. */
+  dispose(): void {
+    this.stopChecks();
   }
 
   /**
@@ -1024,6 +1144,8 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
 
   /** One stream event into the tree and `live`; `streamNodeId` is the reply it is about, once known. */
   protected apply(event: StreamEvent, streamNodeId: string | null): void {
+    // A reply whose stream makes progress is no longer given up on.
+    if (streamNodeId) this.stopCheck(streamNodeId);
     switch (event.type) {
       case 'start':
         this.startReply(event.userNode, event.assistantNode, event.branch);
@@ -1121,6 +1243,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
 
   /** Stops following one reply (its tree or branch is gone). */
   protected stopFollowing(nodeId: string): void {
+    this.stopCheck(nodeId);
     this.controllers.get(nodeId)?.abort();
     this.controllers.delete(nodeId);
     this.dropLive(nodeId);
