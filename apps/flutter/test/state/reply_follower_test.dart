@@ -412,8 +412,6 @@ void main() {
       final read = Completer<void>();
       host.reloading = () => read.future;
       final accepted = follower.send('trunk', 'Why tides?');
-      var settled = false;
-      unawaited(accepted.then((_) => settled = true));
       await api.sends.single.controller.close();
       await pumpEventQueue();
       expect(log, ['reload']);
@@ -422,9 +420,18 @@ void main() {
       read.completeError(
         const ApiException(status: 0, code: 'network', message: 'offline'),
       );
+      expect(await accepted, isFalse);
       await pumpEventQueue();
       expect(log, ['reload']);
-      expect(settled, isFalse);
+    });
+
+    test('settles a send waiting for its start as not started', () async {
+      final accepted = follower.send('trunk', 'Why tides?');
+      await pumpEventQueue();
+      follower.dispose();
+      expect(await accepted.timeout(const Duration(seconds: 1)), isFalse);
+      expect(follower.sending, isFalse);
+      expect(log, isEmpty);
     });
   });
 }

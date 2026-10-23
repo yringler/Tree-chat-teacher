@@ -115,7 +115,10 @@ class ReplyFollower {
     _Send? send,
   ) async {
     _streams.remove(stream);
-    if (_disposed) return;
+    if (_disposed) {
+      send?.accept(false);
+      return;
+    }
     final id = stream.replyId;
     var started = false;
     switch (outcome) {
@@ -135,9 +138,8 @@ class ReplyFollower {
         _host.markFailed(id, event.message);
       case ReplyDone() || ReplyErrored() || ReplyCancelled():
     }
-    if (_disposed) return;
     send?.accept(started);
-    _host.changed();
+    if (!_disposed) _host.changed();
   }
 
   /// Reads the lesson again to show what the server has of [replyId], whose
@@ -192,7 +194,8 @@ class ReplyFollower {
     (node) => node.id == replyId && node.status == NodeStatus.streaming,
   );
 
-  /// Stops following every reply; nothing is reported after this.
+  /// Stops following every reply; nothing is reported after this, and a
+  /// send not started yet completes with false.
   void dispose() {
     _disposed = true;
     for (final stream in _streams.toList()) {
