@@ -307,8 +307,12 @@ class FakeTangentApi implements TangentApi {
     return detail;
   }
 
+  /// Holds `tree` back until it completes, when set.
+  Completer<void>? treeGate;
+
   @override
   Future<TreeDetail> tree(String treeId) async {
+    await treeGate?.future;
     final detail = details[treeId];
     if (detail == null) {
       throw const ApiException(

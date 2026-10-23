@@ -43,6 +43,11 @@ class _ChatPageState extends State<ChatPage> {
   /// dialog or sheet opened over it).
   final _coach = OverlayPortalController();
 
+  /// The question a new lesson was started with, until the server starts
+  /// its reply: shown from the first frame, so the learner lands on their
+  /// question and the tutor writing, not on a spinner or an empty lesson.
+  String? _firstQuestion;
+
   /// A report to the walkthrough is waiting for the frame to end.
   bool _reportPending = false;
   final _composer = TextEditingController();
@@ -127,15 +132,19 @@ class _ChatPageState extends State<ChatPage> {
       if (mounted) _coach.show();
     });
     unawaited(scope.lessons.ensureLoaded());
+    _firstQuestion = scope.lessons.takeFirstMessage(widget.treeId);
     unawaited(_load());
   }
 
   Future<void> _load() async {
-    final lessons = AppScope.of(context).lessons;
     await _chat.load();
-    if (mounted) _showBranch();
-    final first = lessons.takeFirstMessage(widget.treeId);
-    if (first != null && mounted && _chat.thread.isEmpty) await _send(first);
+    if (!mounted) return;
+    _showBranch();
+    final first = _firstQuestion;
+    if (first == null) return;
+    if (_chat.thread.isEmpty) await _send(first);
+    // Started, it is on the thread; refused, it is in the message box.
+    if (mounted) setState(() => _firstQuestion = null);
   }
 
   @override
@@ -720,7 +729,8 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _body(BuildContext context) {
-    if (_chat.loading) {
+    final first = _firstQuestion;
+    if (_chat.loading && first == null) {
       return const Center(child: CircularProgressIndicator());
     }
     final error = _chat.loadError;
@@ -737,7 +747,9 @@ class _ChatPageState extends State<ChatPage> {
       children: [
         Expanded(
           child: thread.isEmpty
-              ? const _EmptyThread()
+              ? (first == null
+                    ? const _EmptyThread()
+                    : _FirstQuestion(question: first))
               : Stack(
                   children: [
                     Positioned.fill(
@@ -784,7 +796,7 @@ class _ChatPageState extends State<ChatPage> {
                 key: _composerKey,
                 controller: _composer,
                 focusNode: _composerFocus,
-                enabled: !busy,
+                enabled: !busy && first == null,
                 streaming: streaming != null,
                 hint: _hint(plan.place),
                 lead: switch ((lead, target)) {
@@ -1219,6 +1231,49 @@ class _AnchorQuote extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A new lesson's [question] with the tutor's reply pending, laid out as
+/// the thread will show them once the server has started the reply.
+class _FirstQuestion extends StatelessWidget {
+  const _FirstQuestion({required this.question});
+
+  final String question;
+
+  ChatNode _node(Role role, String content, NodeStatus status) => ChatNode(
+    id: 'first-${role.name}',
+    branchId: '',
+    parentId: null,
+    seq: role == Role.user ? 0 : 1,
+    role: role,
+    content: content,
+    status: status,
+    error: null,
+    errorKind: null,
+  );
+
+  MessageView _message(ChatNode node) => MessageView(
+    node: node,
+    status: null,
+    tangents: const [],
+    chainIds: const {},
+    cameFromIds: const {},
+    onFollow: null,
+    onOpenTangent: (_) {},
+    onAskAbout: (_) {},
+    onTangent: () {},
+  );
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => ListView(
+      padding: columnPadding(constraints.maxWidth),
+      children: [
+        _message(_node(Role.user, question, NodeStatus.complete)),
+        _message(_node(Role.assistant, '', NodeStatus.streaming)),
+      ],
+    ),
+  );
 }
 
 class _EmptyThread extends StatelessWidget {
