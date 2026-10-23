@@ -92,6 +92,14 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 - **The Flutter payment dialog doesn't say the open pool ignores Advanced settings.** The web's used-up-credit notice does; in Flutter the composer chip is muted and says so instead.
 - **The e2e scripted upstream emits no suggestions.** `apps/e2e/serve.mjs` answers without a `<tangents>` block, so grouped suggestions are covered end to end only through `/learn/demo`, whose generator emits tagged blocks.
 
+## Context assembly
+
+- **Long replies in the target's own thread stay whole.** Only replies above a tangent's start are condensed. Condensing older long replies in the thread being written to would change its prompt prefix as the thread grows, so it needs a boundary that holds still for several turns, like compaction's steps.
+- **Power and Canvas don't condense long replies.** Their contexts are sent as the user configured them; `AssembleBudget.condenseAbove` is set only for Learn. Power would want it shown and switchable in the context inspector.
+- **A "Dig deeper" tangent doesn't record which section it came from.** It has no excerpt (`anchorQuote` is null), so two levels down only the condensed reply is sent. Storing the section heading on the branch would let that section go whole.
+- **Summaries of long replies are made on demand.** The first send that needs one waits a few seconds for it. Making them right after a long reply finishes would hide that wait, but would pay for every long reply, most of which never get a tangent two levels down.
+- **One summary per long reply, not one per tangent.** It is not focused on what the tangent is about; the excerpt carries that. Focused summaries would multiply the calls and the cache entries.
+
 ## Links between messages
 
 - **Links across trees.** Only two messages of one tree can be linked. Across trees needs rules for ownership, deleting either tree, and backups that hold one end.
