@@ -79,15 +79,23 @@ export const REPLY_LENGTH_WORDS: Readonly<Record<LearnReplyLength, ReplyLengthWo
   veryLong: { min: 2500, target: 3500, max: 5000 },
 };
 
-/** Lengths whose replies are organized under section headings once they run long. */
-const SECTIONED: ReadonlySet<LearnReplyLength> = new Set(['long', 'veryLong']);
+/**
+ * How Long and Very long spend their room. Each rule answers padding or slips
+ * seen in longer replies: recaps, a contents paragraph, a misconceptions
+ * section re-arguing the body, a point made twice, headings on a short reply,
+ * tangents repeating a section, and more wrong figures as replies grew.
+ */
+const LONG_RULES = `
 
-const STRUCTURE =
-  ' When the reply runs past a few paragraphs, open with a short overview and organize the body under `##` section headings. This replaces the usual advice to stay brief.';
+- Spend added length only on new material: more of the mechanism, worked examples (check every number before writing it), and edge cases. Make each point once. If the question is narrow, stop when it's answered.
+- Open with a short overview paragraph, with no title or heading. Past about 600 words, organize the body under \`##\` headings that follow the overview; below that, use none. Don't list the sections you're about to cover.
+- End on the last new point. Add no summary, recap or "short version" section, and no misconceptions section that re-argues the body; address a misconception where the mechanism it gets wrong is explained.
+- A longer reply carries more specific figures, dates, names and version details. Include only those you're sure of, say which era a version-specific detail belongs to, and attribute a contested claim to whoever holds it.
+- Inside a tangent, use the terms the conversation has already explained without redefining them.
+- The tangents block still comes last, with at most 6 suggestions, none of them something a section of this reply already covers. It doesn't count toward the length.`;
 
-/** Very long's push to use its room on a question with real substance. */
-const VERY_LONG_DEPTH =
-  ' For a question with real substance, reaching the range is the point of this setting: go into the mechanism step by step, work through more than one example, and cover the edge cases and common misconceptions a short answer would skip.';
+/** Normal's close: only the tangents block, which a short reply has no sections to repeat. */
+const NORMAL_CLOSE = " The tangents block still comes last and doesn't count toward the length.";
 
 const number = (n: number) => n.toLocaleString('en-US');
 
@@ -95,18 +103,16 @@ const number = (n: number) => n.toLocaleString('en-US');
  * What a Learn reply of `length` is asked after the history (with any
  * grounding text, in the same `replyInstructions` block), so the cached
  * prompt prefix is the same whatever the length. Built from
- * `REPLY_LENGTH_WORDS`; the wording was tried on Normal and Max, where
- * simple questions stayed short and each length landed in its range.
+ * `REPLY_LENGTH_WORDS`, with Long and Very long sharing `LONG_RULES`.
  */
 export function replyLengthInstructions(length: LearnReplyLength): string {
   const { min, target, max } = REPLY_LENGTH_WORDS[length];
   const range =
     min > 0 ? `about ${number(min)}–${number(max)} words` : `up to about ${number(max)} words`;
-  const structure =
-    (SECTIONED.has(length) ? STRUCTURE : '') + (length === 'veryLong' ? VERY_LONG_DEPTH : '');
+  const rules = length === 'normal' ? NORMAL_CLOSE : LONG_RULES;
   return `## Reply length
 
-The learner chose ${REPLY_LENGTH_LABELS[length].toLowerCase()} replies: ${range}, around ${number(target)} for a typical question. The range is leeway, not a quota. Write what this question needs: a simple question can come in well under it, and a hard one can run toward the top. Don't pad to reach it, and don't cut a needed explanation short to stay under it.${structure} The tangents block still comes last and doesn't count toward the length.`;
+The learner chose ${REPLY_LENGTH_LABELS[length].toLowerCase()} replies: ${range}, around ${number(target)} for a typical question. The range is leeway, not a quota. Write what this question needs: a simple question can come in well under it, and a hard one can run toward the top. Don't pad to reach it, and don't cut a needed explanation short to stay under it.${rules}`;
 }
 
 /** What the composer shows while a setting isn't the default (`learnReplyIndicator`). */

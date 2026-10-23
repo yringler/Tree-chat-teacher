@@ -96,16 +96,35 @@ describe('replyLengthInstructions', () => {
     }
   });
 
-  it('sections the longer lengths under `##` headings, not Normal', () => {
+  it('sections the longer lengths under `##` headings only past a threshold, not Normal', () => {
     expect(replyLengthInstructions('normal')).not.toContain('`##`');
-    expect(replyLengthInstructions('long')).toContain('`##`');
-    expect(replyLengthInstructions('veryLong')).toContain('`##`');
+    for (const length of ['long', 'veryLong'] as const) {
+      const text = replyLengthInstructions(length);
+      expect(text).toContain('`##`');
+      expect(text).toMatch(/Past about 600 words/);
+      expect(text).toMatch(/no title or heading/);
+    }
   });
 
-  it('pushes only Very long to use its room on a substantial question', () => {
-    expect(replyLengthInstructions('veryLong')).toMatch(/reaching the range is the point/);
-    expect(replyLengthInstructions('long')).not.toMatch(/reaching the range/);
-    expect(replyLengthInstructions('normal')).not.toMatch(/reaching the range/);
+  it('gives Long and Very long the same rules against padding and slips', () => {
+    const rules = (length: 'long' | 'veryLong') =>
+      replyLengthInstructions(length)
+        .split('\n')
+        .filter((line) => line.startsWith('- '));
+    expect(rules('long').length).toBeGreaterThan(0);
+    expect(rules('veryLong')).toEqual(rules('long'));
+    const text = replyLengthInstructions('long');
+    expect(text).toMatch(/only on new material/);
+    expect(text).toMatch(/check every number/);
+    expect(text).toMatch(/Make each point once/);
+    expect(text).toMatch(/Don't list the sections/);
+    expect(text).toMatch(/no summary, recap/);
+    expect(text).toMatch(/no misconceptions section/);
+    expect(text).toMatch(/only those you're sure of/);
+    expect(text).toMatch(/attribute a contested claim/);
+    expect(text).toMatch(/without redefining them/);
+    expect(text).toMatch(/at most 6 suggestions/);
+    expect(replyLengthInstructions('normal')).not.toMatch(/^- /m);
   });
 });
 
