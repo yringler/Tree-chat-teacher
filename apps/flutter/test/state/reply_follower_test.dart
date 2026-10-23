@@ -266,6 +266,26 @@ void main() {
       },
     );
 
+    test('is read again when lost again after it made progress', () async {
+      await sendAndLose();
+      api.resumes.last.controller.add(
+        const DeltaEvent(nodeId: 'a1', text: ' more'),
+      );
+      await pumpEventQueue();
+      // The live body, then the reconnects that event started again.
+      await api.resumes.last.controller.close();
+      await loseReconnects();
+      expect(log, [
+        'StartEvent a1',
+        'reload',
+        'changed',
+        'DeltaEvent a1',
+        'reload',
+        'changed',
+      ]);
+      expect(followedAgain().last, 'a1');
+    });
+
     test('is marked failed when the lesson cannot be read again', () async {
       host.reloading = () async => throw const ApiException(
         status: 0,

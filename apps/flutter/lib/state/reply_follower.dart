@@ -42,7 +42,8 @@ class ReplyFollower {
 
   final _streams = <ReplyStream>{};
 
-  /// The replies read again once after their stream gave up.
+  /// The replies read again after their stream gave up, and followed
+  /// again with no event since.
   final _recovered = <String>{};
   int _unstarted = 0;
   bool _disposed = false;
@@ -103,6 +104,8 @@ class ReplyFollower {
       stream
           .run((event) {
             if (event is StartEvent) send?.accept(true);
+            // A reply whose stream makes progress may be recovered again.
+            _recovered.remove(stream.replyId);
             _host.apply(event, stream.replyId);
           })
           .then((outcome) => _ended(stream, outcome, send)),
@@ -144,9 +147,10 @@ class ReplyFollower {
 
   /// Reads the lesson again to show what the server has of [replyId], whose
   /// stream gave up while it is shown being written, and follows it again
-  /// if the server still writes it. A reply given up on twice, or whose
-  /// lesson can't be read, is marked failed instead: while reads work but
-  /// its stream keeps failing, recovering again would never end.
+  /// if the server still writes it. A reply given up on again with no
+  /// event in between, or whose lesson can't be read, is marked failed
+  /// instead: while reads work but its stream never gets anywhere,
+  /// recovering again would never end.
   Future<void> _recoverReply(String replyId, Object error) async {
     if (!_recovered.add(replyId)) return _giveUp(replyId, error);
     try {
